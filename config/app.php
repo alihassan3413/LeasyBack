@@ -56,6 +56,18 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Frontend URL
+    |--------------------------------------------------------------------------
+    |
+    | The URL of the frontend application. Used in emails and other
+    | places where we need to link back to the frontend.
+    |
+    */
+
+    'frontend_url' => env('FRONTEND_URL', 'https://app.leasyback.com'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------
     |

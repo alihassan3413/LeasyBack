@@ -3,14 +3,19 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Enums\UserType;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Laravel\Sanctum\HasApiTokens;
 
 class User extends Authenticatable
 {
     /** @use HasFactory<\Database\Factories\UserFactory> */
-    use HasFactory, Notifiable;
+    use HasApiTokens, HasFactory, Notifiable;
 
     /**
      * The attributes that are mass assignable.
@@ -20,7 +25,15 @@ class User extends Authenticatable
     protected $fillable = [
         'name',
         'email',
+        'user_type',
         'password',
+        'phone',
+        'address',
+        'city',
+        'zip_code',
+        'country',
+        'avatar_path',
+        'is_active',
     ];
 
     /**
@@ -43,6 +56,57 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'user_type' => UserType::class,
+            'is_active' => 'boolean',
         ];
+    }
+
+    /**
+     * Check if user is admin.
+     */
+    public function isAdmin(): bool
+    {
+        return $this->user_type === UserType::Admin;
+    }
+
+    /**
+     * Check if user is a specific type.
+     */
+    public function isType(UserType $type): bool
+    {
+        return $this->user_type === $type;
+    }
+
+    /**
+     * The B2B companies this user belongs to.
+     */
+    public function b2bCompanies(): BelongsToMany
+    {
+        return $this->belongsToMany(B2B::class, 'user_b2b', 'user_id', 'b2b_id')
+            ->withPivot('role');
+    }
+
+    /**
+     * Vehicles owned directly by this user (B2C).
+     */
+    public function vehicles(): HasMany
+    {
+        return $this->hasMany(Vehicle::class, 'b2c_user_id', 'id');
+    }
+
+    /**
+     * The Leasyback user profile (address/contact linked profile).
+     */
+    public function leasybackProfile(): HasOne
+    {
+        return $this->hasOne(LeasybackUserProfile::class, 'user_id', 'id');
+    }
+
+    /**
+     * User preferences.
+     */
+    public function preferences(): HasOne
+    {
+        return $this->hasOne(UserPreference::class, 'user_id', 'id');
     }
 }
