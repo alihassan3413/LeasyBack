@@ -28,14 +28,20 @@ const submit = () => {
         },
     });
 };
+
+// Design match note: consistent with Login/Register/ForgotPassword — see
+// Login.vue for the source of this pattern.
+const fieldClass = 'h-auto rounded-[5px] border-brand-green-gray bg-white px-3 py-2.5 text-sm';
 </script>
 
 <template>
-    <AuthLayout title="Neues Passwort festlegen" description="Bitte gib dein neues Passwort ein">
+    <AuthLayout>
         <Head title="Neues Passwort festlegen" />
 
-        <form @submit.prevent="submit">
-            <div class="grid gap-6">
+        <div class="flex flex-col py-8">
+            <p class="text-brand-teal mx-auto my-8 max-w-[292px] text-left text-lg font-bold xl:text-xl">Neues Passwort festlegen</p>
+
+            <form class="space-y-5" @submit.prevent="submit">
                 <FormField id="email" v-slot="{ id, describedBy, invalid }" label="E-Mail-Adresse" :error="form.errors.email">
                     <Input
                         :id="id"
@@ -43,23 +49,28 @@ const submit = () => {
                         type="email"
                         autocomplete="email"
                         readonly
+                        :class="fieldClass"
                         :aria-invalid="invalid"
                         :aria-describedby="describedBy"
                     />
                 </FormField>
 
-                <FormField id="password" v-slot="{ id, describedBy, invalid }" label="Neues Passwort" :error="form.errors.password">
-                    <PasswordInput
-                        :id="id"
-                        v-model="form.password"
-                        autocomplete="new-password"
-                        autofocus
-                        placeholder="Neues Passwort"
-                        :aria-invalid="invalid"
-                        :aria-describedby="[describedBy, 'password-requirements'].filter(Boolean).join(' ')"
-                    />
-                    <PasswordRequirements id="password-requirements" />
-                </FormField>
+                <div>
+                    <FormField id="password" v-slot="{ id, describedBy, invalid }" label="Neues Passwort" :error="form.errors.password">
+                        <PasswordInput
+                            :id="id"
+                            v-model="form.password"
+                            autocomplete="new-password"
+                            autofocus
+                            placeholder="Neues Passwort"
+                            :class="fieldClass"
+                            :aria-invalid="invalid"
+                            :aria-describedby="[describedBy, 'password-requirements'].filter(Boolean).join(' ')"
+                        />
+                    </FormField>
+
+                    <PasswordRequirements id="password-requirements" class="mt-1.5" />
+                </div>
 
                 <FormField
                     id="password_confirmation"
@@ -72,13 +83,22 @@ const submit = () => {
                         v-model="form.password_confirmation"
                         autocomplete="new-password"
                         placeholder="Passwort wiederholen"
+                        :class="fieldClass"
                         :aria-invalid="invalid"
                         :aria-describedby="describedBy"
                     />
                 </FormField>
 
-                <Button type="submit" class="mt-4 w-full" :loading="form.processing"> Passwort zurücksetzen </Button>
-            </div>
-        </form>
+                <div class="pt-2">
+                    <Button
+                        type="submit"
+                        :disabled="form.processing"
+                        class="bg-brand-orange hover:bg-brand-orange/90 h-auto w-full rounded-[5px] py-3 text-sm font-bold text-white shadow-none"
+                    >
+                        {{ form.processing ? 'Wird gespeichert…' : 'Passwort zurücksetzen' }}
+                    </Button>
+                </div>
+            </form>
+        </div>
     </AuthLayout>
 </template>
