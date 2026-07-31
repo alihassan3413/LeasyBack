@@ -2,10 +2,11 @@
 
 namespace App\Modules\UserProfile\Order\Http\Controllers;
 
+use App\Enums\OrderStatus;
 use App\Models\InspectionStation;
 use App\Models\LeasybackOrder;
 use App\Models\OrderConfirmation;
-use App\Models\OrderStatusUpdate;
+use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
 use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -13,14 +14,15 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class OrderController extends Controller
 {
-    private const EXPECTED_API_KEY = null; // loaded from env
-
-    public function __construct(private VehicleScopeService $scope) {}
+    public function __construct(
+        private VehicleScopeService $scope,
+        private TransitionOrderStatus $transitionOrderStatus,
+    ) {}
 
     /**
      * POST /order/tuvsud/create/{vehicleId}
@@ -30,7 +32,7 @@ class OrderController extends Controller
         $user = $request->user();
         $vehicle = $this->scope->findVehicleWithAccess($vehicleId, $user);
 
-        if (!$vehicle) {
+        if (! $vehicle) {
             return response()->json(['error' => 'Vehicle not found or access denied'], 404);
         }
 
@@ -55,13 +57,13 @@ class OrderController extends Controller
             ->where('is_active', true)
             ->first();
 
-        if (!$station) {
+        if (! $station) {
             return response()->json(['error' => 'Inspection station not found'], 404);
         }
 
         // Generate auftragsnummer
         $cleaned = str_replace([' ', '-'], '', $vehicle->license_plate);
-        $auftragsnummer = $cleaned . now()->format('ymd');
+        $auftragsnummer = $cleaned.now()->format('ymd');
 
         // Build request payload
         $requestPayload = [
@@ -149,24 +151,18 @@ class OrderController extends Controller
     }
 
     /**
-     * GET /order/tuvsud/confirm — external callback (API key auth)
+     * GET /order/tuvsud/confirm — external callback. API-key auth is
+     * enforced by the `tuvsud.webhook` route middleware, not inline here.
      */
     public function confirm(Request $request): JsonResponse
     {
-        $apiKey = $this->extractApiKey($request);
-        $expectedKey = config('services.tuvsud.api_key');
-
-        if ($apiKey !== $expectedKey) {
-            return response()->json(['error' => 'Invalid API Key'], 401);
-        }
-
         $auftragsnummer = $request->query('auftragsnummer');
-        if (!$auftragsnummer) {
+        if (! $auftragsnummer) {
             return response()->json(['error' => 'auftragsnummer is required'], 400);
         }
 
         $order = LeasybackOrder::where('auftragsnummer', $auftragsnummer)->first();
-        if (!$order) {
+        if (! $order) {
             return response()->json([
                 'status' => 'error',
                 'message' => "Auftragsnummer '{$auftragsnummer}' not found",
@@ -188,20 +184,22 @@ class OrderController extends Controller
             $confirmationDate = $termin ? Carbon::parse($termin)->utc() : now();
         }
 
-        DB::transaction(function () use ($order, $auftragsnummer, $confirmationDate) {
-            // Update order status
-            $order->update(['order_status' => 'confirmed']);
+        try {
+            DB::transaction(function () use ($order, $request, $auftragsnummer, $confirmationDate) {
+                $this->transitionOrderStatus->__invoke($order, 'confirmed', 'api_key', 'tuvsud', null, $request->ip());
 
-            // Upsert confirmation
-            OrderConfirmation::updateOrCreate(
-                ['auftragsnummer' => $auftragsnummer],
-                [
-                    'confirmation_date' => $confirmationDate,
-                    'confirmed_by_type' => 'api_key',
-                    'confirmed_by_name' => 'tuvsud',
-                ]
-            );
-        });
+                OrderConfirmation::updateOrCreate(
+                    ['auftragsnummer' => $auftragsnummer],
+                    [
+                        'confirmation_date' => $confirmationDate,
+                        'confirmed_by_type' => 'api_key',
+                        'confirmed_by_name' => 'tuvsud',
+                    ]
+                );
+            });
+        } catch (ValidationException $e) {
+            return response()->json(['error' => $e->getMessage()], 422);
+        }
 
         return response()->json([
             'status' => 'success',
@@ -210,49 +208,42 @@ class OrderController extends Controller
     }
 
     /**
-     * GET /order/tuvsud/status — external status update callback
+     * GET /order/tuvsud/status — external status update callback. API-key
+     * auth is enforced by the `tuvsud.webhook` route middleware.
      */
     public function status(Request $request): JsonResponse
     {
-        $apiKey = $this->extractApiKey($request);
-        $expectedKey = config('services.tuvsud.api_key');
-
-        if ($apiKey !== $expectedKey) {
-            return response()->json(['error' => 'Invalid API Key'], 401);
-        }
-
         $auftragsnummer = $request->query('auftragsnummer');
         $newStatus = $request->query('status');
         $bewertungId = $request->query('bewertung_id');
 
-        if (!$auftragsnummer || !$newStatus) {
+        if (! $auftragsnummer || ! $newStatus) {
             return response()->json(['error' => 'auftragsnummer and status are required'], 400);
         }
 
-        $order = LeasybackOrder::where('auftragsnummer', $auftragsnummer)->first();
-        if (!$order) {
-            return response()->json(['error' => "Auftragsnummer not found"], 404);
+        if (OrderStatus::tryFrom($newStatus) === null) {
+            return response()->json(['error' => 'Invalid status value'], 422);
         }
 
-        $oldStatus = $order->order_status;
+        $order = LeasybackOrder::where('auftragsnummer', $auftragsnummer)->first();
+        if (! $order) {
+            return response()->json(['error' => 'Auftragsnummer not found'], 404);
+        }
 
-        DB::transaction(function () use ($order, $newStatus, $bewertungId, $oldStatus, $auftragsnummer, $request) {
-            $order->update(['order_status' => $newStatus]);
-
-            if ($bewertungId) {
-                $order->update(['response_body' => $bewertungId]);
-            }
-
-            OrderStatusUpdate::create([
-                'auftragsnummer' => $auftragsnummer,
-                'bewertung_id' => $bewertungId,
-                'old_status' => $oldStatus,
-                'new_status' => $newStatus,
-                'updated_by' => 'tuvsud_api_key',
-                'auth_source' => 'api_key',
-                'caller_ip' => $request->ip(),
-            ]);
-        });
+        try {
+            $this->transitionOrderStatus->__invoke(
+                $order,
+                $newStatus,
+                'api_key',
+                'tuvsud_api_key',
+                null,
+                $request->ip(),
+                $bewertungId,
+                $bewertungId ? ['response_body' => $bewertungId] : [],
+            );
+        } catch (ValidationException $e) {
+            return response()->json(['error' => $e->getMessage()], 422);
+        }
 
         return response()->json(['status' => 'success', 'message' => 'Status updated']);
     }
@@ -263,16 +254,16 @@ class OrderController extends Controller
     public function approve(Request $request, string $orderId): JsonResponse
     {
         $user = $request->user();
-        if ($user->user_type->value !== 'Admin') {
+        if (! $user->can('approve', LeasybackOrder::class)) {
             return response()->json(['error' => 'Only admin can approve order requests'], 403);
         }
 
         $order = LeasybackOrder::find($orderId);
-        if (!$order) {
+        if (! $order) {
             return response()->json(['error' => 'Order request not found'], 404);
         }
 
-        if ($order->order_status !== 'order_requested') {
+        if (! in_array('order_placed', TransitionOrderStatus::allowedNextStatuses($order->order_status), true)) {
             return response()->json([
                 'error' => 'Only order_requested orders can be approved',
                 'current_status' => $order->order_status,
@@ -290,13 +281,28 @@ class OrderController extends Controller
         $status = $response->status();
         $respJson = $response->json() ?? ['ok' => false, 'status' => $status];
 
-        $order->update([
-            'order_status' => 'order_placed',
-            'sent_at' => now(),
-            'response_status' => $status,
-            'response_body' => $respJson,
-            'request_payload' => $requestBody,
-        ]);
+        try {
+            $order = $this->transitionOrderStatus->__invoke(
+                $order,
+                'order_placed',
+                'admin',
+                $user->name ?? $user->email,
+                $user->id,
+                $request->ip(),
+                null,
+                [
+                    'sent_at' => now(),
+                    'response_status' => $status,
+                    'response_body' => $respJson,
+                    'request_payload' => $requestBody,
+                ],
+            );
+        } catch (ValidationException $e) {
+            return response()->json([
+                'error' => 'Only order_requested orders can be approved',
+                'current_status' => $order->fresh()->order_status,
+            ], 400);
+        }
 
         return response()->json([
             'message' => 'Order approved and sent to TUV SÜD successfully',
@@ -339,6 +345,10 @@ class OrderController extends Controller
      */
     public function createStation(Request $request): JsonResponse
     {
+        if (! $request->user()->can('createStation', LeasybackOrder::class)) {
+            return response()->json(['error' => 'Only admin can create inspection stations'], 403);
+        }
+
         $validated = $request->validate([
             'provider' => 'nullable|string',
             'name' => 'required|string',
@@ -370,7 +380,7 @@ class OrderController extends Controller
         $user = $request->user();
         $vehicle = $this->scope->findVehicleWithAccess($vehicleId, $user);
 
-        if (!$vehicle) {
+        if (! $vehicle) {
             return response()->json(['error' => 'Vehicle not found or access denied'], 404);
         }
 
@@ -382,7 +392,7 @@ class OrderController extends Controller
         ]);
 
         $cleaned = str_replace([' ', '-'], '', $vehicle->license_plate);
-        $auftragsnummer = $cleaned . now()->format('ymd');
+        $auftragsnummer = $cleaned.now()->format('ymd');
 
         $station = InspectionStation::find($validated['station_id']);
 
@@ -425,7 +435,7 @@ class OrderController extends Controller
     public function confirmOther(Request $request): JsonResponse
     {
         $user = $request->user();
-        if ($user->user_type->value !== 'Admin') {
+        if (! $user->can('confirm', LeasybackOrder::class)) {
             return response()->json(['error' => 'Only admin can confirm orders'], 403);
         }
 
@@ -435,37 +445,31 @@ class OrderController extends Controller
         ]);
 
         $order = LeasybackOrder::where('auftragsnummer', $validated['auftragsnummer'])->first();
-        if (!$order) {
+        if (! $order) {
             return response()->json(['error' => 'Order not found'], 404);
         }
 
-        DB::transaction(function () use ($order, $validated, $user) {
-            $order->update(['order_status' => 'confirmed']);
+        try {
+            DB::transaction(function () use ($order, $validated, $user) {
+                $this->transitionOrderStatus->__invoke($order, 'confirmed', 'admin', $user->name ?? $user->email, $user->id);
 
-            OrderConfirmation::updateOrCreate(
-                ['auftragsnummer' => $validated['auftragsnummer']],
-                [
-                    'confirmation_date' => Carbon::parse($validated['confirmation_date']),
-                    'confirmed_by_type' => 'admin',
-                    'confirmed_by_user_id' => $user->id,
-                    'confirmed_by_name' => $user->name ?? $user->email,
-                ]
-            );
-        });
+                OrderConfirmation::updateOrCreate(
+                    ['auftragsnummer' => $validated['auftragsnummer']],
+                    [
+                        'confirmation_date' => Carbon::parse($validated['confirmation_date']),
+                        'confirmed_by_type' => 'admin',
+                        'confirmed_by_user_id' => $user->id,
+                        'confirmed_by_name' => $user->name ?? $user->email,
+                    ]
+                );
+            });
+        } catch (ValidationException $e) {
+            return response()->json(['error' => $e->getMessage()], 422);
+        }
 
         return response()->json([
             'status' => 'success',
             'message' => 'Order confirmed',
         ]);
-    }
-
-    private function extractApiKey(Request $request): ?string
-    {
-        $authHeader = $request->header('Authorization');
-        if ($authHeader && str_starts_with($authHeader, 'Bearer ')) {
-            return substr($authHeader, 7);
-        }
-
-        return $request->header('X-API-Key');
     }
 }

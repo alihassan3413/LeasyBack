@@ -3,14 +3,27 @@
 namespace App\Modules\UserProfile\Offer\Models;
 
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
+use Database\Factories\LeasybackOfferFactory;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Str;
 
 class LeasybackOffer extends Model
 {
+    use HasFactory;
+
+    protected static function newFactory(): LeasybackOfferFactory
+    {
+        return LeasybackOfferFactory::new();
+    }
+
     protected $table = 'leasyback_offers';
+
     protected $primaryKey = 'offer_id';
+
     public $incrementing = false;
+
     protected $keyType = 'string';
 
     protected $fillable = [
@@ -63,7 +76,7 @@ class LeasybackOffer extends Model
     {
         static::creating(function (self $model) {
             if (empty($model->offer_id)) {
-                $model->offer_id = (string) \Illuminate\Support\Str::uuid();
+                $model->offer_id = (string) Str::uuid();
             }
         });
 

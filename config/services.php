@@ -49,7 +49,10 @@ return [
         'token' => env('TUVSUD_TOKEN', ''),
         'product_key' => env('TUVSUD_PRODUCT_KEY', ''),
         'partner_number' => env('TUVSUD_PARTNER_NUMBER', ''),
-        'api_key' => env('TUVSUD_API_KEY', 'AKIAZI2PK2IT5KC3EZBV'),
+        // No default: the webhook middleware fails closed when this is
+        // unset, rather than falling back to a key that would otherwise
+        // have been committed to source control.
+        'api_key' => env('TUVSUD_API_KEY'),
         'contact_name' => env('TUVSUD_CONTACT_NAME', 'Jannis Gremler'),
         'contact_phone' => env('TUVSUD_CONTACT_PHONE', '01234 5678943'),
         'contact_email' => env('TUVSUD_CONTACT_EMAIL', 'jannis.gremler@leasyback.de'),

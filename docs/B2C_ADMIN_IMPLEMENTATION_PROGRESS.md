@@ -40,7 +40,7 @@ Read alongside `docs/B2C_ADMIN_IMPLEMENTATION_PLAN.md` (checkpoint definitions) 
 - Added 13 new Feature tests: `VehiclePolicyTest` (direct ability tests), `VehicleControllerTest` (the `findByOwner` IDOR regression + `update`/`assignProfile` non-owner blocking), `VehicleDocumentUploadTest` (size cap + mime allow-list actually enforced, not just present in source).
 - Full suite: 161 passed, 4 skipped, 0 failures. `vendor/bin/pint --dirty --test` clean.
 
-**Checkpoint 5 — Vehicle frontend (this session)** — complete:
+**Checkpoint 5 — Vehicle frontend** — complete:
 - Replaced the placeholder `/dashboard` page with the real vehicle dashboard: active/completed vehicle table split (a vehicle is "completed" once its latest order's status is `delivered`), status badges, per-row actions (edit, upload document).
 - New session-authenticated `VehicleController`/`VehicleDocumentController` (under `App\Http\Controllers`, not the Sanctum API ones) — same reason as Checkpoint 3's `Settings\*` controllers: Inertia pages can't call the Sanctum-bearer-token `/vehicle/*` API routes directly.
 - Extracted `VehicleService::createVehicle()`/`updateVehicle()`/`uploadDocument()`/`deleteDocument()` from the Sanctum API `VehicleController`/`VehicleDocumentController` (which now delegate to them) so both entry points share one implementation — same pattern as `ProfileService` in Checkpoints 2–3.
@@ -52,6 +52,15 @@ Read alongside `docs/B2C_ADMIN_IMPLEMENTATION_PLAN.md` (checkpoint definitions) 
 - Added 13 new Feature tests across two new files (dashboard scoping/creation/update, document upload/delete authorization) plus a `store()` regression test for the Checkpoint 4/5 service-extraction refactor.
 - Full suite: 172 passed, 4 skipped, 0 failures. `vendor/bin/pint --dirty --test`, `npm run lint`, `npm run build` all clean.
 - **Not verified in a live browser** — same environment limitation as Checkpoint 3 (Chrome extension not connected). Correctness checked via `npm run build`/`npm run lint` plus Feature tests asserting exact Inertia prop shapes over real HTTP; the modals' drag-and-drop, dropdown interactivity, and visual layout have not been clicked through.
+
+**Checkpoint 6 — Order backend and status workflow (this session)** — complete:
+- Built `TransitionOrderStatus`, the single place `leasyback_orders.order_status` is allowed to change: an explicit allowed-transitions map straight from `docs/B2C_ADMIN_STATUS_MATRIX.md` §1, enforced under a row lock inside a DB transaction, writing exactly one `leasyback_order_status_updates` row per real transition. Replaces the previous unconditional `UPDATE ... SET order_status = ?` with no guard on the current value in `confirm()`, `status()`, and `confirmOther()`.
+- Fixed the Offer `customerSelect` BOLA — it had no ownership check at all; any authenticated user could select (and thereby close out every competing offer for) any order by guessing its offer id. Now authorized via `OfferPolicy::select`, which requires owning the vehicle behind the offer's order.
+- Found the TÜV SÜD webhook API key was already read from config, but with a hardcoded fallback secret (`'AKIAZI2PK2IT5KC3EZBV'`) baked into `config/services.php` and never set in `.env`/`.env.example` — meaning that literal, committed-to-source-control string was the real active webhook secret in this environment. Removed the fallback and built `VerifyTuvsudApiKey` middleware that fails closed (503) when unconfigured, uses `hash_equals()` for the comparison, and replaces the inline per-method key-check code in `OrderController`.
+- Added `OrderPolicy` (`view`/`approve`/`confirm`/`manageStatus`/`createStation`) and `OfferPolicy` (`select`/`viewAny`/`create`/`publish`/`cancel`), registered in `AuthServiceProvider`.
+- Added the missing role check to `createStation()` — previously any authenticated user could create inspection stations; now Admin-only via `OrderPolicy::createStation`.
+- Added 2 new factories (`LeasybackOfferFactory`, `InspectionStationFactory`) and 25 new Feature tests: every valid transition row from the status matrix plus a sample of rejected ones, the `customerSelect` BOLA regression, `createStation` regression, and the webhook middleware's fail-closed/wrong-key/correct-key/invalid-status-value behavior.
+- Full suite: 197 passed, 4 skipped, 0 failures. `vendor/bin/pint --dirty --test` clean.
 
 ## 2. Files changed
 
@@ -141,6 +150,23 @@ Read alongside `docs/B2C_ADMIN_IMPLEMENTATION_PLAN.md` (checkpoint definitions) 
 - `resources/js/pages/Dashboard.vue` — fully rewritten (was placeholder `PlaceholderPattern` scaffold content).
 - `tests/Feature/Api/VehicleControllerTest.php` — added a `store()` regression test for the Checkpoint 5 service-extraction refactor.
 
+### Checkpoint 6
+
+**New:**
+- `app/Modules/UserProfile/Order/Actions/TransitionOrderStatus.php` — see §3c below for the exact rules and open questions.
+- `app/Policies/OrderPolicy.php`, `OfferPolicy.php`.
+- `app/Http/Middleware/VerifyTuvsudApiKey.php` — registered as the `tuvsud.webhook` route middleware alias in `bootstrap/app.php`.
+- `database/factories/LeasybackOfferFactory.php`, `InspectionStationFactory.php`.
+- `tests/Feature/Order/TransitionOrderStatusTest.php`, `tests/Feature/Policies/OrderPolicyTest.php`, `OfferPolicyTest.php`, `tests/Feature/Api/OfferControllerTest.php`, `OrderControllerTest.php`, `OrderWebhookTest.php`.
+
+**Modified:**
+- `config/services.php` — removed the hardcoded `TUVSUD_API_KEY` fallback (`'AKIAZI2PK2IT5KC3EZBV'`); now `env('TUVSUD_API_KEY')` with no default.
+- `bootstrap/app.php` — registered the `tuvsud.webhook` middleware alias.
+- `app/Modules/UserProfile/vehicle_order_api_routes.php` — applied `tuvsud.webhook` to the two public callback routes (`order/tuvsud/confirm`, `order/tuvsud/status`), alongside the existing `throttle:60,1`.
+- `app/Modules/UserProfile/Order/Http/Controllers/OrderController.php` — `confirm()`/`status()`/`confirmOther()` now transition status through `TransitionOrderStatus` instead of an unconditional `update()`; `approve()` uses the same action for its status change while keeping its own pre-check (to avoid a wasted external TÜV SÜD API call when the order's already in the wrong state); `createStation()` gated by `OrderPolicy::createStation`; removed the now-dead inline `extractApiKey()` method and the unused `EXPECTED_API_KEY` constant (the middleware owns key verification now).
+- `app/Modules/UserProfile/Offer/Http/Controllers/OfferController.php` — `customerSelect()` authorizes via `OfferPolicy::select` before acting; the existing generic 404 message is unchanged (still doesn't reveal whether an offer exists to a non-owner).
+- `app/Providers/AuthServiceProvider.php` — registered `OrderPolicy` for `LeasybackOrder::class` and `OfferPolicy` for `LeasybackOffer::class`.
+
 ## 3. Important decisions
 
 - **`AdminController::orders()` fix = wire in `AdminQueryService`, not a fresh rewrite.** The plan explicitly calls this out (§4, Checkpoint 1) — the service already existed, already used Eloquent's query builder throughout (fully parameterized), and already allow-lists `order_status` before it reaches any query. The controller method is now three lines. `vehicles()`, `ordersByUser()`, `vehiclesByUser()`, `ordersByUserType()`, `vehiclesByUserType()` were **not** touched — they either already use `?` bindings for user-controlled values or (for the `*ByUserType` pair) are pre-existing stubs that just delegate to the now-fixed methods. Rewiring those too would have meant changing their response shape without being asked; left for whichever checkpoint actually builds the Admin listing UI.
@@ -187,6 +213,15 @@ Read alongside `docs/B2C_ADMIN_IMPLEMENTATION_PLAN.md` (checkpoint definitions) 
 - **No live browser verification, again.** Same `mcp__claude-in-chrome` "extension not connected" result as Checkpoint 3, re-checked at the start of this checkpoint's frontend work in case it had become available — it hadn't. The two new modals in particular (drag-and-drop, the reka-ui Select's keyboard/pointer interactions, the plate input's per-segment live validation) are exactly the kind of thing only a real browser check catches; flagged again under deferred work rather than silently assumed correct.
 - **Row-level order-timeline expansion was not ported.** The legacy `VehicleTable`/`VehicleRow` had an expandable per-vehicle detail panel showing the full order timeline, inspection appointment, and driver contact info. That's genuinely order-domain UI (it's built from `order.request_payload`/`status_updates`, not vehicle fields), and the plan's own checkpoint sequence puts order-domain work in Checkpoints 6–7 (Order backend/frontend) — building a real version of it now, ahead of the Order backend checkpoint's own hardening work (the plan flags `TransitionOrderStatus` and an Offer BOLA fix as still-open there), would mean building UI against order data/endpoints that haven't been through the same audit-and-fix pass the Vehicle domain just got. The table still shows each vehicle's current status via the badge; the deep-dive panel is deferred, not silently dropped.
 
+### Checkpoint 6 decisions
+
+- **Only new endpoint-level admin transitions come in Checkpoint 11, not this one.** The status matrix's recommended table covers the *entire* lifecycle (through `inspected`/`workshop`/`reinspection`/`reworkshop`/`delivered`), but the plan explicitly assigns "Admin order list/detail, ... status transitions via the same `TransitionOrderStatus` action" to Checkpoint 11 ("Admin order management"). So `TransitionOrderStatus` enforces the *full* table now (ready for Checkpoint 11 to consume), but this checkpoint only wires it into the four endpoints that *already* touched `order_status` (`confirm`, `status`, `approve`, `confirmOther`) — it does not add new HTTP endpoints for the manual `confirmed → inspected → workshop → ...` progression. "Tests for every transition" is satisfied by calling the action directly (`tests/Feature/Order/TransitionOrderStatusTest.php`), not through new controller routes.
+- **`reworkshop` has no forward transition beyond `cancelled`, deliberately, because the status matrix itself doesn't resolve this.** Open question #1 in `docs/B2C_ADMIN_STATUS_MATRIX.md` §1 explicitly asks whether `reworkshop` loops back to `reinspection` and says this isn't evidenced anywhere in the reference system — "confirm the real cycle with product." Inventing an answer (e.g. assuming a loop) would mean shipping unconfirmed business logic as if it were settled. `TransitionOrderStatus::ALLOWED_TRANSITIONS['reworkshop']` is `['cancelled']` only; a test (`test_undocumented_transitions_are_rejected`) locks in that `reworkshop → reinspection` and `reworkshop → delivered` are both currently rejected, so this is a visible, deliberate gap rather than a silent one. Revisit once product answers the open question.
+- **The webhook API key finding is the same shape of bug as Checkpoint 4's 20 MB/10 MB mismatch: "already in config" isn't the same as "actually safe."** The checkpoint's literal instruction was "move the key to config if it isn't already" — a shallow read would have stopped at "it's already in `config('services.tuvsud.api_key')`, done." Actually checking the value showed a hardcoded fallback secret. Fixed the config *and* added defense in depth (fail-closed middleware, `hash_equals()`) rather than just deleting the fallback and trusting `.env` to always be configured correctly in every environment.
+- **`approve()` keeps its own pre-check via `TransitionOrderStatus::allowedNextStatuses()` before calling the action for real.** The action's own lock-and-check would reject an already-approved order too, but only *after* the controller has already made a real, possibly-billed external HTTP call to TÜV SÜD. Checking `in_array('order_placed', TransitionOrderStatus::allowedNextStatuses($order->order_status))` first (unlocked, advisory) avoids that wasted call in the common case; the guarded, locked check inside the action is still the actual enforcement point, so a race between the pre-check and the real transition just means an occasional wasted external call, never an invalid status write.
+- **`OrderPolicy`'s `approve`/`confirm`/`manageStatus`/`createStation` are all identical logic (`$user->isAdmin()`) but kept as distinctly named abilities**, matching the status matrix's own per-action "Actor" column and following the same precedent as `ProfilePolicy`'s several identically-admin-denying-but-distinctly-named abilities in Checkpoint 2. `manageStatus` exists now for Checkpoint 11 to use even though nothing calls it yet.
+- **Controller error-response shapes were preserved exactly where they already existed**, even though every status-changing method now goes through `TransitionOrderStatus`. `approve()`'s original `400` with `{"error": "...", "current_status": ...}` is reconstructed in a `catch (ValidationException)` block rather than replaced with a generic 422, and non-admin checks still return `{"error": "..."}` (not Laravel's default `abort()` JSON shape) — this is backend work on live, already-integrated endpoints (the legacy `leasyback_web` SPA calls all of these), so response-shape stability mattered here the same way it did for `findByOwner` in Checkpoint 4.
+
 ## 3a. Policy rules (`ProfilePolicy`)
 
 | Ability | Model | Privatkunde / Firmenkunde / Werkstatt | Admin |
@@ -208,6 +243,37 @@ Directly mirrors `docs/B2C_ADMIN_PERMISSION_MATRIX.md`'s "UserProfile (own addre
 | `update` | `Vehicle` | ✅ | ❌ | ✅ any |
 
 Both abilities delegate to `VehicleScopeService::findVehicleWithAccess`, the same scoping logic `VehicleDocumentPolicy` and `VehicleReportDocumentPolicy` already build on — one source of truth for "does this user own this vehicle" across the whole Vehicle domain.
+
+## 3c. Policy rules (`OrderPolicy`, `OfferPolicy`) and the order status transition table
+
+**`OrderPolicy`:**
+
+| Ability | Model | Owner | Other authenticated user | Admin |
+|---|---|---|---|---|
+| `view` | `LeasybackOrder` | ✅ | ❌ | ✅ any |
+| `approve` / `confirm` / `manageStatus` / `createStation` | `LeasybackOrder` (class-level) | ❌ | ❌ | ✅ |
+
+**`OfferPolicy`:**
+
+| Ability | Model | Owner of the offer's order's vehicle | Other authenticated user | Admin |
+|---|---|---|---|---|
+| `select` | `LeasybackOffer` | ✅ | ❌ | ❌ (matches `customerList()`'s existing "Admin cannot use customer offer endpoint" rule) |
+| `viewAny` / `create` / `publish` / `cancel` | `LeasybackOffer` (class-level) | ❌ | ❌ | ✅ |
+
+**`TransitionOrderStatus::ALLOWED_TRANSITIONS`** (from `docs/B2C_ADMIN_STATUS_MATRIX.md` §1 — every row below is covered by `tests/Feature/Order/TransitionOrderStatusTest.php`):
+
+| From | Allowed to |
+|---|---|
+| `order_requested` | `order_placed`, `discarded`, `cancelled` |
+| `order_placed` | `confirmed`, `cancelled` |
+| `confirmed` | `inspected`, `cancelled` |
+| `inspected` | `workshop`, `cancelled` |
+| `workshop` | `reinspection`, `cancelled` |
+| `reinspection` | `reworkshop`, `delivered`, `cancelled` |
+| `reworkshop` | `cancelled` only — see Checkpoint 6 decisions above |
+| `delivered` / `cancelled` / `discarded` | none (terminal) |
+
+Transitioning to the current status is a no-op (returns unchanged, doesn't throw, doesn't write an audit row) rather than a rejected transition — see decisions above (webhook redelivery safety).
 
 ## 4. Tests run and results
 
@@ -250,10 +316,16 @@ Both abilities delegate to `VehicleScopeService::findVehicleWithAccess`, the sam
 - `npm run build` → **succeeded** (`vite build`, ~10s) — `Dashboard-*.js` grew from a ~2 kB placeholder chunk to ~24 kB of real page content; new `SelectField`, `DialogTitle`, `index` (table) chunks present.
 - **Not run**: any browser-based visual/interaction check — see decisions above.
 
+**Checkpoint 6:**
+- New tests only: `php artisan test --compact tests/Feature/Order tests/Feature/Policies/OrderPolicyTest.php tests/Feature/Policies/OfferPolicyTest.php tests/Feature/Api/OfferControllerTest.php tests/Feature/Api/OrderControllerTest.php tests/Feature/Api/OrderWebhookTest.php` → **25 passed (89 assertions)**.
+
+**All six checkpoints, run at the end of Checkpoint 6:**
+- `php artisan test` (full suite) → **197 passed, 4 skipped, 0 failures** (611 assertions).
+- `vendor/bin/pint --dirty --test` → **passed**.
+
 ## 5. Deferred work
 
-Everything the plan defers past Checkpoint 5, still untouched:
-- Offer `customerSelect` BOLA — zero ownership check today, confirmed again in an earlier survey this session, not fixed (Checkpoint 6).
+Everything the plan defers past Checkpoint 6, still untouched:
 - B2B `showByUser` IDOR and `update` role-acceptance bug (Checkpoint 9).
 - Centralizing the ~20 scattered `user_type === 'Admin'` checks (including `AdminController::ensureAdmin()`) behind one Policy/Gate mechanism (Checkpoint 8).
 - Dead schema (`user_workshops`, `vehicle_report_document_logs`) — still unresolved.
@@ -264,8 +336,12 @@ Everything the plan defers past Checkpoint 5, still untouched:
 - `VehicleController::store()`'s Admin/Firmenkunde/Privatkunde ownership-resolution branching, and the duplicated inline versions of it in `listByOwner()`/`dashboard()` (API), could be consolidated through `VehicleScopeService::resolveOwnerId()` — a worthwhile cleanup, not done (not broken, not in either checkpoint's explicit scope).
 - `Vehicle::create()` in `VehicleService::createVehicle()` doesn't set `vehicle_belongs` through the `VehicleOwnerType` enum added in Checkpoint 1 (still a raw `'B2B'`/`'B2C'` string) — harmless today since the DB CHECK constraint backstops it, but worth aligning whenever this method is next touched.
 - The Sanctum API's `VehicleController::dashboard()` and `VehicleService::listVehiclesWithOrders()` remain two separate implementations of a similar query — see Checkpoint 5 decisions for why they weren't consolidated. Worth revisiting once there's a reason to change the API's response shape anyway (e.g. if `leasyback_web` is ever retired or its contract renegotiated).
-- Row-level order-timeline expansion on the vehicle table (legacy's `VehicleRow`/`DdfExpanded`) — deferred to Checkpoint 6/7 (Order backend/frontend), see decisions above.
+- Row-level order-timeline expansion on the vehicle table (legacy's `VehicleRow`/`DdfExpanded`) — deferred to Checkpoint 7 (Order/Offer frontend), see Checkpoint 5 decisions above.
 - Vehicle deletion — no delete-vehicle capability exists anywhere in this codebase or the legacy references (flagged as an open product question in the master plan, §13 item 10); the dashboard has no delete action either, matching that.
+- **Product questions from `docs/B2C_ADMIN_STATUS_MATRIX.md` §1, still unresolved and deliberately not guessed at**: does `reworkshop` loop back to `reinspection`; is any of `confirmed`/`inspected`/`workshop`/`reinspection`/`reworkshop`/`delivered` reversible; is customer-initiated cancellation a real requirement (currently only Admin can trigger `→ cancelled`, per the table); does the never-mounted `reject` action (`order_requested → discarded`) matter — the transition exists in `TransitionOrderStatus` but no controller endpoint calls it. Resolve before Checkpoint 11 builds the Admin UI that will actually exercise the full transition set.
+- Endpoints for the manual `confirmed → inspected → workshop → reinspection → reworkshop/delivered` progression and `any → cancelled` — the *action* enforces these already; the *routes* are Checkpoint 11's job (Admin order management), per the plan's own sequencing.
+- `OrderController::createTuvsud()`/`createOther()` (initial order creation) were not routed through `TransitionOrderStatus` — that action governs transitions on an *existing* row; the initial `LeasybackOrder::create()` calls were left as direct inserts, unchanged. Worth revisiting only if creation itself needs the same locking/audit-row guarantees, which it doesn't currently.
+- Order-domain frontend (Checkpoint 7) — order-creation modal, status timeline, offers card with a real accept/select flow now that `customerSelect` is actually ownership-checked.
 
 ## 6. Current blockers
 
@@ -273,14 +349,14 @@ None functionally. One environment limitation carried over from Checkpoint 3: br
 
 ## 7. Exact next checkpoint
 
-**Checkpoint 6 — Order backend and status workflow**: build a `TransitionOrderStatus` action with the explicit transition table from `docs/B2C_ADMIN_STATUS_MATRIX.md` §1 (replacing any free-text status-override anti-pattern); fix the Offer `customerSelect` BOLA (zero ownership check today, reconfirmed during this session's earlier survey); move the TÜV SÜD webhook API key to config if it isn't already; add `OrderPolicy`/`OfferPolicy` with tests for every transition in the status matrix (valid and invalid attempts); add a role check (Admin-only) to `createStation`, which currently has none. Do not start Checkpoint 7 (Order/Offer frontend) until Checkpoint 6 is reviewed.
+**Checkpoint 7 — Order/Offer frontend**: order-creation modal (station/date/time picker, fee-acknowledgement gate), order-status timeline card, offers card with a real accept/select flow — fixing the old frontend's permanently-disabled "Angebot annehmen" button now that a real, ownership-checked select action exists (`OfferPolicy::select`, fixed in Checkpoint 6). Reuse the Checkpoint 3/5 component set (`SelectField`, `ui/table`, `ui/badge`, `SettingsCard`-style patterns) where it fits. Do not start Checkpoint 8 (Admin permissions and shared admin layout) until Checkpoint 7 is reviewed.
 
 ## 8. Handoff note for another Claude session
 
-Checkpoints 1 through 5 are done and merged into the working tree (not committed to git unless you're told to). If you're picking this up cold:
+Checkpoints 1 through 6 are done and merged into the working tree (not committed to git unless you're told to). If you're picking this up cold:
 - Read `docs/B2C_ADMIN_IMPLEMENTATION_PLAN.md` first for the full checkpoint sequence and domain boundaries — this progress file only tracks what's actually been done, not the plan itself.
 - The `AdminQueryService`/`ProfileService` pattern (existing-but-unused safe implementation, wire it in rather than rewrite) has now repeated twice — check for a matching `*Service` class before writing new query logic from scratch in any future checkpoint.
-- When adding a factory for any model under `App\Modules\...\Models\`, you must add an explicit `newFactory()` override on the model (see any model touched in Checkpoints 1–4 for the pattern) — the default factory-name convention does not find it otherwise.
+- When adding a factory for any model under `App\Modules\...\Models\`, you must add an explicit `newFactory()` override on the model (see any model touched in Checkpoints 1–6 for the pattern) — the default factory-name convention does not find it otherwise.
 - When writing a Policy test for a model that has an `App\Models` shim, always create/fetch through whichever class the Policy itself type-hints (check the Policy's `use` imports) — mixing canonical and shim instances across a raw (non-HTTP) `$user->can(...)` call either throws a PHP `TypeError` or, if the canonical class isn't registered in `AuthServiceProvider` at all, silently returns `false` with no error.
 - If a Policy ability doesn't need a loaded model instance to decide (e.g. a class-level rule like "Admins can never do X"), authorize it directly in the Form Request's `authorize()` rather than adding an `$this->authorize()` call in the controller — keeps the controller thin, matches the pattern in `AddressContactRequest`/`PreferencesRequest`.
 - **Sanctum API routes and Inertia web routes are two separate front doors onto the same domain.** Don't assume a Sanctum-protected `/userprofile/*`-style JSON endpoint is reachable from an Inertia page via a plain `fetch`/`axios` call — it isn't (no stateful-SPA cookie middleware is applied to those routes, by design, per the comment in `bootstrap/app.php`). Build a parallel thin web controller calling the same service instead, as `Settings\AddressController`/`PreferencesController` do.
@@ -292,6 +368,10 @@ Checkpoints 1 through 5 are done and merged into the working tree (not committed
 - **Before assuming a plan bullet needs new code, check whether an earlier checkpoint already did it.** Checkpoint 4's "Vehicle-document Policy regression test" item turned out to already exist from Checkpoint 1 — re-read the relevant test file before writing a duplicate. This has now happened twice (Checkpoint 1's "introduce Policies" item too); the plan document was written before several checkpoints' work landed, so it can lag reality.
 - When an authorization fix involves a client-supplied id that's *supposed* to correspond to something (like `findByOwner`'s `ownerId`), don't just drop the parameter to fix the IDOR — resolve access from the authenticated user first (ignore the untrusted value for the actual decision), then use the client-supplied value only to preserve the endpoint's existing response contract if that's cheap to do. See `VehicleController::findByOwner` for the exact pattern.
 - If a plan item says "verify X is enforced," actually check the value against the documented spec (`docs/B2C_ADMIN_MIGRATION_AUDIT.md` in this case) rather than only checking "does a validation rule exist" — the vehicle-document upload cap was present but wrong (20 MB vs. the documented 10 MB), which a shallower check would have missed.
+- **"It's already in config" is not the same claim as "it's safe."** The TÜV SÜD webhook API key was already `env()`-driven, but with a hardcoded fallback secret shipped in `config/services.php` — check the actual value/default, not just where it's read from, whenever a checkpoint item says "move X to config."
+- When a status/state-machine doc has open, explicitly-unresolved product questions (marked as such, e.g. `docs/B2C_ADMIN_STATUS_MATRIX.md` §1's numbered list), implement only what's actually specified and make the gap visible (a rejected-transition test, a code comment pointing at the open question) rather than guessing an answer. `TransitionOrderStatus` deliberately leaves `reworkshop` with only a `→ cancelled` transition for this reason.
+- Before wiring a status-changing action into an endpoint that also makes an external HTTP call (like TÜV SÜD's `approve()`), check the *order* of operations in the original code — if it validated state before the external call, preserve that ordering when refactoring, so an invalid-state request doesn't trigger a real (possibly billed, rate-limited) outbound call before failing.
+- When a plan bullet references a future checkpoint's scope inside its own description (e.g. Checkpoint 6's status-matrix table implies transitions that Checkpoint 11 is explicitly assigned to build UI/endpoints for), build the underlying mechanism to the full spec but don't build the not-yet-assigned endpoints — check the plan's own checkpoint list before deciding how far a given checkpoint's HTTP surface should extend.
 - **Every "*Controller* frontend" checkpoint so far has needed the same shape of backend work first**: a Sanctum API entry point already exists and must stay untouched in its response contract, so a new session-authenticated web controller gets built alongside it, and any real business logic gets extracted into (or wired into an already-existing, unused) `*Service` class both controllers call. Expect this pattern again for Checkpoint 7 (Order/Offer frontend) — check for an `OrderService`/`OfferService` before assuming logic needs to move for the first time.
 - **Before wiring in an existing-but-unused service method, check whether it's actually still correct** — don't assume "already correct, just needs activating" the way Checkpoints 1–3 could. `VehicleService::listVehiclesWithOrders()` had silently rotted (a renamed column, a hardcoded disk) exactly because nothing called it since the Checkpoint 0 storage refactor landed. If a candidate service method predates a later architectural change, diff its assumptions against what actually changed before trusting it.
 - **A live, already-shipped consumer of an endpoint (here: the legacy `leasyback_web` SPA calling the Sanctum API) is a real constraint**, even when nothing in this repo tests it. Before reusing one method's logic to satisfy two different response-shape needs, check whether the existing shape is actually depended on elsewhere — when in doubt, keep two implementations rather than silently narrowing a live endpoint's output.

@@ -8,7 +8,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 
 class OfferController extends Controller
 {
@@ -23,7 +22,7 @@ class OfferController extends Controller
         }
 
         $order = LeasybackOrder::where('auftragsnummer', $auftragsnummer)->first();
-        if (!$order) {
+        if (! $order) {
             return response()->json(['error' => 'Order not found'], 404);
         }
 
@@ -65,7 +64,7 @@ class OfferController extends Controller
         }
 
         $offer = LeasybackOffer::find($offerId);
-        if (!$offer) {
+        if (! $offer) {
             return response()->json(['error' => 'Offer not found'], 404);
         }
 
@@ -97,7 +96,7 @@ class OfferController extends Controller
         ]);
 
         $offer = LeasybackOffer::find($offerId);
-        if (!$offer) {
+        if (! $offer) {
             return response()->json(['error' => 'Offer not found'], 404);
         }
 
@@ -168,14 +167,21 @@ class OfferController extends Controller
 
     /**
      * POST /vehicle/offers/customer/select/{offerId}
+     *
+     * Fixed BOLA: this used to have no ownership check at all — any
+     * authenticated user could select (and thereby close out every
+     * competing offer for) any order by guessing its offer id. Now
+     * authorized via OfferPolicy::select, which requires the caller to
+     * actually own the vehicle behind the offer's order. The 404 message
+     * is unchanged so a non-owner can't distinguish "doesn't exist" from
+     * "exists but isn't yours".
      */
     public function customerSelect(Request $request, string $offerId): JsonResponse
     {
         $user = $request->user();
-        $isAdmin = $user->user_type->value === 'Admin';
 
         $offer = LeasybackOffer::find($offerId);
-        if (!$offer) {
+        if (! $offer || ! $user->can('select', $offer)) {
             return response()->json(['error' => 'Offer not found or not accessible'], 404);
         }
 

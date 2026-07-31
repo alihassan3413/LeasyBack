@@ -15,8 +15,8 @@ use Illuminate\Support\Facades\Route;
 
 // --- Public callback routes (API key auth, no Sanctum) ---
 Route::prefix('order')->group(function () {
-    Route::get('tuvsud/confirm', [OrderController::class, 'confirm'])->middleware('throttle:60,1');
-    Route::get('tuvsud/status', [OrderController::class, 'status'])->middleware('throttle:60,1');
+    Route::get('tuvsud/confirm', [OrderController::class, 'confirm'])->middleware(['throttle:60,1', 'tuvsud.webhook']);
+    Route::get('tuvsud/status', [OrderController::class, 'status'])->middleware(['throttle:60,1', 'tuvsud.webhook']);
 });
 
 // --- Authenticated routes ---

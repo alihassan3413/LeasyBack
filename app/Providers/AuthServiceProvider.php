@@ -2,12 +2,16 @@
 
 namespace App\Providers;
 
+use App\Models\LeasybackOffer;
+use App\Models\LeasybackOrder;
 use App\Models\LeasybackUserProfile;
 use App\Models\UserPreference;
 use App\Models\Vehicle;
 use App\Models\VehicleDocument;
 use App\Models\VehicleReportDocument;
 use App\Models\Workshop;
+use App\Policies\OfferPolicy;
+use App\Policies\OrderPolicy;
 use App\Policies\ProfilePolicy;
 use App\Policies\VehicleDocumentPolicy;
 use App\Policies\VehiclePolicy;
@@ -31,6 +35,8 @@ class AuthServiceProvider extends ServiceProvider
         Workshop::class => WorkshopPolicy::class,
         LeasybackUserProfile::class => ProfilePolicy::class,
         UserPreference::class => ProfilePolicy::class,
+        LeasybackOrder::class => OrderPolicy::class,
+        LeasybackOffer::class => OfferPolicy::class,
     ];
 
     public function boot(): void
