@@ -5,14 +5,26 @@ namespace App\Modules\UserProfile\Vehicle\Models;
 use App\Models\User;
 use App\Modules\UserProfile\B2B\Models\B2B;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
+use Database\Factories\VehicleFactory;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Str;
 
 class Vehicle extends Model
 {
+    use HasFactory;
+
+    protected static function newFactory(): VehicleFactory
+    {
+        return VehicleFactory::new();
+    }
+
     protected $primaryKey = 'vehicle_id';
+
     public $incrementing = false;
+
     protected $keyType = 'string';
 
     protected $fillable = [
@@ -39,7 +51,7 @@ class Vehicle extends Model
     {
         static::creating(function (self $model) {
             if (empty($model->vehicle_id)) {
-                $model->vehicle_id = (string) \Illuminate\Support\Str::uuid();
+                $model->vehicle_id = (string) Str::uuid();
             }
         });
     }

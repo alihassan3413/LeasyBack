@@ -1,6 +1,5 @@
 <?php
 
-use App\Modules\UserProfile\Image\Http\Controllers\ImageController;
 use App\Modules\UserProfile\Offer\Http\Controllers\OfferController;
 use App\Modules\UserProfile\Order\Http\Controllers\OrderController;
 use App\Modules\UserProfile\Vehicle\Http\Controllers\VehicleController;
@@ -52,13 +51,6 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('tuvsud/order/approve/{orderId}', [OrderController::class, 'approve'])->whereUuid('orderId');
         Route::post('others/create/{vehicleId}', [OrderController::class, 'createOther'])->whereUuid('vehicleId');
         Route::post('others/confirm', [OrderController::class, 'confirmOther']);
-    });
-
-    // Image/Logo
-    Route::prefix('image')->group(function () {
-        Route::post('logos/upload', [ImageController::class, 'upload']);
-        Route::get('logos/{key}/signed-url', [ImageController::class, 'signedUrl'])->where('key', '.*');
-        Route::delete('logos/{key}', [ImageController::class, 'delete'])->where('key', '.*');
     });
 
     // Admin offers

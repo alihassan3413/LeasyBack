@@ -2,14 +2,27 @@
 
 namespace App\Modules\UserProfile\Vehicle\Models;
 
+use Database\Factories\VehicleReportDocumentFactory;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Str;
 
 class VehicleReportDocument extends Model
 {
+    use HasFactory;
+
+    protected static function newFactory(): VehicleReportDocumentFactory
+    {
+        return VehicleReportDocumentFactory::new();
+    }
+
     protected $table = 'vehicle_report_documents';
+
     protected $primaryKey = 'id';
+
     public $incrementing = false;
+
     protected $keyType = 'string';
 
     protected $fillable = [
@@ -18,9 +31,7 @@ class VehicleReportDocument extends Model
         'vehicle_id',
         'document_type',
         'document_title',
-        's3_bucket',
-        's3_key',
-        's3_url',
+        'path',
         'published',
         'source_assessment_document_id',
         'created_by_user_id',
@@ -36,7 +47,7 @@ class VehicleReportDocument extends Model
     {
         static::creating(function (self $model) {
             if (empty($model->id)) {
-                $model->id = (string) \Illuminate\Support\Str::uuid();
+                $model->id = (string) Str::uuid();
             }
         });
     }

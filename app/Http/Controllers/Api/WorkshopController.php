@@ -8,6 +8,7 @@ use App\Models\Workshop;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class WorkshopController extends Controller
@@ -34,9 +35,8 @@ class WorkshopController extends Controller
 
     public function showByUser(Request $request, string $userId): JsonResponse
     {
-        $this->authorizeOwner($request, $userId);
-
         $workshop = Workshop::where('user_id', $userId)->firstOrFail();
+        $request->user()->can('view', $workshop) || abort(403, 'You cannot access this workshop.');
 
         return response()->json($this->profileResponse($workshop));
     }
@@ -44,11 +44,14 @@ class WorkshopController extends Controller
     public function update(Request $request, string $workshopId): JsonResponse
     {
         $workshop = Workshop::findOrFail($workshopId);
-        $this->authorizeOwner($request, (string) $workshop->user_id);
+        $request->user()->can('update', $workshop) || abort(403, 'You cannot access this workshop.');
         $validated = $request->validate($this->updateRules());
 
+        // logo_url is deliberately excluded here — it's derived from
+        // logo_path, which is only ever set via uploadLogo() below, never
+        // accepted as a free-text string from the client.
         $attributes = [];
-        foreach (['workshop_name', 'logo_url', 'contact_email', 'has_vat_id', 'vat_id'] as $field) {
+        foreach (['workshop_name', 'contact_email', 'has_vat_id', 'vat_id'] as $field) {
             if (array_key_exists($field, $validated)) {
                 $attributes[$field] = $validated[$field];
             }
@@ -82,15 +85,66 @@ class WorkshopController extends Controller
         return response()->json('updated');
     }
 
+    /**
+     * POST /workshop/{workshopId}/logo
+     *
+     * Logos are public assets (shown on the workshop's public listing), so
+     * they live on the 'public' disk — deliberately separate from the
+     * private 'documents' disk used for customer/vehicle documents. Still
+     * follows the same rule: the client never supplies a path, and every
+     * write is Policy-authorized against a real, loaded Workshop record.
+     */
+    public function uploadLogo(Request $request, string $workshopId): JsonResponse
+    {
+        $workshop = Workshop::findOrFail($workshopId);
+        $request->user()->can('manageLogo', $workshop) || abort(403, 'You cannot manage this workshop\'s logo.');
+
+        $request->validate([
+            'file' => 'required|file|mimes:png,jpg,jpeg|max:10240',
+        ]);
+
+        $file = $request->file('file');
+        $ext = $file->getClientOriginalExtension();
+        $path = "logos/{$workshop->id}-".Str::uuid().".{$ext}";
+
+        Storage::disk('public')->put($path, file_get_contents($file));
+
+        // Replace, don't accumulate: remove the previous logo file if one existed.
+        if ($workshop->logo_path) {
+            Storage::disk('public')->delete($workshop->logo_path);
+        }
+
+        $workshop->update([
+            'logo_path' => $path,
+            'logo_url' => Storage::disk('public')->url($path),
+        ]);
+
+        return response()->json([
+            'workshop_id' => $workshop->id,
+            'logo_url' => $workshop->logo_url,
+        ]);
+    }
+
+    /**
+     * DELETE /workshop/{workshopId}/logo
+     */
+    public function deleteLogo(Request $request, string $workshopId): JsonResponse
+    {
+        $workshop = Workshop::findOrFail($workshopId);
+        $request->user()->can('manageLogo', $workshop) || abort(403, 'You cannot manage this workshop\'s logo.');
+
+        if ($workshop->logo_path) {
+            Storage::disk('public')->delete($workshop->logo_path);
+        }
+
+        $workshop->update(['logo_path' => null, 'logo_url' => null]);
+
+        return response()->json(['workshop_id' => $workshop->id, 'logo_url' => null]);
+    }
+
     private function ensureWorkshopUser(UserType $type, bool $isAdmin): void
     {
         abort_unless($type === UserType::Werkstatt || $isAdmin, 403, 'Only workshop users may manage a workshop profile.');
-    }
-
-    private function authorizeOwner(Request $request, string $ownerId): void
-    {
-        $user = $request->user();
-        abort_unless((string) $user->id === $ownerId || $user->isAdmin(), 403, 'You cannot access this workshop.');
     }
 
     private function createRules(): array
@@ -130,7 +184,6 @@ class WorkshopController extends Controller
     {
         return [
             'workshop_name' => ['sometimes', 'string', 'max:255'],
-            'logo_url' => ['sometimes', 'nullable', 'string', 'max:2048'],
             'contact_email' => ['sometimes', 'email:rfc,dns', 'max:255'],
             'has_vat_id' => ['sometimes', 'boolean'],
             'vat_id' => ['sometimes', 'nullable', 'string', 'max:50'],

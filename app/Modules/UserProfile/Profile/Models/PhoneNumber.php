@@ -2,13 +2,25 @@
 
 namespace App\Modules\UserProfile\Profile\Models;
 
+use Database\Factories\PhoneNumberFactory;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Str;
 
 class PhoneNumber extends Model
 {
+    use HasFactory;
+
+    protected static function newFactory(): PhoneNumberFactory
+    {
+        return PhoneNumberFactory::new();
+    }
+
     protected $primaryKey = 'phone_id';
+
     public $incrementing = false;
+
     protected $keyType = 'string';
 
     protected $fillable = [
@@ -27,7 +39,7 @@ class PhoneNumber extends Model
     {
         static::creating(function (self $model) {
             if (empty($model->phone_id)) {
-                $model->phone_id = (string) \Illuminate\Support\Str::uuid();
+                $model->phone_id = (string) Str::uuid();
             }
         });
     }

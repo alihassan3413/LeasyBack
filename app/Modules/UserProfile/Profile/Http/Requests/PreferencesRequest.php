@@ -2,13 +2,22 @@
 
 namespace App\Modules\UserProfile\Profile\Http\Requests;
 
+use App\Models\UserPreference;
 use Illuminate\Foundation\Http\FormRequest;
 
 class PreferencesRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user() !== null;
+        $user = $this->user();
+
+        if ($user === null) {
+            return false;
+        }
+
+        return $this->isMethod('put')
+            ? $user->can('updatePreferences', UserPreference::class)
+            : $user->can('createPreferences', UserPreference::class);
     }
 
     public function rules(): array

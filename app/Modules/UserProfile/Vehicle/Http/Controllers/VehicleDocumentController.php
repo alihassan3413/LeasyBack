@@ -2,75 +2,38 @@
 
 namespace App\Modules\UserProfile\Vehicle\Http\Controllers;
 
-use App\Models\Vehicle;
 use App\Models\VehicleDocument;
-use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
+use App\Modules\UserProfile\Vehicle\Services\VehicleService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 
 class VehicleDocumentController extends Controller
 {
-    public function __construct(private VehicleScopeService $scope) {}
+    public function __construct(private readonly VehicleService $vehicleService) {}
 
     /**
      * PUT /vehicle/{vehicleId}/documents — upload
      */
     public function upload(Request $request, string $vehicleId): JsonResponse
     {
-        $user = $request->user();
+        $request->user()->can('create', [VehicleDocument::class, $vehicleId]) || abort(404);
 
-        // Admin or owner access check
-        if ($user->user_type->value !== 'Admin') {
-            $vehicle = $this->scope->findVehicleWithAccess($vehicleId, $user);
-            if (!$vehicle) {
-                return response()->json(['error' => 'Vehicle not found or access denied'], 404);
-            }
-        } else {
-            $vehicle = Vehicle::find($vehicleId);
-            if (!$vehicle) {
-                return response()->json(['error' => 'Vehicle not found'], 404);
-            }
-        }
-
-        $request->validate([
-            'file' => 'required|file|mimes:pdf,jpg,jpeg,png|max:20480',
+        // 10 MB cap + pdf/jpg/jpeg/png allow-list, matching the reference
+        // system's documented limits (docs/B2C_ADMIN_MIGRATION_AUDIT.md).
+        // Laravel's `mimes` rule sniffs the file's actual content, not just
+        // its extension/declared content-type, so this is stricter than the
+        // reference in that respect.
+        $validated = $request->validate([
+            'file' => 'required|file|mimes:pdf,jpg,jpeg,png|max:10240',
             'document_type' => 'required|string|in:Leasingvertrag,vorschaden,gutachten,Sonstiges',
         ]);
 
-        $file = $request->file('file');
-        $originalName = $file->getClientOriginalName();
-        $contentType = $file->getMimeType();
-        $fileSize = $file->getSize();
-
-        $safeName = Str::slug(pathinfo($originalName, PATHINFO_FILENAME));
-        $ext = $file->getClientOriginalExtension();
-        $s3Key = "vehicle-documents/{$vehicleId}/{$safeName}-" . Str::uuid() . ".{$ext}";
-
-        Storage::disk('s3')->put($s3Key, file_get_contents($file), [
-            'ContentType' => $contentType,
-        ]);
-
-        $doc = VehicleDocument::create([
-            'vehicle_id' => $vehicleId,
-            'document_category' => 'Fahrzeug',
-            'document_type' => $request->input('document_type'),
-            'original_file_name' => $originalName,
-            's3_key' => $s3Key,
-            'content_type' => $contentType,
-            'file_size' => $fileSize,
-            'uploaded_by_user_id' => $user->id,
-        ]);
-
-        // Generate signed URL
-        $signedUrl = Storage::disk('s3')->temporaryUrl($s3Key, now()->addHours(3));
+        $doc = $this->vehicleService->uploadDocument($vehicleId, $validated['file'], $validated['document_type'], $request->user());
 
         return response()->json([
-            ...$doc->toArray(),
-            'signed_url' => $signedUrl,
-            'signed_url_expires_in_seconds' => 3 * 60 * 60,
+            ...$this->present($doc),
         ], 201);
     }
 
@@ -79,26 +42,12 @@ class VehicleDocumentController extends Controller
      */
     public function index(Request $request, string $vehicleId): JsonResponse
     {
-        $user = $request->user();
-
-        if ($user->user_type->value !== 'Admin') {
-            $vehicle = $this->scope->findVehicleWithAccess($vehicleId, $user);
-            if (!$vehicle) {
-                return response()->json(['error' => 'Vehicle not found or access denied'], 404);
-            }
-        }
+        $request->user()->can('viewAny', [VehicleDocument::class, $vehicleId]) || abort(404);
 
         $docs = VehicleDocument::where('vehicle_id', $vehicleId)
             ->orderByDesc('created_at')
             ->get()
-            ->map(function ($doc) {
-                $signedUrl = Storage::disk('s3')->temporaryUrl($doc->s3_key, now()->addHours(3));
-                return [
-                    ...$doc->toArray(),
-                    'signed_url' => $signedUrl,
-                    'signed_url_expires_in_seconds' => 3 * 60 * 60,
-                ];
-            });
+            ->map(fn (VehicleDocument $doc) => $this->present($doc));
 
         return response()->json($docs);
     }
@@ -108,30 +57,17 @@ class VehicleDocumentController extends Controller
      */
     public function show(Request $request, string $vehicleId, string $documentId): JsonResponse
     {
-        $user = $request->user();
-
-        if ($user->user_type->value !== 'Admin') {
-            $vehicle = $this->scope->findVehicleWithAccess($vehicleId, $user);
-            if (!$vehicle) {
-                return response()->json(['error' => 'Vehicle not found or access denied'], 404);
-            }
-        }
-
         $doc = VehicleDocument::where('vehicle_id', $vehicleId)
             ->where('document_id', $documentId)
             ->first();
 
-        if (!$doc) {
+        if (! $doc) {
             return response()->json(['error' => 'Document not found'], 404);
         }
 
-        $signedUrl = Storage::disk('s3')->temporaryUrl($doc->s3_key, now()->addHours(3));
+        $request->user()->can('view', $doc) || abort(404);
 
-        return response()->json([
-            ...$doc->toArray(),
-            'signed_url' => $signedUrl,
-            'signed_url_expires_in_seconds' => 3 * 60 * 60,
-        ]);
+        return response()->json($this->present($doc));
     }
 
     /**
@@ -139,26 +75,36 @@ class VehicleDocumentController extends Controller
      */
     public function destroy(Request $request, string $vehicleId, string $documentId): JsonResponse
     {
-        $user = $request->user();
-
-        if ($user->user_type->value !== 'Admin') {
-            $vehicle = $this->scope->findVehicleWithAccess($vehicleId, $user);
-            if (!$vehicle) {
-                return response()->json(['error' => 'Vehicle not found or access denied'], 404);
-            }
-        }
-
         $doc = VehicleDocument::where('vehicle_id', $vehicleId)
             ->where('document_id', $documentId)
             ->first();
 
-        if (!$doc) {
+        if (! $doc) {
             return response()->json(['error' => 'Document not found'], 404);
         }
 
-        Storage::disk('s3')->delete($doc->s3_key);
-        $doc->delete();
+        $request->user()->can('delete', $doc) || abort(404);
+
+        $this->vehicleService->deleteDocument($doc);
 
         return response()->json(['status' => 'deleted', 'document_id' => $documentId]);
+    }
+
+    /**
+     * Every read/download always re-derives the temporary URL from the
+     * document's own (authorized, DB-loaded) `path` — never from a
+     * client-supplied key. Swapping the `documents` disk's driver to S3
+     * later needs no change here: temporaryUrl() works the same way on
+     * both drivers.
+     *
+     * @return array<string, mixed>
+     */
+    private function present(VehicleDocument $doc): array
+    {
+        return [
+            ...$doc->toArray(),
+            'signed_url' => Storage::disk('documents')->temporaryUrl($doc->path, now()->addHours(3)),
+            'signed_url_expires_in_seconds' => 3 * 60 * 60,
+        ];
     }
 }

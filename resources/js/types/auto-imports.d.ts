@@ -9,6 +9,10 @@ declare global {
   const EffectScope: typeof import('vue').EffectScope
   const Head: typeof import('@inertiajs/vue3').Head
   const Link: typeof import('@inertiajs/vue3').Link
+  const PLATE_MAX_TOTAL: typeof import('../lib/licensePlate').PLATE_MAX_TOTAL
+  const PLATE_MESSAGES: typeof import('../lib/licensePlate').PLATE_MESSAGES
+  const VEHICLE_BRANDS: typeof import('../lib/vehicleBrands').VEHICLE_BRANDS
+  const VEHICLE_BRAND_OPTIONS: typeof import('../lib/vehicleBrands').VEHICLE_BRAND_OPTIONS
   const cn: typeof import('../lib/utils').cn
   const computed: typeof import('vue').computed
   const createApp: typeof import('vue').createApp
@@ -21,6 +25,7 @@ declare global {
   const getCurrentScope: typeof import('vue').getCurrentScope
   const getCurrentWatcher: typeof import('vue').getCurrentWatcher
   const getInitials: typeof import('../composables/useInitials').getInitials
+  const getVehicleStatusDisplay: typeof import('../lib/vehicleStatus').getVehicleStatusDisplay
   const h: typeof import('vue').h
   const initializeTheme: typeof import('../composables/useAppearance').initializeTheme
   const inject: typeof import('vue').inject
@@ -29,8 +34,10 @@ declare global {
   const isReadonly: typeof import('vue').isReadonly
   const isRef: typeof import('vue').isRef
   const isShallow: typeof import('vue').isShallow
+  const isVehicleCompleted: typeof import('../lib/vehicleStatus').isVehicleCompleted
   const markRaw: typeof import('vue').markRaw
   const nextTick: typeof import('vue').nextTick
+  const normalizePlate: typeof import('../lib/licensePlate').normalizePlate
   const onActivated: typeof import('vue').onActivated
   const onBeforeMount: typeof import('vue').onBeforeMount
   const onBeforeUnmount: typeof import('vue').onBeforeUnmount
@@ -45,16 +52,19 @@ declare global {
   const onUnmounted: typeof import('vue').onUnmounted
   const onUpdated: typeof import('vue').onUpdated
   const onWatcherCleanup: typeof import('vue').onWatcherCleanup
+  const platePartsLength: typeof import('../lib/licensePlate').platePartsLength
   const provide: typeof import('vue').provide
   const reactive: typeof import('vue').reactive
   const readonly: typeof import('vue').readonly
   const ref: typeof import('vue').ref
   const resolveComponent: typeof import('vue').resolveComponent
   const router: typeof import('@inertiajs/vue3').router
+  const sanitizePlateNumber: typeof import('../lib/licensePlate').sanitizePlateNumber
   const shallowReactive: typeof import('vue').shallowReactive
   const shallowReadonly: typeof import('vue').shallowReadonly
   const shallowRef: typeof import('vue').shallowRef
   const storeToRefs: typeof import('pinia').storeToRefs
+  const toPlateUpperCase: typeof import('../lib/licensePlate').toPlateUpperCase
   const toRaw: typeof import('vue').toRaw
   const toRef: typeof import('vue').toRef
   const toRefs: typeof import('vue').toRefs
@@ -79,6 +89,10 @@ declare global {
   const useSlots: typeof import('vue').useSlots
   const useTemplateRef: typeof import('vue').useTemplateRef
   const useToggle: typeof import('@vueuse/core').useToggle
+  const validatePlateCity: typeof import('../lib/licensePlate').validatePlateCity
+  const validatePlateLetters: typeof import('../lib/licensePlate').validatePlateLetters
+  const validatePlateNumber: typeof import('../lib/licensePlate').validatePlateNumber
+  const validatePlateParts: typeof import('../lib/licensePlate').validatePlateParts
   const watch: typeof import('vue').watch
   const watchEffect: typeof import('vue').watchEffect
   const watchPostEffect: typeof import('vue').watchPostEffect
@@ -89,6 +103,9 @@ declare global {
   // @ts-ignore
   export type { Component, Slot, Slots, ComponentPublicInstance, ComputedRef, DirectiveBinding, ExtractDefaultPropTypes, ExtractPropTypes, ExtractPublicPropTypes, InjectionKey, PropType, Ref, ShallowRef, MaybeRef, MaybeRefOrGetter, VNode, WritableComputedRef } from 'vue'
   import('vue')
+  // @ts-ignore
+  export type { VehicleStatusDisplay } from '../lib/vehicleStatus'
+  import('../lib/vehicleStatus')
 }
 
 // for vue template auto import
@@ -99,6 +116,10 @@ declare module 'vue' {
     readonly EffectScope: UnwrapRef<typeof import('vue')['EffectScope']>
     readonly Head: UnwrapRef<typeof import('@inertiajs/vue3')['Head']>
     readonly Link: UnwrapRef<typeof import('@inertiajs/vue3')['Link']>
+    readonly PLATE_MAX_TOTAL: UnwrapRef<typeof import('../lib/licensePlate')['PLATE_MAX_TOTAL']>
+    readonly PLATE_MESSAGES: UnwrapRef<typeof import('../lib/licensePlate')['PLATE_MESSAGES']>
+    readonly VEHICLE_BRANDS: UnwrapRef<typeof import('../lib/vehicleBrands')['VEHICLE_BRANDS']>
+    readonly VEHICLE_BRAND_OPTIONS: UnwrapRef<typeof import('../lib/vehicleBrands')['VEHICLE_BRAND_OPTIONS']>
     readonly cn: UnwrapRef<typeof import('../lib/utils')['cn']>
     readonly computed: UnwrapRef<typeof import('vue')['computed']>
     readonly createApp: UnwrapRef<typeof import('vue')['createApp']>
@@ -111,6 +132,7 @@ declare module 'vue' {
     readonly getCurrentScope: UnwrapRef<typeof import('vue')['getCurrentScope']>
     readonly getCurrentWatcher: UnwrapRef<typeof import('vue')['getCurrentWatcher']>
     readonly getInitials: UnwrapRef<typeof import('../composables/useInitials')['getInitials']>
+    readonly getVehicleStatusDisplay: UnwrapRef<typeof import('../lib/vehicleStatus')['getVehicleStatusDisplay']>
     readonly h: UnwrapRef<typeof import('vue')['h']>
     readonly initializeTheme: UnwrapRef<typeof import('../composables/useAppearance')['initializeTheme']>
     readonly inject: UnwrapRef<typeof import('vue')['inject']>
@@ -119,8 +141,10 @@ declare module 'vue' {
     readonly isReadonly: UnwrapRef<typeof import('vue')['isReadonly']>
     readonly isRef: UnwrapRef<typeof import('vue')['isRef']>
     readonly isShallow: UnwrapRef<typeof import('vue')['isShallow']>
+    readonly isVehicleCompleted: UnwrapRef<typeof import('../lib/vehicleStatus')['isVehicleCompleted']>
     readonly markRaw: UnwrapRef<typeof import('vue')['markRaw']>
     readonly nextTick: UnwrapRef<typeof import('vue')['nextTick']>
+    readonly normalizePlate: UnwrapRef<typeof import('../lib/licensePlate')['normalizePlate']>
     readonly onActivated: UnwrapRef<typeof import('vue')['onActivated']>
     readonly onBeforeMount: UnwrapRef<typeof import('vue')['onBeforeMount']>
     readonly onBeforeUnmount: UnwrapRef<typeof import('vue')['onBeforeUnmount']>
@@ -135,16 +159,19 @@ declare module 'vue' {
     readonly onUnmounted: UnwrapRef<typeof import('vue')['onUnmounted']>
     readonly onUpdated: UnwrapRef<typeof import('vue')['onUpdated']>
     readonly onWatcherCleanup: UnwrapRef<typeof import('vue')['onWatcherCleanup']>
+    readonly platePartsLength: UnwrapRef<typeof import('../lib/licensePlate')['platePartsLength']>
     readonly provide: UnwrapRef<typeof import('vue')['provide']>
     readonly reactive: UnwrapRef<typeof import('vue')['reactive']>
     readonly readonly: UnwrapRef<typeof import('vue')['readonly']>
     readonly ref: UnwrapRef<typeof import('vue')['ref']>
     readonly resolveComponent: UnwrapRef<typeof import('vue')['resolveComponent']>
     readonly router: UnwrapRef<typeof import('@inertiajs/vue3')['router']>
+    readonly sanitizePlateNumber: UnwrapRef<typeof import('../lib/licensePlate')['sanitizePlateNumber']>
     readonly shallowReactive: UnwrapRef<typeof import('vue')['shallowReactive']>
     readonly shallowReadonly: UnwrapRef<typeof import('vue')['shallowReadonly']>
     readonly shallowRef: UnwrapRef<typeof import('vue')['shallowRef']>
     readonly storeToRefs: UnwrapRef<typeof import('pinia')['storeToRefs']>
+    readonly toPlateUpperCase: UnwrapRef<typeof import('../lib/licensePlate')['toPlateUpperCase']>
     readonly toRaw: UnwrapRef<typeof import('vue')['toRaw']>
     readonly toRef: UnwrapRef<typeof import('vue')['toRef']>
     readonly toRefs: UnwrapRef<typeof import('vue')['toRefs']>
@@ -169,6 +196,10 @@ declare module 'vue' {
     readonly useSlots: UnwrapRef<typeof import('vue')['useSlots']>
     readonly useTemplateRef: UnwrapRef<typeof import('vue')['useTemplateRef']>
     readonly useToggle: UnwrapRef<typeof import('@vueuse/core')['useToggle']>
+    readonly validatePlateCity: UnwrapRef<typeof import('../lib/licensePlate')['validatePlateCity']>
+    readonly validatePlateLetters: UnwrapRef<typeof import('../lib/licensePlate')['validatePlateLetters']>
+    readonly validatePlateNumber: UnwrapRef<typeof import('../lib/licensePlate')['validatePlateNumber']>
+    readonly validatePlateParts: UnwrapRef<typeof import('../lib/licensePlate')['validatePlateParts']>
     readonly watch: UnwrapRef<typeof import('vue')['watch']>
     readonly watchEffect: UnwrapRef<typeof import('vue')['watchEffect']>
     readonly watchPostEffect: UnwrapRef<typeof import('vue')['watchPostEffect']>

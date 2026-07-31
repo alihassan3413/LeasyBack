@@ -60,6 +60,38 @@ return [
             'report' => false,
         ],
 
+        /*
+         * Private customer/vehicle documents (leasing contracts, damage
+         * photos, appraisal reports, invoices, ...). Never referenced by
+         * name ('local'/'s3') anywhere outside this file — application code
+         * always calls Storage::disk('documents'), so switching production
+         * to S3 later is a one-line env change (DOCUMENTS_FILESYSTEM_DRIVER=s3
+         * plus the existing AWS_* vars below), not a code change. Every
+         * read/delete still goes through a document's own DB record + a
+         * Policy first; the disk swap doesn't touch that.
+         */
+        'documents' => [
+            'driver' => env('DOCUMENTS_FILESYSTEM_DRIVER', 'local'),
+            'root' => storage_path('app/private/documents'),
+            // Distinct URI prefix so this disk's signed-URL route doesn't
+            // collide with the default 'local' disk's /storage route — both
+            // have `serve` enabled. Only relevant while driver=local; the s3
+            // driver ignores 'serve'/'url' and returns a real presigned URL.
+            'url' => '/private-documents',
+            'serve' => true,
+            'visibility' => 'private',
+            'throw' => false,
+            'report' => false,
+            // Only read when the driver above is 's3' — reuses the same
+            // credentials as the generic 's3' disk, not a second secret set.
+            'key' => env('AWS_ACCESS_KEY_ID'),
+            'secret' => env('AWS_SECRET_ACCESS_KEY'),
+            'region' => env('AWS_DEFAULT_REGION'),
+            'bucket' => env('DOCUMENTS_S3_BUCKET', env('AWS_BUCKET', env('S3_BUCKET_NAME'))),
+            'endpoint' => env('AWS_ENDPOINT'),
+            'use_path_style_endpoint' => env('AWS_USE_PATH_STYLE_ENDPOINT', false),
+        ],
+
     ],
 
     /*

@@ -45,6 +45,7 @@ class ProfileService
             return ['status' => 'created', 'address_id' => $addressId, 'contact_id' => $contactId];
         });
     }
+
     public function updateAddressContact(User $user, array $data): array
     {
         return DB::transaction(function () use ($user, $data) {
@@ -98,6 +99,7 @@ class ProfileService
             return ['status' => 'created', 'preference_id' => $id];
         });
     }
+
     public function updatePreferences(User $user, array $data): array
     {
         $updated = DB::table('user_preferences')
@@ -148,6 +150,22 @@ class ProfileService
             'preferences' => $preferences ? $this->preferencesResponse($preferences) : null,
         ];
     }
+
+    /**
+     * Preferences live in their own table, independent of user_profiles —
+     * unlike findForUser(), this doesn't return null just because the user
+     * hasn't created an address/contact profile yet.
+     */
+    public function findPreferencesForUser(User $user): ?array
+    {
+        $preferences = DB::table('user_preferences')->where('user_id', $user->id)
+            ->first(['preference_id', 'timezone', 'sprache',
+                'benachrichtigungseinstellungen_push',
+                'benachrichtigungseinstellungen_email']);
+
+        return $preferences ? $this->preferencesResponse($preferences) : null;
+    }
+
     private function addressValues(array $address): array
     {
         return [
@@ -197,6 +215,7 @@ class ProfileService
             ]);
         }
     }
+
     private function addressResponse(object $row): ?array
     {
         return $row->address_id === null ? null : [

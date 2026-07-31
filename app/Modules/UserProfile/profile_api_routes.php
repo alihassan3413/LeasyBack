@@ -24,5 +24,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('create', [WorkshopController::class, 'store'])->name('create');
         Route::get('user_id/{userId}', [WorkshopController::class, 'showByUser'])->whereNumber('userId')->name('show');
         Route::patch('{workshopId}', [WorkshopController::class, 'update'])->whereUuid('workshopId')->name('update');
+        Route::post('{workshopId}/logo', [WorkshopController::class, 'uploadLogo'])->whereUuid('workshopId')->name('logo.upload');
+        Route::delete('{workshopId}/logo', [WorkshopController::class, 'deleteLogo'])->whereUuid('workshopId')->name('logo.delete');
     });
 });

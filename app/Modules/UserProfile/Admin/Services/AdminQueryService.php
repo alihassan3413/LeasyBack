@@ -2,6 +2,7 @@
 
 namespace App\Modules\UserProfile\Admin\Services;
 
+use App\Enums\OrderStatus;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\Request;
@@ -12,17 +13,6 @@ use Illuminate\Validation\ValidationException;
 
 class AdminQueryService
 {
-    private const ACTIVE_STATUSES = [
-        'order_requested', 'order_placed', 'confirmed', 'inspected',
-        'workshop', 'reinspection', 'reworkshop',
-    ];
-
-    private const ORDER_STATUSES = [
-        'order_requested', 'order_placed', 'confirmed', 'discarded', 'cancelled',
-        'inspected', 'workshop', 'reinspection', 'delivered', 'reworkshop',
-    ];
-
-
     /** @return array{page:int,limit:int,start:?CarbonImmutable,end:?CarbonImmutable,status:?string} */
     private function filters(Request $request): array
     {
@@ -36,7 +26,7 @@ class AdminQueryService
         ]);
 
         $status = strtolower(trim((string) ($validated['order_status'] ?? $validated['status'] ?? ''))) ?: null;
-        if ($status !== null && ! in_array($status, self::ORDER_STATUSES, true)) {
+        if ($status !== null && ! in_array($status, OrderStatus::values(), true)) {
             throw ValidationException::withMessages(['order_status' => 'Invalid order status']);
         }
 
@@ -131,7 +121,7 @@ class AdminQueryService
     {
         return [
             'total' => (clone $base)->distinct()->count('o.id'),
-            'total_active' => (clone $base)->whereIn('o.order_status', self::ACTIVE_STATUSES)->distinct()->count('o.id'),
+            'total_active' => (clone $base)->whereIn('o.order_status', OrderStatus::activeValues())->distinct()->count('o.id'),
             'total_confirmed' => (clone $base)->where('o.order_status', 'confirmed')->distinct()->count('o.id'),
             'total_inspected' => (clone $base)->where('o.order_status', 'inspected')->distinct()->count('o.id'),
             'total_delivered' => (clone $base)->where('o.order_status', 'delivered')->distinct()->count('o.id'),
@@ -180,7 +170,6 @@ class AdminQueryService
             ];
         })->all();
     }
-
 
     private function ownersForVehicles(Collection $rows): array
     {
@@ -291,14 +280,13 @@ class AdminQueryService
     {
         return [
             'total' => (clone $base)->distinct()->count('v.vehicle_id'),
-            'total_active' => (clone $base)->whereIn('o.order_status', self::ACTIVE_STATUSES)->distinct()->count('v.vehicle_id'),
+            'total_active' => (clone $base)->whereIn('o.order_status', OrderStatus::activeValues())->distinct()->count('v.vehicle_id'),
             'total_completed' => (clone $base)->where('o.order_status', 'delivered')->distinct()->count('v.vehicle_id'),
             'total_confirmed' => (clone $base)->where('o.order_status', 'confirmed')->distinct()->count('v.vehicle_id'),
             'total_inspected' => (clone $base)->where('o.order_status', 'inspected')->distinct()->count('v.vehicle_id'),
             'total_delivered' => (clone $base)->where('o.order_status', 'delivered')->distinct()->count('v.vehicle_id'),
         ];
     }
-
 
     private function enrichVehicles(Collection $rows): array
     {

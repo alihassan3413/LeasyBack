@@ -3,6 +3,8 @@
 namespace App\Modules\UserProfile\Profile\Models;
 
 use App\Models\User;
+use Database\Factories\LeasybackUserProfileFactory;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -12,7 +14,15 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class LeasybackUserProfile extends Model
 {
+    use HasFactory;
+
+    protected static function newFactory(): LeasybackUserProfileFactory
+    {
+        return LeasybackUserProfileFactory::new();
+    }
+
     protected $table = 'user_profiles';
+
     protected $primaryKey = 'profile_id';
 
     protected $fillable = [

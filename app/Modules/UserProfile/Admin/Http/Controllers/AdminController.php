@@ -2,6 +2,7 @@
 
 namespace App\Modules\UserProfile\Admin\Http\Controllers;
 
+use App\Modules\UserProfile\Admin\Services\AdminQueryService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -9,11 +10,14 @@ use Illuminate\Support\Facades\DB;
 
 class AdminController extends Controller
 {
+    public function __construct(private readonly AdminQueryService $adminQueryService) {}
+
     private function ensureAdmin(Request $request): ?JsonResponse
     {
         if ($request->user()->user_type->value !== 'Admin') {
             return response()->json(['error' => 'Only admin can access dashboard summary'], 403);
         }
+
         return null;
     }
 
@@ -22,7 +26,9 @@ class AdminController extends Controller
      */
     public function summary(Request $request): JsonResponse
     {
-        if ($denied = $this->ensureAdmin($request)) return $denied;
+        if ($denied = $this->ensureAdmin($request)) {
+            return $denied;
+        }
 
         $summary = DB::selectOne("
             SELECT
@@ -44,7 +50,9 @@ class AdminController extends Controller
      */
     public function b2c(Request $request): JsonResponse
     {
-        if ($denied = $this->ensureAdmin($request)) return $denied;
+        if ($denied = $this->ensureAdmin($request)) {
+            return $denied;
+        }
 
         $page = max(1, (int) $request->query('page', 1));
         $limit = min(100, max(1, (int) $request->query('limit', 20)));
@@ -59,7 +67,7 @@ class AdminController extends Controller
             FROM users u WHERE u.user_type = 'Privatkunde'
         ");
 
-        $activeFilter = $isActive !== null ? "AND u.is_active = " . ($isActive === 'true' ? 'true' : 'false') : '';
+        $activeFilter = $isActive !== null ? 'AND u.is_active = '.($isActive === 'true' ? 'true' : 'false') : '';
 
         $users = DB::select("
             SELECT u.id as user_id, u.email as user_email, u.user_type, u.is_active,
@@ -91,7 +99,9 @@ class AdminController extends Controller
      */
     public function b2b(Request $request): JsonResponse
     {
-        if ($denied = $this->ensureAdmin($request)) return $denied;
+        if ($denied = $this->ensureAdmin($request)) {
+            return $denied;
+        }
 
         $page = max(1, (int) $request->query('page', 1));
         $limit = min(100, max(1, (int) $request->query('limit', 20)));
@@ -109,7 +119,7 @@ class AdminController extends Controller
             WHERE u.user_type = 'Firmenkunde'
         ");
 
-        $activeFilter = $isActive !== null ? "AND b.is_active = " . ($isActive === 'true' ? 'true' : 'false') : '';
+        $activeFilter = $isActive !== null ? 'AND b.is_active = '.($isActive === 'true' ? 'true' : 'false') : '';
 
         $users = DB::select("
             SELECT u.id as user_id, u.email as user_email, u.user_type,
@@ -143,7 +153,9 @@ class AdminController extends Controller
      */
     public function updateB2cStatus(Request $request, string $userId): JsonResponse
     {
-        if ($denied = $this->ensureAdmin($request)) return $denied;
+        if ($denied = $this->ensureAdmin($request)) {
+            return $denied;
+        }
 
         $validated = $request->validate(['is_active' => 'required|boolean']);
 
@@ -152,11 +164,11 @@ class AdminController extends Controller
             [$validated['is_active'], $userId]
         );
 
-        if (!$affected) {
+        if (! $affected) {
             return response()->json(['error' => 'B2C customer not found', 'user_id' => $userId], 404);
         }
 
-        $customer = DB::selectOne("SELECT id as user_id, email as user_email, user_type, is_active, created_at, updated_at FROM users WHERE id = ?", [$userId]);
+        $customer = DB::selectOne('SELECT id as user_id, email as user_email, user_type, is_active, created_at, updated_at FROM users WHERE id = ?', [$userId]);
 
         return response()->json($customer);
     }
@@ -166,70 +178,43 @@ class AdminController extends Controller
      */
     public function updateB2bStatus(Request $request, string $b2bId): JsonResponse
     {
-        if ($denied = $this->ensureAdmin($request)) return $denied;
+        if ($denied = $this->ensureAdmin($request)) {
+            return $denied;
+        }
 
         $validated = $request->validate(['is_active' => 'required|boolean']);
 
         $affected = DB::update(
-            "UPDATE b2b SET is_active = ?, updated_at = NOW() WHERE b2b_id = ?",
+            'UPDATE b2b SET is_active = ?, updated_at = NOW() WHERE b2b_id = ?',
             [$validated['is_active'], $b2bId]
         );
 
-        if (!$affected) {
+        if (! $affected) {
             return response()->json(['error' => 'B2B customer not found', 'b2b_id' => $b2bId], 404);
         }
 
-        $company = DB::selectOne("SELECT b2b_id, company_name, contact_email, is_active, created_at, updated_at FROM b2b WHERE b2b_id = ?", [$b2bId]);
+        $company = DB::selectOne('SELECT b2b_id, company_name, contact_email, is_active, created_at, updated_at FROM b2b WHERE b2b_id = ?', [$b2bId]);
 
         return response()->json($company);
     }
 
     /**
      * GET /admin/list/orders
+     *
+     * Delegates to AdminQueryService, which builds this listing through
+     * Eloquent's query builder with a validated order_status allow-list —
+     * this used to interpolate `order_status` straight into raw SQL
+     * (`... WHERE 1=1 AND o.order_status = '{$status}'`), a live SQL
+     * injection. The service is the fix, not a rewrite: it already existed,
+     * already parameterized, and was simply never wired in.
      */
     public function orders(Request $request): JsonResponse
     {
-        if ($denied = $this->ensureAdmin($request)) return $denied;
+        if ($denied = $this->ensureAdmin($request)) {
+            return $denied;
+        }
 
-        $page = max(1, (int) $request->query('page', 1));
-        $limit = min(100, max(1, (int) $request->query('limit', 20)));
-        $offset = ($page - 1) * $limit;
-        $status = $request->query('order_status');
-
-        $statusFilter = $status ? "AND o.order_status = '{$status}'" : '';
-
-        $counts = DB::selectOne("
-            SELECT
-                COUNT(*) AS total,
-                COUNT(*) FILTER (WHERE o.order_status IN ('order_placed','confirmed','inspected','workshop','reinspection','reworkshop','order_requested')) AS total_active,
-                COUNT(*) FILTER (WHERE o.order_status = 'confirmed') AS total_confirmed,
-                COUNT(*) FILTER (WHERE o.order_status = 'inspected') AS total_inspected,
-                COUNT(*) FILTER (WHERE o.order_status = 'delivered') AS total_delivered
-            FROM leasyback_orders o
-            WHERE 1=1 {$statusFilter}
-        ");
-
-        $orders = DB::select("
-            SELECT o.id, o.vehicle_id, o.auftragsnummer, o.leasyback_partner, o.order_status,
-                o.sent_at, o.created_at, o.response_status,
-                v.license_plate, v.vin, v.make, v.model
-            FROM leasyback_orders o
-            INNER JOIN vehicles v ON v.vehicle_id = o.vehicle_id
-            WHERE 1=1 {$statusFilter}
-            ORDER BY o.created_at DESC
-            LIMIT ? OFFSET ?
-        ", [$limit, $offset]);
-
-        return response()->json([
-            'page' => $page,
-            'limit' => $limit,
-            'total' => (int) $counts->total,
-            'total_active' => (int) $counts->total_active,
-            'total_confirmed' => (int) $counts->total_confirmed,
-            'total_inspected' => (int) $counts->total_inspected,
-            'total_delivered' => (int) $counts->total_delivered,
-            'data' => $orders,
-        ]);
+        return response()->json($this->adminQueryService->orders($request));
     }
 
     /**
@@ -237,7 +222,10 @@ class AdminController extends Controller
      */
     public function ordersByUserType(Request $request): JsonResponse
     {
-        if ($denied = $this->ensureAdmin($request)) return $denied;
+        if ($denied = $this->ensureAdmin($request)) {
+            return $denied;
+        }
+
         // Simplified — same structure as orders() with user_type filter
         return $this->orders($request);
     }
@@ -247,13 +235,15 @@ class AdminController extends Controller
      */
     public function ordersByUser(Request $request, string $userId): JsonResponse
     {
-        if ($denied = $this->ensureAdmin($request)) return $denied;
+        if ($denied = $this->ensureAdmin($request)) {
+            return $denied;
+        }
 
         $page = max(1, (int) $request->query('page', 1));
         $limit = min(100, max(1, (int) $request->query('limit', 20)));
         $offset = ($page - 1) * $limit;
 
-        $orders = DB::select("
+        $orders = DB::select('
             SELECT o.id, o.vehicle_id, o.auftragsnummer, o.leasyback_partner, o.order_status,
                 o.sent_at, o.created_at, o.response_status,
                 v.license_plate, v.vin, v.make, v.model
@@ -263,7 +253,7 @@ class AdminController extends Controller
             WHERE v.b2c_user_id = ? OR ub.user_id = ?
             ORDER BY o.created_at DESC
             LIMIT ? OFFSET ?
-        ", [$userId, $userId, $limit, $offset]);
+        ', [$userId, $userId, $limit, $offset]);
 
         return response()->json([
             'page' => $page,
@@ -278,22 +268,24 @@ class AdminController extends Controller
      */
     public function vehicles(Request $request): JsonResponse
     {
-        if ($denied = $this->ensureAdmin($request)) return $denied;
+        if ($denied = $this->ensureAdmin($request)) {
+            return $denied;
+        }
 
         $page = max(1, (int) $request->query('page', 1));
         $limit = min(100, max(1, (int) $request->query('limit', 20)));
         $offset = ($page - 1) * $limit;
 
-        $vehicles = DB::select("
+        $vehicles = DB::select('
             SELECT v.vehicle_id, v.license_plate, v.first_registration_date, v.leasing_end_date,
                 v.leasinggeber, v.vin, v.make, v.model, v.vehicle_belongs,
                 v.b2b_id, v.b2c_user_id, v.created_at, v.updated_at
             FROM vehicles v
             ORDER BY v.created_at DESC
             LIMIT ? OFFSET ?
-        ", [$limit, $offset]);
+        ', [$limit, $offset]);
 
-        $total = DB::selectOne("SELECT COUNT(*) AS total FROM vehicles")->total;
+        $total = DB::selectOne('SELECT COUNT(*) AS total FROM vehicles')->total;
 
         return response()->json([
             'page' => $page,
@@ -308,7 +300,10 @@ class AdminController extends Controller
      */
     public function vehiclesByUserType(Request $request): JsonResponse
     {
-        if ($denied = $this->ensureAdmin($request)) return $denied;
+        if ($denied = $this->ensureAdmin($request)) {
+            return $denied;
+        }
+
         return $this->vehicles($request);
     }
 
@@ -317,13 +312,15 @@ class AdminController extends Controller
      */
     public function vehiclesByUser(Request $request, string $userId): JsonResponse
     {
-        if ($denied = $this->ensureAdmin($request)) return $denied;
+        if ($denied = $this->ensureAdmin($request)) {
+            return $denied;
+        }
 
         $page = max(1, (int) $request->query('page', 1));
         $limit = min(100, max(1, (int) $request->query('limit', 20)));
         $offset = ($page - 1) * $limit;
 
-        $vehicles = DB::select("
+        $vehicles = DB::select('
             SELECT v.vehicle_id, v.license_plate, v.first_registration_date, v.leasing_end_date,
                 v.leasinggeber, v.vin, v.make, v.model, v.vehicle_belongs,
                 v.created_at, v.updated_at
@@ -332,7 +329,7 @@ class AdminController extends Controller
             WHERE v.b2c_user_id = ? OR ub.user_id = ?
             ORDER BY v.created_at DESC
             LIMIT ? OFFSET ?
-        ", [$userId, $userId, $limit, $offset]);
+        ', [$userId, $userId, $limit, $offset]);
 
         return response()->json([
             'page' => $page,

@@ -2,13 +2,22 @@
 
 namespace App\Modules\UserProfile\Profile\Http\Requests;
 
+use App\Models\LeasybackUserProfile;
 use Illuminate\Foundation\Http\FormRequest;
 
 class AddressContactRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user() !== null;
+        $user = $this->user();
+
+        if ($user === null) {
+            return false;
+        }
+
+        return $this->isMethod('put')
+            ? $user->can('updateProfile', LeasybackUserProfile::class)
+            : $user->can('createProfile', LeasybackUserProfile::class);
     }
 
     public function rules(): array

@@ -3,15 +3,16 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Workshop extends Model
 {
-    use HasUuids;
+    use HasFactory, HasUuids;
 
     protected $fillable = [
-        'user_id', 'workshop_name', 'logo_url', 'contact_email', 'has_vat_id',
+        'user_id', 'workshop_name', 'logo_url', 'logo_path', 'contact_email', 'has_vat_id',
         'vat_id', 'iban', 'bic', 'account_holder', 'packages_selected',
         'terms_accepted', 'privacy_accepted', 'address_id', 'street', 'number',
         'additional_address', 'zip_code', 'city', 'country', 'longitude',

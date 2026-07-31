@@ -3,6 +3,12 @@
 namespace App\Modules\UserProfile\Vehicle\Services;
 
 use App\Enums\UserType;
+use App\Models\User;
+use App\Models\Vehicle;
+use App\Models\VehicleAuditLog;
+use App\Models\VehicleDocument;
+use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -17,6 +23,142 @@ class VehicleService
         $row = DB::table('user_b2b')->where('user_id', $userId)->first();
 
         return $row?->b2b_id;
+    }
+
+    /**
+     * Create a vehicle, resolving its owner from the authenticated user
+     * (Admin must supply vehicle_belongs/b2b_id/b2c_user_id explicitly;
+     * Firmenkunde/Privatkunde are always assigned to their own company/self).
+     * Used by both the Sanctum API controller and the session-authenticated
+     * web dashboard controller.
+     */
+    public function createVehicle(User $user, array $validated): Vehicle
+    {
+        [$belongs, $b2bId, $b2cUserId] = $this->resolveOwnership($user, $validated);
+
+        return DB::transaction(function () use ($validated, $belongs, $b2bId, $b2cUserId, $user) {
+            $vehicle = Vehicle::create([
+                'license_plate' => $validated['license_plate'],
+                'first_registration_date' => $validated['first_registration_date'] ?? null,
+                'leasing_end_date' => $validated['leasing_end_date'] ?? null,
+                'leasinggeber' => $validated['leasinggeber'] ?? null,
+                'vin' => $validated['vin'] ?? null,
+                'make' => $validated['make'] ?? null,
+                'model' => $validated['model'] ?? null,
+                'b2b_id' => $b2bId,
+                'b2c_user_id' => $b2cUserId,
+                'vehicle_belongs' => $belongs,
+            ]);
+
+            VehicleAuditLog::create([
+                'vehicle_id' => $vehicle->vehicle_id,
+                'action' => 'INSERT',
+                'new_values' => $validated,
+                'changed_by_user_id' => $user->id,
+            ]);
+
+            return $vehicle;
+        });
+    }
+
+    /**
+     * Update a vehicle's own fields (never its owner or license plate).
+     * Ownership authorization is the caller's job (VehiclePolicy) — this
+     * assumes the caller is already allowed to update $vehicle.
+     */
+    public function updateVehicle(Vehicle $vehicle, array $validated, User $user): Vehicle
+    {
+        return DB::transaction(function () use ($vehicle, $validated, $user) {
+            $old = $vehicle->toArray();
+            $vehicle->update(array_filter($validated, fn ($value) => $value !== null));
+
+            VehicleAuditLog::create([
+                'vehicle_id' => $vehicle->vehicle_id,
+                'action' => 'UPDATE',
+                'old_values' => $old,
+                'new_values' => $validated,
+                'changed_by_user_id' => $user->id,
+            ]);
+
+            return $vehicle->fresh();
+        });
+    }
+
+    /**
+     * Store an uploaded vehicle document. The path is always server-derived
+     * — the client never supplies or sees a storage path/key, only the
+     * resulting document_id. Used by both the Sanctum API controller and
+     * the session-authenticated web dashboard controller.
+     */
+    public function uploadDocument(string $vehicleId, UploadedFile $file, string $documentType, User $user): VehicleDocument
+    {
+        $originalName = $file->getClientOriginalName();
+        $safeName = Str::slug(pathinfo($originalName, PATHINFO_FILENAME));
+        $ext = $file->getClientOriginalExtension();
+        $path = "vehicle-documents/{$vehicleId}/{$safeName}-".Str::uuid().".{$ext}";
+
+        Storage::disk('documents')->put($path, file_get_contents($file));
+
+        return VehicleDocument::create([
+            'vehicle_id' => $vehicleId,
+            'document_category' => 'Fahrzeug',
+            'document_type' => $documentType,
+            'original_file_name' => $originalName,
+            'path' => $path,
+            'content_type' => $file->getMimeType(),
+            'file_size' => $file->getSize(),
+            'uploaded_by_user_id' => $user->id,
+        ]);
+    }
+
+    public function deleteDocument(VehicleDocument $document): void
+    {
+        Storage::disk('documents')->delete($document->path);
+        $document->delete();
+    }
+
+    /**
+     * @return array{0: string, 1: ?string, 2: ?int} [belongs, b2b_id, b2c_user_id]
+     */
+    private function resolveOwnership(User $user, array $validated): array
+    {
+        return match ($user->user_type->value) {
+            'Admin' => $this->resolveAdminOwnership($validated),
+            'Firmenkunde' => $this->resolveFirmenkundeOwnership($user),
+            'Privatkunde' => ['B2C', null, $user->id],
+            default => $this->fail(400, 'Not proper user type'),
+        };
+    }
+
+    private function resolveAdminOwnership(array $validated): array
+    {
+        $belongs = $validated['vehicle_belongs'] ?? abort(422, 'vehicle_belongs is required for Admin');
+
+        if ($belongs === 'B2B') {
+            $b2bId = $validated['b2b_id'] ?? abort(422, 'b2b_id is required for B2B vehicle');
+
+            return ['B2B', $b2bId, null];
+        }
+
+        $b2cUserId = $validated['b2c_user_id'] ?? abort(422, 'b2c_user_id is required for B2C vehicle');
+
+        return ['B2C', null, $b2cUserId];
+    }
+
+    private function resolveFirmenkundeOwnership(User $user): array
+    {
+        $b2bId = $this->getB2bIdByUser((string) $user->id);
+
+        if (! $b2bId) {
+            $this->fail(404, 'Not Found: B2B profile not found');
+        }
+
+        return ['B2B', $b2bId, null];
+    }
+
+    private function fail(int $status, string $message): never
+    {
+        throw new HttpResponseException(response()->json(['error' => $message], $status));
     }
 
     /**
@@ -83,11 +225,14 @@ class VehicleService
     }
 
     /**
-     * Generate a signed URL for an S3 key.
+     * Generate a temporary signed URL for a document's storage path, via the
+     * swappable `documents` disk (see config/filesystems.php) rather than a
+     * hardcoded 's3' disk — works the same on local or S3 without this
+     * method changing.
      */
-    public function generateSignedUrl(string $s3Key, int $expiresInSeconds = 10800): string
+    public function generateSignedUrl(string $path, int $expiresInSeconds = 10800): string
     {
-        return Storage::disk('s3')->temporaryUrl($s3Key, now()->addSeconds($expiresInSeconds));
+        return Storage::disk('documents')->temporaryUrl($path, now()->addSeconds($expiresInSeconds));
     }
 
     /**
@@ -191,12 +336,11 @@ class VehicleService
 
                 $reportDocsArr = [];
                 foreach ($reportDocs as $doc) {
-                    $signedUrl = $this->generateSignedUrl($doc->s3_key, 1800); // 30 min
                     $reportDocsArr[] = [
                         'id' => $doc->id,
                         'document_type' => $doc->document_type,
                         'document_title' => $doc->document_title,
-                        's3_url' => $signedUrl,
+                        'url' => $this->generateSignedUrl($doc->path, 1800), // 30 min
                         'published' => $doc->published,
                         'created_at' => $doc->created_at,
                         'updated_at' => $doc->updated_at,
@@ -220,6 +364,19 @@ class VehicleService
                 ];
             }
 
+            $documents = DB::table('vehicle_documents')
+                ->where('vehicle_id', $vehicle->vehicle_id)
+                ->orderByDesc('created_at')
+                ->get()
+                ->map(fn ($doc) => [
+                    'document_id' => $doc->document_id,
+                    'document_type' => $doc->document_type,
+                    'original_file_name' => $doc->original_file_name,
+                    'created_at' => $doc->created_at,
+                ])
+                ->values()
+                ->toArray();
+
             $result[] = [
                 'vehicle_id' => $vehicle->vehicle_id,
                 'license_plate' => $vehicle->license_plate,
@@ -233,6 +390,7 @@ class VehicleService
                 'created_at' => $vehicle->created_at,
                 'updated_at' => $vehicle->updated_at,
                 'orders' => $ordersArr,
+                'documents' => $documents,
             ];
         }
 

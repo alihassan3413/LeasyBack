@@ -3,13 +3,25 @@
 namespace App\Modules\UserProfile\Vehicle\Models;
 
 use App\Models\User;
+use Database\Factories\VehicleDocumentFactory;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Str;
 
 class VehicleDocument extends Model
 {
+    use HasFactory;
+
+    protected static function newFactory(): VehicleDocumentFactory
+    {
+        return VehicleDocumentFactory::new();
+    }
+
     protected $primaryKey = 'document_id';
+
     public $incrementing = false;
+
     protected $keyType = 'string';
 
     protected $fillable = [
@@ -18,7 +30,7 @@ class VehicleDocument extends Model
         'document_category',
         'document_type',
         'original_file_name',
-        's3_key',
+        'path',
         'content_type',
         'file_size',
         'uploaded_by_user_id',
@@ -32,7 +44,7 @@ class VehicleDocument extends Model
     {
         static::creating(function (self $model) {
             if (empty($model->document_id)) {
-                $model->document_id = (string) \Illuminate\Support\Str::uuid();
+                $model->document_id = (string) Str::uuid();
             }
         });
     }
