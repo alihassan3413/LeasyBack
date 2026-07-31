@@ -1,4 +1,5 @@
 import type { LucideIcon } from 'lucide-vue-next';
+import type { UserType } from './auth';
 
 export interface Auth {
     user: User;
@@ -30,13 +31,16 @@ export interface SharedData {
 }
 
 export interface User {
-    id: number;
     name: string;
     email: string;
+    /**
+     * Not currently sent by the backend (see HandleInertiaRequests::share())
+     * — kept optional so existing avatar-fallback logic (UserInfo.vue) keeps
+     * compiling and behaving exactly as it does today (always undefined).
+     */
     avatar?: string;
     email_verified_at: string | null;
-    created_at: string;
-    updated_at: string;
+    user_type: UserType;
 }
 
 export type BreadcrumbItemType = BreadcrumbItem;

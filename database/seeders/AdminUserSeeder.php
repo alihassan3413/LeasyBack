@@ -13,17 +13,21 @@ class AdminUserSeeder extends Seeder
      */
     public function run(): void
     {
-        User::updateOrCreate(
-            ['email' => 'admin@leasyback.com'],
-            [
+        // forceFill() is deliberate here: `user_type`, `is_active`, and
+        // `email_verified_at` are intentionally excluded from User::$fillable
+        // (privilege-relevant fields must never be mass-assignable from
+        // request input), but this seeder is trusted, non-HTTP-facing
+        // bootstrap code, not request input.
+        User::firstOrNew(['email' => 'admin@leasyback.com'])
+            ->forceFill([
                 'name' => 'Leasyback Admin',
                 'email' => 'admin@leasyback.com',
                 'user_type' => 'Admin',
                 'password' => Hash::make('Admin@1234'),
                 'is_active' => true,
                 'email_verified_at' => now(),
-            ]
-        );
+            ])
+            ->save();
 
         $this->command->info('Admin user seeded: admin@leasyback.com / Admin@1234');
     }

@@ -4,6 +4,7 @@ namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use App\Enums\UserType;
+use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -14,18 +15,23 @@ use Laravel\Sanctum\HasApiTokens;
 
 class User extends Authenticatable
 {
-    /** @use HasFactory<\Database\Factories\UserFactory> */
+    /** @use HasFactory<UserFactory> */
     use HasApiTokens, HasFactory, Notifiable;
 
     /**
      * The attributes that are mass assignable.
+     *
+     * Deliberately excludes `user_type` and `is_active`: both are
+     * privilege-relevant (self-registration as Admin, account
+     * activation state) and must only ever be set through explicit,
+     * reviewed code paths (e.g. AuthController::register,
+     * AdminUserSeeder), never through mass-assigned request input.
      *
      * @var list<string>
      */
     protected $fillable = [
         'name',
         'email',
-        'user_type',
         'password',
         'phone',
         'address',
@@ -33,7 +39,6 @@ class User extends Authenticatable
         'zip_code',
         'country',
         'avatar_path',
-        'is_active',
     ];
 
     /**

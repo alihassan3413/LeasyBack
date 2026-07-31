@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import InputError from '@/components/InputError.vue';
+import PasswordRequirements from '@/components/auth/PasswordRequirements.vue';
+import FormField from '@/components/form/FormField.vue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { PasswordInput } from '@/components/ui/password-input';
 import AuthLayout from '@/layouts/AuthLayout.vue';
 import { Head, useForm } from '@inertiajs/vue3';
-import { LoaderCircle } from 'lucide-vue-next';
 
 interface Props {
     token: string;
@@ -31,50 +31,53 @@ const submit = () => {
 </script>
 
 <template>
-    <AuthLayout title="Reset password" description="Please enter your new password below">
-        <Head title="Reset password" />
+    <AuthLayout title="Neues Passwort festlegen" description="Bitte gib dein neues Passwort ein">
+        <Head title="Neues Passwort festlegen" />
 
         <form @submit.prevent="submit">
             <div class="grid gap-6">
-                <div class="grid gap-2">
-                    <Label for="email">Email</Label>
-                    <Input id="email" type="email" name="email" autocomplete="email" v-model="form.email" class="mt-1 block w-full" readonly />
-                    <InputError :message="form.errors.email" class="mt-2" />
-                </div>
-
-                <div class="grid gap-2">
-                    <Label for="password">Password</Label>
+                <FormField id="email" v-slot="{ id, describedBy, invalid }" label="E-Mail-Adresse" :error="form.errors.email">
                     <Input
-                        id="password"
-                        type="password"
-                        name="password"
-                        autocomplete="new-password"
+                        :id="id"
+                        v-model="form.email"
+                        type="email"
+                        autocomplete="email"
+                        readonly
+                        :aria-invalid="invalid"
+                        :aria-describedby="describedBy"
+                    />
+                </FormField>
+
+                <FormField id="password" v-slot="{ id, describedBy, invalid }" label="Neues Passwort" :error="form.errors.password">
+                    <PasswordInput
+                        :id="id"
                         v-model="form.password"
-                        class="mt-1 block w-full"
-                        autofocus
-                        placeholder="Password"
-                    />
-                    <InputError :message="form.errors.password" />
-                </div>
-
-                <div class="grid gap-2">
-                    <Label for="password_confirmation"> Confirm Password </Label>
-                    <Input
-                        id="password_confirmation"
-                        type="password"
-                        name="password_confirmation"
                         autocomplete="new-password"
-                        v-model="form.password_confirmation"
-                        class="mt-1 block w-full"
-                        placeholder="Confirm password"
+                        autofocus
+                        placeholder="Neues Passwort"
+                        :aria-invalid="invalid"
+                        :aria-describedby="[describedBy, 'password-requirements'].filter(Boolean).join(' ')"
                     />
-                    <InputError :message="form.errors.password_confirmation" />
-                </div>
+                    <PasswordRequirements id="password-requirements" />
+                </FormField>
 
-                <Button type="submit" class="mt-4 w-full" :disabled="form.processing">
-                    <LoaderCircle v-if="form.processing" class="h-4 w-4 animate-spin" />
-                    Reset password
-                </Button>
+                <FormField
+                    id="password_confirmation"
+                    v-slot="{ id, describedBy, invalid }"
+                    label="Passwort bestätigen"
+                    :error="form.errors.password_confirmation"
+                >
+                    <PasswordInput
+                        :id="id"
+                        v-model="form.password_confirmation"
+                        autocomplete="new-password"
+                        placeholder="Passwort wiederholen"
+                        :aria-invalid="invalid"
+                        :aria-describedby="describedBy"
+                    />
+                </FormField>
+
+                <Button type="submit" class="mt-4 w-full" :loading="form.processing"> Passwort zurücksetzen </Button>
             </div>
         </form>
     </AuthLayout>

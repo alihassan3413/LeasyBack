@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Auth;
 
 use Illuminate\Auth\Events\Lockout;
+use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
@@ -22,7 +23,7 @@ class LoginRequest extends FormRequest
     /**
      * Get the validation rules that apply to the request.
      *
-     * @return array<string, \Illuminate\Contracts\Validation\ValidationRule|array<mixed>|string>
+     * @return array<string, ValidationRule|array<mixed>|string>
      */
     public function rules(): array
     {
@@ -35,17 +36,29 @@ class LoginRequest extends FormRequest
     /**
      * Attempt to authenticate the request's credentials.
      *
-     * @throws \Illuminate\Validation\ValidationException
+     * @throws ValidationException
      */
     public function authenticate(): void
     {
         $this->ensureIsNotRateLimited();
 
-        if (! Auth::attempt($this->only('email', 'password'), $this->boolean('remember'))) {
+        // The is_active constraint is folded into the same credential lookup
+        // (not checked separately after success) so a deactivated account
+        // fails identically to a wrong password — no enumeration.
+        $credentials = $this->only('email', 'password');
+        $credentials[] = fn ($query) => $query->where('is_active', true);
+
+        if (! Auth::attempt($credentials, $this->boolean('remember'))) {
             RateLimiter::hit($this->throttleKey());
 
+            // Bug found and fixed here: trans('auth.failed') passes a raw
+            // translation key to trans(). This app has no lang/ directory
+            // (see docs/AUTH_MODULE.md), so trans() had nothing to translate
+            // it against and returned the key verbatim — a real user would
+            // have seen the literal string "auth.failed" on every wrong
+            // password, not an actual message.
             throw ValidationException::withMessages([
-                'email' => trans('auth.failed'),
+                'email' => 'Diese Anmeldedaten stimmen nicht mit unseren Aufzeichnungen überein.',
             ]);
         }
 
@@ -55,7 +68,7 @@ class LoginRequest extends FormRequest
     /**
      * Ensure the login request is not rate limited.
      *
-     * @throws \Illuminate\Validation\ValidationException
+     * @throws ValidationException
      */
     public function ensureIsNotRateLimited(): void
     {
@@ -67,11 +80,12 @@ class LoginRequest extends FormRequest
 
         $seconds = RateLimiter::availableIn($this->throttleKey());
 
+        // Same trans()-with-no-lang-directory bug as above: this used to
+        // render as the literal string "auth.throttle" with the :seconds/
+        // :minutes placeholders never substituted (placeholder substitution
+        // only happens against a *found* translation line, not the raw key).
         throw ValidationException::withMessages([
-            'email' => trans('auth.throttle', [
-                'seconds' => $seconds,
-                'minutes' => ceil($seconds / 60),
-            ]),
+            'email' => "Zu viele Anmeldeversuche. Bitte versuche es in {$seconds} Sekunden erneut.",
         ]);
     }
 

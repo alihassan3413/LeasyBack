@@ -39,6 +39,26 @@ class ChangePasswordRequest extends FormRequest
     }
 
     /**
+     * Extra Scribe documentation (description/example) for each body
+     * parameter, layered on top of rules() above.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    public function bodyParameters(): array
+    {
+        return [
+            'current_password' => [
+                'description' => 'The user\'s current password, for verification.',
+                'example' => 'correct-horse-battery-staple',
+            ],
+            'new_password' => [
+                'description' => 'The new password, 8–128 characters, must differ from the current password.',
+                'example' => 'another-horse-battery-staple',
+            ],
+        ];
+    }
+
+    /**
      * Custom error messages.
      *
      * @return array<string, string>

@@ -43,6 +43,38 @@ class ProfileUpdateTest extends TestCase
         $this->assertNull($user->email_verified_at);
     }
 
+    public function test_profile_email_update_rejects_case_insensitive_duplicate(): void
+    {
+        User::factory()->create(['email' => 'Taken@Example.com']);
+        $user = User::factory()->create();
+
+        $response = $this
+            ->actingAs($user)
+            ->patch('/settings/profile', [
+                'name' => 'Test User',
+                'email' => 'taken@example.com',
+            ]);
+
+        $response->assertSessionHasErrors('email');
+        $this->assertNotSame('taken@example.com', $user->refresh()->email);
+    }
+
+    public function test_profile_email_update_allows_keeping_own_email_unchanged_case_insensitively(): void
+    {
+        // CaseInsensitiveUniqueEmail must ignore the current user's own row.
+        $user = User::factory()->create(['email' => 'mixedcase@example.com']);
+
+        $response = $this
+            ->actingAs($user)
+            ->patch('/settings/profile', [
+                'name' => 'Test User',
+                'email' => 'MixedCase@Example.com',
+            ]);
+
+        $response->assertSessionHasNoErrors();
+        $this->assertSame('MixedCase@Example.com', $user->refresh()->email);
+    }
+
     public function test_email_verification_status_is_unchanged_when_the_email_address_is_unchanged()
     {
         $user = User::factory()->create();

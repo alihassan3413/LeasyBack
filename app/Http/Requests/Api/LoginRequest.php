@@ -38,6 +38,26 @@ class LoginRequest extends FormRequest
     }
 
     /**
+     * Extra Scribe documentation (description/example) for each body
+     * parameter, layered on top of rules() above.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    public function bodyParameters(): array
+    {
+        return [
+            'user_email' => [
+                'description' => 'The account email address.',
+                'example' => 'jane.doe@example.com',
+            ],
+            'password' => [
+                'description' => 'The account password.',
+                'example' => 'correct-horse-battery-staple',
+            ],
+        ];
+    }
+
+    /**
      * Return JSON validation errors for API responses.
      */
     protected function failedValidation(Validator $validator): void

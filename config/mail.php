@@ -49,6 +49,18 @@ return [
             'local_domain' => env('MAIL_EHLO_DOMAIN', parse_url(env('APP_URL', 'http://localhost'), PHP_URL_HOST)),
         ],
 
+        // SendGrid via SMTP relay — the "apikey" username is a SendGrid-mandated
+        // literal, not a placeholder; the real credential is the API key itself
+        // (SENDGRID_API_KEY). Set MAIL_MAILER=sendgrid in production to use this.
+        'sendgrid' => [
+            'transport' => 'smtp',
+            'host' => env('SENDGRID_SMTP_HOST', 'smtp.sendgrid.net'),
+            'port' => env('SENDGRID_SMTP_PORT', 587),
+            'username' => 'apikey',
+            'password' => env('SENDGRID_API_KEY'),
+            'timeout' => null,
+        ],
+
         'ses' => [
             'transport' => 'ses',
         ],
