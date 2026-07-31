@@ -2,29 +2,17 @@ import { onMounted, ref } from 'vue';
 
 type Appearance = 'light' | 'dark' | 'system';
 
-export function updateTheme(value: Appearance) {
-    if (value === 'system') {
-        const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-        document.documentElement.classList.toggle('dark', systemTheme === 'dark');
-    } else {
-        document.documentElement.classList.toggle('dark', value === 'dark');
-    }
+// Dark mode is disabled app-wide for now (light only) — see
+// docs/AUTH_FRONTEND_IMPLEMENTATION_PLAN.md. This is the single point of
+// control: re-enabling later means restoring the system/dark branches below,
+// nothing else needs to change (AppearanceTabs.vue, localStorage, etc. are
+// all left intact, just inert while this is disabled).
+export function updateTheme() {
+    document.documentElement.classList.remove('dark');
 }
 
-const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-
-const handleSystemThemeChange = () => {
-    const currentAppearance = localStorage.getItem('appearance') as Appearance | null;
-    updateTheme(currentAppearance || 'system');
-};
-
 export function initializeTheme() {
-    // Initialize theme from saved preference or default to system...
-    const savedAppearance = localStorage.getItem('appearance') as Appearance | null;
-    updateTheme(savedAppearance || 'system');
-
-    // Set up system theme change listener...
-    mediaQuery.addEventListener('change', handleSystemThemeChange);
+    updateTheme('light');
 }
 
 export function useAppearance() {

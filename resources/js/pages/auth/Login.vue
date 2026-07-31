@@ -1,14 +1,12 @@
 <script setup lang="ts">
-import AuthStatusMessage from '@/components/auth/AuthStatusMessage.vue';
 import FormField from '@/components/form/FormField.vue';
-import TextLink from '@/components/TextLink.vue';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PasswordInput } from '@/components/ui/password-input';
 import AuthBase from '@/layouts/AuthLayout.vue';
-import { Head, useForm } from '@inertiajs/vue3';
+import { Head, Link, useForm } from '@inertiajs/vue3';
 
 defineProps<{
     status?: string;
@@ -26,16 +24,31 @@ const submit = () => {
         onFinish: () => form.reset('password'),
     });
 };
+
+// Design match note: this input styling (rounded-[5px], border-brand-green-gray,
+// bg-white, px-3 py-2.5 text-sm) intentionally overrides the shared Input/
+// PasswordInput's default look to match leasyback_web exactly on this page.
+const fieldClass = 'h-auto rounded-[5px] border-brand-green-gray bg-white px-3 py-2.5 text-sm';
 </script>
 
 <template>
-    <AuthBase title="Anmelden" description="Gib deine E-Mail-Adresse und dein Passwort ein, um dich anzumelden">
+    <AuthBase>
         <Head title="Anmelden" />
 
-        <AuthStatusMessage v-if="status">{{ status }}</AuthStatusMessage>
+        <div class="flex flex-col lg:min-h-145">
+            <p class="text-brand-teal mx-auto mt-10 mb-14 max-w-73 text-left text-lg font-bold sm:mt-16.25 sm:mb-25 xl:mt-22.75 xl:mb-35 xl:text-xl">
+                Hallo! Willkommen zurück!
+            </p>
 
-        <form class="flex flex-col gap-6" @submit.prevent="submit">
-            <div class="grid gap-6">
+            <img src="/leasyback-logo-dark.svg" alt="LeasyBack" class="mx-auto -mt-6 mb-8 h-auto w-full max-w-55 lg:hidden" />
+
+            <div class="flex-1" />
+
+            <div v-if="status" class="mb-4 rounded-[5px] border border-green-300 bg-green-50 p-3 text-center text-sm text-green-700">
+                {{ status }}
+            </div>
+
+            <form class="space-y-5" @submit.prevent="submit">
                 <FormField id="email" v-slot="{ id, describedBy, invalid }" label="E-Mail-Adresse" :error="form.errors.email">
                     <Input
                         :id="id"
@@ -45,30 +58,39 @@ const submit = () => {
                         autofocus
                         tabindex="1"
                         autocomplete="email"
-                        placeholder="name@beispiel.de"
+                        placeholder="E-Mail-Adresse"
+                        :class="fieldClass"
                         :aria-invalid="invalid"
                         :aria-describedby="describedBy"
                     />
                 </FormField>
 
-                <FormField id="password" v-slot="{ id, describedBy, invalid }" :error="form.errors.password">
-                    <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-                        <Label :for="id">Passwort</Label>
-                        <TextLink v-if="canResetPassword" :href="route('password.request')" class="text-sm" tabindex="5">
-                            Passwort vergessen?
-                        </TextLink>
-                    </div>
-                    <PasswordInput
-                        :id="id"
-                        v-model="form.password"
-                        required
-                        tabindex="2"
-                        autocomplete="current-password"
-                        placeholder="Passwort"
-                        :aria-invalid="invalid"
-                        :aria-describedby="describedBy"
-                    />
-                </FormField>
+                <div>
+                    <FormField id="password" v-slot="{ id, describedBy, invalid }" label="Passwort" :error="form.errors.password">
+                        <PasswordInput
+                            :id="id"
+                            v-model="form.password"
+                            required
+                            tabindex="2"
+                            autocomplete="current-password"
+                            placeholder="Passwort"
+                            :class="fieldClass"
+                            :aria-invalid="invalid"
+                            :aria-describedby="describedBy"
+                        />
+                    </FormField>
+
+                    <p class="text-brand-green-gray mt-1.5 text-xs">Mindestens 8 Zeichen.</p>
+
+                    <Link
+                        v-if="canResetPassword"
+                        :href="route('password.request')"
+                        tabindex="5"
+                        class="text-brand-green mt-1 block text-[14px] font-bold underline decoration-[1.12px] underline-offset-[2.8px]"
+                    >
+                        Passwort vergessen?
+                    </Link>
+                </div>
 
                 <div class="flex items-center justify-between" tabindex="3">
                     <Label for="remember" class="flex items-center space-x-3">
@@ -77,13 +99,22 @@ const submit = () => {
                     </Label>
                 </div>
 
-                <Button type="submit" class="mt-4 w-full" tabindex="4" :loading="form.processing"> Anmelden </Button>
-            </div>
+                <div class="pt-6">
+                    <Button
+                        type="submit"
+                        tabindex="4"
+                        :disabled="form.processing"
+                        class="bg-brand-orange hover:bg-brand-orange/90 h-auto w-full rounded-[5px] py-3 text-sm font-bold text-white shadow-none"
+                    >
+                        {{ form.processing ? 'Einloggen…' : 'Einloggen' }}
+                    </Button>
+                </div>
+            </form>
 
-            <div class="text-muted-foreground text-center text-sm">
-                Sie sind noch kein Kunde bei uns?
-                <TextLink :href="route('register')" :tabindex="5">Hier registrieren</TextLink>
-            </div>
-        </form>
+            <p class="text-brand-black mt-5 text-center text-sm">
+                Sind Sie noch kein Kunde bei uns?
+                <Link :href="route('register')" tabindex="5" class="text-brand-orange">Hier registrieren</Link>
+            </p>
+        </div>
     </AuthBase>
 </template>
