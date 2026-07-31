@@ -31,15 +31,16 @@ class RegisteredUserController extends Controller
         $validated = $request->validated();
 
         $user = User::create([
-            'name' => $validated['name'],
+            'name' => $validated['name'] ?? explode('@', $validated['email'])[0],
             'email' => $validated['email'],
             'password' => Hash::make($validated['password']),
         ]);
 
-        // `user_type` is intentionally not mass-assignable (see User::$fillable).
-        // Self-service web registration always creates a Privatkunde account;
-        // Firmenkunde/Werkstatt/Admin accounts are provisioned by other means.
-        $user->user_type = UserType::Privatkunde;
+        // `user_type` is intentionally not mass-assignable (see User::$fillable) —
+        // set explicitly here from the validated, allow-listed value. Admin can
+        // never reach this: RegisterRequest restricts user_type to
+        // UserType::registrableValues(), which excludes Admin.
+        $user->user_type = UserType::from($validated['user_type']);
         $user->save();
 
         event(new Registered($user));
