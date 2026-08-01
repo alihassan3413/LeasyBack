@@ -114,6 +114,60 @@ class VehicleControllerTest extends TestCase
         $this->assertSame('Original', $vehicle->fresh()->make);
     }
 
+    /**
+     * Regression test for the Checkpoint 10 StoreVehicleRequest hardening:
+     * b2c_user_id/b2b_id previously had no exists: rule, so a bogus id from
+     * an Admin caller would hit the DB's FK constraint raw (a QueryException,
+     * not a clean validation error). docs/B2C_ADMIN_PERMISSION_MATRIX.md's
+     * Vehicle `create` row requires the owner to be "validated to be a real
+     * user/company".
+     */
+    public function test_admin_creating_a_vehicle_for_a_nonexistent_b2c_owner_gets_a_validation_error(): void
+    {
+        $admin = User::factory()->create(['user_type' => UserType::Admin]);
+
+        $response = $this->withHeaders($this->bearer($admin))
+            ->postJson('/vehicle/create', [
+                'license_plate' => 'K LB 2026',
+                'vehicle_belongs' => 'B2C',
+                'b2c_user_id' => 999999,
+            ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('b2c_user_id');
+        $this->assertDatabaseMissing('vehicles', ['license_plate' => 'K LB 2026']);
+    }
+
+    public function test_admin_can_create_a_vehicle_for_a_real_b2c_owner(): void
+    {
+        $admin = User::factory()->create(['user_type' => UserType::Admin]);
+        $customer = User::factory()->create(['user_type' => UserType::Privatkunde]);
+
+        $response = $this->withHeaders($this->bearer($admin))
+            ->postJson('/vehicle/create', [
+                'license_plate' => 'K LB 2026',
+                'vehicle_belongs' => 'B2C',
+                'b2c_user_id' => $customer->id,
+            ]);
+
+        $response->assertCreated();
+        $this->assertDatabaseHas('vehicles', [
+            'license_plate' => 'K LB 2026',
+            'vehicle_belongs' => 'B2C',
+            'b2c_user_id' => $customer->id,
+        ]);
+    }
+
+    public function test_admin_creating_a_vehicle_without_vehicle_belongs_gets_a_validation_error(): void
+    {
+        $admin = User::factory()->create(['user_type' => UserType::Admin]);
+
+        $this->withHeaders($this->bearer($admin))
+            ->postJson('/vehicle/create', ['license_plate' => 'K LB 2026'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('vehicle_belongs');
+    }
+
     public function test_non_owner_cannot_assign_profile_to_vehicle(): void
     {
         $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);

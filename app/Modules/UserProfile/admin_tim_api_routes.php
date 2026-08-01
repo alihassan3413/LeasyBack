@@ -22,7 +22,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('list/orders', [AdminController::class, 'orders'])->name('orders.index');
         Route::get('list/orders/by-user-type', [AdminController::class, 'ordersByUserType'])->name('orders.by-user-type');
         Route::get('list/orders/user/{userId}', [AdminController::class, 'ordersByUser'])->name('orders.by-user');
-        Route::get('list/vehicles', [AdminController::class, 'vehicles'])->name('vehicles.index');
+        Route::get('list/vehicles', [AdminController::class, 'vehicles'])->name('vehicles.list');
         Route::get('list/vehicles/by-user-type', [AdminController::class, 'vehiclesByUserType'])->name('vehicles.by-user-type');
         Route::get('list/vehicles/user/{userId}', [AdminController::class, 'vehiclesByUser'])->name('vehicles.by-user');
         Route::post('vehicle/report/transfer', [VehicleReportController::class, 'transfer'])->name('vehicle-report.transfer');

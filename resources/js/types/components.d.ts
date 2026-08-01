@@ -53,6 +53,7 @@ declare module 'vue' {
     Collapsible: typeof import('./../components/ui/collapsible/Collapsible.vue')['default']
     CollapsibleContent: typeof import('./../components/ui/collapsible/CollapsibleContent.vue')['default']
     CollapsibleTrigger: typeof import('./../components/ui/collapsible/CollapsibleTrigger.vue')['default']
+    CreateVehicleModal: typeof import('./../components/admin/CreateVehicleModal.vue')['default']
     CtaSection: typeof import('./../components/landing/CtaSection.vue')['default']
     DeleteUser: typeof import('./../components/DeleteUser.vue')['default']
     Dialog: typeof import('./../components/ui/dialog/Dialog.vue')['default']
@@ -177,6 +178,7 @@ declare module 'vue' {
     TooltipTrigger: typeof import('./../components/ui/tooltip/TooltipTrigger.vue')['default']
     TrustBar: typeof import('./../components/landing/TrustBar.vue')['default']
     UploadDocumentModal: typeof import('./../components/vehicle/UploadDocumentModal.vue')['default']
+    UploadReportDocumentModal: typeof import('./../components/admin/UploadReportDocumentModal.vue')['default']
     UserInfo: typeof import('./../components/UserInfo.vue')['default']
     UserMenuContent: typeof import('./../components/UserMenuContent.vue')['default']
   }

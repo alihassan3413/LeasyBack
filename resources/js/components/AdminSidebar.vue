@@ -5,10 +5,10 @@
  * AppLogo) but has its own nav and color scheme, matching
  * leasyback_web's src/components/admin/AdminSidebar.vue: same four items in
  * the same order (Dashboard, Kunden, Fahrzeuge, Alle Aufträge) and the same
- * dark teal→green brand palette. Only Dashboard and Kunden are real routes
- * so far — Fahrzeuge/Alle Aufträge are Checkpoints 10/11's job; shown here
- * as disabled placeholders (the intended IA, honestly not-yet-built)
- * rather than broken links or a fabricated "coming soon" page.
+ * dark teal→green brand palette. Dashboard/Kunden/Fahrzeuge are real routes;
+ * Alle Aufträge is Checkpoint 11's job — shown here as a disabled
+ * placeholder (the intended IA, honestly not-yet-built) rather than a
+ * broken link or a fabricated "coming soon" page.
  */
 import AppLogo from '@/components/AppLogo.vue';
 import NavFooter from '@/components/NavFooter.vue';
@@ -40,12 +40,14 @@ const mainNavItems: NavItem[] = [
         href: route('admin.customers.index'),
         icon: Users,
     },
+    {
+        title: 'Fahrzeuge',
+        href: route('admin.vehicles.index'),
+        icon: Car,
+    },
 ];
 
-const upcomingNavItems: { title: string; icon: typeof Car }[] = [
-    { title: 'Fahrzeuge', icon: Car },
-    { title: 'Alle Aufträge', icon: ClipboardList },
-];
+const upcomingNavItems: { title: string; icon: typeof ClipboardList }[] = [{ title: 'Alle Aufträge', icon: ClipboardList }];
 
 const footerNavItems: NavItem[] = [
     {

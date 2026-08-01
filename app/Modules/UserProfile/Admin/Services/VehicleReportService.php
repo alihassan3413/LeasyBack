@@ -1,0 +1,154 @@
+<?php
+
+namespace App\Modules\UserProfile\Admin\Services;
+
+use App\Models\AssessmentDocument;
+use App\Models\User;
+use App\Models\VehicleReportDocument;
+use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+
+/**
+ * Vehicle report/invoice document management — moved out of the Sanctum
+ * API's Admin\Http\Controllers\VehicleReportController (unchanged logic,
+ * unchanged response shapes) so the new session-authenticated web Admin
+ * vehicle detail page can reuse it without duplicating the storage/DB
+ * calls. Authorization (VehicleReportDocumentPolicy) stays the caller's
+ * job in both controllers, same as every other *Service in this app.
+ */
+class VehicleReportService
+{
+    /**
+     * @return array{document: VehicleReportDocument}
+     */
+    public function transfer(array $validated, User $user): array
+    {
+        $existing = VehicleReportDocument::where('source_assessment_document_id', $validated['source_assessment_document_id'])->first();
+        if ($existing) {
+            $this->fail(409, 'This assessment document is already transferred', ['document' => $existing]);
+        }
+
+        $source = AssessmentDocument::findOrFail($validated['source_assessment_document_id']);
+
+        $bytes = Storage::disk('s3')->get($source->s3_key);
+        if ($bytes === null) {
+            $this->fail(500, 'Source assessment document could not be read from storage');
+        }
+
+        $filename = basename($source->s3_key);
+        $destPath = "vehicle-reports/{$validated['auftragsnummer']}/{$filename}";
+        Storage::disk('documents')->put($destPath, $bytes);
+
+        $doc = VehicleReportDocument::create([
+            'auftragsnummer' => $validated['auftragsnummer'],
+            'vehicle_id' => $validated['vehicle_id'],
+            'document_type' => $validated['document_type'] ?? null,
+            'document_title' => $validated['document_title'] ?? null,
+            'path' => $destPath,
+            'published' => $validated['published'] ?? false,
+            'source_assessment_document_id' => $validated['source_assessment_document_id'],
+            'created_by_user_id' => $user->id,
+            'updated_by_user_id' => $user->id,
+        ]);
+
+        return ['document' => $doc];
+    }
+
+    /**
+     * @return array{document: VehicleReportDocument}
+     */
+    public function upload(string $auftragsnummer, string $vehicleId, UploadedFile $file, ?string $documentType, ?string $documentTitle, bool $published, User $user): array
+    {
+        $originalFilename = $file->getClientOriginalName();
+        $path = "vehicle-reports/{$auftragsnummer}/{$originalFilename}";
+
+        $existing = VehicleReportDocument::where('vehicle_id', $vehicleId)
+            ->where('auftragsnummer', $auftragsnummer)
+            ->where('path', $path)
+            ->first();
+
+        if ($existing) {
+            $this->fail(409, 'A file with this name already exists for this vehicle and auftragsnummer', [
+                'file_name' => $originalFilename,
+                'existing_document' => $existing,
+            ]);
+        }
+
+        Storage::disk('documents')->put($path, file_get_contents($file));
+
+        $doc = VehicleReportDocument::create([
+            'auftragsnummer' => $auftragsnummer,
+            'vehicle_id' => $vehicleId,
+            'document_type' => $documentType,
+            'document_title' => $documentTitle,
+            'path' => $path,
+            'published' => $published,
+            'created_by_user_id' => $user->id,
+            'updated_by_user_id' => $user->id,
+        ]);
+
+        return ['document' => $doc];
+    }
+
+    /**
+     * @return array{message: string, action?: string, document: VehicleReportDocument}
+     */
+    public function publish(string $documentId, bool $published, User $user): array
+    {
+        $doc = VehicleReportDocument::find($documentId);
+        if (! $doc) {
+            $this->fail(404, 'Vehicle report document not found');
+        }
+
+        if ($doc->published === $published) {
+            return ['message' => 'Document published status is already same', 'document' => $doc];
+        }
+
+        $doc->update(['published' => $published, 'updated_by_user_id' => $user->id]);
+
+        return [
+            'message' => 'Document published status updated successfully',
+            'action' => $published ? 'published' : 'unpublished',
+            'document' => $doc->fresh(),
+        ];
+    }
+
+    /**
+     * @return array{message: string, document_id: string, auftragsnummer: string, vehicle_id: string}
+     */
+    public function delete(string $documentId): array
+    {
+        $doc = VehicleReportDocument::find($documentId);
+        if (! $doc) {
+            $this->fail(404, 'Vehicle report document not found');
+        }
+
+        $orderStatus = DB::table('leasyback_orders')
+            ->where('auftragsnummer', $doc->auftragsnummer)
+            ->value('order_status');
+
+        if ($orderStatus === 'delivered') {
+            $this->fail(409, 'Document cannot be deleted because order status is delivered', [
+                'order_status' => $orderStatus,
+                'document_id' => $doc->id,
+            ]);
+        }
+
+        Storage::disk('documents')->delete($doc->path);
+        $doc->delete();
+
+        return [
+            'message' => 'Vehicle report document deleted successfully',
+            'document_id' => $documentId,
+            'auftragsnummer' => $doc->auftragsnummer,
+            'vehicle_id' => $doc->vehicle_id,
+        ];
+    }
+
+    private function fail(int $status, string $message, array $extra = []): never
+    {
+        throw new HttpResponseException(response()->json(['error' => $message, ...$extra], $status));
+    }
+}

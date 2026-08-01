@@ -23,9 +23,12 @@ class StoreVehicleRequest extends FormRequest
             'vin' => ['nullable', 'string', 'size:17'],
             'make' => ['nullable', 'string'],
             'model' => ['nullable', 'string'],
-            'vehicle_belongs' => ['nullable', 'string', Rule::in(VehicleOwnerType::values())],
-            'b2b_id' => ['nullable', 'uuid'],
-            'b2c_user_id' => ['nullable', 'integer'],
+            'vehicle_belongs' => [
+                Rule::requiredIf(fn () => $this->user()?->user_type?->value === 'Admin'),
+                'nullable', 'string', Rule::in(VehicleOwnerType::values()),
+            ],
+            'b2b_id' => ['required_if:vehicle_belongs,B2B', 'nullable', 'uuid', 'exists:b2b,b2b_id'],
+            'b2c_user_id' => ['required_if:vehicle_belongs,B2C', 'nullable', 'integer', 'exists:users,id'],
         ];
     }
 }

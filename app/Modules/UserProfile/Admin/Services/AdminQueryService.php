@@ -474,17 +474,22 @@ class AdminQueryService
                 return $documents->map(function (object $document) {
                     $item = (array) $document;
                     $item['published'] = (bool) $document->published;
-                    $item['signed_url'] = $this->temporaryUrl($document->s3_key, 30);
+                    // vehicle_report_documents.s3_key was renamed to `path`
+                    // in the 2026_08_01_000001 migration — this read this
+                    // still referenced the old name, so signed_url was
+                    // silently always null (temporaryUrl()'s try/catch
+                    // swallows the resulting Storage error).
+                    $item['signed_url'] = $this->temporaryUrl($document->path, 30, 'documents');
 
                     return $item;
                 })->values()->all();
             })->all();
     }
 
-    private function temporaryUrl(string $key, int $minutes): ?string
+    private function temporaryUrl(string $key, int $minutes, ?string $disk = null): ?string
     {
         try {
-            return Storage::disk((string) config('tim.storage_disk', 's3'))
+            return Storage::disk($disk ?? (string) config('tim.storage_disk', 's3'))
                 ->temporaryUrl($key, now()->addMinutes($minutes));
         } catch (\Throwable) {
             return null;
@@ -520,6 +525,36 @@ class AdminQueryService
         ], $counts, ['data' => $this->enrichVehicles($rows)]);
     }
 
+    /**
+     * Single-vehicle detail for the new Admin vehicle detail page — reuses
+     * enrichVehicles() (owner, order_history, documents) rather than a
+     * separate query, so the detail page's data shape is identical to a
+     * single row from vehicles().
+     */
+    public function vehicleDetail(string $vehicleId): ?array
+    {
+        $row = DB::table('vehicles as v')
+            ->leftJoin('leasyback_orders as o', function ($join) {
+                $join->on('o.vehicle_id', '=', 'v.vehicle_id')
+                    ->whereRaw('o.id = (SELECT latest.id FROM leasyback_orders latest WHERE latest.vehicle_id = v.vehicle_id ORDER BY latest.created_at DESC, latest.id DESC LIMIT 1)');
+            })
+            ->where('v.vehicle_id', $vehicleId)
+            ->select([
+                'v.vehicle_id', 'v.license_plate', 'v.first_registration_date', 'v.leasing_end_date',
+                'v.leasinggeber', 'v.vin', 'v.make', 'v.model', 'v.vehicle_belongs',
+                'v.b2b_id', 'v.b2c_user_id', 'v.assigned_profile_id', 'v.created_at', 'v.updated_at',
+                'o.id as current_order_id', 'o.auftragsnummer as current_auftragsnummer',
+                'o.order_status as current_order_status', 'o.created_at as current_order_created_at',
+            ])
+            ->first();
+
+        if (! $row) {
+            return null;
+        }
+
+        return $this->enrichVehicles(collect([$row]))[0] ?? null;
+    }
+
     private function vehicleCounts(Builder $base): array
     {
         return [
@@ -540,21 +575,31 @@ class AdminQueryService
 
         $owners = $this->ownersForVehicles($rows);
         $vehicleIds = $rows->pluck('vehicle_id')->unique()->values();
-        $history = DB::table('leasyback_orders as o')
+        $rawHistory = DB::table('leasyback_orders as o')
             ->leftJoin('leasyback_order_confirmations as c', 'c.auftragsnummer', '=', 'o.auftragsnummer')
             ->whereIn('o.vehicle_id', $vehicleIds)->orderByDesc('o.created_at')
             ->get([
                 'o.vehicle_id', 'o.id', 'o.auftragsnummer', 'o.leasyback_partner',
                 'o.order_status', 'o.sent_at', 'o.created_at', 'o.response_status', 'c.confirmation_date',
-            ])->groupBy('vehicle_id')->map(fn (Collection $items) => $items->map(function (object $item) {
-                unset($item->vehicle_id);
+            ]);
+        // Report/invoice documents (Admin-managed) attached per order, the
+        // same reportDocuments() helper enrichOrders() already uses, keyed
+        // identically — the Admin vehicle detail page's per-order document
+        // management needs these alongside the order itself, not a
+        // separate query.
+        $reportDocs = $this->reportDocuments($rawHistory->pluck('auftragsnummer')->unique()->values());
+        $history = $rawHistory->groupBy('vehicle_id')->map(fn (Collection $items) => $items->map(function (object $item) use ($reportDocs) {
+            $key = $item->auftragsnummer.'|'.$item->vehicle_id;
+            unset($item->vehicle_id);
+            $arr = (array) $item;
+            $arr['report_documents'] = $reportDocs[$key] ?? [];
 
-                return (array) $item;
-            })->values()->all());
+            return $arr;
+        })->values()->all());
         $documents = DB::table('vehicle_documents')->whereIn('vehicle_id', $vehicleIds)
             ->orderByDesc('created_at')->get([
                 'vehicle_id', 'document_id', 'document_category', 'document_type',
-                'original_file_name', 's3_key', 'content_type', 'file_size',
+                'original_file_name', 'path', 'content_type', 'file_size',
                 'uploaded_by_user_id', 'created_at',
             ])->groupBy('vehicle_id')->map(fn (Collection $items) => $items->map(function (object $item) {
                 unset($item->vehicle_id);

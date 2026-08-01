@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CreateVehicleModal from '@/components/admin/CreateVehicleModal.vue';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -45,6 +46,7 @@ function formatDate(value: string | null): string {
 
 const confirmingStatusChange = ref(false);
 const statusProcessing = ref(false);
+const createVehicleOpen = ref(false);
 
 function toggleStatus() {
     statusProcessing.value = true;
@@ -154,6 +156,9 @@ function toggleStatus() {
                 </TabsList>
 
                 <TabsContent value="vehicles">
+                    <div class="mb-3 flex justify-end">
+                        <Button size="sm" variant="outline" @click="createVehicleOpen = true">Fahrzeug anlegen</Button>
+                    </div>
                     <div class="rounded-xl border">
                         <Table>
                             <TableHeader>
@@ -216,5 +221,7 @@ function toggleStatus() {
                 </TabsContent>
             </Tabs>
         </div>
+
+        <CreateVehicleModal v-model:open="createVehicleOpen" :type="type" :owner-id="identifier ?? ''" />
     </AdminLayout>
 </template>
