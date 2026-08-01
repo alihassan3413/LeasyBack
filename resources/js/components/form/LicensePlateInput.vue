@@ -8,13 +8,21 @@
  */
 import { Input } from '@/components/ui/input';
 import { normalizePlate, sanitizePlateNumber, toPlateUpperCase, validatePlateParts } from '@/lib/licensePlate';
+import { Badge, Circle, CircleDashed } from 'lucide-vue-next';
 import { computed, ref, watch } from 'vue';
 
-const props = defineProps<{
-    modelValue: string;
-    disabled?: boolean;
-    serverError?: string;
-}>();
+const props = withDefaults(
+    defineProps<{
+        modelValue: string;
+        disabled?: boolean;
+        serverError?: string;
+        /** 'eu' renders the EU-style badge plate used on the b2c onboarding/registration flow. */
+        variant?: 'default' | 'eu';
+    }>(),
+    {
+        variant: 'default',
+    },
+);
 
 const emit = defineEmits<{ (e: 'update:modelValue', value: string): void }>();
 
@@ -63,7 +71,52 @@ const errors = computed(() => validatePlateParts(city.value, letters.value, numb
 
 <template>
     <div class="space-y-1.5">
-        <div class="flex items-center gap-2">
+        <div v-if="variant === 'eu'" class="border-brand-green-gray flex items-stretch rounded-[5px] border">
+            <div class="flex h-11 w-9 shrink-0 flex-col items-center justify-center gap-0.5 rounded-l-[5px] bg-[#001f6a] py-1">
+                <CircleDashed class="size-6 text-[#FECD00]" aria-hidden="true" />
+                <span class="text-[12px] leading-none font-bold text-white">D</span>
+            </div>
+
+            <input
+                :value="city"
+                type="text"
+                :disabled="disabled"
+                maxlength="3"
+                placeholder="ABC"
+                aria-label="Unterscheidungszeichen"
+                class="border-brand-green-gray text-brand-black h-11 w-0 flex-1 border-x bg-transparent px-2 text-center text-base font-extrabold uppercase outline-none disabled:opacity-50"
+                @input="(event) => onCityChange((event.target as HTMLInputElement).value)"
+            />
+
+            <div class="border-brand-green-gray flex flex-col gap-1 p-1">
+                <Circle class="text-brand-black size-3" aria-hidden="true" />
+                <Badge class="text-brand-black size-3.5" aria-hidden="true" />
+            </div>
+
+            <input
+                :value="letters"
+                type="text"
+                :disabled="disabled"
+                maxlength="2"
+                placeholder="DE"
+                aria-label="Erkennungszeichen"
+                class="border-brand-green-gray text-brand-black h-11 w-0 flex-1 border-r bg-transparent px-2 text-center text-base font-extrabold uppercase outline-none disabled:opacity-50"
+                @input="(event) => onLettersChange((event.target as HTMLInputElement).value)"
+            />
+
+            <input
+                :value="number"
+                type="text"
+                :disabled="disabled"
+                maxlength="5"
+                placeholder="1234E"
+                aria-label="Erkennungsnummer"
+                class="border-brand-green-gray text-brand-black h-11 w-0 flex-1 border-r bg-transparent px-2 text-center text-base font-extrabold uppercase outline-none disabled:opacity-50"
+                @input="(event) => onNumberChange((event.target as HTMLInputElement).value)"
+            />
+        </div>
+
+        <div v-else class="flex items-center gap-2">
             <Input
                 :model-value="city"
                 :disabled="disabled"
@@ -94,6 +147,7 @@ const errors = computed(() => validatePlateParts(city.value, letters.value, numb
                 @update:model-value="(value) => onNumberChange(String(value))"
             />
         </div>
+
         <p v-for="message in errors" :key="message" class="text-destructive text-sm">{{ message }}</p>
         <p v-if="serverError" class="text-destructive text-sm">{{ serverError }}</p>
     </div>

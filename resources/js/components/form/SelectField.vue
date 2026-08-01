@@ -6,7 +6,7 @@
  * id/describedBy/invalid straight onto this component's matching props.
  */
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { computed } from 'vue';
+import { computed, type HTMLAttributes } from 'vue';
 
 export interface SelectFieldOption {
     label: string;
@@ -22,6 +22,7 @@ const props = withDefaults(
         id?: string;
         describedBy?: string;
         invalid?: boolean;
+        class?: HTMLAttributes['class'];
     }>(),
     {
         placeholder: 'Bitte wählen',
@@ -38,7 +39,7 @@ const selectValue = computed(() => props.modelValue || undefined);
 
 <template>
     <Select :model-value="selectValue" :disabled="disabled" @update:model-value="(value) => emit('update:modelValue', String(value ?? ''))">
-        <SelectTrigger :id="id" :aria-invalid="invalid" :aria-describedby="describedBy">
+        <SelectTrigger :id="id" :class="props.class" :aria-invalid="invalid" :aria-describedby="describedBy">
             <SelectValue :placeholder="placeholder" />
         </SelectTrigger>
         <SelectContent>

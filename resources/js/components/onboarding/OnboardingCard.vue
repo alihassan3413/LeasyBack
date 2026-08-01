@@ -16,7 +16,7 @@ defineProps<{
         <h2 class="text-brand-teal text-xl font-bold">{{ title }}</h2>
         <p v-if="description" class="text-muted-foreground mt-1 text-sm">{{ description }}</p>
 
-        <div class="border-border mt-3 mb-5 border-t" />
+        <div class="bg-brand-green-gray mt-2 mb-3 h-px w-full" />
 
         <slot />
     </div>

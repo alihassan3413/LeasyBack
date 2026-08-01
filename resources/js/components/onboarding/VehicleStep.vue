@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import InputError from '@/components/InputError.vue';
+import CalendarDateField from '@/components/form/CalendarDateField.vue';
 import FormField from '@/components/form/FormField.vue';
 import LicensePlateInput from '@/components/form/LicensePlateInput.vue';
 import SelectField from '@/components/form/SelectField.vue';
@@ -25,6 +26,9 @@ const emit = defineEmits<{ next: []; back: [] }>();
 // Matches the leasyback_web design: green "Weiter" (continue), orange "Zurück" (back).
 const nextButtonClass = 'rounded-[5px] px-10 py-2 text-sm font-bold text-white shadow-none bg-brand-green hover:bg-brand-green/90';
 const backButtonClass = 'rounded-[5px] px-10 py-2 text-sm font-bold text-white shadow-none bg-brand-orange hover:bg-brand-orange/90';
+
+const fieldClass = 'rounded-[5px] border-brand-green-gray text-sm';
+const selectTriggerClass = 'h-[34px] rounded-[5px] border-brand-green-gray bg-white px-3 text-sm shadow-none focus:border-brand-green focus:ring-0';
 
 const leasingEndUnknown = ref(true);
 
@@ -70,36 +74,47 @@ function submit() {
                 </dd>
             </dl>
 
-            <div class="mt-6 flex items-center justify-between border-t pt-5">
+            <div class="mt-6 flex justify-end gap-3">
                 <Button type="button" :class="backButtonClass" @click="emit('back')">Zurück</Button>
                 <Button type="button" :class="nextButtonClass" @click="emit('next')">Weiter</Button>
             </div>
         </template>
 
-        <form v-else novalidate class="space-y-5" @submit.prevent="submit">
+        <form v-else novalidate @submit.prevent="submit">
             <InputError :message="form.errors.vehicle" />
 
-            <FormField label="Kennzeichen" required :error="form.errors.license_plate">
-                <LicensePlateInput v-model="form.license_plate" />
-            </FormField>
+            <div class="max-w-85 space-y-2">
+                <div>
+                    <p class="text-brand-black mb-1.5 text-sm font-bold">
+                        Kennzeichen
+                        <span class="text-brand-green-gray ml-1 text-[10px] font-normal">*(Format: ABC DE 12H)</span>
+                    </p>
+                    <LicensePlateInput v-model="form.license_plate" variant="eu" :server-error="form.errors.license_plate" />
+                </div>
 
-            <div class="grid gap-4 sm:grid-cols-2">
                 <FormField
                     id="first_registration_date"
                     v-slot="{ id, describedBy, invalid }"
                     label="Erstzulassungsdatum"
-                    hint="Siehe Fahrzeugschein."
+                    hint="*(seh. Fahrzeugschein)"
                     :error="form.errors.first_registration_date"
                 >
-                    <Input :id="id" v-model="form.first_registration_date" type="date" :aria-invalid="invalid" :aria-describedby="describedBy" />
+                    <Input
+                        :id="id"
+                        v-model="form.first_registration_date"
+                        type="date"
+                        :class="fieldClass"
+                        :aria-invalid="invalid"
+                        :aria-describedby="describedBy"
+                    />
                 </FormField>
 
-                <div class="space-y-2">
+                <div class="space-y-1.5">
                     <FormField
                         id="leasing_end_date"
                         v-slot="{ id, describedBy, invalid }"
                         label="Leasingende"
-                        hint="Siehe Leasingvertrag."
+                        hint="*(seh. Leasingvertrag)"
                         :error="form.errors.leasing_end_date"
                     >
                         <Input
@@ -107,42 +122,36 @@ function submit() {
                             v-model="form.leasing_end_date"
                             type="date"
                             :disabled="leasingEndUnknown"
+                            :class="fieldClass"
                             :aria-invalid="invalid"
                             :aria-describedby="describedBy"
                         />
                     </FormField>
-                    <Label for="leasing_end_unknown" class="flex items-center space-x-2 text-sm font-normal">
+                    <Label for="leasing_end_unknown" class="text-brand-black flex items-center gap-2 text-xs font-normal">
                         <Checkbox id="leasing_end_unknown" v-model:checked="leasingEndUnknown" />
                         <span>Ich weiß es nicht</span>
                     </Label>
                 </div>
-            </div>
 
-            <FormField
-                id="vin"
-                v-slot="{ id, describedBy, invalid }"
-                label="Fahrgestellnummer (VIN)"
-                hint="Genau 17 Zeichen, siehe Feld E."
-                :error="form.errors.vin"
-            >
-                <Input
-                    :id="id"
-                    :model-value="form.vin"
-                    maxlength="17"
-                    class="uppercase"
-                    :aria-invalid="invalid"
-                    :aria-describedby="describedBy"
-                    @update:model-value="(value) => (form.vin = sanitizeVin(value))"
-                />
-            </FormField>
+                <FormField id="vin" v-slot="{ id, describedBy, invalid }" label="FIN" hint="(siehe Fahrzeugschein – Feld E)" :error="form.errors.vin">
+                    <Input
+                        :id="id"
+                        :model-value="form.vin"
+                        maxlength="17"
+                        placeholder="Fahrzeugidentifikationsnummer"
+                        :class="[fieldClass, 'uppercase']"
+                        :aria-invalid="invalid"
+                        :aria-describedby="describedBy"
+                        @update:model-value="(value) => (form.vin = sanitizeVin(value))"
+                    />
+                </FormField>
 
-            <div class="grid gap-4 sm:grid-cols-2">
                 <FormField id="make" v-slot="{ id, describedBy, invalid }" label="Marke" :error="form.errors.make">
                     <SelectField
                         :id="id"
                         v-model="form.make"
                         :options="VEHICLE_BRAND_OPTIONS"
-                        placeholder="Marke wählen"
+                        :class="selectTriggerClass"
                         :invalid="invalid"
                         :described-by="describedBy"
                     />
@@ -152,14 +161,15 @@ function submit() {
                     <Input
                         :id="id"
                         v-model="form.model"
-                        placeholder="z. B. 3er oder Sonstige"
+                        placeholder="z.B. 3er oder Sonstige"
+                        :class="fieldClass"
                         :aria-invalid="invalid"
                         :aria-describedby="describedBy"
                     />
                 </FormField>
             </div>
 
-            <div class="flex items-center justify-between gap-3 border-t pt-5">
+            <div class="flex justify-end gap-3 pt-6">
                 <Button type="button" :class="backButtonClass" @click="emit('back')">Zurück</Button>
                 <Button type="submit" :class="nextButtonClass" :loading="form.processing">Weiter</Button>
             </div>
