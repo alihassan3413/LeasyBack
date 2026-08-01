@@ -258,9 +258,17 @@ class VehicleService
     /**
      * Validate allowed document types.
      */
+    /**
+     * Customer-selectable document types only — gutachten/Sonstiges are
+     * Admin-managed report/invoice types, not something a customer upload
+     * may declare (docs/B2C_ADMIN_PERMISSION_MATRIX.md's Vehicle Document
+     * row). Currently unused (both VehicleDocumentController::upload()
+     * methods inline the same restriction directly in their validation
+     * rules) — kept in sync so it's not a landmine if it's ever wired in.
+     */
     public function isValidDocumentType(string $type): bool
     {
-        return in_array($type, ['Leasingvertrag', 'vorschaden', 'gutachten', 'Sonstiges']);
+        return in_array($type, ['Leasingvertrag', 'vorschaden']);
     }
 
     /**

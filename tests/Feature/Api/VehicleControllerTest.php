@@ -4,6 +4,7 @@ namespace Tests\Feature\Api;
 
 use App\Enums\UserType;
 use App\Models\User;
+use App\Modules\UserProfile\Profile\Models\LeasybackUserProfile;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -179,5 +180,53 @@ class VehicleControllerTest extends TestCase
             ->assertNotFound();
 
         $this->assertNull($vehicle->fresh()->assigned_profile_id);
+    }
+
+    /**
+     * Regression test for a real, previously-unfixed bug flagged in
+     * docs/B2C_ADMIN_PERMISSION_MATRIX.md's Vehicle row (audit §3.2):
+     * assignProfile() validated profile_id was an integer and nothing
+     * else — any vehicle owner could attach a completely unrelated user's
+     * profile to their own vehicle by guessing/incrementing an id.
+     */
+    public function test_owner_cannot_assign_a_profile_belonging_to_someone_else(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $stranger = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create(['b2c_user_id' => $owner->id]);
+        $strangersProfile = LeasybackUserProfile::factory()->create(['user_id' => $stranger->id]);
+
+        $this->withHeaders($this->bearer($owner))
+            ->putJson("/vehicle/{$vehicle->vehicle_id}", ['profile_id' => $strangersProfile->profile_id])
+            ->assertStatus(422);
+
+        $this->assertNull($vehicle->fresh()->assigned_profile_id);
+    }
+
+    public function test_owner_can_assign_their_own_profile(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create(['b2c_user_id' => $owner->id]);
+        $profile = LeasybackUserProfile::factory()->create(['user_id' => $owner->id]);
+
+        $this->withHeaders($this->bearer($owner))
+            ->putJson("/vehicle/{$vehicle->vehicle_id}", ['profile_id' => $profile->profile_id])
+            ->assertOk();
+
+        $this->assertSame($profile->profile_id, $vehicle->fresh()->assigned_profile_id);
+    }
+
+    public function test_admin_can_assign_the_real_owners_profile_on_their_behalf(): void
+    {
+        $admin = User::factory()->create(['user_type' => UserType::Admin]);
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create(['b2c_user_id' => $owner->id]);
+        $profile = LeasybackUserProfile::factory()->create(['user_id' => $owner->id]);
+
+        $this->withHeaders($this->bearer($admin))
+            ->putJson("/vehicle/{$vehicle->vehicle_id}", ['profile_id' => $profile->profile_id])
+            ->assertOk();
+
+        $this->assertSame($profile->profile_id, $vehicle->fresh()->assigned_profile_id);
     }
 }

@@ -48,6 +48,26 @@ class VehicleDocumentControllerTest extends TestCase
         $this->assertDatabaseMissing('vehicle_documents', ['vehicle_id' => $vehicle->vehicle_id]);
     }
 
+    /**
+     * Regression test matching the Sanctum API's equivalent — see
+     * VehicleDocumentUploadTest::test_upload_rejects_the_admin_only_gutachten_document_type().
+     */
+    public function test_owner_cannot_upload_the_admin_only_gutachten_document_type(): void
+    {
+        Storage::fake('documents');
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create(['b2c_user_id' => $owner->id]);
+
+        $this->actingAs($owner)
+            ->post(route('vehicles.documents.store', $vehicle->vehicle_id), [
+                'file' => UploadedFile::fake()->create('gutachten.pdf', 100),
+                'document_type' => 'gutachten',
+            ])
+            ->assertSessionHasErrors('document_type');
+
+        $this->assertDatabaseMissing('vehicle_documents', ['vehicle_id' => $vehicle->vehicle_id]);
+    }
+
     public function test_owner_can_delete_a_document(): void
     {
         Storage::fake('documents');

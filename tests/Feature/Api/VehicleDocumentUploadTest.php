@@ -72,4 +72,30 @@ class VehicleDocumentUploadTest extends TestCase
         $response->assertStatus(422)->assertJsonValidationErrors(['file']);
         $this->assertDatabaseMissing('vehicle_documents', ['vehicle_id' => $vehicle->vehicle_id]);
     }
+
+    /**
+     * Regression test for a real, previously-unenforced rule flagged in
+     * docs/B2C_ADMIN_PERMISSION_MATRIX.md's Vehicle Document row: a
+     * customer upload's document_type must be restricted to
+     * Leasingvertrag/vorschaden — gutachten (report) is an Admin-managed
+     * type, uploaded through the separate VehicleReportService flow, not
+     * something a customer may self-declare. Previously the validation
+     * rule allowed it (the live frontend's own dropdown just never
+     * offered it — "frontend visibility is never authorization").
+     */
+    public function test_upload_rejects_the_admin_only_gutachten_document_type(): void
+    {
+        Storage::fake('documents');
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create(['b2c_user_id' => $owner->id]);
+
+        $response = $this->withHeaders($this->bearer($owner))
+            ->putJson("/vehicle/{$vehicle->vehicle_id}/documents", [
+                'file' => UploadedFile::fake()->create('gutachten.pdf', 100),
+                'document_type' => 'gutachten',
+            ]);
+
+        $response->assertStatus(422)->assertJsonValidationErrors(['document_type']);
+        $this->assertDatabaseMissing('vehicle_documents', ['vehicle_id' => $vehicle->vehicle_id]);
+    }
 }

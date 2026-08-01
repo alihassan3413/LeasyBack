@@ -66,6 +66,26 @@ class VehicleDocumentPolicyTest extends TestCase
         $this->assertDatabaseHas('vehicle_documents', ['document_id' => $document->document_id]);
     }
 
+    /**
+     * docs/B2C_ADMIN_PERMISSION_MATRIX.md's Vehicle Document row: Werkstatt
+     * is ❌ across the board.
+     */
+    public function test_werkstatt_cannot_list_or_view_vehicle_documents(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $werkstatt = User::factory()->create(['user_type' => UserType::Werkstatt]);
+        $vehicle = Vehicle::factory()->create(['b2c_user_id' => $owner->id]);
+        $document = VehicleDocument::factory()->create(['vehicle_id' => $vehicle->vehicle_id]);
+
+        $this->withHeaders($this->bearer($werkstatt))
+            ->getJson("/vehicle/{$vehicle->vehicle_id}/documents")
+            ->assertNotFound();
+
+        $this->withHeaders($this->bearer($werkstatt))
+            ->getJson("/vehicle/{$vehicle->vehicle_id}/documents/{$document->document_id}")
+            ->assertNotFound();
+    }
+
     public function test_admin_can_view_any_vehicle_document(): void
     {
         $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);

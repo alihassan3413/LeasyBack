@@ -2,6 +2,7 @@
 
 namespace App\Modules\UserProfile\Vehicle\Http\Controllers;
 
+use App\Models\LeasybackUserProfile;
 use App\Models\Vehicle;
 use App\Models\VehicleAuditLog;
 use App\Modules\UserProfile\Vehicle\Http\Requests\StoreVehicleRequest;
@@ -49,6 +50,15 @@ class VehicleController extends Controller
 
     /**
      * PUT /vehicle/{vehicleId} — assign profile
+     *
+     * docs/B2C_ADMIN_PERMISSION_MATRIX.md's Vehicle row flags this as a
+     * fix needed (audit §3.2): the assigned profile must belong to the
+     * vehicle's actual owner, not just any profile_id the caller supplies.
+     * Previously validated only that profile_id was an integer — any
+     * vehicle owner (or Admin acting on their behalf) could attach a
+     * completely unrelated user's profile to a vehicle. The check is
+     * against the vehicle's owner, not the calling user, so Admin can
+     * still assign the real owner's own profile on their behalf.
      */
     public function assignProfile(Request $request, string $vehicleId): JsonResponse
     {
@@ -62,6 +72,10 @@ class VehicleController extends Controller
         $validated = $request->validate([
             'profile_id' => 'required|integer',
         ]);
+
+        if (! $this->profileBelongsToVehicleOwner($vehicle, $validated['profile_id'])) {
+            return response()->json(['error' => 'This profile does not belong to the vehicle\'s owner'], 422);
+        }
 
         DB::transaction(function () use ($vehicle, $validated, $user) {
             $old = $vehicle->toArray();
@@ -77,6 +91,33 @@ class VehicleController extends Controller
         });
 
         return response()->json($vehicle->fresh());
+    }
+
+    /**
+     * B2C: the profile must belong to the vehicle's own b2c_user_id.
+     * B2B: the profile must belong to some member of the vehicle's b2b
+     * company (mirrors how vehicle ownership itself is scoped for B2B
+     * elsewhere in this controller — "own company's vehicles only").
+     */
+    private function profileBelongsToVehicleOwner(Vehicle $vehicle, int $profileId): bool
+    {
+        $profile = LeasybackUserProfile::find($profileId);
+        if (! $profile) {
+            return false;
+        }
+
+        if ($vehicle->vehicle_belongs === 'B2C') {
+            return (int) $profile->user_id === (int) $vehicle->b2c_user_id;
+        }
+
+        if ($vehicle->vehicle_belongs === 'B2B') {
+            return DB::table('user_b2b')
+                ->where('b2b_id', $vehicle->b2b_id)
+                ->where('user_id', $profile->user_id)
+                ->exists();
+        }
+
+        return false;
     }
 
     /**

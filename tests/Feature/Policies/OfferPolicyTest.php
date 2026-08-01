@@ -56,14 +56,30 @@ class OfferPolicyTest extends TestCase
         $this->assertFalse($admin->can('select', $offer));
     }
 
+    /**
+     * docs/B2C_ADMIN_PERMISSION_MATRIX.md's Offer row: Werkstatt is ❌
+     * across the board.
+     */
+    public function test_werkstatt_cannot_select_or_view_offers(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $werkstatt = User::factory()->create(['user_type' => UserType::Werkstatt]);
+        $offer = $this->offerFor($owner->id);
+
+        $this->assertFalse($werkstatt->can('select', $offer));
+        $this->assertFalse($werkstatt->can('viewAny', LeasybackOffer::class));
+    }
+
     public function test_only_admin_can_manage_offers(): void
     {
         $admin = User::factory()->create(['user_type' => UserType::Admin]);
         $customer = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $werkstatt = User::factory()->create(['user_type' => UserType::Werkstatt]);
 
         foreach (['viewAny', 'create', 'publish', 'cancel'] as $ability) {
             $this->assertTrue($admin->can($ability, LeasybackOffer::class), "Admin should be able to {$ability}");
             $this->assertFalse($customer->can($ability, LeasybackOffer::class), "Customer should not be able to {$ability}");
+            $this->assertFalse($werkstatt->can($ability, LeasybackOffer::class), "Werkstatt should not be able to {$ability}");
         }
     }
 }

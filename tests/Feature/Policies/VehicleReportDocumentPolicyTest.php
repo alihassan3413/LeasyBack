@@ -91,4 +91,20 @@ class VehicleReportDocumentPolicyTest extends TestCase
         $this->assertTrue($owner->can('view', VehicleReportDocumentShim::find($published->id)));
         $this->assertTrue($admin->can('view', VehicleReportDocumentShim::find($unpublished->id)));
     }
+
+    /**
+     * docs/B2C_ADMIN_PERMISSION_MATRIX.md's Vehicle Document row: Werkstatt
+     * is ❌ even for a published report document (no vehicle relationship
+     * modeled for workshops at all) — distinct from the owner/admin cases
+     * above, which turn on the `published` flag.
+     */
+    public function test_werkstatt_cannot_view_even_a_published_report_document(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $werkstatt = User::factory()->create(['user_type' => UserType::Werkstatt]);
+        $vehicle = Vehicle::factory()->create(['b2c_user_id' => $owner->id]);
+        $published = VehicleReportDocument::factory()->published()->create(['vehicle_id' => $vehicle->vehicle_id]);
+
+        $this->assertFalse($werkstatt->can('view', VehicleReportDocumentShim::find($published->id)));
+    }
 }

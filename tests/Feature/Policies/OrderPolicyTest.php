@@ -52,14 +52,29 @@ class OrderPolicyTest extends TestCase
         $this->assertTrue($admin->can('view', $order));
     }
 
+    /**
+     * docs/B2C_ADMIN_PERMISSION_MATRIX.md's Order row: Werkstatt is ❌
+     * across the board (no order↔workshop assignment modeled currently).
+     */
+    public function test_werkstatt_cannot_view_any_order(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $werkstatt = User::factory()->create(['user_type' => UserType::Werkstatt]);
+        $order = $this->orderFor($owner->id);
+
+        $this->assertFalse($werkstatt->can('view', $order));
+    }
+
     public function test_only_admin_can_approve_confirm_manage_status_or_create_station(): void
     {
         $admin = User::factory()->create(['user_type' => UserType::Admin]);
         $customer = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $werkstatt = User::factory()->create(['user_type' => UserType::Werkstatt]);
 
         foreach (['approve', 'confirm', 'manageStatus', 'createStation'] as $ability) {
             $this->assertTrue($admin->can($ability, LeasybackOrder::class), "Admin should be able to {$ability}");
             $this->assertFalse($customer->can($ability, LeasybackOrder::class), "Customer should not be able to {$ability}");
+            $this->assertFalse($werkstatt->can($ability, LeasybackOrder::class), "Werkstatt should not be able to {$ability}");
         }
     }
 }

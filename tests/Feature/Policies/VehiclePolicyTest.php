@@ -53,4 +53,22 @@ class VehiclePolicyTest extends TestCase
         $this->assertTrue($admin->can('view', $vehicle));
         $this->assertTrue($admin->can('update', $vehicle));
     }
+
+    /**
+     * docs/B2C_ADMIN_PERMISSION_MATRIX.md's Vehicle row: Werkstatt is ❌
+     * across the board (no vehicle relationship modeled for workshops).
+     * Distinct from test_non_owner_cannot_view_or_update_vehicle above —
+     * that proves ownership scoping; this proves Werkstatt specifically
+     * hits VehicleScopeService::scopeQuery()'s `default => deny` branch,
+     * not just "isn't the owner."
+     */
+    public function test_werkstatt_cannot_view_or_update_any_vehicle(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $werkstatt = User::factory()->create(['user_type' => UserType::Werkstatt]);
+        $vehicle = $this->vehicleFor($owner->id);
+
+        $this->assertFalse($werkstatt->can('view', $vehicle));
+        $this->assertFalse($werkstatt->can('update', $vehicle));
+    }
 }

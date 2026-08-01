@@ -85,6 +85,37 @@ class WorkshopPolicyTest extends TestCase
         $this->assertNull($workshop->fresh()->logo_path);
     }
 
+    /**
+     * docs/B2C_ADMIN_PERMISSION_MATRIX.md's Workshop row: `create` is ❌
+     * for Privatkunde/Firmenkunde — enforced inline in
+     * WorkshopController::ensureWorkshopUser(), not (yet) a Policy method.
+     */
+    public function test_non_workshop_user_cannot_create_a_workshop(): void
+    {
+        $privatkunde = User::factory()->create(['user_type' => UserType::Privatkunde]);
+
+        $response = $this->withHeaders($this->bearer($privatkunde))
+            ->postJson('/workshop/create', ['workshop_name' => 'Should Not Exist']);
+
+        $response->assertForbidden();
+        $this->assertDatabaseMissing('workshops', ['workshop_name' => 'Should Not Exist']);
+    }
+
+    /**
+     * docs/B2C_ADMIN_PERMISSION_MATRIX.md's Workshop row: `view` is ❌ for
+     * Privatkunde/Firmenkunde.
+     */
+    public function test_non_owner_privatkunde_cannot_view_a_workshop(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Werkstatt]);
+        $privatkunde = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        Workshop::factory()->create(['user_id' => $owner->id]);
+
+        $this->withHeaders($this->bearer($privatkunde))
+            ->getJson("/workshop/user_id/{$owner->id}")
+            ->assertForbidden();
+    }
+
     public function test_non_owner_cannot_delete_logo(): void
     {
         $owner = User::factory()->create(['user_type' => UserType::Werkstatt]);

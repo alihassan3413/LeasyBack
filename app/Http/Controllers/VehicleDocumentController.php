@@ -23,7 +23,9 @@ class VehicleDocumentController extends Controller
 
         $validated = $request->validate([
             'file' => 'required|file|mimes:pdf,jpg,jpeg,png|max:10240',
-            'document_type' => 'required|string|in:Leasingvertrag,vorschaden,gutachten,Sonstiges',
+            // See the Sanctum API's VehicleDocumentController::upload() for
+            // why gutachten/Sonstiges are excluded here.
+            'document_type' => 'required|string|in:Leasingvertrag,vorschaden',
         ]);
 
         $this->vehicleService->uploadDocument($vehicleId, $validated['file'], $validated['document_type'], $request->user());

@@ -109,4 +109,30 @@ class B2BControllerTest extends TestCase
 
         $this->assertSame('Acme GmbH', $company->fresh()->company_name);
     }
+
+    /**
+     * docs/B2C_ADMIN_PERMISSION_MATRIX.md's B2B Company row: `view`/`update`
+     * are ❌ for Privatkunde and Werkstatt (not just "not this company" —
+     * these user types have no legitimate B2B access at all). showByUser()
+     * is always self-scoped to the caller, so a Privatkunde/Werkstatt
+     * caller simply has no matching company row, same 403 either way.
+     */
+    public function test_privatkunde_and_werkstatt_cannot_view_or_update_any_company(): void
+    {
+        $company = $this->companyWithMember(User::factory()->create(['user_type' => UserType::Firmenkunde]));
+        $privatkunde = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $werkstatt = User::factory()->create(['user_type' => UserType::Werkstatt]);
+
+        foreach ([$privatkunde, $werkstatt] as $user) {
+            $this->withHeaders($this->bearer($user))
+                ->getJson("/b2b/user_id/{$user->id}")
+                ->assertForbidden();
+
+            $this->withHeaders($this->bearer($user))
+                ->patchJson("/b2b/{$company->b2b_id}", ['company_name' => 'Hijacked GmbH'])
+                ->assertForbidden();
+        }
+
+        $this->assertSame('Acme GmbH', $company->fresh()->company_name);
+    }
 }

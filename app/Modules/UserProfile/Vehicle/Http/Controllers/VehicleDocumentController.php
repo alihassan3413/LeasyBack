@@ -27,7 +27,14 @@ class VehicleDocumentController extends Controller
         // reference in that respect.
         $validated = $request->validate([
             'file' => 'required|file|mimes:pdf,jpg,jpeg,png|max:10240',
-            'document_type' => 'required|string|in:Leasingvertrag,vorschaden,gutachten,Sonstiges',
+            // gutachten/Sonstiges deliberately excluded — those are
+            // Admin-managed report/invoice types uploaded through the
+            // separate VehicleReportService flow, not something a customer
+            // may self-declare here (docs/B2C_ADMIN_PERMISSION_MATRIX.md's
+            // Vehicle Document row; the frontend's own UploadDocumentModal
+            // already only ever offers these two, this makes the backend
+            // actually enforce it instead of trusting the UI).
+            'document_type' => 'required|string|in:Leasingvertrag,vorschaden',
         ]);
 
         $doc = $this->vehicleService->uploadDocument($vehicleId, $validated['file'], $validated['document_type'], $request->user());
