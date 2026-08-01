@@ -58,11 +58,14 @@ function submit() {
 function goToDashboard() {
     router.visit(route('dashboard'));
 }
+
+const backButtonClass = 'bg-brand-orange hover:bg-brand-orange/90 rounded-[5px] px-10 py-2.5 text-sm font-bold text-white shadow-none';
+const forwardButtonClass = 'bg-brand-green hover:bg-brand-green/90 rounded-[5px] px-10 py-2.5 text-sm font-bold text-white shadow-none';
 </script>
 
 <template>
-    <OnboardingCard title="Terminvereinbarung" description="Buchen Sie einen Begutachtungstermin für Ihr Fahrzeug.">
-        <template v-if="order">
+    <div v-if="order" class="space-y-6">
+        <OnboardingCard title="Terminvereinbarung" description="Buchen Sie einen Begutachtungstermin für Ihr Fahrzeug.">
             <dl class="text-sm">
                 <dt class="text-muted-foreground">Vorgang</dt>
                 <dd class="mt-1 flex items-center gap-2 font-medium">
@@ -72,12 +75,14 @@ function goToDashboard() {
             </dl>
 
             <div class="mt-6 flex items-center justify-between border-t pt-5">
-                <Button type="button" variant="ghost" @click="emit('back')">Zurück</Button>
-                <Button type="button" @click="goToDashboard">Zum Dashboard</Button>
+                <Button type="button" :class="backButtonClass" @click="emit('back')">Abbrechen</Button>
+                <Button type="button" :class="forwardButtonClass" @click="goToDashboard">Zum Dashboard</Button>
             </div>
-        </template>
+        </OnboardingCard>
+    </div>
 
-        <form v-else novalidate class="space-y-5" @submit.prevent="submit">
+    <form v-else novalidate class="space-y-6" @submit.prevent="submit">
+        <OnboardingCard title="Suchen Sie Ihre Prüfstation aus">
             <InputError :message="form.errors.appointment" />
 
             <FormField id="station_id" v-slot="{ id, describedBy, invalid }" label="Prüfstation" required :error="form.errors.station_id">
@@ -90,8 +95,10 @@ function goToDashboard() {
                     :described-by="describedBy"
                 />
             </FormField>
+        </OnboardingCard>
 
-            <div class="grid grid-cols-2 gap-4">
+        <OnboardingCard title="Hier können Sie Termine buchen">
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <FormField id="date" v-slot="{ id, describedBy, invalid }" label="Datum" required :error="form.errors.termin">
                     <Input :id="id" v-model="form.date" type="date" :min="minDate" :aria-invalid="invalid" :aria-describedby="describedBy" />
                 </FormField>
@@ -100,11 +107,11 @@ function goToDashboard() {
                 </FormField>
             </div>
 
-            <FormField id="remarks" v-slot="{ id, describedBy, invalid }" label="Bemerkungen" :error="form.errors.remarks">
+            <FormField id="remarks" v-slot="{ id, describedBy, invalid }" label="Bemerkungen" class="mt-4" :error="form.errors.remarks">
                 <Input :id="id" v-model="form.remarks" :aria-invalid="invalid" :aria-describedby="describedBy" />
             </FormField>
 
-            <div class="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-500/30 dark:bg-amber-500/10">
+            <div class="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-500/30 dark:bg-amber-500/10">
                 <p class="text-amber-900 dark:text-amber-400">
                     Mit dem Buchen eines Termins starten Sie den Leasyback-Prozess. Wird der Prozess nicht abgeschlossen, kann eine Bearbeitungsgebühr
                     anfallen.
@@ -115,10 +122,12 @@ function goToDashboard() {
                 </Label>
             </div>
 
-            <div class="flex items-center justify-between gap-3 border-t pt-5">
-                <Button type="button" variant="ghost" @click="emit('back')">Zurück</Button>
-                <Button type="submit" :disabled="!canSubmit" :loading="form.processing">Termin buchen</Button>
+            <div class="mt-5 flex flex-col-reverse items-center gap-3 border-t pt-5 sm:flex-row sm:justify-end">
+                <Button type="button" :class="[backButtonClass, 'w-full sm:w-auto']" @click="emit('back')">Abbrechen</Button>
+                <Button type="submit" :disabled="!canSubmit" :loading="form.processing" :class="[forwardButtonClass, 'w-full sm:w-auto']">
+                    Termin buchen
+                </Button>
             </div>
-        </form>
-    </OnboardingCard>
+        </OnboardingCard>
+    </form>
 </template>
