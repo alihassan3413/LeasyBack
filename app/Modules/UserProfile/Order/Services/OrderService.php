@@ -3,9 +3,10 @@
 namespace App\Modules\UserProfile\Order\Services;
 
 use App\Models\InspectionStation;
-use App\Models\LeasybackOrder;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
+use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Vehicle\Services\VehicleService;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\Http;
@@ -18,7 +19,10 @@ use Illuminate\Support\Facades\Http;
  */
 class OrderService
 {
-    public function __construct(private readonly VehicleService $vehicleService) {}
+    public function __construct(
+        private readonly VehicleService $vehicleService,
+        private readonly TransitionOrderStatus $transitionOrderStatus,
+    ) {}
 
     /**
      * Book a TÜV SÜD inspection appointment. Firmenkunde bookings are
@@ -144,6 +148,45 @@ class OrderService
             'created_by_user_id' => $user->id,
             'sent_at' => now(),
         ]);
+    }
+
+    /**
+     * Send an order_requested order to TÜV SÜD and transition it to
+     * order_placed on success. Extracted from the Sanctum OrderController
+     * so the new Admin web OrderController (Checkpoint 11) can reuse the
+     * exact same external-call/persistence logic. The caller is
+     * responsible for the "is this order actually approvable right now"
+     * pre-check (via TransitionOrderStatus::allowedNextStatuses) — this
+     * method lets a genuine race-condition ValidationException from
+     * __invoke() propagate uncaught, same as the original inline code did.
+     */
+    public function approveOrder(LeasybackOrder $order, User $user, ?string $callerIp): LeasybackOrder
+    {
+        $requestBody = $order->request_payload;
+        $requestBody['authentifizierung'] = [
+            'benutzername' => config('services.tuvsud.username'),
+            'token' => config('services.tuvsud.token'),
+        ];
+
+        $response = Http::timeout(30)->post(config('services.tuvsud.url'), $requestBody);
+        $status = $response->status();
+        $respJson = $response->json() ?? ['ok' => false, 'status' => $status];
+
+        return $this->transitionOrderStatus->__invoke(
+            $order,
+            'order_placed',
+            'admin',
+            $user->name ?? $user->email,
+            $user->id,
+            $callerIp,
+            null,
+            [
+                'sent_at' => now(),
+                'response_status' => $status,
+                'response_body' => $respJson,
+                'request_payload' => $requestBody,
+            ],
+        );
     }
 
     private function fail(int $status, string $message): never

@@ -15,7 +15,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Validation\ValidationException;
 
 class OrderController extends Controller
@@ -185,33 +184,8 @@ class OrderController extends Controller
             ], 400);
         }
 
-        // Add authentication and send to TÜV SÜD
-        $requestBody = $order->request_payload;
-        $requestBody['authentifizierung'] = [
-            'benutzername' => config('services.tuvsud.username'),
-            'token' => config('services.tuvsud.token'),
-        ];
-
-        $response = Http::timeout(30)->post(config('services.tuvsud.url'), $requestBody);
-        $status = $response->status();
-        $respJson = $response->json() ?? ['ok' => false, 'status' => $status];
-
         try {
-            $order = $this->transitionOrderStatus->__invoke(
-                $order,
-                'order_placed',
-                'admin',
-                $user->name ?? $user->email,
-                $user->id,
-                $request->ip(),
-                null,
-                [
-                    'sent_at' => now(),
-                    'response_status' => $status,
-                    'response_body' => $respJson,
-                    'request_payload' => $requestBody,
-                ],
-            );
+            $order = $this->orderService->approveOrder($order, $user, $request->ip());
         } catch (ValidationException $e) {
             return response()->json([
                 'error' => 'Only order_requested orders can be approved',
@@ -224,8 +198,8 @@ class OrderController extends Controller
             'order_id' => $order->id,
             'auftragsnummer' => $order->auftragsnummer,
             'order_status' => 'order_placed',
-            'tuvsud_status' => $status,
-            'tuvsud_response' => $respJson,
+            'tuvsud_status' => $order->response_status,
+            'tuvsud_response' => $order->response_body,
         ]);
     }
 

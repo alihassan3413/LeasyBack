@@ -19,7 +19,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('dashboard/summary', [AdminController::class, 'summary'])->name('dashboard.summary');
         Route::get('users/b2c', [AdminController::class, 'b2c'])->name('users.b2c');
         Route::get('users/b2b', [AdminController::class, 'b2b'])->name('users.b2b');
-        Route::get('list/orders', [AdminController::class, 'orders'])->name('orders.index');
+        // Named `.list`, not `.index` — Checkpoint 11's web `admin.orders.index`
+        // wants that name; `admin.` prefix is shared between this file and
+        // routes/admin.php, and a name picked in one silently shadows the
+        // other (see Checkpoint 10's identical admin.vehicles.index fix).
+        Route::get('list/orders', [AdminController::class, 'orders'])->name('orders.list');
         Route::get('list/orders/by-user-type', [AdminController::class, 'ordersByUserType'])->name('orders.by-user-type');
         Route::get('list/orders/user/{userId}', [AdminController::class, 'ordersByUser'])->name('orders.by-user');
         Route::get('list/vehicles', [AdminController::class, 'vehicles'])->name('vehicles.list');

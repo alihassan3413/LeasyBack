@@ -5,26 +5,14 @@
  * AppLogo) but has its own nav and color scheme, matching
  * leasyback_web's src/components/admin/AdminSidebar.vue: same four items in
  * the same order (Dashboard, Kunden, Fahrzeuge, Alle Aufträge) and the same
- * dark teal→green brand palette. Dashboard/Kunden/Fahrzeuge are real routes;
- * Alle Aufträge is Checkpoint 11's job — shown here as a disabled
- * placeholder (the intended IA, honestly not-yet-built) rather than a
- * broken link or a fabricated "coming soon" page.
+ * dark teal→green brand palette. All four are now real routes — Alle
+ * Aufträge was the last disabled placeholder, promoted in Checkpoint 11.
  */
 import AppLogo from '@/components/AppLogo.vue';
 import NavFooter from '@/components/NavFooter.vue';
 import NavMain from '@/components/NavMain.vue';
 import NavUser from '@/components/NavUser.vue';
-import {
-    Sidebar,
-    SidebarContent,
-    SidebarFooter,
-    SidebarGroup,
-    SidebarGroupLabel,
-    SidebarHeader,
-    SidebarMenu,
-    SidebarMenuButton,
-    SidebarMenuItem,
-} from '@/components/ui/sidebar';
+import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { type NavItem } from '@/types';
 import { Link } from '@inertiajs/vue3';
 import { BookOpen, Car, ClipboardList, Folder, LayoutGrid, Users } from 'lucide-vue-next';
@@ -45,9 +33,12 @@ const mainNavItems: NavItem[] = [
         href: route('admin.vehicles.index'),
         icon: Car,
     },
+    {
+        title: 'Alle Aufträge',
+        href: route('admin.orders.index'),
+        icon: ClipboardList,
+    },
 ];
-
-const upcomingNavItems: { title: string; icon: typeof ClipboardList }[] = [{ title: 'Alle Aufträge', icon: ClipboardList }];
 
 const footerNavItems: NavItem[] = [
     {
@@ -79,18 +70,6 @@ const footerNavItems: NavItem[] = [
 
         <SidebarContent>
             <NavMain :items="mainNavItems" />
-
-            <SidebarGroup class="px-2 py-0">
-                <SidebarGroupLabel>Demnächst</SidebarGroupLabel>
-                <SidebarMenu>
-                    <SidebarMenuItem v-for="item in upcomingNavItems" :key="item.title">
-                        <SidebarMenuButton disabled class="opacity-50">
-                            <component :is="item.icon" />
-                            <span>{{ item.title }}</span>
-                        </SidebarMenuButton>
-                    </SidebarMenuItem>
-                </SidebarMenu>
-            </SidebarGroup>
         </SidebarContent>
 
         <SidebarFooter>

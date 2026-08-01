@@ -3,6 +3,7 @@
 namespace App\Modules\UserProfile\Admin\Services;
 
 use App\Enums\OrderStatus;
+use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\Request;
@@ -359,6 +360,64 @@ class AdminQueryService
             'page' => $filters['page'],
             'limit' => $filters['limit'],
         ], $counts, ['data' => $data]);
+    }
+
+    /**
+     * Single-order detail for the Admin order detail page — reuses
+     * enrichOrders() (owner, confirmation, documents) so its shape matches
+     * a single row from orders(), matching how vehicleDetail() reuses
+     * enrichVehicles(). Also attaches every offer (not just
+     * published/selected like the customer-facing endpoint — Admin needs
+     * to see drafts and cancelled offers too) and the status-update audit
+     * trail.
+     *
+     * `available_transitions` deliberately excludes `order_placed` (that
+     * transition only happens through the dedicated approve() action,
+     * which also fires the external TÜV SÜD call) and `discarded` (the
+     * reject action — an open product question per
+     * docs/B2C_ADMIN_IMPLEMENTATION_PLAN.md §13, not yet confirmed as
+     * wanted, so no endpoint exercises it).
+     */
+    public function orderDetail(string $orderId): ?array
+    {
+        $row = DB::table('leasyback_orders as o')
+            ->join('vehicles as v', 'v.vehicle_id', '=', 'o.vehicle_id')
+            ->where('o.id', $orderId)
+            ->select([
+                'o.id', 'o.vehicle_id', 'o.auftragsnummer', 'o.leasyback_partner',
+                'o.order_status', 'o.sent_at', 'o.created_at', 'o.response_status',
+                'v.license_plate', 'v.vin', 'v.make', 'v.model',
+                'v.b2c_user_id', 'v.b2b_id',
+            ])
+            ->first();
+
+        if (! $row) {
+            return null;
+        }
+
+        $order = $this->enrichOrders(collect([$row]))[0] ?? null;
+        if ($order === null) {
+            return null;
+        }
+
+        $order['offers'] = DB::table('leasyback_offers')
+            ->where('order_id', $orderId)
+            ->orderBy('offer_sequence')
+            ->get()
+            ->all();
+
+        $order['status_updates'] = DB::table('leasyback_order_status_updates')
+            ->where('auftragsnummer', $row->auftragsnummer)
+            ->orderByDesc('created_at')
+            ->get()
+            ->all();
+
+        $order['available_transitions'] = array_values(array_diff(
+            TransitionOrderStatus::allowedNextStatuses($row->order_status),
+            ['order_placed', 'discarded'],
+        ));
+
+        return $order;
     }
 
     private function orderCounts(Builder $base): array

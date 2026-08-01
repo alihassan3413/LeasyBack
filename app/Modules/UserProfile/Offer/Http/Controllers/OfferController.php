@@ -41,17 +41,7 @@ class OfferController extends Controller
             'additional_notes' => 'nullable|string',
         ]);
 
-        // Get next sequence
-        $maxSeq = LeasybackOffer::where('order_id', $order->id)->max('offer_sequence') ?? 0;
-
-        $offer = LeasybackOffer::create([
-            'order_id' => $order->id,
-            'auftragsnummer' => $auftragsnummer,
-            'offer_sequence' => $maxSeq + 1,
-            'offer_status' => 'draft',
-            ...$validated,
-            'created_by_user_id' => $user->id,
-        ]);
+        $offer = $this->offerService->createOffer($order, $validated, $user);
 
         return response()->json($offer, 201);
     }
@@ -71,17 +61,13 @@ class OfferController extends Controller
             return response()->json(['error' => 'Offer not found'], 404);
         }
 
-        if ($offer->offer_status !== 'draft') {
-            return response()->json(['error' => 'Only draft offers can be published'], 400);
+        try {
+            $offer = $this->offerService->publishOffer($offer, $user);
+        } catch (HttpResponseException $e) {
+            return $e->getResponse();
         }
 
-        $offer->update([
-            'offer_status' => 'published',
-            'published_at' => now(),
-            'published_by_user_id' => $user->id,
-        ]);
-
-        return response()->json($offer->fresh());
+        return response()->json($offer);
     }
 
     /**
@@ -103,14 +89,9 @@ class OfferController extends Controller
             return response()->json(['error' => 'Offer not found'], 404);
         }
 
-        $offer->update([
-            'offer_status' => 'cancelled',
-            'cancelled_at' => now(),
-            'cancelled_by_user_id' => $user->id,
-            'cancellation_reason' => $validated['cancellation_reason'] ?? null,
-        ]);
+        $offer = $this->offerService->cancelOffer($offer, $validated['cancellation_reason'] ?? null, $user);
 
-        return response()->json($offer->fresh());
+        return response()->json($offer);
     }
 
     /**

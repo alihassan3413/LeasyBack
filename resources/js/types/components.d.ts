@@ -13,6 +13,7 @@ declare module 'vue' {
   export interface GlobalComponents {
     AddVehicleModal: typeof import('./../components/vehicle/AddVehicleModal.vue')['default']
     AdminLayout: typeof import('./../layouts/AdminLayout.vue')['default']
+    AdminOffersCard: typeof import('./../components/admin/AdminOffersCard.vue')['default']
     AdminSidebar: typeof import('./../components/AdminSidebar.vue')['default']
     AppContent: typeof import('./../components/AppContent.vue')['default']
     AppearanceTabs: typeof import('./../components/AppearanceTabs.vue')['default']
@@ -53,6 +54,7 @@ declare module 'vue' {
     Collapsible: typeof import('./../components/ui/collapsible/Collapsible.vue')['default']
     CollapsibleContent: typeof import('./../components/ui/collapsible/CollapsibleContent.vue')['default']
     CollapsibleTrigger: typeof import('./../components/ui/collapsible/CollapsibleTrigger.vue')['default']
+    CreateOfferModal: typeof import('./../components/admin/CreateOfferModal.vue')['default']
     CreateVehicleModal: typeof import('./../components/admin/CreateVehicleModal.vue')['default']
     CtaSection: typeof import('./../components/landing/CtaSection.vue')['default']
     DeleteUser: typeof import('./../components/DeleteUser.vue')['default']

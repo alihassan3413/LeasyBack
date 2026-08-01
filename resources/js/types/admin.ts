@@ -147,6 +147,86 @@ export interface AdminVehicleDocumentEntry {
     created_at: string;
 }
 
+/** Matches AdminQueryService::enrichOrders()'s per-row shape (both orders() and orderDetail() return this). */
+export interface AdminOrderRow {
+    id: string;
+    vehicle_id: string;
+    auftragsnummer: string;
+    leasyback_partner: string;
+    order_status: string;
+    sent_at: string | null;
+    created_at: string;
+    response_status: number | null;
+    license_plate: string;
+    vin: string | null;
+    make: string | null;
+    model: string | null;
+    user_id: number | null;
+    user_email: string | null;
+    user_type: string | null;
+    b2b_id: string | null;
+    company_name: string | null;
+    confirmation_date: string | null;
+    assessment_documents: unknown[];
+    report_documents: AdminReportDocument[];
+}
+
+/** Matches AdminQueryService::orders()'s response envelope. */
+export interface AdminOrderList {
+    page: number;
+    limit: number;
+    total: number;
+    total_active: number;
+    total_confirmed: number;
+    total_inspected: number;
+    total_delivered: number;
+    data: AdminOrderRow[];
+}
+
+/** Matches a `leasyback_offers` row (every status — Admin sees drafts/cancelled too, unlike the customer-facing endpoint). */
+export interface AdminOfferRow {
+    offer_id: string;
+    order_id: string;
+    auftragsnummer: string;
+    offer_sequence: number;
+    offer_status: 'draft' | 'published' | 'selected' | 'closed' | 'cancelled';
+    repair_cost_net: string | number;
+    repair_cost_gross: string | number;
+    depreciation_value_net: string | number;
+    depreciation_value_gross: string | number;
+    workshop_repair_quote_net: string | number;
+    workshop_repair_quote_gross: string | number;
+    missing_parts_cost_net: string | number;
+    missing_parts_cost_gross: string | number;
+    final_total_net: string | number;
+    final_total_gross: string | number;
+    additional_notes: string | null;
+    cancellation_reason: string | null;
+    published_at: string | null;
+    selected_at: string | null;
+    cancelled_at: string | null;
+    created_at: string;
+}
+
+/** Matches a `leasyback_order_status_updates` row. */
+export interface AdminOrderStatusUpdate {
+    id: string;
+    auftragsnummer: string;
+    old_status: string;
+    new_status: string;
+    updated_by: string;
+    auth_source: string;
+    created_at: string;
+}
+
+/** Matches AdminQueryService::orderDetail()'s response shape. */
+export interface AdminOrderDetail extends AdminOrderRow {
+    offers: AdminOfferRow[];
+    status_updates: AdminOrderStatusUpdate[];
+    /** Never includes `order_placed` (approve()'s job) or `discarded` (reject — not yet a confirmed feature). */
+    available_transitions: string[];
+}
+
 /** Matches AdminQueryService::vehicles()'s response envelope. */
 export interface AdminVehicleList {
     page: number;
