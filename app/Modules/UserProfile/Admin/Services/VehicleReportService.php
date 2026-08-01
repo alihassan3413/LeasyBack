@@ -5,6 +5,7 @@ namespace App\Modules\UserProfile\Admin\Services;
 use App\Models\AssessmentDocument;
 use App\Models\User;
 use App\Models\VehicleReportDocument;
+use App\Models\VehicleReportDocumentLog;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -17,6 +18,11 @@ use Illuminate\Support\Facades\Storage;
  * vehicle detail page can reuse it without duplicating the storage/DB
  * calls. Authorization (VehicleReportDocumentPolicy) stays the caller's
  * job in both controllers, same as every other *Service in this app.
+ *
+ * Every action also writes a VehicleReportDocumentLog row — this table
+ * existed since before Checkpoint 10 with zero consumers
+ * (docs/B2C_ADMIN_MIGRATION_AUDIT.md's "dead schema" item); this service is
+ * its evident intended consumer (Checkpoint 12).
  */
 class VehicleReportService
 {
@@ -41,17 +47,23 @@ class VehicleReportService
         $destPath = "vehicle-reports/{$validated['auftragsnummer']}/{$filename}";
         Storage::disk('documents')->put($destPath, $bytes);
 
-        $doc = VehicleReportDocument::create([
-            'auftragsnummer' => $validated['auftragsnummer'],
-            'vehicle_id' => $validated['vehicle_id'],
-            'document_type' => $validated['document_type'] ?? null,
-            'document_title' => $validated['document_title'] ?? null,
-            'path' => $destPath,
-            'published' => $validated['published'] ?? false,
-            'source_assessment_document_id' => $validated['source_assessment_document_id'],
-            'created_by_user_id' => $user->id,
-            'updated_by_user_id' => $user->id,
-        ]);
+        $doc = DB::transaction(function () use ($validated, $destPath, $user) {
+            $doc = VehicleReportDocument::create([
+                'auftragsnummer' => $validated['auftragsnummer'],
+                'vehicle_id' => $validated['vehicle_id'],
+                'document_type' => $validated['document_type'] ?? null,
+                'document_title' => $validated['document_title'] ?? null,
+                'path' => $destPath,
+                'published' => $validated['published'] ?? false,
+                'source_assessment_document_id' => $validated['source_assessment_document_id'],
+                'created_by_user_id' => $user->id,
+                'updated_by_user_id' => $user->id,
+            ]);
+
+            $this->auditDocument($doc, 'transferred', $user->id);
+
+            return $doc;
+        });
 
         return ['document' => $doc];
     }
@@ -78,16 +90,22 @@ class VehicleReportService
 
         Storage::disk('documents')->put($path, file_get_contents($file));
 
-        $doc = VehicleReportDocument::create([
-            'auftragsnummer' => $auftragsnummer,
-            'vehicle_id' => $vehicleId,
-            'document_type' => $documentType,
-            'document_title' => $documentTitle,
-            'path' => $path,
-            'published' => $published,
-            'created_by_user_id' => $user->id,
-            'updated_by_user_id' => $user->id,
-        ]);
+        $doc = DB::transaction(function () use ($auftragsnummer, $vehicleId, $documentType, $documentTitle, $path, $published, $user) {
+            $doc = VehicleReportDocument::create([
+                'auftragsnummer' => $auftragsnummer,
+                'vehicle_id' => $vehicleId,
+                'document_type' => $documentType,
+                'document_title' => $documentTitle,
+                'path' => $path,
+                'published' => $published,
+                'created_by_user_id' => $user->id,
+                'updated_by_user_id' => $user->id,
+            ]);
+
+            $this->auditDocument($doc, 'uploaded', $user->id);
+
+            return $doc;
+        });
 
         return ['document' => $doc];
     }
@@ -106,19 +124,24 @@ class VehicleReportService
             return ['message' => 'Document published status is already same', 'document' => $doc];
         }
 
-        $doc->update(['published' => $published, 'updated_by_user_id' => $user->id]);
+        $doc = DB::transaction(function () use ($doc, $published, $user) {
+            $doc->update(['published' => $published, 'updated_by_user_id' => $user->id]);
+            $this->auditDocument($doc, $published ? 'published' : 'unpublished', $user->id);
+
+            return $doc->fresh();
+        });
 
         return [
             'message' => 'Document published status updated successfully',
             'action' => $published ? 'published' : 'unpublished',
-            'document' => $doc->fresh(),
+            'document' => $doc,
         ];
     }
 
     /**
      * @return array{message: string, document_id: string, auftragsnummer: string, vehicle_id: string}
      */
-    public function delete(string $documentId): array
+    public function delete(string $documentId, User $user): array
     {
         $doc = VehicleReportDocument::find($documentId);
         if (! $doc) {
@@ -136,8 +159,12 @@ class VehicleReportService
             ]);
         }
 
+        DB::transaction(function () use ($doc, $user) {
+            $this->auditDocument($doc, 'deleted', $user->id);
+            $doc->delete();
+        });
+
         Storage::disk('documents')->delete($doc->path);
-        $doc->delete();
 
         return [
             'message' => 'Vehicle report document deleted successfully',
@@ -145,6 +172,20 @@ class VehicleReportService
             'auftragsnummer' => $doc->auftragsnummer,
             'vehicle_id' => $doc->vehicle_id,
         ];
+    }
+
+    private function auditDocument(VehicleReportDocument $doc, string $action, ?int $userId): void
+    {
+        VehicleReportDocumentLog::create([
+            'document_id' => $doc->id,
+            'auftragsnummer' => $doc->auftragsnummer,
+            'vehicle_id' => $doc->vehicle_id,
+            'action' => $action,
+            's3_bucket' => null,
+            's3_key' => $doc->path,
+            's3_url' => null,
+            'changed_by_user_id' => $userId,
+        ]);
     }
 
     private function fail(int $status, string $message, array $extra = []): never

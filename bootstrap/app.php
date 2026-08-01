@@ -3,6 +3,7 @@
 use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Middleware\EnsureUserIsAdmin;
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\VerifyDekraWebhookSignature;
 use App\Http\Middleware\VerifyTuvsudApiKey;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
@@ -38,6 +39,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'active' => EnsureUserIsActive::class,
             'admin' => EnsureUserIsAdmin::class,
             'tuvsud.webhook' => VerifyTuvsudApiKey::class,
+            'dekra.webhook' => VerifyDekraWebhookSignature::class,
         ]);
 
         // The standalone leasyback_web SPA authenticates with Sanctum bearer

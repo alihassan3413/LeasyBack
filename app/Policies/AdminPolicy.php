@@ -40,4 +40,9 @@ class AdminPolicy
     {
         return $user->isAdmin();
     }
+
+    public function manageDekraProcess(User $user): bool
+    {
+        return $user->isAdmin();
+    }
 }

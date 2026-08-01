@@ -5,7 +5,7 @@ use Illuminate\Support\Facades\Route;
 
 // DEKRA calls this webhook directly and cannot provide a user Sanctum token.
 Route::post('dekra/terminbestaetigung', [DekraController::class, 'receiveTerminbestaetigung'])
-    ->middleware('throttle:30,1')
+    ->middleware(['throttle:30,1', 'dekra.webhook'])
     ->name('dekra.terminbestaetigung.receive');
 
 Route::middleware('auth:sanctum')

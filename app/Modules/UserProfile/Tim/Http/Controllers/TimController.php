@@ -5,11 +5,13 @@ namespace App\Modules\UserProfile\Tim\Http\Controllers;
 use App\Models\TimBewertung;
 use App\Models\TimToken;
 use App\Modules\UserProfile\Admin\Support\EnsuresAdmin;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
 class TimController extends Controller
@@ -33,9 +35,15 @@ class TimController extends Controller
 
         $soapXml = $this->loginEnvelope($username, $password);
 
-        $response = Http::withHeaders(['Content-Type' => 'text/xml; charset=utf-8'])
-            ->withBody($soapXml, 'text/xml')
-            ->post($wsdl);
+        try {
+            $response = Http::withHeaders(['Content-Type' => 'text/xml; charset=utf-8'])
+                ->withBody($soapXml, 'text/xml')
+                ->post($wsdl);
+        } catch (ConnectionException $e) {
+            Log::error('TIM login request failed to connect', ['error' => $e->getMessage()]);
+
+            return response()->json(['error' => 'tim_unreachable'], 502);
+        }
 
         if (! $response->successful()) {
             return response()->json(['error' => 'login_failed_or_unexpected_response'], 502);
@@ -88,10 +96,16 @@ class TimController extends Controller
         $wsdl = config('services.tim.wsdl');
         $soapXml = $this->holeBewertungEnvelope($token->client_id, $token->session, $token->username, $bewertungId);
 
-        $response = Http::withHeaders(['Content-Type' => 'text/xml; charset=utf-8'])
-            ->timeout(60)
-            ->withBody($soapXml, 'text/xml')
-            ->post($wsdl);
+        try {
+            $response = Http::withHeaders(['Content-Type' => 'text/xml; charset=utf-8'])
+                ->timeout(60)
+                ->withBody($soapXml, 'text/xml')
+                ->post($wsdl);
+        } catch (ConnectionException $e) {
+            Log::error('TIM sync request failed to connect', ['bewertung_id' => $bewertungId, 'error' => $e->getMessage()]);
+
+            return response()->json(['error' => 'tim_unreachable'], 502);
+        }
 
         if (! $response->successful()) {
             return response()->json(['error' => 'TIM request failed'], 502);
@@ -99,14 +113,25 @@ class TimController extends Controller
 
         $respXml = $response->body();
 
-        // Save XML to S3
+        // Parse summary fields
+        $tags = $this->extractTags($respXml, ['Uid', 'Gutachtennummer', 'Auftragsnummer', 'FIN', 'Modell', 'Farbe', 'Kunde', 'Produkt', 'Waehrung', 'KmStand', 'Gutachtendatum']);
+
+        // extractTags() is regex-based, not a real XML parser, so it never
+        // throws on malformed input — it just finds nothing. Without this
+        // check, a truncated/non-XML response (e.g. a proxy error page)
+        // would silently persist a near-empty TimBewertung row instead of
+        // surfacing as the "malformed external response" it actually is.
+        if (empty($tags['Uid']) || empty($tags['Auftragsnummer'])) {
+            Log::error('TIM sync returned an unparseable or incomplete response', ['bewertung_id' => $bewertungId]);
+
+            return response()->json(['error' => 'malformed_tim_response'], 502);
+        }
+
+        // Save XML to S3 — only once the response is confirmed usable.
         $key = "tim/bewertung/{$bewertungId}/".now()->format('Ymd\THis\Z').'.xml';
         $bucket = config('filesystems.disks.s3.bucket');
 
         Storage::disk('s3')->put($key, $respXml, ['ContentType' => 'application/xml']);
-
-        // Parse summary fields
-        $tags = $this->extractTags($respXml, ['Uid', 'Gutachtennummer', 'Auftragsnummer', 'FIN', 'Modell', 'Farbe', 'Kunde', 'Produkt', 'Waehrung', 'KmStand', 'Gutachtendatum']);
 
         TimBewertung::create([
             'bewertung_id' => $bewertungId,
@@ -183,6 +208,16 @@ class TimController extends Controller
         return response()->json($result);
     }
 
+    /**
+     * OPEN QUESTION (docs/B2C_ADMIN_IMPLEMENTATION_PLAN.md §13, item 5):
+     * `$password` is sent verbatim into the `<tim:PasswortSHA1>` element.
+     * Whether `config('services.tim.password')` is actually expected to
+     * already be a SHA1 hash (maintained out-of-band) or the TIM
+     * integration has simply never been exercised with a real credential
+     * is unconfirmed — needs the vendor relationship owner, not a code
+     * guess. Left exactly as it already behaved; not changed by this
+     * checkpoint's hardening pass.
+     */
     private function loginEnvelope(string $username, string $password): string
     {
         return <<<XML

@@ -112,7 +112,7 @@ class VehicleReportController extends Controller
         $request->user()->can('delete', VehicleReportDocument::class) || abort(403, 'Only admin can delete vehicle report documents');
 
         try {
-            $result = $this->vehicleReportService->delete($documentId);
+            $result = $this->vehicleReportService->delete($documentId, $request->user());
         } catch (HttpResponseException $e) {
             return $e->getResponse();
         }

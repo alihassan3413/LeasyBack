@@ -65,8 +65,8 @@ class VehicleReportController extends Controller
     {
         $request->user()->can('delete', VehicleReportDocument::class) || abort(403, 'Only admin can delete vehicle report documents');
 
-        return $this->withServiceErrorHandling('report', function () use ($documentId) {
-            $this->vehicleReportService->delete($documentId);
+        return $this->withServiceErrorHandling('report', function () use ($documentId, $request) {
+            $this->vehicleReportService->delete($documentId, $request->user());
         }) ?? back();
     }
 }

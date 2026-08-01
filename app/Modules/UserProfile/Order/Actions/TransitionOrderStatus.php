@@ -2,9 +2,13 @@
 
 namespace App\Modules\UserProfile\Order\Actions;
 
+use App\Mail\StatusChangeNotification;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Order\Models\OrderStatusUpdate;
+use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -20,9 +24,21 @@ use Illuminate\Validation\ValidationException;
  * per §6 of the same doc. Requesting the order's current status again is a
  * no-op (not an error) rather than a rejected transition, so a redelivered
  * webhook call doesn't fail loudly for doing nothing.
+ *
+ * This is also the single place a "your order status changed" customer
+ * email goes out (Checkpoint 12) — every real transition flows through
+ * here regardless of caller (webhook, Admin, TransitionOrderStatus's
+ * various controller call sites), so centralizing the notification here
+ * is the only way to guarantee one email per real transition rather than
+ * duplicating send calls at every call site and risking one being missed.
+ * The email is sent after the DB transaction commits, not inside it —
+ * network I/O has no business holding a row lock open — and is strictly
+ * best-effort (a failed send never rolls back a valid status change).
  */
 class TransitionOrderStatus
 {
+    public function __construct(private readonly VehicleScopeService $vehicleScope) {}
+
     /**
      * @var array<string, list<string>>
      */
@@ -52,7 +68,9 @@ class TransitionOrderStatus
         ?string $bewertungId = null,
         array $additionalAttributes = [],
     ): LeasybackOrder {
-        return DB::transaction(function () use ($order, $toStatus, $authSource, $updatedByLabel, $changedByUserId, $callerIp, $bewertungId, $additionalAttributes) {
+        $realTransition = false;
+
+        $result = DB::transaction(function () use ($order, $toStatus, $authSource, $updatedByLabel, $changedByUserId, $callerIp, $bewertungId, $additionalAttributes, &$realTransition) {
             /** @var LeasybackOrder $locked */
             $locked = LeasybackOrder::whereKey($order->getKey())->lockForUpdate()->firstOrFail();
             $fromStatus = $locked->order_status;
@@ -85,8 +103,49 @@ class TransitionOrderStatus
                 'caller_ip' => $callerIp,
             ]);
 
+            $realTransition = true;
+
             return $locked->fresh();
         });
+
+        if ($realTransition) {
+            $this->notifyStatusChange($result);
+        }
+
+        return $result;
+    }
+
+    /**
+     * Best-effort, never throws — a failed send must never surface as a
+     * failed status transition (the DB write already committed by the
+     * time this runs).
+     */
+    private function notifyStatusChange(LeasybackOrder $order): void
+    {
+        $vehicle = $order->vehicle;
+        if ($vehicle === null) {
+            return;
+        }
+
+        $owner = $this->vehicleScope->resolveOwnerContact($vehicle);
+        if ($owner === null) {
+            Log::warning('Could not resolve a vehicle owner contact — skipping status-change notification', [
+                'auftragsnummer' => $order->auftragsnummer,
+                'vehicle_id' => $vehicle->vehicle_id,
+            ]);
+
+            return;
+        }
+
+        try {
+            Mail::to($owner['email'])->queue(new StatusChangeNotification(
+                firstName: $owner['name'],
+                licensePlate: $vehicle->license_plate,
+                actionUrl: rtrim((string) config('app.frontend_url'), '/').'/dashboard',
+            ));
+        } catch (\Throwable $e) {
+            Log::error('Status-change notification failed', ['auftragsnummer' => $order->auftragsnummer, 'error' => $e->getMessage()]);
+        }
     }
 
     /**

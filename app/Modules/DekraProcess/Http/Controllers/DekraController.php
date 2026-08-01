@@ -17,6 +17,7 @@ use App\Modules\DekraProcess\Models\QuittungStatus;
 use App\Modules\DekraProcess\Services\DekraApiService;
 use App\Modules\DekraProcess\Services\XmlGeneratorService;
 use App\Modules\DekraProcess\Services\XmlParserService;
+use App\Modules\UserProfile\Admin\Support\EnsuresAdmin;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -26,13 +27,29 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
+/**
+ * Every Sanctum-authenticated method here is now gated behind
+ * AdminPolicy::manageDekraProcess (via the shared EnsuresAdmin trait) — none
+ * of them checked the caller's role at all before this checkpoint, meaning
+ * any authenticated user of any type could create DEKRA clients/orders or
+ * trigger a real send to the DEKRA API. receiveTerminbestaetigung() is the
+ * one method deliberately left alone here: it's the public webhook DEKRA
+ * itself calls (no Sanctum token available), gated instead by the
+ * VerifyDekraWebhookSignature route middleware.
+ */
 class DekraController extends Controller
 {
+    use EnsuresAdmin;
+
     /**
      * Create a new client with auto-generated 5-digit ID.
      */
     public function createClient(Request $request): JsonResponse
     {
+        if ($denied = $this->ensureAdmin($request, 'manageDekraProcess', 'Only admin can access DEKRA process endpoints')) {
+            return $denied;
+        }
+
         $validated = $request->validate([
             'client_name' => 'required|string|max:255',
         ]);
@@ -70,6 +87,10 @@ class DekraController extends Controller
      */
     public function createDienstleistungsobjekt(Request $request): JsonResponse
     {
+        if ($denied = $this->ensureAdmin($request, 'manageDekraProcess', 'Only admin can access DEKRA process endpoints')) {
+            return $denied;
+        }
+
         // Preserve compatibility with the Rust API's original misspelled field.
         if (! $request->has('leasing_nummer') && $request->has('leasing_numer')) {
             $request->merge(['leasing_nummer' => $request->input('leasing_numer')]);
@@ -104,6 +125,10 @@ class DekraController extends Controller
      */
     public function createBesichtigungOrte(Request $request): JsonResponse
     {
+        if ($denied = $this->ensureAdmin($request, 'manageDekraProcess', 'Only admin can access DEKRA process endpoints')) {
+            return $denied;
+        }
+
         $validated = $request->validate([
             'orte_name' => 'required|string|max:255',
             'name4' => 'nullable|string|max:255',
@@ -133,6 +158,10 @@ class DekraController extends Controller
      */
     public function createKundenAuftrag(Request $request): JsonResponse
     {
+        if ($denied = $this->ensureAdmin($request, 'manageDekraProcess', 'Only admin can access DEKRA process endpoints')) {
+            return $denied;
+        }
+
         // Preserve compatibility with the Rust JSON field name.
         if (! $request->has('bestellung_bestaetigen') && $request->has('bestellung_bestätigen')) {
             $request->merge([
@@ -175,6 +204,10 @@ class DekraController extends Controller
      */
     public function createAnlageListe(Request $request): JsonResponse
     {
+        if ($denied = $this->ensureAdmin($request, 'manageDekraProcess', 'Only admin can access DEKRA process endpoints')) {
+            return $denied;
+        }
+
         $validated = $request->validate([
             'beauftragungsnummer' => 'required|string|max:50|exists:kunden_auftrag,beauftragungsnummer',
             'client_id' => 'required|string|max:5|exists:clients,client_id',
@@ -202,6 +235,10 @@ class DekraController extends Controller
      */
     public function createPartner(Request $request): JsonResponse
     {
+        if ($denied = $this->ensureAdmin($request, 'manageDekraProcess', 'Only admin can access DEKRA process endpoints')) {
+            return $denied;
+        }
+
         $validated = $request->validate([
             'partner_name' => 'required|string|max:255',
             'partner_nummer' => 'required|string|max:50|unique:auftrag_partner,partner_nummer',
@@ -225,8 +262,12 @@ class DekraController extends Controller
     /**
      * Get full order info by beauftragungsnummer (JOIN query).
      */
-    public function getAuftragInfo(string $beauftragungsnummer): JsonResponse
+    public function getAuftragInfo(Request $request, string $beauftragungsnummer): JsonResponse
     {
+        if ($denied = $this->ensureAdmin($request, 'manageDekraProcess', 'Only admin can access DEKRA process endpoints')) {
+            return $denied;
+        }
+
         $auftrag = DB::table('kunden_auftrag as ka')
             ->join('dienstleistungsobjekt as dobj', 'ka.objekt_id', '=', 'dobj.objekt_id')
             ->join('besichtigung_orte as bs', 'ka.orte_id', '=', 'bs.orte_id')
@@ -277,6 +318,10 @@ class DekraController extends Controller
      */
     public function generateAndSendAuftrag(Request $request): JsonResponse
     {
+        if ($denied = $this->ensureAdmin($request, 'manageDekraProcess', 'Only admin can access DEKRA process endpoints')) {
+            return $denied;
+        }
+
         $validated = $request->validate([
             'beauftragungsnummer' => 'required|string|exists:kunden_auftrag,beauftragungsnummer',
             'partner_id' => 'required|integer|exists:auftrag_partner,partner_id',

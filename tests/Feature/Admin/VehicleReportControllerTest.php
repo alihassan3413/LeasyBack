@@ -41,6 +41,13 @@ class VehicleReportControllerTest extends TestCase
             'auftragsnummer' => 'AUF-12345678',
             'published' => true,
         ]);
+        // vehicle_report_document_logs existed with zero consumers before
+        // Checkpoint 12 (docs/B2C_ADMIN_MIGRATION_AUDIT.md's "dead schema"
+        // item) — VehicleReportService is now its consumer.
+        $this->assertDatabaseHas('vehicle_report_document_logs', [
+            'vehicle_id' => $vehicle->vehicle_id,
+            'action' => 'uploaded',
+        ]);
     }
 
     public function test_non_admin_cannot_upload_a_report_document(): void
@@ -69,6 +76,7 @@ class VehicleReportControllerTest extends TestCase
             ->assertRedirect();
 
         $this->assertDatabaseHas('vehicle_report_documents', ['id' => $document->id, 'published' => true]);
+        $this->assertDatabaseHas('vehicle_report_document_logs', ['document_id' => $document->id, 'action' => 'published']);
     }
 
     public function test_non_admin_cannot_publish_a_report_document(): void
@@ -89,11 +97,14 @@ class VehicleReportControllerTest extends TestCase
         $admin = $this->admin();
         $document = VehicleReportDocument::factory()->create();
 
+        $documentId = $document->id;
+
         $this->actingAs($admin)
             ->delete(route('admin.vehicles.reports.delete', $document->id))
             ->assertRedirect();
 
-        $this->assertDatabaseMissing('vehicle_report_documents', ['id' => $document->id]);
+        $this->assertDatabaseMissing('vehicle_report_documents', ['id' => $documentId]);
+        $this->assertDatabaseHas('vehicle_report_document_logs', ['document_id' => $documentId, 'action' => 'deleted']);
     }
 
     public function test_non_admin_cannot_delete_a_report_document(): void

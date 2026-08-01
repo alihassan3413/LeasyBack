@@ -56,5 +56,6 @@ class AuthServiceProvider extends ServiceProvider
         Gate::define('viewAdminListings', [AdminPolicy::class, 'viewAdminListings']);
         Gate::define('updateCustomerStatus', [AdminPolicy::class, 'updateCustomerStatus']);
         Gate::define('syncAppraisal', [AdminPolicy::class, 'syncAppraisal']);
+        Gate::define('manageDekraProcess', [AdminPolicy::class, 'manageDekraProcess']);
     }
 }

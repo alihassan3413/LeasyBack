@@ -41,6 +41,9 @@ return [
         'password' => env('DEKRA_PASSWORD'),
         'timeout' => (int) env('DEKRA_TIMEOUT', 30),
         'connect_timeout' => (int) env('DEKRA_CONNECT_TIMEOUT', 10),
+        // No default: VerifyDekraWebhookSignature fails closed when this is
+        // unset, same reasoning as tuvsud.api_key below.
+        'webhook_key' => env('DEKRA_WEBHOOK_KEY'),
     ],
 
     'tuvsud' => [
@@ -62,6 +65,17 @@ return [
         'username' => env('TIM_USER_NAME', ''),
         'password' => env('TIM_PASS', ''),
         'wsdl' => env('TIM_WSDL', ''),
+    ],
+
+    'notifications' => [
+        // Internal/ops recipient for OrderCreatedNotification (staff-facing
+        // "a new order came in", not customer-facing). No hardcoded
+        // personal-address default, on purpose — the reference system's
+        // biggest email flaw was exactly that (a hardcoded personal Gmail
+        // address as the effective only recipient, docs/B2C_ADMIN_MIGRATION_AUDIT.md
+        // §4.7). If unset, order-created ops emails are skipped (logged),
+        // not silently sent nowhere useful.
+        'ops_email' => env('OPS_NOTIFICATION_EMAIL'),
     ],
 
 ];
