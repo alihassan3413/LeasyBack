@@ -22,7 +22,20 @@ export interface OnboardingVehicle {
 defineProps<{ vehicle: OnboardingVehicle | null }>();
 const emit = defineEmits<{ next: []; back: [] }>();
 
+// Matches the leasyback_web design: green "Weiter" (continue), orange "Zurück" (back).
+const nextButtonClass = 'rounded-[5px] px-10 py-2 text-sm font-bold text-white shadow-none bg-brand-green hover:bg-brand-green/90';
+const backButtonClass = 'rounded-[5px] px-10 py-2 text-sm font-bold text-white shadow-none bg-brand-orange hover:bg-brand-orange/90';
+
 const leasingEndUnknown = ref(true);
+
+const VIN_MAX_LENGTH = 17;
+
+function sanitizeVin(value: string | number): string {
+    return String(value)
+        .toUpperCase()
+        .replace(/[^A-Z0-9]/g, '')
+        .slice(0, VIN_MAX_LENGTH);
+}
 
 const form = useForm({
     license_plate: '',
@@ -58,8 +71,8 @@ function submit() {
             </dl>
 
             <div class="mt-6 flex items-center justify-between border-t pt-5">
-                <Button type="button" variant="ghost" @click="emit('back')">Zurück</Button>
-                <Button type="button" @click="emit('next')">Weiter</Button>
+                <Button type="button" :class="backButtonClass" @click="emit('back')">Zurück</Button>
+                <Button type="button" :class="nextButtonClass" @click="emit('next')">Weiter</Button>
             </div>
         </template>
 
@@ -112,7 +125,15 @@ function submit() {
                 hint="Genau 17 Zeichen, siehe Feld E."
                 :error="form.errors.vin"
             >
-                <Input :id="id" v-model="form.vin" maxlength="17" class="uppercase" :aria-invalid="invalid" :aria-describedby="describedBy" />
+                <Input
+                    :id="id"
+                    :model-value="form.vin"
+                    maxlength="17"
+                    class="uppercase"
+                    :aria-invalid="invalid"
+                    :aria-describedby="describedBy"
+                    @update:model-value="(value) => (form.vin = sanitizeVin(value))"
+                />
             </FormField>
 
             <div class="grid gap-4 sm:grid-cols-2">
@@ -139,8 +160,8 @@ function submit() {
             </div>
 
             <div class="flex items-center justify-between gap-3 border-t pt-5">
-                <Button type="button" variant="ghost" @click="emit('back')">Zurück</Button>
-                <Button type="submit" :loading="form.processing">Weiter</Button>
+                <Button type="button" :class="backButtonClass" @click="emit('back')">Zurück</Button>
+                <Button type="submit" :class="nextButtonClass" :loading="form.processing">Weiter</Button>
             </div>
         </form>
     </OnboardingCard>

@@ -38,6 +38,15 @@ function removeRow(index: number) {
         props.modelValue.filter((_, i) => i !== index),
     );
 }
+
+// The international prefix is its own dropdown, so the number itself is
+// digits-only — matches the longest realistic national significant number
+// (E.164 allows 15 digits total, minus the shortest prefix).
+const PHONE_NUMBER_MAX_LENGTH = 14;
+
+function sanitizePhoneNumber(value: string | number): string {
+    return String(value).replace(/\D+/g, '').slice(0, PHONE_NUMBER_MAX_LENGTH);
+}
 </script>
 
 <template>
@@ -54,9 +63,12 @@ function removeRow(index: number) {
             <Input
                 :model-value="row.phone_number"
                 type="tel"
+                inputmode="numeric"
+                pattern="[0-9]*"
+                :maxlength="PHONE_NUMBER_MAX_LENGTH"
                 placeholder="Telefonnummer"
                 class="flex-1"
-                @update:model-value="(value) => updateRow(index, { phone_number: String(value) })"
+                @update:model-value="(value) => updateRow(index, { phone_number: sanitizePhoneNumber(value) })"
             />
             <Button
                 type="button"
