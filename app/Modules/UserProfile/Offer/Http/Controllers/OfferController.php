@@ -4,20 +4,23 @@ namespace App\Modules\UserProfile\Offer\Http\Controllers;
 
 use App\Models\LeasybackOffer;
 use App\Models\LeasybackOrder;
+use App\Modules\UserProfile\Offer\Services\OfferService;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
-use Illuminate\Support\Facades\DB;
 
 class OfferController extends Controller
 {
+    public function __construct(private readonly OfferService $offerService) {}
+
     /**
      * POST /admin/offers/create/{auftragsnummer}
      */
     public function create(Request $request, string $auftragsnummer): JsonResponse
     {
         $user = $request->user();
-        if ($user->user_type->value !== 'Admin') {
+        if (! $user->can('create', LeasybackOffer::class)) {
             return response()->json(['error' => 'Only admin can create offers'], 403);
         }
 
@@ -59,7 +62,7 @@ class OfferController extends Controller
     public function publish(Request $request, string $offerId): JsonResponse
     {
         $user = $request->user();
-        if ($user->user_type->value !== 'Admin') {
+        if (! $user->can('publish', LeasybackOffer::class)) {
             return response()->json(['error' => 'Only admin can publish offers'], 403);
         }
 
@@ -87,7 +90,7 @@ class OfferController extends Controller
     public function cancel(Request $request, string $offerId): JsonResponse
     {
         $user = $request->user();
-        if ($user->user_type->value !== 'Admin') {
+        if (! $user->can('cancel', LeasybackOffer::class)) {
             return response()->json(['error' => 'Only admin can cancel offers'], 403);
         }
 
@@ -116,7 +119,7 @@ class OfferController extends Controller
     public function adminList(Request $request, string $auftragsnummer): JsonResponse
     {
         $user = $request->user();
-        if ($user->user_type->value !== 'Admin') {
+        if (! $user->can('viewAny', LeasybackOffer::class)) {
             return response()->json(['error' => 'Only admin can list all offers'], 403);
         }
 
@@ -185,43 +188,16 @@ class OfferController extends Controller
             return response()->json(['error' => 'Offer not found or not accessible'], 404);
         }
 
-        if ($offer->offer_status !== 'published') {
-            return response()->json(['error' => 'This offer is no longer available'], 400);
+        try {
+            $result = $this->offerService->selectOffer($offer, $user);
+        } catch (HttpResponseException $e) {
+            return $e->getResponse();
         }
-
-        // Check if an offer is already selected
-        $alreadySelected = LeasybackOffer::where('order_id', $offer->order_id)
-            ->where('offer_status', 'selected')
-            ->exists();
-
-        if ($alreadySelected) {
-            return response()->json(['error' => 'An offer has already been selected for this order'], 400);
-        }
-
-        $closedCount = 0;
-
-        DB::transaction(function () use ($offer, $user, &$closedCount) {
-            // Select this offer
-            $offer->update([
-                'offer_status' => 'selected',
-                'selected_at' => now(),
-                'selected_by_user_id' => $user->id,
-            ]);
-
-            // Close all other published offers for the same order
-            $closedCount = LeasybackOffer::where('order_id', $offer->order_id)
-                ->where('offer_id', '!=', $offer->offer_id)
-                ->where('offer_status', 'published')
-                ->update([
-                    'offer_status' => 'closed',
-                    'closed_at' => now(),
-                ]);
-        });
 
         return response()->json([
             'message' => 'Offer selected successfully',
-            'selected_offer' => $offer->fresh(),
-            'other_offers_closed' => $closedCount,
+            'selected_offer' => $result['offer'],
+            'other_offers_closed' => $result['closed_count'],
         ]);
     }
 }

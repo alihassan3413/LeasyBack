@@ -3,21 +3,31 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import AddVehicleModal from '@/components/vehicle/AddVehicleModal.vue';
+import OffersCard from '@/components/vehicle/OffersCard.vue';
+import OrderCreationModal from '@/components/vehicle/OrderCreationModal.vue';
+import OrderStatusTimeline from '@/components/vehicle/OrderStatusTimeline.vue';
 import UploadDocumentModal from '@/components/vehicle/UploadDocumentModal.vue';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { getVehicleStatusDisplay, isVehicleCompleted } from '@/lib/vehicleStatus';
 import { type BreadcrumbItem } from '@/types';
+import type { StationData } from '@/types/order';
 import type { VehicleData } from '@/types/vehicle';
 import { Head } from '@inertiajs/vue3';
-import { FileUp, Pencil, Plus } from 'lucide-vue-next';
+import { ChevronDown, ChevronRight, FileUp, Pencil, Plus } from 'lucide-vue-next';
 import { computed, ref } from 'vue';
 
-const props = defineProps<{ vehicles: VehicleData[] }>();
+const props = defineProps<{ vehicles: VehicleData[]; stations: StationData[] }>();
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Dashboard', href: '/dashboard' }];
 
 function latestOrderStatus(vehicle: VehicleData): string | undefined {
     return vehicle.orders[0]?.order_status;
+}
+
+/** Mirrors VehicleService::hasUnfinishedOrder()'s terminal-status set. */
+function hasUnfinishedOrder(vehicle: VehicleData): boolean {
+    const status = latestOrderStatus(vehicle);
+    return !!status && !['delivered', 'cancelled', 'discarded'].includes(status);
 }
 
 const activeVehicles = computed(() => props.vehicles.filter((vehicle) => !isVehicleCompleted(latestOrderStatus(vehicle))));
@@ -43,6 +53,20 @@ const uploadDocuments = computed(() => props.vehicles.find((vehicle) => vehicle.
 function openUploadDocument(vehicle: VehicleData) {
     uploadVehicleId.value = vehicle.vehicle_id;
     uploadModalOpen.value = true;
+}
+
+const orderModalOpen = ref(false);
+const orderVehicleId = ref<string | null>(null);
+
+function openCreateOrder(vehicle: VehicleData) {
+    orderVehicleId.value = vehicle.vehicle_id;
+    orderModalOpen.value = true;
+}
+
+const expandedVehicleId = ref<string | null>(null);
+
+function toggleExpanded(vehicle: VehicleData) {
+    expandedVehicleId.value = expandedVehicleId.value === vehicle.vehicle_id ? null : vehicle.vehicle_id;
 }
 
 function formatDate(value: string | null): string {
@@ -73,6 +97,7 @@ function formatDate(value: string | null): string {
                 <Table>
                     <TableHeader>
                         <TableRow>
+                            <TableHead class="w-10" />
                             <TableHead>Kennzeichen</TableHead>
                             <TableHead>Marke · Modell</TableHead>
                             <TableHead>Leasingende</TableHead>
@@ -81,29 +106,51 @@ function formatDate(value: string | null): string {
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        <TableEmpty v-if="activeVehicles.length === 0" :colspan="5">
-                            Sie haben noch keine Fahrzeuge angelegt.
-                        </TableEmpty>
-                        <TableRow v-for="vehicle in activeVehicles" :key="vehicle.vehicle_id">
-                            <TableCell class="font-medium">{{ vehicle.license_plate }}</TableCell>
-                            <TableCell>{{ [vehicle.make, vehicle.model].filter(Boolean).join(' · ') || '—' }}</TableCell>
-                            <TableCell>{{ formatDate(vehicle.leasing_end_date) }}</TableCell>
-                            <TableCell>
-                                <Badge :variant="getVehicleStatusDisplay(latestOrderStatus(vehicle)).variant">
-                                    {{ getVehicleStatusDisplay(latestOrderStatus(vehicle)).label }}
-                                </Badge>
-                            </TableCell>
-                            <TableCell class="text-right">
-                                <div class="flex justify-end gap-2">
-                                    <Button variant="ghost" size="icon" aria-label="Dokument hochladen" @click="openUploadDocument(vehicle)">
-                                        <FileUp class="size-4" aria-hidden="true" />
-                                    </Button>
-                                    <Button variant="ghost" size="icon" aria-label="Fahrzeug bearbeiten" @click="openEditVehicle(vehicle)">
-                                        <Pencil class="size-4" aria-hidden="true" />
-                                    </Button>
-                                </div>
-                            </TableCell>
-                        </TableRow>
+                        <TableEmpty v-if="activeVehicles.length === 0" :colspan="6"> Sie haben noch keine Fahrzeuge angelegt. </TableEmpty>
+                        <template v-for="vehicle in activeVehicles" :key="vehicle.vehicle_id">
+                            <TableRow class="cursor-pointer" @click="toggleExpanded(vehicle)">
+                                <TableCell>
+                                    <ChevronDown
+                                        v-if="expandedVehicleId === vehicle.vehicle_id"
+                                        class="text-muted-foreground size-4"
+                                        aria-hidden="true"
+                                    />
+                                    <ChevronRight v-else class="text-muted-foreground size-4" aria-hidden="true" />
+                                </TableCell>
+                                <TableCell class="font-medium">{{ vehicle.license_plate }}</TableCell>
+                                <TableCell>{{ [vehicle.make, vehicle.model].filter(Boolean).join(' · ') || '—' }}</TableCell>
+                                <TableCell>{{ formatDate(vehicle.leasing_end_date) }}</TableCell>
+                                <TableCell>
+                                    <Badge :variant="getVehicleStatusDisplay(latestOrderStatus(vehicle)).variant">
+                                        {{ getVehicleStatusDisplay(latestOrderStatus(vehicle)).label }}
+                                    </Badge>
+                                </TableCell>
+                                <TableCell class="text-right">
+                                    <div class="flex justify-end gap-2" @click.stop>
+                                        <Button variant="ghost" size="icon" aria-label="Dokument hochladen" @click="openUploadDocument(vehicle)">
+                                            <FileUp class="size-4" aria-hidden="true" />
+                                        </Button>
+                                        <Button variant="ghost" size="icon" aria-label="Fahrzeug bearbeiten" @click="openEditVehicle(vehicle)">
+                                            <Pencil class="size-4" aria-hidden="true" />
+                                        </Button>
+                                    </div>
+                                </TableCell>
+                            </TableRow>
+                            <TableRow v-if="expandedVehicleId === vehicle.vehicle_id">
+                                <TableCell :colspan="6" class="bg-muted/30">
+                                    <div class="space-y-4 py-2">
+                                        <div v-if="!hasUnfinishedOrder(vehicle)" class="flex justify-end">
+                                            <Button size="sm" @click="openCreateOrder(vehicle)">Vorgang starten</Button>
+                                        </div>
+                                        <template v-if="vehicle.orders[0]">
+                                            <OrderStatusTimeline :status="vehicle.orders[0].order_status" />
+                                            <OffersCard :offers="vehicle.orders[0].offers" />
+                                        </template>
+                                        <p v-else class="text-muted-foreground text-sm">Noch kein Vorgang gestartet.</p>
+                                    </div>
+                                </TableCell>
+                            </TableRow>
+                        </template>
                     </TableBody>
                 </Table>
             </div>
@@ -113,6 +160,7 @@ function formatDate(value: string | null): string {
                 <Table>
                     <TableHeader>
                         <TableRow>
+                            <TableHead class="w-10" />
                             <TableHead>Kennzeichen</TableHead>
                             <TableHead>Marke · Modell</TableHead>
                             <TableHead>Leasingende</TableHead>
@@ -121,32 +169,53 @@ function formatDate(value: string | null): string {
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        <TableRow v-for="vehicle in completedVehicles" :key="vehicle.vehicle_id">
-                            <TableCell class="font-medium">{{ vehicle.license_plate }}</TableCell>
-                            <TableCell>{{ [vehicle.make, vehicle.model].filter(Boolean).join(' · ') || '—' }}</TableCell>
-                            <TableCell>{{ formatDate(vehicle.leasing_end_date) }}</TableCell>
-                            <TableCell>
-                                <Badge :variant="getVehicleStatusDisplay(latestOrderStatus(vehicle)).variant">
-                                    {{ getVehicleStatusDisplay(latestOrderStatus(vehicle)).label }}
-                                </Badge>
-                            </TableCell>
-                            <TableCell class="text-right">
-                                <Button variant="ghost" size="icon" aria-label="Dokument hochladen" @click="openUploadDocument(vehicle)">
-                                    <FileUp class="size-4" aria-hidden="true" />
-                                </Button>
-                            </TableCell>
-                        </TableRow>
+                        <template v-for="vehicle in completedVehicles" :key="vehicle.vehicle_id">
+                            <TableRow class="cursor-pointer" @click="toggleExpanded(vehicle)">
+                                <TableCell>
+                                    <ChevronDown
+                                        v-if="expandedVehicleId === vehicle.vehicle_id"
+                                        class="text-muted-foreground size-4"
+                                        aria-hidden="true"
+                                    />
+                                    <ChevronRight v-else class="text-muted-foreground size-4" aria-hidden="true" />
+                                </TableCell>
+                                <TableCell class="font-medium">{{ vehicle.license_plate }}</TableCell>
+                                <TableCell>{{ [vehicle.make, vehicle.model].filter(Boolean).join(' · ') || '—' }}</TableCell>
+                                <TableCell>{{ formatDate(vehicle.leasing_end_date) }}</TableCell>
+                                <TableCell>
+                                    <Badge :variant="getVehicleStatusDisplay(latestOrderStatus(vehicle)).variant">
+                                        {{ getVehicleStatusDisplay(latestOrderStatus(vehicle)).label }}
+                                    </Badge>
+                                </TableCell>
+                                <TableCell class="text-right">
+                                    <div @click.stop>
+                                        <Button variant="ghost" size="icon" aria-label="Dokument hochladen" @click="openUploadDocument(vehicle)">
+                                            <FileUp class="size-4" aria-hidden="true" />
+                                        </Button>
+                                    </div>
+                                </TableCell>
+                            </TableRow>
+                            <TableRow v-if="expandedVehicleId === vehicle.vehicle_id">
+                                <TableCell :colspan="6" class="bg-muted/30">
+                                    <div class="space-y-4 py-2">
+                                        <div v-if="!hasUnfinishedOrder(vehicle)" class="flex justify-end">
+                                            <Button size="sm" @click="openCreateOrder(vehicle)">Vorgang starten</Button>
+                                        </div>
+                                        <template v-if="vehicle.orders[0]">
+                                            <OrderStatusTimeline :status="vehicle.orders[0].order_status" />
+                                            <OffersCard :offers="vehicle.orders[0].offers" />
+                                        </template>
+                                    </div>
+                                </TableCell>
+                            </TableRow>
+                        </template>
                     </TableBody>
                 </Table>
             </div>
         </div>
 
         <AddVehicleModal v-model:open="addVehicleOpen" :vehicle="editingVehicle" />
-        <UploadDocumentModal
-            v-if="uploadVehicleId"
-            v-model:open="uploadModalOpen"
-            :vehicle-id="uploadVehicleId"
-            :documents="uploadDocuments"
-        />
+        <UploadDocumentModal v-if="uploadVehicleId" v-model:open="uploadModalOpen" :vehicle-id="uploadVehicleId" :documents="uploadDocuments" />
+        <OrderCreationModal v-if="orderVehicleId" v-model:open="orderModalOpen" :vehicle-id="orderVehicleId" :stations="stations" />
     </AppLayout>
 </template>

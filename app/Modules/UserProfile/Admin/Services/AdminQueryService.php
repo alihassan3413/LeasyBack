@@ -13,6 +13,242 @@ use Illuminate\Validation\ValidationException;
 
 class AdminQueryService
 {
+    /**
+     * Cross-domain dashboard counts — moved here from the Sanctum API's
+     * AdminController::summary() (unchanged query, unchanged response
+     * shape) so the new session-authenticated web Admin dashboard can reuse
+     * it without duplicating the raw SQL.
+     */
+    public function summary(): object
+    {
+        return DB::selectOne("
+            SELECT
+                (SELECT COUNT(*) FROM users WHERE user_type = 'Privatkunde') AS total_b2c_customers,
+                (SELECT COUNT(*) FROM users WHERE user_type = 'Firmenkunde') AS total_b2b_users,
+                (SELECT COUNT(*) FROM b2b) AS total_b2b_companies,
+                (SELECT COUNT(*) FROM vehicles) AS total_vehicles,
+                (SELECT COUNT(*) FROM leasyback_orders) AS total_orders,
+                (SELECT COUNT(*) FROM leasyback_orders WHERE order_status IN ('order_placed','confirmed','inspected','workshop','reinspection','reworkshop','order_requested')) AS active_orders,
+                (SELECT COUNT(*) FROM leasyback_orders WHERE order_status = 'delivered') AS delivered_orders,
+                (SELECT COUNT(*) FROM leasyback_orders WHERE order_status IN ('order_placed','confirmed')) AS pending_inspections
+        ");
+    }
+
+    /**
+     * Moved from AdminController::b2c() (unchanged query, unchanged response
+     * shape) so the new web Admin customer list can reuse it. Added
+     * parameterized `search` support (name/email/city) — leasyback_web's
+     * own admin panel fetched the *entire* customer list client-side and
+     * searched in the browser; this repo shouldn't repeat that, and a
+     * bound `LIKE` clause is cheap to add safely. The aggregate
+     * total/total_active/total_inactive counts are intentionally
+     * unaffected by `is_active`/`search` — they're header stats over the
+     * whole Privatkunde population, not the currently filtered page.
+     */
+    public function b2cList(Request $request): array
+    {
+        $page = max(1, (int) $request->query('page', 1));
+        $limit = min(100, max(1, (int) $request->query('limit', 20)));
+        $offset = ($page - 1) * $limit;
+        $isActive = $request->query('is_active');
+        $search = trim((string) $request->query('search', ''));
+
+        $counts = DB::selectOne("
+            SELECT
+                COUNT(*) AS total,
+                SUM(CASE WHEN u.is_active THEN 1 ELSE 0 END) AS total_active,
+                SUM(CASE WHEN u.is_active THEN 0 ELSE 1 END) AS total_inactive
+            FROM users u WHERE u.user_type = 'Privatkunde'
+        ");
+
+        $query = DB::table('users as u')
+            ->leftJoin('user_profiles as up', 'up.user_id', '=', 'u.id')
+            ->leftJoin('contacts as c', 'c.contact_id', '=', 'up.contact_id')
+            ->leftJoin('addresses as a', 'a.address_id', '=', 'c.address_id')
+            ->where('u.user_type', 'Privatkunde')
+            ->when($isActive !== null, fn (Builder $q) => $q->where('u.is_active', $isActive === 'true'))
+            ->when($search !== '', fn (Builder $q) => $this->applyCustomerSearch($q, $search, ['u.email', 'c.first_name', 'c.last_name', 'a.city']));
+
+        $users = (clone $query)
+            ->select([
+                'u.id as user_id', 'u.email as user_email', 'u.user_type', 'u.is_active',
+                'up.profile_id', 'up.image_url',
+                'c.contact_id', 'c.salutation', 'c.first_name', 'c.last_name',
+                'a.address_id', 'a.street', 'a.number', 'a.additional_address',
+                'a.zip_code', 'a.city', 'a.country', 'u.created_at',
+            ])
+            ->orderByDesc('u.created_at')
+            ->offset($offset)->limit($limit)->get();
+
+        return [
+            'page' => $page,
+            'limit' => $limit,
+            'total' => (int) $counts->total,
+            'total_active' => (int) $counts->total_active,
+            'total_inactive' => (int) $counts->total_inactive,
+            'data' => $users,
+        ];
+    }
+
+    /**
+     * Moved from AdminController::b2b() (unchanged query, unchanged response
+     * shape — one row per (user, company) membership, same as before) plus
+     * the same `search` addition as b2cList().
+     */
+    public function b2bList(Request $request): array
+    {
+        $page = max(1, (int) $request->query('page', 1));
+        $limit = min(100, max(1, (int) $request->query('limit', 20)));
+        $offset = ($page - 1) * $limit;
+        $isActive = $request->query('is_active');
+        $search = trim((string) $request->query('search', ''));
+
+        $counts = DB::selectOne("
+            SELECT
+                COUNT(DISTINCT b.b2b_id) AS total,
+                COUNT(DISTINCT CASE WHEN b.is_active THEN b.b2b_id END) AS total_active,
+                COUNT(DISTINCT CASE WHEN b.is_active THEN NULL ELSE b.b2b_id END) AS total_inactive
+            FROM users u
+            INNER JOIN user_b2b ub ON ub.user_id = u.id
+            INNER JOIN b2b b ON b.b2b_id = ub.b2b_id
+            WHERE u.user_type = 'Firmenkunde'
+        ");
+
+        $query = DB::table('users as u')
+            ->join('user_b2b as ub', 'ub.user_id', '=', 'u.id')
+            ->join('b2b as b', 'b.b2b_id', '=', 'ub.b2b_id')
+            ->join('contacts as c', 'c.contact_id', '=', 'b.contact_id')
+            ->join('addresses as a', 'a.address_id', '=', 'b.address_id')
+            ->where('u.user_type', 'Firmenkunde')
+            ->when($isActive !== null, fn (Builder $q) => $q->where('b.is_active', $isActive === 'true'))
+            ->when($search !== '', fn (Builder $q) => $this->applyCustomerSearch($q, $search, ['u.email', 'b.company_name', 'c.first_name', 'c.last_name', 'a.city']));
+
+        $users = (clone $query)
+            ->select([
+                'u.id as user_id', 'u.email as user_email', 'u.user_type',
+                'b.b2b_id', 'b.company_name', 'b.vat_id', 'b.logo_url', 'b.contact_email', 'b.is_active',
+                'ub.role',
+                'c.contact_id', 'c.salutation', 'c.first_name', 'c.last_name',
+                'a.address_id', 'a.street', 'a.number', 'a.additional_address', 'a.zip_code', 'a.city', 'a.country',
+                'b.created_at',
+            ])
+            ->orderByDesc('b.created_at')
+            ->offset($offset)->limit($limit)->get();
+
+        return [
+            'page' => $page,
+            'limit' => $limit,
+            'total' => (int) $counts->total,
+            'total_active' => (int) $counts->total_active,
+            'total_inactive' => (int) $counts->total_inactive,
+            'data' => $users,
+        ];
+    }
+
+    /** @param array<string> $columns */
+    private function applyCustomerSearch(Builder $query, string $search, array $columns): Builder
+    {
+        return $query->where(function (Builder $q) use ($search, $columns) {
+            foreach ($columns as $column) {
+                $q->orWhere($column, 'like', '%'.$search.'%');
+            }
+        });
+    }
+
+    /**
+     * Moved from AdminController::updateB2cStatus()/updateB2bStatus() —
+     * response shape unchanged, `NOW()` (Postgres-only) changed to the
+     * ANSI-standard `CURRENT_TIMESTAMP` so this is actually testable under
+     * this repo's sqlite test database (same fix as Checkpoint 8's
+     * AdminController regression test needed).
+     */
+    public function updateB2cStatus(string $userId, bool $isActive): ?object
+    {
+        $affected = DB::update(
+            "UPDATE users SET is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_type = 'Privatkunde'",
+            [$isActive, $userId]
+        );
+
+        if (! $affected) {
+            return null;
+        }
+
+        return DB::selectOne('SELECT id as user_id, email as user_email, user_type, is_active, created_at, updated_at FROM users WHERE id = ?', [$userId]);
+    }
+
+    public function updateB2bStatus(string $b2bId, bool $isActive): ?object
+    {
+        $affected = DB::update(
+            'UPDATE b2b SET is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE b2b_id = ?',
+            [$isActive, $b2bId]
+        );
+
+        if (! $affected) {
+            return null;
+        }
+
+        return DB::selectOne('SELECT b2b_id, company_name, contact_email, is_active, created_at, updated_at FROM b2b WHERE b2b_id = ?', [$b2bId]);
+    }
+
+    /**
+     * Single-customer detail for the new Admin customer detail page — the
+     * Fahrzeuge/Aufträge tabs on that page reuse the existing vehicles()/
+     * orders() methods (already support filtering by owner), not a
+     * duplicate query here.
+     */
+    public function b2cDetail(int $userId): ?array
+    {
+        $row = DB::table('users as u')
+            ->leftJoin('user_profiles as up', 'up.user_id', '=', 'u.id')
+            ->leftJoin('contacts as c', 'c.contact_id', '=', 'up.contact_id')
+            ->leftJoin('addresses as a', 'a.address_id', '=', 'c.address_id')
+            ->where('u.id', $userId)
+            ->where('u.user_type', 'Privatkunde')
+            ->select([
+                'u.id as user_id', 'u.email as user_email', 'u.is_active', 'u.created_at',
+                'up.profile_id', 'up.image_url',
+                'c.contact_id', 'c.salutation', 'c.first_name', 'c.last_name',
+                'a.address_id', 'a.street', 'a.number', 'a.additional_address',
+                'a.zip_code', 'a.city', 'a.country',
+            ])
+            ->first();
+
+        return $row ? (array) $row : null;
+    }
+
+    /**
+     * @return array{b2b_id:string,company_name:string,...,members:array}|null
+     */
+    public function b2bDetail(string $b2bId): ?array
+    {
+        $row = DB::table('b2b as b')
+            ->leftJoin('contacts as c', 'c.contact_id', '=', 'b.contact_id')
+            ->leftJoin('addresses as a', 'a.address_id', '=', 'b.address_id')
+            ->where('b.b2b_id', $b2bId)
+            ->select([
+                'b.b2b_id', 'b.company_name', 'b.vat_id', 'b.logo_url', 'b.contact_email',
+                'b.is_active', 'b.created_at',
+                'c.contact_id', 'c.salutation', 'c.first_name', 'c.last_name',
+                'a.address_id', 'a.street', 'a.number', 'a.additional_address',
+                'a.zip_code', 'a.city', 'a.country',
+            ])
+            ->first();
+
+        if (! $row) {
+            return null;
+        }
+
+        $members = DB::table('user_b2b as ub')
+            ->join('users as u', 'u.id', '=', 'ub.user_id')
+            ->where('ub.b2b_id', $b2bId)
+            ->orderByDesc('ub.role')
+            ->orderBy('u.created_at')
+            ->get(['u.id as user_id', 'u.email as user_email', 'ub.role'])
+            ->all();
+
+        return [...(array) $row, 'members' => $members];
+    }
+
     /** @return array{page:int,limit:int,start:?CarbonImmutable,end:?CarbonImmutable,status:?string} */
     private function filters(Request $request): array
     {
@@ -56,7 +292,13 @@ class AdminQueryService
         $query->when($filters['status'], fn (Builder $q, $status) => $q->where('o.order_status', $status));
     }
 
-    private function applyOwnerFilter(Builder $query, ?string $userType, int|string|null $userId): void
+    /**
+     * `$b2bId` is a direct company filter (used by the Admin customer
+     * detail page, which knows the company id but not any one specific
+     * member's user id) — distinct from `$userId`'s "this user, or the
+     * company they belong to" membership lookup.
+     */
+    private function applyOwnerFilter(Builder $query, ?string $userType, int|string|null $userId, ?string $b2bId = null): void
     {
         if ($userType === 'Privatkunde') {
             $query->where('v.vehicle_belongs', 'B2C');
@@ -64,7 +306,9 @@ class AdminQueryService
             $query->where('v.vehicle_belongs', 'B2B');
         }
 
-        if ($userId !== null) {
+        if ($b2bId !== null) {
+            $query->where('v.b2b_id', $b2bId);
+        } elseif ($userId !== null) {
             $query->where(function (Builder $owner) use ($userId) {
                 $owner->where('v.b2c_user_id', $userId)
                     ->orWhereExists(function (Builder $membership) use ($userId) {
@@ -77,13 +321,13 @@ class AdminQueryService
         }
     }
 
-    public function orders(Request $request, ?string $userType = null, int|string|null $userId = null): array
+    public function orders(Request $request, ?string $userType = null, int|string|null $userId = null, ?string $b2bId = null): array
     {
         $filters = $this->filters($request);
         $base = DB::table('leasyback_orders as o')
             ->join('vehicles as v', 'v.vehicle_id', '=', 'o.vehicle_id');
         $this->applyDatesAndStatus($base, $filters, 'o.created_at');
-        $this->applyOwnerFilter($base, $userType, $userId);
+        $this->applyOwnerFilter($base, $userType, $userId, $b2bId);
 
         $counts = $this->orderCounts($base);
         $rows = (clone $base)
@@ -247,7 +491,7 @@ class AdminQueryService
         }
     }
 
-    public function vehicles(Request $request, ?string $userType = null, int|string|null $userId = null): array
+    public function vehicles(Request $request, ?string $userType = null, int|string|null $userId = null, ?string $b2bId = null): array
     {
         $filters = $this->filters($request);
         $base = DB::table('vehicles as v')
@@ -258,7 +502,7 @@ class AdminQueryService
         $base->when($filters['start'], fn (Builder $q, $date) => $q->where('v.created_at', '>=', $date));
         $base->when($filters['end'], fn (Builder $q, $date) => $q->where('v.created_at', '<=', $date));
         $base->when($filters['status'], fn (Builder $q, $status) => $q->where('o.order_status', $status));
-        $this->applyOwnerFilter($base, $userType, $userId);
+        $this->applyOwnerFilter($base, $userType, $userId, $b2bId);
 
         $counts = $this->vehicleCounts($base);
         $rows = (clone $base)->select([

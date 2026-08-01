@@ -127,9 +127,7 @@ function submit() {
                                     </ul>
                                 </div>
                             </div>
-                            <p v-else class="text-muted-foreground text-sm">
-                                You haven't added your address and contact details yet.
-                            </p>
+                            <p v-else class="text-muted-foreground text-sm">You haven't added your address and contact details yet.</p>
                         </template>
 
                         <template #edit>
@@ -161,12 +159,7 @@ function submit() {
                                         required
                                         :error="form.errors['contact.first_name']"
                                     >
-                                        <Input
-                                            :id="id"
-                                            v-model="form.contact.first_name"
-                                            :aria-invalid="invalid"
-                                            :aria-describedby="describedBy"
-                                        />
+                                        <Input :id="id" v-model="form.contact.first_name" :aria-invalid="invalid" :aria-describedby="describedBy" />
                                     </FormField>
 
                                     <FormField

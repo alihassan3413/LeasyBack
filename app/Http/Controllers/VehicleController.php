@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\HandlesServiceValidationErrors;
+use App\Models\InspectionStation;
 use App\Models\Vehicle;
 use App\Modules\UserProfile\Vehicle\Http\Requests\StoreVehicleRequest;
 use App\Modules\UserProfile\Vehicle\Http\Requests\UpdateVehicleRequest;
@@ -43,6 +44,10 @@ class VehicleController extends Controller
 
         return Inertia::render('Dashboard', [
             'vehicles' => $this->vehicleService->listVehiclesWithOrders($ownerId, $belongs),
+            'stations' => InspectionStation::where('is_active', true)
+                ->orderBy('provider')
+                ->orderBy('name')
+                ->get(['station_id', 'provider', 'name', 'strasse', 'plz', 'ort', 'bundesland', 'land']),
         ]);
     }
 

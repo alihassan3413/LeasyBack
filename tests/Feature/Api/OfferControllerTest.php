@@ -79,4 +79,82 @@ class OfferControllerTest extends TestCase
         $this->assertSame('selected', $offerA->fresh()->offer_status);
         $this->assertSame('closed', $offerB->fresh()->offer_status);
     }
+
+    /**
+     * Regression tests for the AdminPolicy refactor: create/publish/cancel/
+     * adminList used to each inline-check user_type themselves; they now
+     * authorize through the same OfferPolicy Checkpoint 6 already built and
+     * tested (OfferPolicyTest), so this just proves the swap didn't drop
+     * the guard on any of the four endpoints.
+     */
+    public function test_non_admin_cannot_create_an_offer(): void
+    {
+        $user = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create(['b2c_user_id' => $user->id]);
+        $order = LeasybackOrder::factory()->create(['vehicle_id' => $vehicle->vehicle_id]);
+
+        $this->withHeaders($this->bearer($user))
+            ->postJson("/admin/offers/create/{$order->auftragsnummer}", [
+                'repair_cost_net' => 100, 'repair_cost_gross' => 119,
+                'depreciation_value_net' => 100, 'depreciation_value_gross' => 119,
+                'workshop_repair_quote_net' => 100, 'workshop_repair_quote_gross' => 119,
+                'missing_parts_cost_net' => 0, 'missing_parts_cost_gross' => 0,
+            ])
+            ->assertForbidden();
+    }
+
+    public function test_admin_can_create_an_offer(): void
+    {
+        $admin = User::factory()->create(['user_type' => UserType::Admin]);
+        $vehicle = Vehicle::factory()->create();
+        $order = LeasybackOrder::factory()->create(['vehicle_id' => $vehicle->vehicle_id]);
+
+        $this->withHeaders($this->bearer($admin))
+            ->postJson("/admin/offers/create/{$order->auftragsnummer}", [
+                'repair_cost_net' => 100, 'repair_cost_gross' => 119,
+                'depreciation_value_net' => 100, 'depreciation_value_gross' => 119,
+                'workshop_repair_quote_net' => 100, 'workshop_repair_quote_gross' => 119,
+                'missing_parts_cost_net' => 0, 'missing_parts_cost_gross' => 0,
+            ])
+            ->assertCreated();
+    }
+
+    public function test_non_admin_cannot_publish_an_offer(): void
+    {
+        $user = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $order = LeasybackOrder::factory()->create();
+        $offer = LeasybackOffer::factory()->create([
+            'order_id' => $order->id,
+            'auftragsnummer' => $order->auftragsnummer,
+        ]);
+
+        $this->withHeaders($this->bearer($user))
+            ->postJson("/admin/offers/publish/{$offer->offer_id}")
+            ->assertForbidden();
+    }
+
+    public function test_non_admin_cannot_cancel_an_offer(): void
+    {
+        $user = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $order = LeasybackOrder::factory()->create();
+        $offer = LeasybackOffer::factory()->create([
+            'order_id' => $order->id,
+            'auftragsnummer' => $order->auftragsnummer,
+        ]);
+
+        $this->withHeaders($this->bearer($user))
+            ->postJson("/admin/offers/cancel/{$offer->offer_id}")
+            ->assertForbidden();
+    }
+
+    public function test_non_admin_cannot_list_all_offers_for_an_order(): void
+    {
+        $user = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create(['b2c_user_id' => $user->id]);
+        $order = LeasybackOrder::factory()->create(['vehicle_id' => $vehicle->vehicle_id]);
+
+        $this->withHeaders($this->bearer($user))
+            ->getJson("/admin/offers/list/{$order->auftragsnummer}")
+            ->assertForbidden();
+    }
 }

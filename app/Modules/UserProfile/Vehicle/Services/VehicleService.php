@@ -347,6 +347,23 @@ class VehicleService
                     ];
                 }
 
+                // Only published/selected offers — matches OfferController::customerList's
+                // own filter, so the dashboard never shows a customer a draft/cancelled offer.
+                $offers = DB::table('leasyback_offers')
+                    ->where('order_id', $order->id)
+                    ->whereIn('offer_status', ['published', 'selected'])
+                    ->orderBy('offer_sequence')
+                    ->get()
+                    ->map(fn ($offer) => [
+                        'offer_id' => $offer->offer_id,
+                        'offer_sequence' => $offer->offer_sequence,
+                        'offer_status' => $offer->offer_status,
+                        'final_total_gross' => $offer->final_total_gross,
+                        'additional_notes' => $offer->additional_notes,
+                    ])
+                    ->values()
+                    ->toArray();
+
                 $ordersArr[] = [
                     'id' => $order->id,
                     'auftragsnummer' => $order->auftragsnummer,
@@ -361,6 +378,7 @@ class VehicleService
                     'status_updates' => $statusUpdates,
                     'order_confirmations' => $confirmations,
                     'report_documents' => $reportDocsArr,
+                    'offers' => $offers,
                 ];
             }
 

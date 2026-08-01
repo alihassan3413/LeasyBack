@@ -61,7 +61,7 @@ const rightNavItems: NavItem[] = [
 
 <template>
     <div>
-        <div class="border-b border-sidebar-border/80">
+        <div class="border-sidebar-border/80 border-b">
             <div class="mx-auto flex h-16 items-center px-4 md:max-w-7xl">
                 <!-- Mobile Menu -->
                 <div class="lg:hidden">
@@ -76,13 +76,13 @@ const rightNavItems: NavItem[] = [
                             <SheetHeader class="flex justify-start text-left">
                                 <AppLogoIcon class="size-6 fill-current text-black dark:text-white" />
                             </SheetHeader>
-                            <div class="flex flex-col justify-between h-full space-y-4 py-6 flex-1">
+                            <div class="flex h-full flex-1 flex-col justify-between space-y-4 py-6">
                                 <nav class="-mx-3 space-y-1">
                                     <Link
                                         v-for="item in mainNavItems"
                                         :key="item.title"
                                         :href="item.href"
-                                        class="flex items-center gap-x-3 rounded-lg px-3 py-2 text-sm font-medium hover:bg-accent"
+                                        class="hover:bg-accent flex items-center gap-x-3 rounded-lg px-3 py-2 text-sm font-medium"
                                         :class="activeItemStyles(item.href)"
                                     >
                                         <component v-if="item.icon" :is="item.icon" class="h-5 w-5" />
@@ -162,7 +162,7 @@ const rightNavItems: NavItem[] = [
                             <Button
                                 variant="ghost"
                                 size="icon"
-                                class="relative size-10 w-auto rounded-full p-1 focus-within:ring-2 focus-within:ring-primary"
+                                class="focus-within:ring-primary relative size-10 w-auto rounded-full p-1 focus-within:ring-2"
                             >
                                 <Avatar class="size-8 overflow-hidden rounded-full">
                                     <AvatarImage :src="auth.user.avatar" :alt="auth.user.name" />
@@ -180,7 +180,7 @@ const rightNavItems: NavItem[] = [
             </div>
         </div>
 
-        <div v-if="props.breadcrumbs.length > 1" class="flex w-full border-b border-sidebar-border/70">
+        <div v-if="props.breadcrumbs.length > 1" class="border-sidebar-border/70 flex w-full border-b">
             <div class="mx-auto flex h-12 w-full items-center justify-start px-4 text-neutral-500 md:max-w-7xl">
                 <Breadcrumbs :breadcrumbs="breadcrumbs" />
             </div>

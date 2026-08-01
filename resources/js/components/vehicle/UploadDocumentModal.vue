@@ -144,7 +144,13 @@ function deleteSequentially(documents: VehicleDocumentData[], onDone: () => void
                     </div>
                     <InputError :message="form.errors.file" />
 
-                    <FormField id="document_type" v-slot="{ id, describedBy, invalid }" label="Dokumententyp" required :error="form.errors.document_type">
+                    <FormField
+                        id="document_type"
+                        v-slot="{ id, describedBy, invalid }"
+                        label="Dokumententyp"
+                        required
+                        :error="form.errors.document_type"
+                    >
                         <SelectField
                             :id="id"
                             v-model="form.document_type"
@@ -155,7 +161,10 @@ function deleteSequentially(documents: VehicleDocumentData[], onDone: () => void
                         />
                     </FormField>
 
-                    <div v-if="duplicateType" class="bg-amber-50 dark:bg-amber-500/10 rounded-md border border-amber-300 p-3 text-sm dark:border-amber-500/30">
+                    <div
+                        v-if="duplicateType"
+                        class="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-500/30 dark:bg-amber-500/10"
+                    >
                         <p class="text-amber-900 dark:text-amber-400">
                             Ein Dokument vom Typ „{{ duplicateType }}" existiert bereits für dieses Fahrzeug. Möchten Sie das vorhandene Dokument
                             ersetzen?

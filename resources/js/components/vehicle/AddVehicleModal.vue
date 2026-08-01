@@ -120,7 +120,14 @@ function submit() {
                         <Input :id="id" v-model="form.model" :aria-invalid="invalid" :aria-describedby="describedBy" />
                     </FormField>
 
-                    <FormField id="vin" v-slot="{ id, describedBy, invalid }" label="Fahrgestellnummer (VIN)" required hint="Genau 17 Zeichen." :error="form.errors.vin">
+                    <FormField
+                        id="vin"
+                        v-slot="{ id, describedBy, invalid }"
+                        label="Fahrgestellnummer (VIN)"
+                        required
+                        hint="Genau 17 Zeichen."
+                        :error="form.errors.vin"
+                    >
                         <Input :id="id" v-model="form.vin" maxlength="17" class="uppercase" :aria-invalid="invalid" :aria-describedby="describedBy" />
                     </FormField>
 

@@ -4,6 +4,7 @@ namespace App\Modules\UserProfile\Tim\Http\Controllers;
 
 use App\Models\TimBewertung;
 use App\Models\TimToken;
+use App\Modules\UserProfile\Admin\Support\EnsuresAdmin;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -13,15 +14,18 @@ use Illuminate\Support\Facades\Storage;
 
 class TimController extends Controller
 {
+    use EnsuresAdmin;
+
     /**
      * POST /tim/appraisal/login/refresh
      */
     public function refreshLogin(Request $request): JsonResponse
     {
-        $user = $request->user();
-        if ($user->user_type->value !== 'Admin') {
-            return response()->json(['error' => 'Only admin can access vehicles'], 403);
+        if ($denied = $this->ensureAdmin($request, 'syncAppraisal', 'Only admin can access vehicles')) {
+            return $denied;
         }
+
+        $user = $request->user();
 
         $username = config('services.tim.username');
         $password = config('services.tim.password');
@@ -33,7 +37,7 @@ class TimController extends Controller
             ->withBody($soapXml, 'text/xml')
             ->post($wsdl);
 
-        if (!$response->successful()) {
+        if (! $response->successful()) {
             return response()->json(['error' => 'login_failed_or_unexpected_response'], 502);
         }
 
@@ -58,10 +62,11 @@ class TimController extends Controller
      */
     public function sync(Request $request, int $bewertungId): JsonResponse
     {
-        $user = $request->user();
-        if ($user->user_type->value !== 'Admin') {
-            return response()->json(['error' => 'Only admin can access vehicles'], 403);
+        if ($denied = $this->ensureAdmin($request, 'syncAppraisal', 'Only admin can access vehicles')) {
+            return $denied;
         }
+
+        $user = $request->user();
 
         // Check if already processed
         $existing = TimBewertung::find($bewertungId);
@@ -76,7 +81,7 @@ class TimController extends Controller
 
         // Get token
         $token = TimToken::current();
-        if (!$token) {
+        if (! $token) {
             return response()->json(['error' => 'No TIM token available. Please login first.'], 400);
         }
 
@@ -88,14 +93,14 @@ class TimController extends Controller
             ->withBody($soapXml, 'text/xml')
             ->post($wsdl);
 
-        if (!$response->successful()) {
+        if (! $response->successful()) {
             return response()->json(['error' => 'TIM request failed'], 502);
         }
 
         $respXml = $response->body();
 
         // Save XML to S3
-        $key = "tim/bewertung/{$bewertungId}/" . now()->format('Ymd\THis\Z') . '.xml';
+        $key = "tim/bewertung/{$bewertungId}/".now()->format('Ymd\THis\Z').'.xml';
         $bucket = config('filesystems.disks.s3.bucket');
 
         Storage::disk('s3')->put($key, $respXml, ['ContentType' => 'application/xml']);
@@ -133,17 +138,17 @@ class TimController extends Controller
      */
     public function xml(Request $request, int $bewertungId): mixed
     {
-        $user = $request->user();
-        if ($user->user_type->value !== 'Admin') {
-            return response()->json(['error' => 'Only admin can access vehicles'], 403);
+        if ($denied = $this->ensureAdmin($request, 'syncAppraisal', 'Only admin can access vehicles')) {
+            return $denied;
         }
 
         $bewertung = TimBewertung::find($bewertungId);
-        if (!$bewertung) {
+        if (! $bewertung) {
             return response()->json(['error' => 'bewertung_id not_found'], 404);
         }
 
         $content = Storage::disk('s3')->get($bewertung->s3_key);
+
         return response($content, 200)->header('Content-Type', 'application/xml');
     }
 
@@ -152,9 +157,8 @@ class TimController extends Controller
      */
     public function documents(Request $request, string $auftragsnummer): JsonResponse
     {
-        $user = $request->user();
-        if ($user->user_type->value !== 'Admin') {
-            return response()->json(['error' => 'Only admin can access vehicles'], 403);
+        if ($denied = $this->ensureAdmin($request, 'syncAppraisal', 'Only admin can access vehicles')) {
+            return $denied;
         }
 
         $docs = DB::table('vehicle_assessments as va')
@@ -167,6 +171,7 @@ class TimController extends Controller
 
         $result = $docs->map(function ($doc) {
             $signedUrl = Storage::disk('s3')->temporaryUrl($doc->s3_key, now()->addMinutes(15));
+
             return [
                 'assessment_id' => $doc->assessment_id,
                 'external_id' => $doc->external_id,
@@ -218,6 +223,7 @@ XML;
                 $result[$tag] = html_entity_decode($m[1]);
             }
         }
+
         return $result;
     }
 }

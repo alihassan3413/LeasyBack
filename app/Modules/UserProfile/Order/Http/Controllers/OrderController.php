@@ -7,14 +7,15 @@ use App\Models\InspectionStation;
 use App\Models\LeasybackOrder;
 use App\Models\OrderConfirmation;
 use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
+use App\Modules\UserProfile\Order\Services\OrderService;
 use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
 use Carbon\Carbon;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class OrderController extends Controller
@@ -22,6 +23,7 @@ class OrderController extends Controller
     public function __construct(
         private VehicleScopeService $scope,
         private TransitionOrderStatus $transitionOrderStatus,
+        private OrderService $orderService,
     ) {}
 
     /**
@@ -42,111 +44,24 @@ class OrderController extends Controller
             'remarks' => 'nullable|string',
         ]);
 
-        // Check for unfinished orders on this vehicle
-        $hasUnfinished = LeasybackOrder::where('vehicle_id', $vehicleId)
-            ->whereNotIn('order_status', ['delivered', 'cancelled', 'discarded'])
-            ->exists();
-
-        if ($hasUnfinished) {
-            return response()->json(['error' => 'vehicle previous order not completed yet'], 409);
+        try {
+            $order = $this->orderService->createTuvsudOrder($vehicle, $user, $validated);
+        } catch (HttpResponseException $e) {
+            return $e->getResponse();
         }
 
-        // Fetch station
-        $station = InspectionStation::where('station_id', $validated['station_id'])
-            ->where('provider', 'tuvsud')
-            ->where('is_active', true)
-            ->first();
-
-        if (! $station) {
-            return response()->json(['error' => 'Inspection station not found'], 404);
-        }
-
-        // Generate auftragsnummer
-        $cleaned = str_replace([' ', '-'], '', $vehicle->license_plate);
-        $auftragsnummer = $cleaned.now()->format('ymd');
-
-        // Build request payload
-        $requestPayload = [
-            'auftrag' => [
-                'produktkey' => config('services.tuvsud.product_key'),
-                'fin' => $vehicle->vin ?? 'UNKNOWN',
-                'kennzeichen' => $vehicle->license_plate,
-                'hersteller' => $vehicle->make ?? '',
-                'modell' => $vehicle->model ?? '',
-                'vertragsnummer' => $auftragsnummer,
-                'auftragsnummer' => $auftragsnummer,
-                'bemerkung' => $validated['remarks'] ?? '',
-            ],
-            'ansprechpartner' => [
-                'name' => 'Jannis Gremler',
-                'telefon' => '01234 5678943',
-                'email' => 'jannis.gremler@leasyback.de',
-            ],
-            'besichtigungsort' => [
-                'termin' => $validated['termin'],
-                'name' => $station->name,
-                'strasse' => $station->strasse,
-                'plz' => $station->plz,
-                'ort' => $station->ort,
-                'land' => 'de',
-            ],
-            'benachrichtigung' => [
-                'terminbestätigung' => [],
-                'gutachten' => [],
-            ],
-            'dokumente' => [],
-        ];
-
-        // B2B: save as order_requested (requires admin approval)
-        if ($user->user_type->value === 'Firmenkunde') {
-            $orderId = Str::uuid()->toString();
-
-            LeasybackOrder::create([
-                'id' => $orderId,
-                'vehicle_id' => $vehicleId,
-                'auftragsnummer' => $auftragsnummer,
-                'leasyback_partner' => 'tuvsud',
-                'order_status' => 'order_requested',
-                'request_payload' => $requestPayload,
-                'created_by_user_id' => $user->id,
-            ]);
-
+        if ($order->order_status === 'order_requested') {
             return response()->json([
                 'message' => 'Order request created successfully',
-                'auftragsnummer' => $auftragsnummer,
+                'auftragsnummer' => $order->auftragsnummer,
                 'order_status' => 'order_requested',
             ]);
         }
 
-        // B2C/Admin: send immediately to TÜV SÜD
-        $fullPayload = array_merge($requestPayload, [
-            'authentifizierung' => [
-                'benutzername' => config('services.tuvsud.username'),
-                'token' => config('services.tuvsud.token'),
-            ],
-        ]);
-
-        $response = Http::timeout(30)->post(config('services.tuvsud.url'), $fullPayload);
-        $status = $response->status();
-        $respJson = $response->json() ?? ['ok' => false, 'status' => $status];
-
-        // Save order
-        LeasybackOrder::create([
-            'vehicle_id' => $vehicleId,
-            'auftragsnummer' => $auftragsnummer,
-            'leasyback_partner' => 'tuvsud',
-            'order_status' => 'order_placed',
-            'request_payload' => $requestPayload,
-            'response_status' => $status,
-            'response_body' => $respJson,
-            'created_by_user_id' => $user->id,
-            'sent_at' => now(),
-        ]);
-
         return response()->json([
-            'auftragsnummer' => $auftragsnummer,
-            'status' => $status,
-            'response' => $respJson,
+            'auftragsnummer' => $order->auftragsnummer,
+            'status' => $order->response_status,
+            'response' => $order->response_body,
         ]);
     }
 
@@ -391,40 +306,11 @@ class OrderController extends Controller
             'remarks' => 'nullable|string',
         ]);
 
-        $cleaned = str_replace([' ', '-'], '', $vehicle->license_plate);
-        $auftragsnummer = $cleaned.now()->format('ymd');
-
-        $station = InspectionStation::find($validated['station_id']);
-
-        $requestPayload = [
-            'auftrag' => [
-                'fin' => $vehicle->vin ?? 'UNKNOWN',
-                'kennzeichen' => $vehicle->license_plate,
-                'auftragsnummer' => $auftragsnummer,
-                'bemerkung' => $validated['remarks'] ?? '',
-            ],
-            'besichtigungsort' => [
-                'termin' => $validated['termin'],
-                'name' => $station?->name ?? '',
-                'strasse' => $station?->strasse ?? '',
-                'plz' => $station?->plz ?? '',
-                'ort' => $station?->ort ?? '',
-            ],
-        ];
-
-        $order = LeasybackOrder::create([
-            'vehicle_id' => $vehicleId,
-            'auftragsnummer' => $auftragsnummer,
-            'leasyback_partner' => $validated['provider'],
-            'order_status' => 'order_placed',
-            'request_payload' => $requestPayload,
-            'created_by_user_id' => $user->id,
-            'sent_at' => now(),
-        ]);
+        $order = $this->orderService->createOtherOrder($vehicle, $user, $validated);
 
         return response()->json([
             'message' => 'Order created',
-            'auftragsnummer' => $auftragsnummer,
+            'auftragsnummer' => $order->auftragsnummer,
             'order_id' => $order->id,
         ]);
     }

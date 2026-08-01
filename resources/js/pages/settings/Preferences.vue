@@ -89,7 +89,9 @@ function submit() {
                             <dl v-if="preferences" class="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
                                 <div>
                                     <dt class="text-muted-foreground">Timezone</dt>
-                                    <dd>{{ timezoneOptions.find((option) => option.value === preferences?.timezone)?.label ?? preferences.timezone }}</dd>
+                                    <dd>
+                                        {{ timezoneOptions.find((option) => option.value === preferences?.timezone)?.label ?? preferences.timezone }}
+                                    </dd>
                                 </div>
                                 <div>
                                     <dt class="text-muted-foreground">Language</dt>

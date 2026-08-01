@@ -25,6 +25,8 @@ declare global {
   const getCurrentScope: typeof import('vue').getCurrentScope
   const getCurrentWatcher: typeof import('vue').getCurrentWatcher
   const getInitials: typeof import('../composables/useInitials').getInitials
+  const getOffRampLabel: typeof import('../lib/orderFlow').getOffRampLabel
+  const getOrderFlowSteps: typeof import('../lib/orderFlow').getOrderFlowSteps
   const getVehicleStatusDisplay: typeof import('../lib/vehicleStatus').getVehicleStatusDisplay
   const h: typeof import('vue').h
   const initializeTheme: typeof import('../composables/useAppearance').initializeTheme
@@ -34,6 +36,7 @@ declare global {
   const isReadonly: typeof import('vue').isReadonly
   const isRef: typeof import('vue').isRef
   const isShallow: typeof import('vue').isShallow
+  const isTerminalOffRamp: typeof import('../lib/orderFlow').isTerminalOffRamp
   const isVehicleCompleted: typeof import('../lib/vehicleStatus').isVehicleCompleted
   const markRaw: typeof import('vue').markRaw
   const nextTick: typeof import('vue').nextTick
@@ -104,6 +107,9 @@ declare global {
   export type { Component, Slot, Slots, ComponentPublicInstance, ComputedRef, DirectiveBinding, ExtractDefaultPropTypes, ExtractPropTypes, ExtractPublicPropTypes, InjectionKey, PropType, Ref, ShallowRef, MaybeRef, MaybeRefOrGetter, VNode, WritableComputedRef } from 'vue'
   import('vue')
   // @ts-ignore
+  export type { OrderFlowStep } from '../lib/orderFlow'
+  import('../lib/orderFlow')
+  // @ts-ignore
   export type { VehicleStatusDisplay } from '../lib/vehicleStatus'
   import('../lib/vehicleStatus')
 }
@@ -132,6 +138,8 @@ declare module 'vue' {
     readonly getCurrentScope: UnwrapRef<typeof import('vue')['getCurrentScope']>
     readonly getCurrentWatcher: UnwrapRef<typeof import('vue')['getCurrentWatcher']>
     readonly getInitials: UnwrapRef<typeof import('../composables/useInitials')['getInitials']>
+    readonly getOffRampLabel: UnwrapRef<typeof import('../lib/orderFlow')['getOffRampLabel']>
+    readonly getOrderFlowSteps: UnwrapRef<typeof import('../lib/orderFlow')['getOrderFlowSteps']>
     readonly getVehicleStatusDisplay: UnwrapRef<typeof import('../lib/vehicleStatus')['getVehicleStatusDisplay']>
     readonly h: UnwrapRef<typeof import('vue')['h']>
     readonly initializeTheme: UnwrapRef<typeof import('../composables/useAppearance')['initializeTheme']>
@@ -141,6 +149,7 @@ declare module 'vue' {
     readonly isReadonly: UnwrapRef<typeof import('vue')['isReadonly']>
     readonly isRef: UnwrapRef<typeof import('vue')['isRef']>
     readonly isShallow: UnwrapRef<typeof import('vue')['isShallow']>
+    readonly isTerminalOffRamp: UnwrapRef<typeof import('../lib/orderFlow')['isTerminalOffRamp']>
     readonly isVehicleCompleted: UnwrapRef<typeof import('../lib/vehicleStatus')['isVehicleCompleted']>
     readonly markRaw: UnwrapRef<typeof import('vue')['markRaw']>
     readonly nextTick: UnwrapRef<typeof import('vue')['nextTick']>

@@ -8,6 +8,8 @@ Route::get('/', function () {
 })->name('home');
 
 require __DIR__.'/vehicles.php';
+require __DIR__.'/orders.php';
+require __DIR__.'/admin.php';
 require __DIR__.'/settings.php';
 require __DIR__.'/auth.php';
 
