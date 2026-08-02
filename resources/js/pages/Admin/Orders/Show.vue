@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import OrderStatusTimeline from '@/components/vehicle/OrderStatusTimeline.vue';
+import OrderStatusTimeline from '@/components/shared/OrderStatusTimeline.vue';
 import AdminLayout from '@/layouts/AdminLayout.vue';
 import { getVehicleStatusDisplay } from '@/lib/vehicleStatus';
 import type { AdminOrderDetail } from '@/types/admin';
