@@ -13,6 +13,8 @@ export interface OrderStatusUpdateData {
     bewertung_id: string | null;
     old_status: string | null;
     new_status: string | null;
+    /** Coarse actor role — see VehicleService::hydrateVehicles()'s note on why only this is exposed. */
+    auth_source: string | null;
     created_at: string;
 }
 

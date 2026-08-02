@@ -63,7 +63,7 @@ const auftragsnummerOptions = computed(() => (props.auftragsnummer ? [{ value: p
 const createOfferOpen = ref(false);
 const uploadOpen = ref(false);
 const uploadVariant = ref<'gutachten' | 'rechnung'>('gutachten');
-const confirmingCancel = ref(false);
+const cancelDialogOpen = ref(false);
 const busy = ref(false);
 
 const uploadPreset = computed(() =>
@@ -91,22 +91,24 @@ function transitionTo(status: string) {
             preserveScroll: true,
             onFinish: () => {
                 busy.value = false;
-                confirmingCancel.value = false;
+                cancelDialogOpen.value = false;
             },
         },
     );
 }
 
-/** Two-click confirm, the same guard AdminOffersCard uses before cancelling an offer. */
-function requestCancel(event: Event) {
-    if (confirmingCancel.value) {
-        transitionTo('cancelled');
+/**
+ * Cancelling is irreversible and visible to the customer, so it asks in a
+ * real dialog rather than the in-menu two-click confirm the lighter actions
+ * use — a menu item that quietly turns into "click again" is too easy to
+ * trigger by accident.
+ */
+function requestCancel() {
+    cancelDialogOpen.value = true;
+}
 
-        return;
-    }
-
-    event.preventDefault();
-    confirmingCancel.value = true;
+function confirmCancel() {
+    transitionTo('cancelled');
 }
 
 function approve() {
@@ -125,7 +127,7 @@ function statusLabel(status: string): string {
 </script>
 
 <template>
-    <DropdownMenu @update:open="(open) => !open && (confirmingCancel = false)">
+    <DropdownMenu>
         <DropdownMenuTrigger as-child>
             <button
                 type="button"
@@ -210,7 +212,7 @@ function statusLabel(status: string): string {
                 <DropdownMenuSeparator />
                 <DropdownMenuItem class="text-[#b91c1c] focus:bg-[#fee2e2] focus:text-[#991b1b]" @select="requestCancel">
                     <IconMdiCloseCircleOutline />
-                    {{ confirmingCancel ? 'Wirklich stornieren?' : 'Auftrag stornieren' }}
+                    Auftrag stornieren
                 </DropdownMenuItem>
             </template>
         </DropdownMenuContent>

@@ -43,6 +43,8 @@ export interface CustomerOrderFlowStep {
 export interface CustomerOrderStatusHistoryEntry {
     new_status: string | null;
     old_status?: string | null;
+    /** Coarse actor role ('admin', 'api_key', …) — used to attribute a cancellation. */
+    auth_source?: string | null;
     created_at: string;
 }
 
@@ -253,6 +255,18 @@ function getStageDate(
     }
 }
 
+/** Maps the coarse `auth_source` role onto customer-facing wording. */
+function cancellationActor(authSource?: string | null): string {
+    switch ((authSource ?? '').trim()) {
+        case 'admin':
+            return 'Leasyback';
+        case 'api_key':
+            return 'den Gutachter';
+        default:
+            return '';
+    }
+}
+
 function buildStep(
     stage: CustomerOrderStage,
     ctx: CustomerOrderFlowInput,
@@ -267,6 +281,7 @@ function buildStep(
         isNext: boolean;
         isCancelled: boolean;
         isRejected: boolean;
+        cancelledBy?: string | null;
     },
 ): CustomerOrderFlowStep {
     const termin = ctx.besichtigungsort?.termin;
@@ -306,12 +321,25 @@ function buildStep(
             break;
     }
 
+    // A cancelled order used to keep the stage's own wording, so the only cue
+    // that it had been cancelled was the red dot. Say it outright, and name
+    // who did it — the customer otherwise has no way to tell a Leasyback
+    // cancellation from a TÜV SÜD one.
+    if (state.isCancelled) {
+        const actor = cancellationActor(state.cancelledBy);
+
+        label = `Auftrag storniert${actor ? ` durch ${actor}` : ''}`;
+        subtitle = `Der Auftrag wurde bei „${STAGE_SHORT_LABEL[stage]}" beendet. Bei Fragen wenden Sie sich bitte an Ihren Ansprechpartner.`;
+    }
+
     const step: CustomerOrderFlowStep = {
         stage,
         label,
-        shortLabel: state.isRejected ? 'Wunschtermin abgelehnt' : STAGE_SHORT_LABEL[stage],
+        shortLabel: state.isCancelled ? 'Auftrag storniert' : state.isRejected ? 'Wunschtermin abgelehnt' : STAGE_SHORT_LABEL[stage],
         subtitle,
-        tooltipDescription: STAGE_TOOLTIP[stage],
+        tooltipDescription: state.isCancelled
+            ? 'Dieser Auftrag wurde storniert und wird nicht weiter bearbeitet.'
+            : STAGE_TOOLTIP[stage],
         datetime: state.datetime,
         completed: state.completed,
         isCurrent: state.isCurrent,
@@ -376,6 +404,7 @@ export function getCustomerOrderFlowSteps(ctx: CustomerOrderFlowInput): Customer
                 isNext: false,
                 isCancelled: isTerminalHere,
                 isRejected: false,
+                cancelledBy: terminalEntry?.auth_source,
             });
         });
     }

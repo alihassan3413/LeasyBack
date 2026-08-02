@@ -386,9 +386,14 @@ class VehicleService
 
         $vehicleIds = $vehicles->pluck('vehicle_id')->all();
 
+        // Cancelled orders are included: hiding them made a cancelled order
+        // vanish from the customer's dashboard entirely — no timeline, no
+        // documents, no explanation — while Admin still saw everything.
+        // getCustomerOrderFlowSteps() already renders a cancelled order as a
+        // full timeline with the cancellation marked at the stage it stopped,
+        // so the customer now sees the same history Admin does.
         $ordersByVehicle = DB::table('leasyback_orders')
             ->whereIn('vehicle_id', $vehicleIds)
-            ->where('order_status', '!=', 'cancelled')
             ->orderByDesc('created_at')
             ->get()
             ->groupBy('vehicle_id');
@@ -441,6 +446,11 @@ class VehicleService
                         'bewertung_id' => $su->bewertung_id,
                         'old_status' => $su->old_status,
                         'new_status' => $su->new_status,
+                        // Who caused the change, as a coarse role only — the
+                        // timeline uses it to tell the customer a cancellation
+                        // came from Leasyback rather than from TÜV SÜD. The
+                        // `updated_by` name/email stays Admin-only.
+                        'auth_source' => $su->auth_source,
                         'created_at' => $su->created_at,
                     ])
                     ->values()
@@ -544,10 +554,15 @@ class VehicleService
     /**
      * Apply the dashboard's search / status filter / sort to the vehicle query.
      *
-     * The current status lives on the vehicle's latest non-cancelled order, so
-     * it is resolved as a correlated subquery and the whole thing is wrapped in
-     * a derived table — neither MySQL nor SQLite allows filtering or ordering a
+     * The current status lives on the vehicle's latest order, so it is
+     * resolved as a correlated subquery and the whole thing is wrapped in a
+     * derived table — neither MySQL nor SQLite allows filtering or ordering a
      * select alias directly in the same statement.
+     *
+     * Cancelled orders count here. Skipping them meant a vehicle whose only
+     * order had been cancelled showed no status at all, and one that was
+     * cancelled after an earlier delivered order still advertised
+     * "delivered" — in both cases hiding the cancellation from its owner.
      *
      * @param  array{search?: string, status?: string, sort?: string, direction?: string}  $filters
      */
@@ -556,7 +571,6 @@ class VehicleService
         $latestStatus = DB::table('leasyback_orders as lo')
             ->select('lo.order_status')
             ->whereColumn('lo.vehicle_id', 'v.vehicle_id')
-            ->where('lo.order_status', '!=', 'cancelled')
             ->orderByDesc('lo.created_at')
             ->limit(1);
 

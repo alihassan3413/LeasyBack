@@ -61,6 +61,7 @@ function toVehicleOrderData(order: AdminVehicleRow['order_history'][number]): Ve
             bewertung_id: null,
             old_status: update.old_status,
             new_status: update.new_status,
+            auth_source: update.auth_source,
             created_at: update.created_at,
         })),
         order_confirmations: [],

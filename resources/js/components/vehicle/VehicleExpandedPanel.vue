@@ -37,11 +37,12 @@ const props = withDefaults(
          * expanded row and the detail page's Kundenansicht) rather than for
          * the vehicle's owner.
          *
-         * Selecting an offer stays a customer-only action: OfferPolicy::select()
-         * returns false for admins on purpose (the BOLA fix documented there)
-         * and OfferController::select() turns that into a 404 — so on an Admin
-         * surface the radio is inert and the admin publish/withdraw actions
-         * are shown instead, the same split v1's admin expanded view uses.
+         * Admin gets the v1 offer actions — publish, withdraw, and accepting
+         * on the customer's behalf. Accepting routes to
+         * admin.orders.offers.select, *not* the customer's offers.select:
+         * OfferPolicy::select() still refuses admins (the BOLA fix documented
+         * there) and OfferController::select() renders that as a 404, so the
+         * two paths stay separate abilities with separate audit actions.
          */
         admin?: boolean;
     }>(),
@@ -516,9 +517,7 @@ function formatDate(value: string | null): string {
                                         :disabled="!canSelect(offer)"
                                         class="mt-1 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border-2 disabled:cursor-default"
                                         :style="
-                                            offer.accepted
-                                                ? 'border-color: #EF8450; background: #EF8450'
-                                                : 'border-color: #B7C2C2; background: white'
+                                            offer.accepted ? 'border-color: #EF8450; background: #EF8450' : 'border-color: #B7C2C2; background: white'
                                         "
                                         :title="selectTitle(offer)"
                                         @click.stop="requestSelect(offer.offerId)"
@@ -596,11 +595,7 @@ function formatDate(value: string | null): string {
                                 v-if="admin"
                                 type="button"
                                 class="w-full rounded-[50px] py-4 text-[12px] font-semibold tracking-wide uppercase transition-all disabled:cursor-not-allowed"
-                                :style="
-                                    acceptableOnBehalf
-                                        ? 'background: #01B990; color: #ffffff'
-                                        : 'background: #e0e0e0; color: #9e9e9e'
-                                "
+                                :style="acceptableOnBehalf ? 'background: #01B990; color: #ffffff' : 'background: #e0e0e0; color: #9e9e9e'"
                                 :disabled="!acceptableOnBehalf"
                                 :title="onBehalfHint"
                                 @click.stop="acceptableOnBehalf && requestSelect(acceptableOnBehalf.offerId)"
