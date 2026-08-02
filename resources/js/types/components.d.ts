@@ -216,6 +216,8 @@ declare module 'vue' {
     SidebarSeparator: typeof import('./../components/ui/sidebar/SidebarSeparator.vue')['default']
     SidebarTrigger: typeof import('./../components/ui/sidebar/SidebarTrigger.vue')['default']
     Skeleton: typeof import('./../components/ui/skeleton/Skeleton.vue')['default']
+    StationMap: typeof import('./../components/form/StationMap.vue')['default']
+    StationSelectField: typeof import('./../components/form/StationSelectField.vue')['default']
     StatusHelpTooltip: typeof import('./../components/shared/StatusHelpTooltip.vue')['default']
     Stepper: typeof import('./../components/ui/stepper/Stepper.vue')['default']
     Table: typeof import('./../components/ui/table/Table.vue')['default']

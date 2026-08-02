@@ -1,0 +1,127 @@
+<script setup lang="ts">
+import type { StationData } from '@/types/order';
+import { onClickOutside } from '@vueuse/core';
+import { computed, ref, watch } from 'vue';
+import MdiChevronDown from '~icons/mdi/chevron-down';
+import MdiMagnify from '~icons/mdi/magnify';
+
+const props = withDefaults(
+    defineProps<{
+        modelValue: string;
+        stations: StationData[];
+        placeholder?: string;
+        searchPlaceholder?: string;
+        emptyLabel?: string;
+        disabled?: boolean;
+        id?: string;
+        describedBy?: string;
+        invalid?: boolean;
+    }>(),
+    {
+        placeholder: 'Station wählen',
+        searchPlaceholder: 'Station suchen...',
+        emptyLabel: 'Keine Stationen gefunden',
+        disabled: false,
+    },
+);
+
+const emit = defineEmits<{ (e: 'update:modelValue', value: string): void }>();
+
+const root = ref<HTMLElement | null>(null);
+const open = ref(false);
+const search = ref('');
+
+onClickOutside(root, () => (open.value = false));
+
+watch(open, (isOpen) => {
+    if (!isOpen) {
+        search.value = '';
+    }
+});
+
+const selected = computed(() => props.stations.find((station) => station.station_id === props.modelValue) ?? null);
+
+const visibleStations = computed(() => {
+    const query = search.value.trim().toLowerCase();
+
+    if (!query) {
+        return props.stations;
+    }
+
+    return props.stations.filter((station) =>
+        [station.name, station.strasse, station.plz, station.ort, station.bundesland ?? '']
+            .join(' ')
+            .toLowerCase()
+            .includes(query),
+    );
+});
+
+function toggle() {
+    if (props.disabled) {
+        return;
+    }
+
+    open.value = !open.value;
+}
+
+function select(station: StationData) {
+    emit('update:modelValue', station.station_id);
+    open.value = false;
+}
+</script>
+
+<template>
+    <div ref="root" class="relative flex flex-col gap-1">
+        <div
+            :id="id"
+            role="combobox"
+            :aria-expanded="open"
+            :aria-invalid="invalid"
+            :aria-describedby="describedBy"
+            :tabindex="disabled ? -1 : 0"
+            class="border-input flex h-10 items-center justify-between rounded-full border bg-white px-4 outline-none transition focus:border-emerald-500"
+            :class="[disabled ? 'cursor-not-allowed bg-gray-100' : 'cursor-pointer', invalid ? 'border-red-400 bg-red-50' : '']"
+            @click="toggle"
+            @keydown.enter.prevent="toggle"
+            @keydown.space.prevent="toggle"
+        >
+            <span class="truncate text-sm" :class="selected ? 'text-gray-800' : 'text-gray-400'">
+                {{ selected ? `${selected.name} — ${selected.ort}` : placeholder }}
+            </span>
+            <MdiChevronDown class="shrink-0 text-[24px] text-gray-500 transition-transform duration-200" :class="open ? 'rotate-180' : 'rotate-0'" />
+        </div>
+
+        <div
+            v-if="open"
+            class="absolute top-full z-[10000] mt-1 max-h-56 w-full overflow-y-auto rounded-2xl border border-gray-200 bg-white shadow-lg"
+        >
+            <div class="sticky top-0 z-10 bg-white p-2">
+                <div class="flex h-8 items-center gap-2 rounded-full border border-gray-200 bg-gray-50 px-3 focus-within:border-emerald-500 focus-within:bg-white">
+                    <MdiMagnify class="shrink-0 text-[18px] text-gray-400" />
+                    <input
+                        v-model="search"
+                        type="text"
+                        :placeholder="searchPlaceholder"
+                        class="w-full bg-transparent text-sm outline-none placeholder:text-gray-400"
+                        @click.stop
+                    />
+                </div>
+            </div>
+
+            <div v-if="!visibleStations.length" class="px-4 py-2 text-sm text-gray-400">
+                {{ emptyLabel }}
+            </div>
+
+            <div
+                v-for="station in visibleStations"
+                :key="station.station_id"
+                class="flex cursor-pointer flex-col px-4 py-2 hover:bg-gray-50"
+                :class="station.station_id === modelValue ? 'bg-gray-50' : ''"
+                @click="select(station)"
+            >
+                <span class="text-sm font-medium text-gray-800">{{ station.name }}</span>
+                <span class="text-xs text-gray-400">{{ station.strasse }}, {{ station.plz }} {{ station.ort }}</span>
+            </div>
+        </div>
+    </div>
+</template>

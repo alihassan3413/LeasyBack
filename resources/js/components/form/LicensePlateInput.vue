@@ -67,7 +67,7 @@ function onNumberInput(value: string): void {
 const errors = computed(() => validatePlateParts(city.value, letters.value, number.value));
 
 const segmentClass =
-    'border-input h-full w-full rounded-full border bg-white text-center text-sm font-bold text-gray-800 uppercase outline-none placeholder:text-gray-400 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400';
+    'border-input focus:border-brand-green h-full w-full rounded-full border bg-white text-center text-sm font-bold text-gray-800 uppercase outline-none placeholder:text-gray-400 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400';
 </script>
 
 <template>

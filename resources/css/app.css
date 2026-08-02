@@ -117,7 +117,7 @@
     --destructive-foreground: hsl(210 40% 99%);
     --border: hsl(214 28% 86%);
     --input: hsl(214 28% 86%);
-    --ring: hsl(221 83% 53%);
+    --ring: var(--brand-green);
     --chart-1: hsl(221 83% 53%);
     --chart-2: hsl(173 75% 35%);
     --chart-3: hsl(283 64% 49%);
@@ -161,7 +161,7 @@
     --destructive-foreground: hsl(210 40% 98%);
     --border: hsl(223 22% 22%);
     --input: hsl(223 22% 22%);
-    --ring: hsl(213 94% 68%);
+    --ring: var(--brand-green);
     --chart-1: hsl(213 94% 68%);
     --chart-2: hsl(170 60% 45%);
     --chart-3: hsl(286 75% 68%);

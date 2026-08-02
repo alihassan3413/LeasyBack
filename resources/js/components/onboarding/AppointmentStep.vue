@@ -2,7 +2,8 @@
 import InputError from '@/components/InputError.vue';
 import CalendarDateField from '@/components/form/CalendarDateField.vue';
 import FormField from '@/components/form/FormField.vue';
-import SelectField, { type SelectFieldOption } from '@/components/form/SelectField.vue';
+import StationMap from '@/components/form/StationMap.vue';
+import StationSelectField from '@/components/form/StationSelectField.vue';
 import OnboardingCard from '@/components/onboarding/OnboardingCard.vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -21,13 +22,6 @@ export interface OnboardingOrder {
 const props = defineProps<{ order: OnboardingOrder | null; stations: StationData[] }>();
 const emit = defineEmits<{ back: []; booked: [] }>();
 
-const stationOptions = computed<SelectFieldOption[]>(() =>
-    props.stations.map((station) => ({
-        value: station.station_id,
-        label: `${station.name} · ${station.ort} (${station.provider.toUpperCase()})`,
-    })),
-);
-
 const form = useForm({
     station_id: '',
     date: '',
@@ -37,6 +31,8 @@ const form = useForm({
 });
 
 const canSubmit = computed(() => form.station_id !== '' && form.date !== '' && form.time !== '' && form.fee_acknowledged);
+
+const selectedStation = computed(() => props.stations.find((station) => station.station_id === form.station_id) ?? null);
 
 function submit() {
     form.transform((data) => ({
@@ -81,15 +77,25 @@ const forwardButtonClass = 'bg-brand-green hover:bg-brand-green/90 rounded-[5px]
             <InputError :message="form.errors.appointment" />
 
             <FormField id="station_id" v-slot="{ id, describedBy, invalid }" label="Prüfstation" required :error="form.errors.station_id">
-                <SelectField
+                <StationSelectField
                     :id="id"
                     v-model="form.station_id"
-                    :options="stationOptions"
+                    :stations="stations"
                     placeholder="Station wählen"
                     :invalid="invalid"
                     :described-by="describedBy"
                 />
             </FormField>
+
+            <div v-if="selectedStation" class="mt-4">
+                <p class="text-sm font-semibold text-black">{{ selectedStation.name }}</p>
+                <p class="text-xs text-[#00000080]">
+                    {{ selectedStation.strasse }}, {{ selectedStation.plz }} {{ selectedStation.ort }}
+                </p>
+                <div class="mt-2 h-[260px] w-full">
+                    <StationMap :station="selectedStation" />
+                </div>
+            </div>
         </OnboardingCard>
 
         <OnboardingCard title="Hier können Sie Termine buchen">
