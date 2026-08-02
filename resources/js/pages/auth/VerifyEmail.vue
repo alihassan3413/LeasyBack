@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import AuthStatusMessage from '@/components/auth/AuthStatusMessage.vue';
 import { Button } from '@/components/ui/button';
+import { useSessionGuard } from '@/composables/useSessionGuard';
 import AuthLayout from '@/layouts/AuthLayout.vue';
-import { Head, Link, useForm } from '@inertiajs/vue3';
+import { Head, useForm } from '@inertiajs/vue3';
 
 defineProps<{
     status?: string;
 }>();
 
 const form = useForm({});
+
+const { logout } = useSessionGuard();
 
 const submit = () => {
     form.post(route('verification.send'));
@@ -37,14 +40,13 @@ const submit = () => {
                     {{ form.processing ? 'Wird gesendet…' : 'Bestätigungslink erneut senden' }}
                 </Button>
 
-                <Link
-                    :href="route('logout')"
-                    method="post"
-                    as="button"
+                <button
+                    type="button"
                     class="text-brand-green mx-auto block text-[14px] font-bold underline decoration-[1.12px] underline-offset-[2.8px]"
+                    @click="logout('manual')"
                 >
                     Abmelden
-                </Link>
+                </button>
             </form>
         </div>
     </AuthLayout>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { SharedData, User } from '@/types';
+import { useSessionGuard } from '@/composables/useSessionGuard';
 import { router, usePage } from '@inertiajs/vue3';
 import { computed, ref, type Component } from 'vue';
 import MdiAccountGroupOutline from '~icons/mdi/account-group-outline';
@@ -60,7 +61,7 @@ function navigateTo(name: string) {
     router.visit(route(name));
 }
 function logout() {
-    router.post(route('logout'));
+    void useSessionGuard().logout('manual');
 }
 </script>
 

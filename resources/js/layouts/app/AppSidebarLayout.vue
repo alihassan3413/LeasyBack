@@ -4,6 +4,7 @@ import ImpersonationBanner from '@/components/ImpersonationBanner.vue';
 import AppSidebarHeader from '@/components/AppSidebarHeader.vue';
 import type { BreadcrumbItemType, SharedData, User } from '@/types';
 import type { UserType } from '@/types/auth';
+import { useSessionGuard } from '@/composables/useSessionGuard';
 import { router, usePage } from '@inertiajs/vue3';
 import { computed, type Component } from 'vue';
 import MdiAccountOutline from '~icons/mdi/account-outline';
@@ -55,7 +56,7 @@ function navigateTo(name: string) {
 }
 
 const handleLogout = () => {
-    router.post(route('logout'));
+    void useSessionGuard().logout('manual');
 };
 </script>
 

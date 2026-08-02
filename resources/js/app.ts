@@ -5,6 +5,7 @@ import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers';
 import type { DefineComponent } from 'vue';
 import { createApp, h, Fragment } from 'vue';
 import { ZiggyVue } from '../../vendor/tightenco/ziggy';
+import SessionGuard from './components/session/SessionGuard.vue';
 import ToastHost from './components/ui/toast/ToastHost.vue';
 import { initializeTheme } from './composables/useAppearance';
 import './echo';
@@ -28,7 +29,7 @@ createInertiaApp({
     title: (title) => `${title} - ${appName}`,
     resolve: (name) => resolvePageComponent(`./pages/${name}.vue`, import.meta.glob<DefineComponent>('./pages/**/*.vue')),
     setup({ el, App, props, plugin }) {
-        createApp({ render: () => h(Fragment, [h(App, props), h(ToastHost)]) })
+        createApp({ render: () => h(Fragment, [h(App, props), h(ToastHost), h(SessionGuard)]) })
             .use(plugin)
             .use(ZiggyVue)
             .mount(el);
