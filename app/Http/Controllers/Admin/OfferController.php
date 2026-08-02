@@ -33,7 +33,7 @@ class OfferController extends Controller
 
         $this->offerService->createOffer($order, $validated, $request->user());
 
-        return back();
+        return back()->with('success', 'Angebot wurde erstellt.');
     }
 
     public function publish(Request $request, string $offerId): RedirectResponse
@@ -46,10 +46,10 @@ class OfferController extends Controller
         } catch (HttpResponseException $e) {
             $message = $e->getResponse()->getData(true)['error'] ?? 'Angebot konnte nicht veröffentlicht werden.';
 
-            return back()->withErrors(['offer' => $message]);
+            return back()->withErrors(['offer' => $message])->with('error', $message);
         }
 
-        return back();
+        return back()->with('success', 'Angebot wurde veröffentlicht.');
     }
 
     public function cancel(Request $request, string $offerId): RedirectResponse
@@ -61,6 +61,6 @@ class OfferController extends Controller
 
         $this->offerService->cancelOffer($offer, $validated['cancellation_reason'] ?? null, $request->user());
 
-        return back();
+        return back()->with('success', 'Angebot wurde storniert.');
     }
 }

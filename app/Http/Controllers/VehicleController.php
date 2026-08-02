@@ -64,7 +64,7 @@ class VehicleController extends Controller
         return $this->withServiceErrorHandling(
             'vehicle',
             fn () => $this->vehicleService->createVehicle($request->user(), $request->validated())
-        ) ?? to_route('dashboard');
+        ) ?? to_route('dashboard')->with('success', 'Fahrzeug wurde angelegt.');
     }
 
     public function update(UpdateVehicleRequest $request, string $vehicleId): RedirectResponse
@@ -79,6 +79,6 @@ class VehicleController extends Controller
         return $this->withServiceErrorHandling(
             'vehicle',
             fn () => $this->vehicleService->updateVehicle($vehicle, $request->validated(), $user)
-        ) ?? to_route('dashboard');
+        ) ?? to_route('dashboard')->with('success', 'Fahrzeug wurde aktualisiert.');
     }
 }

@@ -53,16 +53,17 @@ class OrderController extends Controller
         abort_unless($order !== null, 404);
 
         if (! in_array('order_placed', TransitionOrderStatus::allowedNextStatuses($order->order_status), true)) {
-            return back()->withErrors(['status' => 'Nur angefragte Aufträge können freigegeben werden.']);
+            return back()->withErrors(['status' => 'Nur angefragte Aufträge können freigegeben werden.'])
+                ->with('error', 'Nur angefragte Aufträge können freigegeben werden.');
         }
 
         try {
             $this->orderService->approveOrder($order, $request->user(), $request->ip());
         } catch (ValidationException $e) {
-            return back()->withErrors(['status' => $e->getMessage()]);
+            return back()->withErrors(['status' => $e->getMessage()])->with('error', $e->getMessage());
         }
 
-        return back();
+        return back()->with('success', 'Auftrag wurde freigegeben.');
     }
 
     /**
@@ -98,9 +99,9 @@ class OrderController extends Controller
                 $request->ip(),
             );
         } catch (ValidationException $e) {
-            return back()->withErrors(['status' => $e->getMessage()]);
+            return back()->withErrors(['status' => $e->getMessage()])->with('error', $e->getMessage());
         }
 
-        return back();
+        return back()->with('success', 'Status wurde aktualisiert.');
     }
 }

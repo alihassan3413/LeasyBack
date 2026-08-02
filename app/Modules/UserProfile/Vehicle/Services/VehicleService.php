@@ -304,6 +304,10 @@ class VehicleService
     /**
      * List vehicles with nested orders for dashboard.
      *
+     * Children are fetched in one batched query per relation and grouped in
+     * memory, so the query count stays constant (7) no matter how many
+     * vehicles or orders come back.
+     *
      * @param  array{search?: string, status?: string, sort?: string, direction?: string}  $filters
      */
     public function listVehiclesWithOrders(?string $ownerId, string $belongs, array $filters = []): array
@@ -320,20 +324,62 @@ class VehicleService
 
         $vehicles = $this->applyVehicleFilters($query, $filters)->get();
 
+        if ($vehicles->isEmpty()) {
+            return [];
+        }
+
+        $vehicleIds = $vehicles->pluck('vehicle_id')->all();
+
+        $ordersByVehicle = DB::table('leasyback_orders')
+            ->whereIn('vehicle_id', $vehicleIds)
+            ->where('order_status', '!=', 'cancelled')
+            ->orderByDesc('created_at')
+            ->get()
+            ->groupBy('vehicle_id');
+
+        $auftragsnummern = $ordersByVehicle->flatten(1)->pluck('auftragsnummer')->unique()->all();
+        $orderIds = $ordersByVehicle->flatten(1)->pluck('id')->all();
+
+        $statusUpdatesByOrder = DB::table('leasyback_order_status_updates')
+            ->whereIn('auftragsnummer', $auftragsnummern)
+            ->orderByDesc('created_at')
+            ->get()
+            ->groupBy('auftragsnummer');
+
+        $confirmationsByOrder = DB::table('leasyback_order_confirmations')
+            ->whereIn('auftragsnummer', $auftragsnummern)
+            ->orderByDesc('created_at')
+            ->get()
+            ->groupBy('auftragsnummer');
+
+        $reportDocsByOrder = DB::table('vehicle_report_documents')
+            ->whereIn('vehicle_id', $vehicleIds)
+            ->whereIn('auftragsnummer', $auftragsnummern)
+            ->where('published', true)
+            ->orderByDesc('created_at')
+            ->get()
+            ->groupBy(fn ($doc) => $doc->vehicle_id.'|'.$doc->auftragsnummer);
+
+        // Only published/selected offers — matches OfferController::customerList's
+        // own filter, so the dashboard never shows a customer a draft/cancelled offer.
+        $offersByOrder = DB::table('leasyback_offers')
+            ->whereIn('order_id', $orderIds)
+            ->whereIn('offer_status', ['published', 'selected'])
+            ->orderBy('offer_sequence')
+            ->get()
+            ->groupBy('order_id');
+
+        $documentsByVehicle = DB::table('vehicle_documents')
+            ->whereIn('vehicle_id', $vehicleIds)
+            ->orderByDesc('created_at')
+            ->get()
+            ->groupBy('vehicle_id');
+
         $result = [];
         foreach ($vehicles as $vehicle) {
-            $orders = DB::table('leasyback_orders')
-                ->where('vehicle_id', $vehicle->vehicle_id)
-                ->where('order_status', '!=', 'cancelled')
-                ->orderByDesc('created_at')
-                ->get();
-
             $ordersArr = [];
-            foreach ($orders as $order) {
-                $statusUpdates = DB::table('leasyback_order_status_updates')
-                    ->where('auftragsnummer', $order->auftragsnummer)
-                    ->orderByDesc('created_at')
-                    ->get()
+            foreach ($ordersByVehicle->get($vehicle->vehicle_id, collect()) as $order) {
+                $statusUpdates = $statusUpdatesByOrder->get($order->auftragsnummer, collect())
                     ->map(fn ($su) => [
                         'id' => $su->id,
                         'bewertung_id' => $su->bewertung_id,
@@ -344,10 +390,7 @@ class VehicleService
                     ->values()
                     ->toArray();
 
-                $confirmations = DB::table('leasyback_order_confirmations')
-                    ->where('auftragsnummer', $order->auftragsnummer)
-                    ->orderByDesc('created_at')
-                    ->get()
+                $confirmations = $confirmationsByOrder->get($order->auftragsnummer, collect())
                     ->map(fn ($oc) => [
                         'id' => $oc->id,
                         'auftragsnummer' => $oc->auftragsnummer,
@@ -357,16 +400,9 @@ class VehicleService
                     ->values()
                     ->toArray();
 
-                $reportDocs = DB::table('vehicle_report_documents')
-                    ->where('vehicle_id', $vehicle->vehicle_id)
-                    ->where('auftragsnummer', $order->auftragsnummer)
-                    ->where('published', true)
-                    ->orderByDesc('created_at')
-                    ->get();
-
-                $reportDocsArr = [];
-                foreach ($reportDocs as $doc) {
-                    $reportDocsArr[] = [
+                $reportDocsArr = $reportDocsByOrder
+                    ->get($vehicle->vehicle_id.'|'.$order->auftragsnummer, collect())
+                    ->map(fn ($doc) => [
                         'id' => $doc->id,
                         'document_type' => $doc->document_type,
                         'document_title' => $doc->document_title,
@@ -374,16 +410,11 @@ class VehicleService
                         'published' => $doc->published,
                         'created_at' => $doc->created_at,
                         'updated_at' => $doc->updated_at,
-                    ];
-                }
+                    ])
+                    ->values()
+                    ->toArray();
 
-                // Only published/selected offers — matches OfferController::customerList's
-                // own filter, so the dashboard never shows a customer a draft/cancelled offer.
-                $offers = DB::table('leasyback_offers')
-                    ->where('order_id', $order->id)
-                    ->whereIn('offer_status', ['published', 'selected'])
-                    ->orderBy('offer_sequence')
-                    ->get()
+                $offers = $offersByOrder->get($order->id, collect())
                     ->map(fn ($offer) => [
                         'offer_id' => $offer->offer_id,
                         'offer_sequence' => $offer->offer_sequence,
@@ -401,9 +432,9 @@ class VehicleService
                     'auftragsnummer' => $order->auftragsnummer,
                     'leasyback_partner' => $order->leasyback_partner,
                     'sent_at' => $order->sent_at,
-                    'request_payload' => json_decode($order->request_payload),
+                    'request_payload' => json_decode($order->request_payload ?? '', false) ?: null,
                     'response_status' => $order->response_status,
-                    'response_body' => json_decode($order->response_body),
+                    'response_body' => json_decode($order->response_body ?? '', false) ?: null,
                     'order_status' => $order->order_status,
                     'created_by_user_id' => $order->created_by_user_id,
                     'created_at' => $order->created_at,
@@ -414,10 +445,7 @@ class VehicleService
                 ];
             }
 
-            $documents = DB::table('vehicle_documents')
-                ->where('vehicle_id', $vehicle->vehicle_id)
-                ->orderByDesc('created_at')
-                ->get()
+            $documents = $documentsByVehicle->get($vehicle->vehicle_id, collect())
                 ->map(fn ($doc) => [
                     'document_id' => $doc->document_id,
                     'document_type' => $doc->document_type,

@@ -35,7 +35,7 @@ class PreferencesController extends Controller
         return $this->withServiceErrorHandling(
             'preferences',
             fn () => $this->profileService->createPreferences($request->user(), $request->validated())
-        ) ?? to_route('preferences.edit');
+        ) ?? to_route('preferences.edit')->with('success', 'Einstellungen wurden gespeichert.');
     }
 
     /**
@@ -46,6 +46,6 @@ class PreferencesController extends Controller
         return $this->withServiceErrorHandling(
             'preferences',
             fn () => $this->profileService->updatePreferences($request->user(), $request->validated())
-        ) ?? to_route('preferences.edit');
+        ) ?? to_route('preferences.edit')->with('success', 'Einstellungen wurden aktualisiert.');
     }
 }

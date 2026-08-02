@@ -17,10 +17,18 @@ export interface NavItem {
     isActive?: boolean;
 }
 
+export interface FlashBag {
+    success?: string | null;
+    error?: string | null;
+    info?: string | null;
+    warning?: string | null;
+}
+
 export interface SharedData {
     name: string;
     quote: { message: string; author: string };
     auth: Auth;
+    flash: FlashBag;
     ziggy: {
         location: string;
         url: string;

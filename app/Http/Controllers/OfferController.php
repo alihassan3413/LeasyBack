@@ -33,6 +33,6 @@ class OfferController extends Controller
         return $this->withServiceErrorHandling(
             'offer',
             fn () => $this->offerService->selectOffer($offer, $user)
-        ) ?? to_route('dashboard');
+        ) ?? to_route('dashboard')->with('success', 'Angebot wurde ausgewählt.');
     }
 }

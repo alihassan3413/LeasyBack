@@ -24,11 +24,13 @@ trait HandlesServiceValidationErrors
         try {
             $callback();
         } catch (HttpResponseException $e) {
-            $message = $e->getResponse()->getData(true)['error'] ?? 'Something went wrong. Please try again.';
+            $message = $e->getResponse()->getData(true)['error'] ?? 'Etwas ist schiefgelaufen. Bitte versuchen Sie es erneut.';
 
-            return back()->withErrors([$errorField => $message]);
+            return back()->withErrors([$errorField => $message])->with('error', $message);
         } catch (HttpExceptionInterface $e) {
-            return back()->withErrors([$errorField => $e->getMessage() ?: 'Something went wrong. Please try again.']);
+            $message = $e->getMessage() ?: 'Etwas ist schiefgelaufen. Bitte versuchen Sie es erneut.';
+
+            return back()->withErrors([$errorField => $message])->with('error', $message);
         }
 
         return null;

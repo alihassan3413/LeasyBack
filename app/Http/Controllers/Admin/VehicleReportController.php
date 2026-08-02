@@ -47,7 +47,7 @@ class VehicleReportController extends Controller
                 (bool) ($validated['published'] ?? false),
                 $request->user(),
             );
-        }) ?? back();
+        }) ?? back()->with('success', 'Dokument wurde hochgeladen.');
     }
 
     public function publish(Request $request, string $documentId): RedirectResponse
@@ -58,7 +58,7 @@ class VehicleReportController extends Controller
 
         return $this->withServiceErrorHandling('report', function () use ($request, $documentId, $validated) {
             $this->vehicleReportService->publish($documentId, $validated['published'], $request->user());
-        }) ?? back();
+        }) ?? back()->with('success', $validated['published'] ? 'Dokument wurde veröffentlicht.' : 'Veröffentlichung wurde zurückgezogen.');
     }
 
     public function delete(Request $request, string $documentId): RedirectResponse
@@ -67,6 +67,6 @@ class VehicleReportController extends Controller
 
         return $this->withServiceErrorHandling('report', function () use ($documentId, $request) {
             $this->vehicleReportService->delete($documentId, $request->user());
-        }) ?? back();
+        }) ?? back()->with('success', 'Dokument wurde gelöscht.');
     }
 }

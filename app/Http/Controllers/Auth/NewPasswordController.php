@@ -67,7 +67,8 @@ class NewPasswordController extends Controller
         // explicit German text instead, consistent with the rest of the app's
         // no-lang-directory convention (see docs/AUTH_MODULE.md).
         if ($status == Password::PasswordReset) {
-            return to_route('login')->with('status', 'Dein Passwort wurde erfolgreich zurückgesetzt.');
+            return to_route('login')->with('status', 'Dein Passwort wurde erfolgreich zurückgesetzt.')
+                ->with('success', 'Passwort wurde zurückgesetzt.');
         }
 
         throw ValidationException::withMessages([

@@ -58,6 +58,6 @@ class VehicleController extends Controller
         }
 
         /** @var Vehicle $vehicle */
-        return to_route('admin.vehicles.show', $vehicle->vehicle_id);
+        return to_route('admin.vehicles.show', $vehicle->vehicle_id)->with('success', 'Fahrzeug wurde angelegt.');
     }
 }

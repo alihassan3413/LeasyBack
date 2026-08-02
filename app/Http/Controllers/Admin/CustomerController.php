@@ -85,6 +85,6 @@ class CustomerController extends Controller
 
         abort_unless($updated !== null, 404);
 
-        return back();
+        return back()->with('success', 'Status wurde aktualisiert.');
     }
 }

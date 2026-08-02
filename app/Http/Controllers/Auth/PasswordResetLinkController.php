@@ -41,6 +41,7 @@ class PasswordResetLinkController extends Controller
         // mirrors the no-enumeration rule used at login. A hardcoded string
         // (not __()) because this app has no lang/ directory; __() around
         // a literal is a no-op here — see docs/AUTH_MODULE.md.
-        return back()->with('status', 'Ein Link zum Zurücksetzen wird gesendet, falls dieser Account existiert.');
+        return back()->with('status', 'Ein Link zum Zurücksetzen wird gesendet, falls dieser Account existiert.')
+            ->with('info', 'Ein Link zum Zurücksetzen wird gesendet, falls dieser Account existiert.');
     }
 }

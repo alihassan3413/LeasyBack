@@ -47,7 +47,7 @@ class ProfileController extends Controller
             'password' => Hash::make($validated['password']),
         ]);
 
-        return back();
+        return back()->with('success', 'Passwort wurde geändert.');
     }
 
     /**
@@ -63,7 +63,7 @@ class ProfileController extends Controller
 
         $request->user()->save();
 
-        return to_route('profile.edit');
+        return to_route('profile.edit')->with('success', 'Profil wurde aktualisiert.');
     }
 
     /**
@@ -84,6 +84,6 @@ class ProfileController extends Controller
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        return redirect('/');
+        return redirect('/')->with('success', 'Ihr Konto wurde gelöscht.');
     }
 }

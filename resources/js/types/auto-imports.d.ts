@@ -100,6 +100,7 @@ declare global {
   const useCssVars: typeof import('vue').useCssVars
   const useDark: typeof import('@vueuse/core').useDark
   const useDebounceFn: typeof import('@vueuse/core').useDebounceFn
+  const useFlashToasts: typeof import('../composables/useFlashToasts').useFlashToasts
   const useForm: typeof import('@inertiajs/vue3').useForm
   const useGooglePlaces: typeof import('../composables/useGooglePlaces').useGooglePlaces
   const useId: typeof import('vue').useId
@@ -111,6 +112,7 @@ declare global {
   const useRemember: typeof import('@inertiajs/vue3').useRemember
   const useSlots: typeof import('vue').useSlots
   const useTemplateRef: typeof import('vue').useTemplateRef
+  const useToast: typeof import('../composables/useToast').useToast
   const useToggle: typeof import('@vueuse/core').useToggle
   const validatePlateCity: typeof import('../lib/licensePlate').validatePlateCity
   const validatePlateLetters: typeof import('../lib/licensePlate').validatePlateLetters
@@ -129,6 +131,9 @@ declare global {
   // @ts-ignore
   export type { PlaceSuggestion, ResolvedPlaceAddress } from '../composables/useGooglePlaces'
   import('../composables/useGooglePlaces')
+  // @ts-ignore
+  export type { ToastVariant, ToastOptions, ToastItem } from '../composables/useToast'
+  import('../composables/useToast')
   // @ts-ignore
   export type { CustomerOrderStage, CustomerOrderFlowStep, CustomerOrderStatusHistoryEntry, CustomerOrderBesichtigungsort, CustomerOrderReportDocument, CustomerOrderOffer, CustomerOrderFlowInput } from '../lib/customerOrderFlow'
   import('../lib/customerOrderFlow')
@@ -242,6 +247,7 @@ declare module 'vue' {
     readonly useCssVars: UnwrapRef<typeof import('vue')['useCssVars']>
     readonly useDark: UnwrapRef<typeof import('@vueuse/core')['useDark']>
     readonly useDebounceFn: UnwrapRef<typeof import('@vueuse/core')['useDebounceFn']>
+    readonly useFlashToasts: UnwrapRef<typeof import('../composables/useFlashToasts')['useFlashToasts']>
     readonly useForm: UnwrapRef<typeof import('@inertiajs/vue3')['useForm']>
     readonly useGooglePlaces: UnwrapRef<typeof import('../composables/useGooglePlaces')['useGooglePlaces']>
     readonly useId: UnwrapRef<typeof import('vue')['useId']>
@@ -253,6 +259,7 @@ declare module 'vue' {
     readonly useRemember: UnwrapRef<typeof import('@inertiajs/vue3')['useRemember']>
     readonly useSlots: UnwrapRef<typeof import('vue')['useSlots']>
     readonly useTemplateRef: UnwrapRef<typeof import('vue')['useTemplateRef']>
+    readonly useToast: UnwrapRef<typeof import('../composables/useToast')['useToast']>
     readonly useToggle: UnwrapRef<typeof import('@vueuse/core')['useToggle']>
     readonly validatePlateCity: UnwrapRef<typeof import('../lib/licensePlate')['validatePlateCity']>
     readonly validatePlateLetters: UnwrapRef<typeof import('../lib/licensePlate')['validatePlateLetters']>

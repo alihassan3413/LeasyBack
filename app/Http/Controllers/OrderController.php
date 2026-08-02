@@ -48,6 +48,6 @@ class OrderController extends Controller
             fn () => $station->provider === 'tuvsud'
                 ? $this->orderService->createTuvsudOrder($vehicle, $user, $validated)
                 : $this->orderService->createOtherOrder($vehicle, $user, [...$validated, 'provider' => $station->provider])
-        ) ?? to_route('dashboard');
+        ) ?? to_route('dashboard')->with('success', 'Termin wurde gebucht.');
     }
 }

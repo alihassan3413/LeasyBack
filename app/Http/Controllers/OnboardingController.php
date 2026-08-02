@@ -66,7 +66,7 @@ class OnboardingController extends Controller
         return $this->withServiceErrorHandling(
             'profile',
             fn () => $this->profileService->createAddressContact($request->user(), $request->validated())
-        ) ?? to_route('onboarding.show');
+        ) ?? to_route('onboarding.show')->with('success', 'Kundendaten wurden gespeichert.');
     }
 
     /**
@@ -77,7 +77,7 @@ class OnboardingController extends Controller
         return $this->withServiceErrorHandling(
             'profile',
             fn () => $this->profileService->updateAddressContact($request->user(), $request->validated())
-        ) ?? to_route('onboarding.show');
+        ) ?? to_route('onboarding.show')->with('success', 'Kundendaten wurden aktualisiert.');
     }
 
     public function storeVehicle(StoreVehicleRequest $request): RedirectResponse
@@ -85,7 +85,7 @@ class OnboardingController extends Controller
         return $this->withServiceErrorHandling(
             'vehicle',
             fn () => $this->vehicleService->createVehicle($request->user(), $request->validated())
-        ) ?? to_route('onboarding.show');
+        ) ?? to_route('onboarding.show')->with('success', 'Fahrzeug wurde angelegt.');
     }
 
     /**
@@ -105,7 +105,7 @@ class OnboardingController extends Controller
         return $this->withServiceErrorHandling(
             'vehicle',
             fn () => $this->vehicleService->updateVehicle($vehicle, $request->validated(), $user)
-        ) ?? to_route('onboarding.show');
+        ) ?? to_route('onboarding.show')->with('success', 'Fahrzeugdaten wurden aktualisiert.');
     }
 
     public function storeAppointment(Request $request): RedirectResponse
@@ -130,7 +130,7 @@ class OnboardingController extends Controller
             fn () => $station->provider === 'tuvsud'
                 ? $this->orderService->createTuvsudOrder($vehicle, $user, $validated)
                 : $this->orderService->createOtherOrder($vehicle, $user, [...$validated, 'provider' => $station->provider])
-        ) ?? to_route('onboarding.show');
+        ) ?? to_route('onboarding.show')->with('success', 'Termin wurde gebucht.');
     }
 
     private function currentVehicle(User $user): ?Vehicle
