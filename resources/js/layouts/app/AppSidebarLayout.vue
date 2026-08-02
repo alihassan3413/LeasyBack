@@ -1,9 +1,13 @@
 <script setup lang="ts">
-import AppContent from '@/components/AppContent.vue';
-import AppShell from '@/components/AppShell.vue';
 import AppSidebar from '@/components/AppSidebar.vue';
 import AppSidebarHeader from '@/components/AppSidebarHeader.vue';
-import type { BreadcrumbItemType } from '@/types';
+import type { BreadcrumbItemType, SharedData, User } from '@/types';
+import type { UserType } from '@/types/auth';
+import { router, usePage } from '@inertiajs/vue3';
+import { computed, type Component } from 'vue';
+import MdiAccountOutline from '~icons/mdi/account-outline';
+import MdiLogout from '~icons/mdi/logout';
+import MdiViewDashboardOutline from '~icons/mdi/view-dashboard-outline';
 
 interface Props {
     breadcrumbs?: BreadcrumbItemType[];
@@ -12,14 +16,90 @@ interface Props {
 withDefaults(defineProps<Props>(), {
     breadcrumbs: () => [],
 });
+
+const page = usePage<SharedData>();
+const user = computed(() => page.props.auth.user as User | undefined);
+
+interface NavItem {
+    label: string;
+    icon: Component;
+    name: string;
+    aliases?: string[];
+}
+
+const navByRole: Record<UserType, NavItem[]> = {
+    Privatkunde: [
+        { label: 'Mein Dashboard', icon: MdiViewDashboardOutline, name: 'dashboard' },
+        { label: 'Mein Konto', icon: MdiAccountOutline, name: 'profile.edit' },
+    ],
+    Firmenkunde: [
+        { label: 'Mein Dashboard', icon: MdiViewDashboardOutline, name: 'dashboard' },
+        { label: 'Mein Konto', icon: MdiAccountOutline, name: 'profile.edit' },
+    ],
+    Werksatatt: [{ label: 'Mein Konto', icon: MdiAccountOutline, name: 'profile.edit' }],
+    Admin: [],
+};
+
+const navItems = computed<NavItem[]>(() => {
+    const role = user.value?.user_type;
+    return role ? navByRole[role] : [];
+});
+
+function isActive(name: string) {
+    return new URL(route(name), window.location.origin).pathname === page.url.split('?')[0];
+}
+
+function navigateTo(name: string) {
+    router.visit(route(name));
+}
+
+const handleLogout = () => {
+    router.post(route('logout'));
+};
 </script>
 
 <template>
-    <AppShell variant="sidebar">
-        <AppSidebar />
-        <AppContent variant="sidebar">
-            <AppSidebarHeader :breadcrumbs="breadcrumbs" />
-            <slot />
-        </AppContent>
-    </AppShell>
+    <div class="flex h-screen flex-col overflow-hidden md:gap-4 md:p-4">
+        <!-- Body: sidebar + main for desktop -->
+        <div class="relative hidden flex-1 overflow-hidden md:flex">
+            <AppSidebar />
+
+            <!-- Main content -->
+            <main class="flex-1 overflow-hidden overflow-y-auto bg-white p-6">
+                <AppSidebarHeader :breadcrumbs="breadcrumbs" />
+                <slot />
+            </main>
+        </div>
+
+        <!-- Mobile view -->
+        <div class="relative flex flex-1 flex-col overflow-hidden md:hidden">
+            <!-- Main content -->
+            <main class="flex-1 overflow-hidden overflow-y-auto bg-white">
+                <AppSidebarHeader :breadcrumbs="breadcrumbs" />
+                <slot />
+            </main>
+
+            <!-- Bottom tab bar for mobile -->
+            <nav
+                class="z-50 flex shrink-0 items-center justify-around px-2 py-3"
+                style="background: linear-gradient(180deg, #10393b 0%, #0d3133 100%); box-shadow: 0 -8px 30px rgba(16, 57, 59, 0.18)"
+            >
+                <button
+                    v-for="item in navItems"
+                    :key="item.name"
+                    @click="navigateTo(item.name)"
+                    class="flex flex-col items-center gap-1 rounded-lg px-2 py-1 transition-all"
+                    :class="isActive(item.name) ? 'text-[#01B990]' : 'text-white/55 hover:text-white'"
+                >
+                    <component :is="item.icon" :style="{ width: '24px', height: '24px' }" />
+                </button>
+                <button
+                    @click="handleLogout"
+                    class="flex flex-col items-center gap-1 rounded-lg px-2 py-1 text-white/55 transition-all hover:text-white"
+                >
+                    <MdiLogout :style="{ width: '24px', height: '24px' }" />
+                </button>
+            </nav>
+        </div>
+    </div>
 </template>

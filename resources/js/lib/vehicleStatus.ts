@@ -33,3 +33,26 @@ export function getVehicleStatusDisplay(latestOrderStatus: string | null | undef
 export function isVehicleCompleted(latestOrderStatus: string | null | undefined): boolean {
     return latestOrderStatus === 'delivered';
 }
+
+/** German order-status wording used across the dashboard, matching leasyback_web's lib/status.ts. */
+const ORDER_STATUS_LABELS: Record<string, string> = {
+    order_requested: 'Anfrage gesendet',
+    order_placed: 'Bestellt',
+    confirmed: 'Bestätigt',
+    inspected: 'Geprüft',
+    workshop: 'In Werkstatt',
+    reinspection: 'Nachprüfung',
+    reworkshop: 'Erneut in Werkstatt',
+    delivered: 'Geliefert',
+    completed: 'Abgeschlossen',
+    discarded: 'Verworfen',
+    cancelled: 'Storniert',
+};
+
+export function getOrderStatusLabel(status: string | null | undefined): string {
+    if (!status) {
+        return 'Unbekannt';
+    }
+
+    return ORDER_STATUS_LABELS[status] ?? status.replace(/_/g, ' ');
+}

@@ -29,14 +29,14 @@ const submit = () => {
 };
 
 // Design match note: consistent with Login/ForgotPassword/etc. — see Login.vue.
-const fieldClass = 'h-auto rounded-[5px] border-brand-green-gray bg-white px-3 py-2.5 text-sm';
+const fieldClass = 'h-auto rounded-full border-brand-green-gray bg-white px-4 py-2.5 text-sm';
 
 // Native <select> doesn't go through the shared Input component, so it needs
 // its own full styling (border, focus ring, etc.) rather than just the
 // design-match overrides above; appearance-none + the manual ChevronDown
 // icon below replace the inconsistent native browser dropdown arrow.
 const selectClass =
-    'h-auto w-full appearance-none rounded-[5px] border border-brand-green-gray bg-white px-3 py-2.5 pr-9 text-sm text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 aria-[invalid=true]:border-destructive';
+    'h-auto w-full appearance-none rounded-full border border-brand-green-gray bg-white px-4 py-2.5 pr-9 text-sm text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 aria-[invalid=true]:border-destructive';
 </script>
 
 <template>

@@ -1,111 +1,150 @@
 <script setup lang="ts">
-import { TransitionRoot } from '@headlessui/vue';
-import { Head, Link, useForm, usePage } from '@inertiajs/vue3';
-
-import DeleteUser from '@/components/DeleteUser.vue';
-import HeadingSmall from '@/components/HeadingSmall.vue';
-import InputError from '@/components/InputError.vue';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import AccountDetailCard from '@/components/account/AccountDetailCard.vue';
+import ContactPersonCard from '@/components/account/ContactPersonCard.vue';
+import DeleteAccountCard from '@/components/account/DeleteAccountCard.vue';
+import ManagePasswordCard from '@/components/account/ManagePasswordCard.vue';
 import AppLayout from '@/layouts/AppLayout.vue';
-import SettingsLayout from '@/layouts/settings/Layout.vue';
-import { type BreadcrumbItem, type SharedData, type User } from '@/types';
+import { type BreadcrumbItem, type SharedData } from '@/types';
+import type { UserProfileData } from '@/types/profile';
+import { Head, usePage } from '@inertiajs/vue3';
+import { computed, ref } from 'vue';
 
-interface Props {
+const props = defineProps<{
     mustVerifyEmail: boolean;
     status?: string;
-    className?: string;
-}
+    profile: UserProfileData | null;
+}>();
 
-defineProps<Props>();
-
-const breadcrumbs: BreadcrumbItem[] = [
-    {
-        title: 'Profile settings',
-        href: '/settings/profile',
-    },
-];
+const breadcrumbs: BreadcrumbItem[] = [{ title: 'Mein Konto', href: '/settings/profile' }];
 
 const page = usePage<SharedData>();
-const user = page.props.auth.user as User;
 
-const form = useForm({
-    name: user.name,
-    email: user.email,
+const email = computed(() => props.profile?.email ?? page.props.auth.user?.email ?? '');
+
+const fullName = computed(() => {
+    const contact = props.profile?.contact;
+
+    if (!contact) {
+        return '';
+    }
+
+    return [contact.first_name, contact.last_name].filter(Boolean).join(' ');
 });
 
-const submit = () => {
-    form.patch(route('profile.update'), {
-        preserveScroll: true,
-    });
-};
+const initials = computed(() => {
+    const contact = props.profile?.contact;
+
+    if (!contact) {
+        return '•';
+    }
+
+    return ((contact.first_name?.[0] ?? '') + (contact.last_name?.[0] ?? '')).toUpperCase() || '•';
+});
+
+const sections = [
+    { id: 'kontodaten', label: 'Kontodaten' },
+    { id: 'ansprechpartner', label: 'Ansprechpartner' },
+    { id: 'passwort', label: 'Passwort' },
+    { id: 'konto-loeschen', label: 'Konto löschen' },
+];
+
+const activeSection = ref('kontodaten');
+
+function scrollTo(id: string) {
+    activeSection.value = id;
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 </script>
 
 <template>
+    <Head title="Mein Konto" />
+
     <AppLayout :breadcrumbs="breadcrumbs">
-        <Head title="Profile settings" />
-
-        <SettingsLayout>
-            <div class="flex flex-col space-y-6">
-                <HeadingSmall title="Profile information" description="Update your name and email address" />
-
-                <form @submit.prevent="submit" class="space-y-6">
-                    <div class="grid gap-2">
-                        <Label for="name">Name</Label>
-                        <Input id="name" class="mt-1 block w-full" v-model="form.name" required autocomplete="name" placeholder="Full name" />
-                        <InputError class="mt-2" :message="form.errors.name" />
+        <div class="min-h-screen bg-[#F5F7F7]">
+            <div class="mx-auto max-w-[1240px] px-4 py-6 sm:px-6 sm:py-10">
+                <header class="mb-6 sm:mb-8">
+                    <div class="mb-1.5 flex items-center gap-2">
+                        <span class="bg-brand-green h-px w-4"></span>
+                        <p class="text-brand-green text-[11px] font-bold tracking-[0.2em] uppercase">Einstellungen</p>
                     </div>
+                    <h1 class="text-[22px] leading-tight font-bold text-[#10393B] sm:text-[26px]">Mein Konto</h1>
+                </header>
 
-                    <div class="grid gap-2">
-                        <Label for="email">Email address</Label>
-                        <Input
-                            id="email"
-                            type="email"
-                            class="mt-1 block w-full"
-                            v-model="form.email"
-                            required
-                            autocomplete="username"
-                            placeholder="Email address"
-                        />
-                        <InputError class="mt-2" :message="form.errors.email" />
-                    </div>
-
-                    <div v-if="mustVerifyEmail && !user.email_verified_at">
-                        <p class="mt-2 text-sm text-neutral-800">
-                            Your email address is unverified.
-                            <Link
-                                :href="route('verification.send')"
-                                method="post"
-                                as="button"
-                                class="rounded-md text-sm text-neutral-600 underline hover:text-neutral-900 focus:ring-2 focus:ring-offset-2 focus:outline-hidden"
+                <div class="mb-6 lg:hidden">
+                    <div class="overflow-hidden rounded-2xl border border-[#D1DCDC] bg-white shadow-sm">
+                        <div class="h-[60px] bg-linear-to-br from-[#10393B] via-[#155254] to-[#1e6568] sm:h-[80px]" />
+                        <div class="-mt-8 flex flex-col items-center px-4 pb-4 sm:-mt-10 sm:px-5 sm:pb-6">
+                            <div
+                                class="bg-brand-green flex size-[64px] items-center justify-center overflow-hidden rounded-full border-[3px] border-white text-lg font-bold text-white shadow-lg sm:size-[76px] sm:text-xl"
                             >
-                                Click here to re-send the verification email.
-                            </Link>
-                        </p>
-
-                        <div v-if="status === 'verification-link-sent'" class="mt-2 text-sm font-medium text-green-600">
-                            A new verification link has been sent to your email address.
+                                <span>{{ initials }}</span>
+                            </div>
+                            <p class="mt-3 max-w-full truncate text-[14px] font-bold text-[#10393B] sm:text-[15px]">
+                                {{ fullName || '—' }}
+                            </p>
+                            <p class="max-w-full truncate text-[11px] text-[#7A9699] sm:text-[12px]">
+                                {{ email }}
+                            </p>
                         </div>
                     </div>
+                </div>
 
-                    <div class="flex items-center gap-4">
-                        <Button :disabled="form.processing">Save</Button>
+                <div class="flex items-start gap-6 lg:gap-8">
+                    <aside class="sticky top-8 hidden w-[264px] shrink-0 lg:block">
+                        <div class="overflow-hidden rounded-2xl border border-[#D1DCDC] bg-white shadow-sm">
+                            <div class="h-[80px] bg-linear-to-br from-[#10393B] via-[#155254] to-[#1e6568]" />
+                            <div class="-mt-10 flex flex-col items-center px-5 pb-6">
+                                <div
+                                    class="bg-brand-green flex size-[76px] items-center justify-center overflow-hidden rounded-full border-[3px] border-white text-xl font-bold text-white shadow-lg"
+                                >
+                                    <span>{{ initials }}</span>
+                                </div>
+                                <p class="mt-3 max-w-full truncate text-[15px] font-bold text-[#10393B]">
+                                    {{ fullName || '—' }}
+                                </p>
+                                <p class="max-w-full truncate text-[12px] text-[#7A9699]">
+                                    {{ email }}
+                                </p>
+                            </div>
+                        </div>
 
-                        <TransitionRoot
-                            :show="form.recentlySuccessful"
-                            enter="transition ease-in-out"
-                            enter-from="opacity-0"
-                            leave="transition ease-in-out"
-                            leave-to="opacity-0"
-                        >
-                            <p class="text-sm text-neutral-600">Saved.</p>
-                        </TransitionRoot>
-                    </div>
-                </form>
+                        <nav class="mt-3 space-y-0.5">
+                            <button
+                                v-for="section in sections"
+                                :key="section.id"
+                                type="button"
+                                class="group flex w-full items-center rounded-lg py-2.5 text-left text-sm font-medium transition-all"
+                                :class="
+                                    activeSection === section.id
+                                        ? 'border-brand-green border-l-2 bg-white pr-3.5 pl-[calc(0.875rem-2px)] text-[#10393B] shadow-sm'
+                                        : 'px-3.5 text-[#6B8587] hover:bg-white/80 hover:text-[#10393B]'
+                                "
+                                @click="scrollTo(section.id)"
+                            >
+                                {{ section.label }}
+                            </button>
+                        </nav>
+                    </aside>
+
+                    <main class="min-w-0 flex-1 scroll-smooth space-y-4 sm:space-y-5">
+                        <section id="kontodaten" class="scroll-mt-6 sm:scroll-mt-8">
+                            <AccountDetailCard :profile="profile" :email="email" />
+                        </section>
+
+                        <section id="ansprechpartner" class="scroll-mt-6 sm:scroll-mt-8">
+                            <ContactPersonCard :profile="profile" />
+                        </section>
+
+                        <section id="passwort" class="scroll-mt-6 sm:scroll-mt-8">
+                            <ManagePasswordCard :email="email" />
+                        </section>
+
+                        <section id="konto-loeschen" class="scroll-mt-6 sm:scroll-mt-8">
+                            <DeleteAccountCard />
+                        </section>
+                    </main>
+                </div>
             </div>
-
-            <DeleteUser />
-        </SettingsLayout>
+        </div>
     </AppLayout>
 </template>

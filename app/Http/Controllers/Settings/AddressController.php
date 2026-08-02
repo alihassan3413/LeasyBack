@@ -36,7 +36,7 @@ class AddressController extends Controller
         return $this->withServiceErrorHandling(
             'address',
             fn () => $this->profileService->createAddressContact($request->user(), $request->validated())
-        ) ?? to_route('address.edit');
+        ) ?? back();
     }
 
     /**
@@ -47,6 +47,6 @@ class AddressController extends Controller
         return $this->withServiceErrorHandling(
             'address',
             fn () => $this->profileService->updateAddressContact($request->user(), $request->validated())
-        ) ?? to_route('address.edit');
+        ) ?? back();
     }
 }

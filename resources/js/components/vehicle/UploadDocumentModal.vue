@@ -10,8 +10,7 @@
 import FormField from '@/components/form/FormField.vue';
 import SelectField, { type SelectFieldOption } from '@/components/form/SelectField.vue';
 import InputError from '@/components/InputError.vue';
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { AppModal, AppModalButton } from '@/components/ui/modal';
 import type { VehicleDocumentData } from '@/types/vehicle';
 import { router, useForm } from '@inertiajs/vue3';
 import { FileText, Upload } from 'lucide-vue-next';
@@ -118,81 +117,73 @@ function deleteSequentially(documents: VehicleDocumentData[], onDone: () => void
 </script>
 
 <template>
-    <Dialog :open="open" @update:open="(value) => emit('update:open', value)">
-        <DialogContent class="sm:max-w-lg">
-            <form @submit.prevent="attemptUpload">
-                <DialogHeader>
-                    <DialogTitle>Dokument hochladen</DialogTitle>
-                    <DialogDescription>PDF, JPG oder PNG · max. 10 MB</DialogDescription>
-                </DialogHeader>
+    <AppModal
+        :open="open"
+        title="Dokument hochladen"
+        description="PDF, JPG oder PNG · max. 10 MB"
+        @update:open="(value) => emit('update:open', value)"
+    >
+        <form @submit.prevent="attemptUpload">
+            <div class="grid grid-cols-1 gap-x-6 gap-y-3 px-2">
+                <div
+                    class="relative flex h-[110px] w-full cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed transition-colors"
+                    :class="isDraggingOver ? 'border-emerald-500 bg-emerald-50' : 'border-gray-300 bg-gray-50'"
+                    @click="pickFile"
+                    @dragover.prevent="isDraggingOver = true"
+                    @dragleave.prevent="isDraggingOver = false"
+                    @drop.prevent="onDrop"
+                >
+                    <input ref="fileInput" type="file" accept=".pdf,.jpg,.jpeg,.png" class="hidden" @change="onFileInputChange" />
+                    <FileText v-if="form.file" class="size-8 text-gray-400" aria-hidden="true" />
+                    <Upload v-else class="size-8 text-gray-400" aria-hidden="true" />
+                    <p class="mt-2 text-sm font-medium text-black">{{ form.file ? form.file.name : 'Datei hierher ziehen' }}</p>
+                    <p class="text-xs font-light text-[#00000080]">{{ form.file ? 'Andere Datei wählen' : 'oder klicken zum Auswählen' }}</p>
+                </div>
+                <InputError :message="form.errors.file" />
 
-                <div class="grid gap-4 py-4">
-                    <div
-                        class="hover:border-primary/50 rounded-lg border-2 border-dashed p-8 text-center transition-colors"
-                        :class="isDraggingOver ? 'border-primary bg-accent' : 'border-input'"
-                        @dragover.prevent="isDraggingOver = true"
-                        @dragleave.prevent="isDraggingOver = false"
-                        @drop.prevent="onDrop"
-                    >
-                        <input ref="fileInput" type="file" accept=".pdf,.jpg,.jpeg,.png" class="hidden" @change="onFileInputChange" />
-                        <FileText v-if="form.file" class="text-muted-foreground mx-auto size-8" aria-hidden="true" />
-                        <Upload v-else class="text-muted-foreground mx-auto size-8" aria-hidden="true" />
-                        <p class="mt-2 text-sm font-medium">{{ form.file ? form.file.name : 'Datei hierher ziehen' }}</p>
-                        <Button type="button" variant="outline" size="sm" class="mt-3" @click="pickFile">
-                            {{ form.file ? 'Andere Datei wählen' : 'Datei auswählen' }}
-                        </Button>
-                    </div>
-                    <InputError :message="form.errors.file" />
+                <FormField v-slot="{ id, describedBy, invalid }" label="Dokumententyp" required :error="form.errors.document_type">
+                    <SelectField
+                        :id="id"
+                        v-model="form.document_type"
+                        :options="documentTypeOptions"
+                        placeholder="Typ wählen"
+                        :invalid="invalid"
+                        :described-by="describedBy"
+                    />
+                </FormField>
 
-                    <FormField
-                        id="document_type"
-                        v-slot="{ id, describedBy, invalid }"
-                        label="Dokumententyp"
-                        required
-                        :error="form.errors.document_type"
-                    >
-                        <SelectField
-                            :id="id"
-                            v-model="form.document_type"
-                            :options="documentTypeOptions"
-                            placeholder="Typ wählen"
-                            :invalid="invalid"
-                            :described-by="describedBy"
-                        />
-                    </FormField>
-
-                    <div
-                        v-if="duplicateType"
-                        class="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-500/30 dark:bg-amber-500/10"
-                    >
-                        <p class="text-amber-900 dark:text-amber-400">
-                            Ein Dokument vom Typ „{{ duplicateType }}" existiert bereits für dieses Fahrzeug. Möchten Sie das vorhandene Dokument
-                            ersetzen?
-                        </p>
-                        <div class="mt-3 flex justify-end gap-2">
-                            <Button type="button" variant="ghost" size="sm" @click="cancelReplace">Abbrechen</Button>
-                            <Button type="button" variant="destructive" size="sm" @click="replaceExisting">Ersetzen</Button>
-                        </div>
-                    </div>
-
-                    <div v-if="documents.length > 0" class="space-y-1">
-                        <p class="text-muted-foreground text-sm">Vorhandene Dokumente</p>
-                        <ul class="space-y-1 text-sm">
-                            <li v-for="doc in documents" :key="doc.document_id" class="flex items-center gap-2">
-                                <FileText class="text-muted-foreground size-4 shrink-0" aria-hidden="true" />
-                                <span>{{ doc.document_type }} — {{ doc.original_file_name }}</span>
-                            </li>
-                        </ul>
+                <div v-if="duplicateType" class="rounded-2xl bg-gray-50 p-4 text-sm">
+                    <p class="text-[#00000080]">
+                        Ein Dokument vom Typ „{{ duplicateType }}" existiert bereits für dieses Fahrzeug. Möchten Sie das vorhandene Dokument
+                        ersetzen?
+                    </p>
+                    <div class="mt-3 flex justify-end gap-3">
+                        <button type="button" class="text-sm font-semibold text-gray-500 hover:text-gray-700" @click="cancelReplace">
+                            Abbrechen
+                        </button>
+                        <button type="button" class="text-sm font-semibold text-red-500 hover:text-red-600" @click="replaceExisting">Ersetzen</button>
                     </div>
                 </div>
 
-                <DialogFooter>
-                    <Button type="button" variant="ghost" @click="close">Abbrechen</Button>
-                    <Button type="submit" :disabled="!form.file || !form.document_type || !!duplicateType" :loading="form.processing">
-                        Hochladen
-                    </Button>
-                </DialogFooter>
-            </form>
-        </DialogContent>
-    </Dialog>
+                <div v-if="documents.length > 0" class="space-y-1">
+                    <p class="text-sm font-semibold text-black">Vorhandene Dokumente</p>
+                    <ul class="space-y-1 text-sm">
+                        <li v-for="doc in documents" :key="doc.document_id" class="flex items-center gap-2 text-[#00000080]">
+                            <FileText class="size-4 shrink-0 text-gray-400" aria-hidden="true" />
+                            <span>{{ doc.document_type }} — {{ doc.original_file_name }}</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </form>
+
+        <template #footer>
+            <AppModalButton
+                :disabled="!form.file || !form.document_type || !!duplicateType || form.processing"
+                @click="attemptUpload"
+            >
+                {{ form.processing ? 'Lädt...' : 'Hochladen' }}
+            </AppModalButton>
+        </template>
+    </AppModal>
 </template>

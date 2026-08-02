@@ -6,9 +6,8 @@
  * modal.
  */
 import FormField from '@/components/form/FormField.vue';
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { AppModal, AppModalButton } from '@/components/ui/modal';
 import { useForm } from '@inertiajs/vue3';
 import { watch } from 'vue';
 
@@ -77,52 +76,46 @@ function submit() {
 </script>
 
 <template>
-    <Dialog :open="open" @update:open="(value) => emit('update:open', value)">
-        <DialogContent class="sm:max-w-lg">
-            <form @submit.prevent="submit">
-                <DialogHeader>
-                    <DialogTitle>Angebot erstellen</DialogTitle>
-                    <DialogDescription>Neues Entwurfs-Angebot für diesen Auftrag.</DialogDescription>
-                </DialogHeader>
-
-                <div class="grid gap-4 py-4">
-                    <div class="grid grid-cols-2 gap-4">
-                        <FormField
-                            v-for="field in costFields"
-                            :id="field.key"
-                            :key="field.key"
-                            v-slot="{ id, describedBy, invalid }"
-                            :label="field.label"
-                            required
-                            :error="form.errors[field.key]"
-                        >
-                            <Input
-                                :id="id"
-                                v-model="form[field.key]"
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                :aria-invalid="invalid"
-                                :aria-describedby="describedBy"
-                            />
-                        </FormField>
-                    </div>
-
+    <AppModal
+        :open="open"
+        title="Angebot erstellen"
+        description="Neues Entwurfs-Angebot für diesen Auftrag."
+        @update:open="(value) => emit('update:open', value)"
+    >
+        <form @submit.prevent="submit">
+            <div class="grid grid-cols-1 gap-x-6 gap-y-3 px-2">
+                <div class="grid grid-cols-1 gap-x-6 gap-y-3 md:grid-cols-2">
                     <FormField
-                        id="additional_notes"
+                        v-for="field in costFields"
+                        :id="field.key"
+                        :key="field.key"
                         v-slot="{ id, describedBy, invalid }"
-                        label="Anmerkungen"
-                        :error="form.errors.additional_notes"
+                        :label="field.label"
+                        required
+                        :error="form.errors[field.key]"
                     >
-                        <Input :id="id" v-model="form.additional_notes" :aria-invalid="invalid" :aria-describedby="describedBy" />
+                        <Input
+                            :id="id"
+                            v-model="form[field.key]"
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            :aria-invalid="invalid"
+                            :aria-describedby="describedBy"
+                        />
                     </FormField>
                 </div>
 
-                <DialogFooter>
-                    <Button type="button" variant="ghost" @click="close">Abbrechen</Button>
-                    <Button type="submit" :loading="form.processing"> Erstellen </Button>
-                </DialogFooter>
-            </form>
-        </DialogContent>
-    </Dialog>
+                <FormField id="additional_notes" v-slot="{ id, describedBy, invalid }" label="Anmerkungen" :error="form.errors.additional_notes">
+                    <Input :id="id" v-model="form.additional_notes" :aria-invalid="invalid" :aria-describedby="describedBy" />
+                </FormField>
+            </div>
+        </form>
+
+        <template #footer>
+            <AppModalButton :disabled="form.processing" @click="submit">
+                {{ form.processing ? 'Wird erstellt...' : 'Erstellen' }}
+            </AppModalButton>
+        </template>
+    </AppModal>
 </template>

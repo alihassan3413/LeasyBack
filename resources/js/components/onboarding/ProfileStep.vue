@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import InputError from '@/components/InputError.vue';
+import AddressAutocompleteField from '@/components/form/AddressAutocompleteField.vue';
 import FormField from '@/components/form/FormField.vue';
 import PhoneNumberFieldset from '@/components/form/PhoneNumberFieldset.vue';
 import SelectField, { type SelectFieldOption } from '@/components/form/SelectField.vue';
 import OnboardingCard from '@/components/onboarding/OnboardingCard.vue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import type { ResolvedPlaceAddress } from '@/composables/useGooglePlaces';
 import type { UserProfileData } from '@/types/profile';
 import { Link, useForm } from '@inertiajs/vue3';
-import { computed } from 'vue';
+import { computed, watch } from 'vue';
 
 const props = defineProps<{ profile: UserProfileData | null }>();
 const emit = defineEmits<{ next: [] }>();
@@ -28,6 +30,8 @@ const countryOptions: SelectFieldOption[] = [
 ];
 
 const form = useForm({
+    address_id: '',
+    contact_id: '',
     address: {
         street: '',
         number: '',
@@ -44,6 +48,38 @@ const form = useForm({
     phones: [{ international_prefix: '+49', phone_number: '' }],
 });
 
+// Seeded from whatever is already saved so the step stays editable when the
+// user navigates back through the wizard.
+watch(
+    () => props.profile,
+    (profile) => {
+        const address = profile?.address;
+        const contact = profile?.contact;
+
+        form.address_id = address?.address_id ?? '';
+        form.contact_id = contact?.contact_id ?? '';
+
+        form.address.street = address?.street ?? '';
+        form.address.number = address?.number ?? '';
+        form.address.additional_address = address?.additional_address ?? '';
+        form.address.zip_code = address?.zip_code ?? '';
+        form.address.city = address?.city ?? '';
+        form.address.country = address?.country ?? 'Deutschland';
+
+        form.contact.salutation = contact?.salutation ?? '';
+        form.contact.first_name = contact?.first_name ?? '';
+        form.contact.last_name = contact?.last_name ?? '';
+
+        form.phones = profile?.phones?.length
+            ? profile.phones.map((phone) => ({
+                  international_prefix: phone.international_prefix,
+                  phone_number: phone.phone_number,
+              }))
+            : [{ international_prefix: '+49', phone_number: '' }];
+    },
+    { immediate: true, deep: true },
+);
+
 // German ZIP codes are 5 digits, Austria/Switzerland use 4 — the field only
 // ever accepts digits, capped to whichever length is valid for the chosen
 // country.
@@ -53,45 +89,29 @@ function onZipInput(value: string | number) {
     form.address.zip_code = String(value).replace(/\D+/g, '').slice(0, zipMaxLength.value);
 }
 
+function applyResolvedAddress(resolved: ResolvedPlaceAddress) {
+    if (resolved.street) form.address.street = resolved.street;
+    if (resolved.number) form.address.number = resolved.number;
+    if (resolved.zip_code) form.address.zip_code = resolved.zip_code;
+    if (resolved.city) form.address.city = resolved.city;
+}
+
 function submit() {
-    form.post(route('onboarding.profile.store'), {
-        preserveScroll: true,
-        onSuccess: () => emit('next'),
-    });
+    const options = { preserveScroll: true, preserveState: true, onSuccess: () => emit('next') };
+
+    if (isComplete.value) {
+        form.put(route('onboarding.profile.update'), options);
+
+        return;
+    }
+
+    form.transform(({ address_id, contact_id, ...data }) => data).post(route('onboarding.profile.store'), options);
 }
 </script>
 
 <template>
     <OnboardingCard title="Kundendaten" description="Bitte ergänzen Sie Ihre Kundendaten oder Jetzt überspringen.">
-        <template v-if="isComplete">
-            <dl class="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
-                <div>
-                    <dt class="text-muted-foreground">Name</dt>
-                    <dd class="font-medium">
-                        {{ profile!.contact!.salutation }} {{ profile!.contact!.first_name }} {{ profile!.contact!.last_name }}
-                    </dd>
-                </div>
-                <div>
-                    <dt class="text-muted-foreground">Adresse</dt>
-                    <dd class="font-medium">
-                        {{ profile!.address!.street }} {{ profile!.address!.number }}, {{ profile!.address!.zip_code }}
-                        {{ profile!.address!.city }}
-                    </dd>
-                </div>
-            </dl>
-
-            <div class="mt-6 flex justify-end border-t pt-5">
-                <Button
-                    type="button"
-                    class="bg-brand-green hover:bg-brand-green/90 rounded-[5px] px-10 py-2.5 text-sm font-bold text-white shadow-none"
-                    @click="emit('next')"
-                >
-                    Weiter
-                </Button>
-            </div>
-        </template>
-
-        <form v-else novalidate class="space-y-3" @submit.prevent="submit">
+        <form novalidate class="space-y-3" @submit.prevent="submit">
             <InputError :message="form.errors.profile" />
 
             <div class="grid grid-cols-1 items-start gap-4 sm:grid-cols-3">
@@ -116,7 +136,13 @@ function submit() {
 
             <div class="grid grid-cols-1 items-start gap-4 sm:grid-cols-[1fr_100px_1fr]">
                 <FormField id="street" v-slot="{ id, describedBy, invalid }" label="Straße" required :error="form.errors['address.street']">
-                    <Input :id="id" v-model="form.address.street" maxlength="255" :aria-invalid="invalid" :aria-describedby="describedBy" />
+                    <AddressAutocompleteField
+                        :id="id"
+                        v-model="form.address.street"
+                        :invalid="invalid"
+                        :described-by="describedBy"
+                        @resolved="applyResolvedAddress"
+                    />
                 </FormField>
 
                 <FormField id="number" v-slot="{ id, describedBy, invalid }" label="Nr." required :error="form.errors['address.number']">

@@ -19,7 +19,7 @@ const submit = () => {
 
 // Design match note: consistent with Login/Register/ForgotPassword — see
 // Login.vue for the source of this pattern.
-const fieldClass = 'h-auto rounded-[5px] border-brand-green-gray bg-white px-3 py-2.5 text-sm';
+const fieldClass = 'h-auto rounded-full border-brand-green-gray bg-white px-4 py-2.5 text-sm';
 </script>
 
 <template>

@@ -25,10 +25,7 @@ const submit = () => {
     });
 };
 
-// Design match note: this input styling (rounded-[5px], border-brand-green-gray,
-// bg-white, px-3 py-2.5 text-sm) intentionally overrides the shared Input/
-// PasswordInput's default look to match leasyback_web exactly on this page.
-const fieldClass = 'h-auto rounded-[5px] border-brand-green-gray bg-white px-3 py-2.5 text-sm';
+const fieldClass = 'h-auto rounded-full border-brand-green-gray bg-white px-4 py-2.5 text-sm';
 </script>
 
 <template>
@@ -94,7 +91,7 @@ const fieldClass = 'h-auto rounded-[5px] border-brand-green-gray bg-white px-3 p
 
                 <div class="flex items-center justify-between" tabindex="3">
                     <Label for="remember" class="flex items-center space-x-3">
-                        <Checkbox id="remember" v-model:checked="form.remember" tabindex="4" />
+                        <Checkbox id="remember" v-model="form.remember" tabindex="4" />
                         <span>Angemeldet bleiben</span>
                     </Label>
                 </div>

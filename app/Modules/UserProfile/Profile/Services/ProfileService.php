@@ -166,19 +166,28 @@ class ProfileService
         return $preferences ? $this->preferencesResponse($preferences) : null;
     }
 
+    /**
+     * Coordinates are only written when the client actually resolved them
+     * (Google Places selection or map pin) — omitting them leaves any
+     * previously stored pair untouched instead of zeroing it out.
+     */
     private function addressValues(array $address): array
     {
-        return [
+        $values = [
             'street' => $address['street'],
             'number' => $address['number'],
             'additional_address' => $address['additional_address'] ?? null,
             'zip_code' => $address['zip_code'],
             'city' => $address['city'],
             'country' => $address['country'],
-            // Rust explicitly skips deserializing supplied coordinates for this DTO.
-            'longitude' => 0,
-            'latitude' => 0,
         ];
+
+        if (isset($address['latitude'], $address['longitude'])) {
+            $values['latitude'] = $address['latitude'];
+            $values['longitude'] = $address['longitude'];
+        }
+
+        return $values;
     }
 
     private function contactValues(array $contact): array

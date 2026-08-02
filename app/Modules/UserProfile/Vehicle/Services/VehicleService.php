@@ -368,6 +368,8 @@ class VehicleService
                         'offer_status' => $offer->offer_status,
                         'final_total_gross' => $offer->final_total_gross,
                         'additional_notes' => $offer->additional_notes,
+                        'published_at' => $offer->published_at,
+                        'selected_at' => $offer->selected_at,
                     ])
                     ->values()
                     ->toArray();

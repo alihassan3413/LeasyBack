@@ -149,13 +149,13 @@ function submit() {
 
                                 <div class="space-y-3">
                                     <Label for="push" class="flex items-center space-x-3">
-                                        <Checkbox id="push" v-model:checked="form.benachrichtigungseinstellungen_push" />
+                                        <Checkbox id="push" v-model="form.benachrichtigungseinstellungen_push" />
                                         <span>Push notifications</span>
                                     </Label>
                                     <InputError :message="form.errors.benachrichtigungseinstellungen_push" />
 
                                     <Label for="email_notifications" class="flex items-center space-x-3">
-                                        <Checkbox id="email_notifications" v-model:checked="form.benachrichtigungseinstellungen_email" />
+                                        <Checkbox id="email_notifications" v-model="form.benachrichtigungseinstellungen_email" />
                                         <span>Email notifications</span>
                                     </Label>
                                     <InputError :message="form.errors.benachrichtigungseinstellungen_email" />

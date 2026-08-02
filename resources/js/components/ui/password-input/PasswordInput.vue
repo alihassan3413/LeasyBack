@@ -36,7 +36,7 @@ const visible = ref(false);
 
         <button
             type="button"
-            class="absolute inset-y-0 right-0 flex h-full w-11 items-center justify-center rounded-md text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            class="absolute inset-y-0 right-0 flex h-full w-11 items-center justify-center rounded-full text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             :aria-label="visible ? 'Passwort verbergen' : 'Passwort anzeigen'"
             :aria-pressed="visible"
             @click="visible = !visible"

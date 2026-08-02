@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import InputError from '@/components/InputError.vue';
+import CalendarDateField from '@/components/form/CalendarDateField.vue';
 import FormField from '@/components/form/FormField.vue';
 import SelectField, { type SelectFieldOption } from '@/components/form/SelectField.vue';
 import OnboardingCard from '@/components/onboarding/OnboardingCard.vue';
@@ -27,13 +28,6 @@ const stationOptions = computed<SelectFieldOption[]>(() =>
     })),
 );
 
-// Matches OrderCreationModal's own minimum lead time on the dashboard.
-const minDate = computed(() => {
-    const date = new Date();
-    date.setDate(date.getDate() + 3);
-    return date.toISOString().slice(0, 10);
-});
-
 const form = useForm({
     station_id: '',
     date: '',
@@ -51,6 +45,7 @@ function submit() {
         remarks: data.remarks || null,
     })).post(route('onboarding.appointment.store'), {
         preserveScroll: true,
+        preserveState: true,
         onSuccess: () => emit('booked'),
     });
 }
@@ -100,7 +95,7 @@ const forwardButtonClass = 'bg-brand-green hover:bg-brand-green/90 rounded-[5px]
         <OnboardingCard title="Hier können Sie Termine buchen">
             <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <FormField id="date" v-slot="{ id, describedBy, invalid }" label="Datum" required :error="form.errors.termin">
-                    <Input :id="id" v-model="form.date" type="date" :min="minDate" :aria-invalid="invalid" :aria-describedby="describedBy" />
+                    <CalendarDateField :id="id" v-model="form.date" :min-days-ahead="3" :invalid="invalid" :described-by="describedBy" />
                 </FormField>
                 <FormField id="time" v-slot="{ id }" label="Uhrzeit" required>
                     <Input :id="id" v-model="form.time" type="time" />
@@ -117,7 +112,7 @@ const forwardButtonClass = 'bg-brand-green hover:bg-brand-green/90 rounded-[5px]
                     anfallen.
                 </p>
                 <Label for="fee_acknowledged" class="mt-3 flex items-start space-x-2 text-sm font-normal">
-                    <Checkbox id="fee_acknowledged" v-model:checked="form.fee_acknowledged" class="mt-0.5" />
+                    <Checkbox id="fee_acknowledged" v-model="form.fee_acknowledged" class="mt-0.5" />
                     <span>Ich habe die Information gelesen und akzeptiere die Bearbeitungsgebühr bei Nichtabschluss des Prozesses.</span>
                 </Label>
             </div>

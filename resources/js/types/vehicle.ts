@@ -33,12 +33,18 @@ export interface OrderReportDocumentData {
 }
 
 export interface OrderRequestPayload {
+    ansprechpartner?: {
+        name?: string;
+        telefon?: string;
+        email?: string;
+    };
     besichtigungsort?: {
         termin?: string;
         name?: string;
         strasse?: string;
         plz?: string;
         ort?: string;
+        land?: string;
     };
 }
 

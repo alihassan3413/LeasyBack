@@ -8,6 +8,8 @@ interface Props {
     id?: string;
     label?: string;
     required?: boolean;
+    /** Small grey note rendered inline after the label. */
+    labelHint?: string;
     hint?: string;
     error?: string;
 }
@@ -32,6 +34,10 @@ const describedBy = computed(() => {
             {{ label }}
             <span v-if="required" aria-hidden="true" class="text-destructive"> *</span>
             <span v-if="required" class="sr-only"> (erforderlich)</span>
+
+            <span v-if="labelHint" class="ml-2 text-[10px] font-medium text-gray-500">
+                {{ labelHint }}
+            </span>
         </Label>
 
         <!--

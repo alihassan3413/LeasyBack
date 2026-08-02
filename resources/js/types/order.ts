@@ -16,4 +16,6 @@ export interface OfferData {
     offer_status: 'draft' | 'published' | 'selected' | 'closed' | 'cancelled';
     final_total_gross: string | number | null;
     additional_notes: string | null;
+    published_at: string | null;
+    selected_at: string | null;
 }

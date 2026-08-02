@@ -12,6 +12,7 @@ use App\Modules\UserProfile\Order\Services\OrderService;
 use App\Modules\UserProfile\Profile\Http\Requests\AddressContactRequest;
 use App\Modules\UserProfile\Profile\Services\ProfileService;
 use App\Modules\UserProfile\Vehicle\Http\Requests\StoreVehicleRequest;
+use App\Modules\UserProfile\Vehicle\Http\Requests\UpdateVehicleRequest;
 use App\Modules\UserProfile\Vehicle\Services\VehicleService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -48,7 +49,10 @@ class OnboardingController extends Controller
 
         return Inertia::render('onboarding/B2cRegistration', [
             'profile' => $this->profileService->findForUser($user),
-            'vehicle' => $vehicle?->only(['vehicle_id', 'license_plate', 'make', 'model']),
+            'vehicle' => $vehicle?->only([
+                'vehicle_id', 'license_plate', 'make', 'model', 'vin',
+                'leasing_end_date', 'leasinggeber',
+            ]),
             'order' => $vehicle ? $this->currentOrder($vehicle)?->only(['auftragsnummer', 'order_status']) : null,
             'stations' => InspectionStation::where('is_active', true)
                 ->orderBy('provider')
@@ -65,11 +69,42 @@ class OnboardingController extends Controller
         ) ?? to_route('onboarding.show');
     }
 
+    /**
+     * Re-saving step 1 after the user navigated back through the wizard.
+     */
+    public function updateProfile(AddressContactRequest $request): RedirectResponse
+    {
+        return $this->withServiceErrorHandling(
+            'profile',
+            fn () => $this->profileService->updateAddressContact($request->user(), $request->validated())
+        ) ?? to_route('onboarding.show');
+    }
+
     public function storeVehicle(StoreVehicleRequest $request): RedirectResponse
     {
         return $this->withServiceErrorHandling(
             'vehicle',
             fn () => $this->vehicleService->createVehicle($request->user(), $request->validated())
+        ) ?? to_route('onboarding.show');
+    }
+
+    /**
+     * Re-saving step 2 after the user navigated back through the wizard. The
+     * license plate is deliberately not updatable here, matching
+     * VehicleService::updateVehicle() and the dashboard's edit modal.
+     */
+    public function updateVehicle(UpdateVehicleRequest $request): RedirectResponse
+    {
+        $user = $request->user();
+        $vehicle = $this->currentVehicle($user);
+
+        if (! $vehicle) {
+            abort(404);
+        }
+
+        return $this->withServiceErrorHandling(
+            'vehicle',
+            fn () => $this->vehicleService->updateVehicle($vehicle, $request->validated(), $user)
         ) ?? to_route('onboarding.show');
     }
 

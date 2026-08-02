@@ -8,11 +8,10 @@
  */
 import FormField from '@/components/form/FormField.vue';
 import SelectField, { type SelectFieldOption } from '@/components/form/SelectField.vue';
-import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { AppModal, AppModalButton } from '@/components/ui/modal';
 import { useForm } from '@inertiajs/vue3';
 import { watch } from 'vue';
 
@@ -67,51 +66,58 @@ function submit() {
 </script>
 
 <template>
-    <Dialog :open="open" @update:open="(value) => emit('update:open', value)">
-        <DialogContent class="sm:max-w-lg">
-            <form @submit.prevent="submit">
-                <DialogHeader>
-                    <DialogTitle>Report-Dokument hochladen</DialogTitle>
-                    <DialogDescription>Gutachten oder Rechnung für einen Auftrag hochladen.</DialogDescription>
-                </DialogHeader>
+    <AppModal
+        :open="open"
+        title="Report-Dokument hochladen"
+        description="Gutachten oder Rechnung für einen Auftrag hochladen."
+        @update:open="(value) => emit('update:open', value)"
+    >
+        <form @submit.prevent="submit">
+            <div class="grid grid-cols-1 gap-x-6 gap-y-3 px-2">
+                <FormField id="auftragsnummer" v-slot="{ id, describedBy, invalid }" label="Auftrag" required :error="form.errors.auftragsnummer">
+                    <SelectField
+                        :id="id"
+                        v-model="form.auftragsnummer"
+                        :options="auftragsnummerOptions"
+                        placeholder="Auftrag wählen"
+                        :invalid="invalid"
+                        :described-by="describedBy"
+                    />
+                </FormField>
 
-                <div class="grid gap-4 py-4">
-                    <FormField id="auftragsnummer" v-slot="{ id, describedBy, invalid }" label="Auftrag" required :error="form.errors.auftragsnummer">
-                        <SelectField
-                            :id="id"
-                            v-model="form.auftragsnummer"
-                            :options="auftragsnummerOptions"
-                            placeholder="Auftrag wählen"
-                            :invalid="invalid"
-                            :described-by="describedBy"
-                        />
-                    </FormField>
-
+                <div class="grid grid-cols-1 gap-x-6 gap-y-3 md:grid-cols-2">
                     <FormField id="document_type" v-slot="{ id, describedBy, invalid }" label="Dokumententyp" :error="form.errors.document_type">
-                        <Input :id="id" v-model="form.document_type" placeholder="z. B. Gutachten, Rechnung" :aria-invalid="invalid" :aria-describedby="describedBy" />
+                        <Input
+                            :id="id"
+                            v-model="form.document_type"
+                            placeholder="z. B. Gutachten, Rechnung"
+                            :aria-invalid="invalid"
+                            :aria-describedby="describedBy"
+                        />
                     </FormField>
 
                     <FormField id="document_title" v-slot="{ id, describedBy, invalid }" label="Titel" :error="form.errors.document_title">
                         <Input :id="id" v-model="form.document_title" :aria-invalid="invalid" :aria-describedby="describedBy" />
                     </FormField>
-
-                    <div class="grid gap-2">
-                        <Label for="file">Datei</Label>
-                        <input id="file" type="file" class="text-sm" @change="onFileChange" />
-                        <p v-if="form.errors.file" class="text-destructive text-sm">{{ form.errors.file }}</p>
-                    </div>
-
-                    <Label for="published" class="flex items-center space-x-2 text-sm font-normal">
-                        <Checkbox id="published" v-model:checked="form.published" />
-                        <span>Sofort veröffentlichen (für den Kunden sichtbar)</span>
-                    </Label>
                 </div>
 
-                <DialogFooter>
-                    <Button type="button" variant="ghost" @click="close">Abbrechen</Button>
-                    <Button type="submit" :disabled="!form.auftragsnummer || !form.file" :loading="form.processing"> Hochladen </Button>
-                </DialogFooter>
-            </form>
-        </DialogContent>
-    </Dialog>
+                <div class="grid gap-1">
+                    <Label for="file" class="text-sm font-semibold text-black">Datei</Label>
+                    <input id="file" type="file" class="text-sm" @change="onFileChange" />
+                    <p v-if="form.errors.file" class="text-xs text-red-500">{{ form.errors.file }}</p>
+                </div>
+
+                <Label for="published" class="flex items-center space-x-2 text-sm font-normal text-black">
+                    <Checkbox id="published" v-model="form.published" />
+                    <span>Sofort veröffentlichen (für den Kunden sichtbar)</span>
+                </Label>
+            </div>
+        </form>
+
+        <template #footer>
+            <AppModalButton :disabled="!form.auftragsnummer || !form.file || form.processing" @click="submit">
+                {{ form.processing ? 'Lädt...' : 'Hochladen' }}
+            </AppModalButton>
+        </template>
+    </AppModal>
 </template>

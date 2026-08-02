@@ -2,8 +2,7 @@
 import AppointmentStep, { type OnboardingOrder } from '@/components/onboarding/AppointmentStep.vue';
 import ProfileStep from '@/components/onboarding/ProfileStep.vue';
 import VehicleStep, { type OnboardingVehicle } from '@/components/onboarding/VehicleStep.vue';
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { AppModal, AppModalButton } from '@/components/ui/modal';
 import B2cRegistrationLayout from '@/layouts/onboarding/B2cRegistrationLayout.vue';
 import type { StationData } from '@/types/order';
 import type { UserProfileData } from '@/types/profile';
@@ -49,16 +48,19 @@ function goToDashboard() {
         <AppointmentStep v-if="currentStep === 3" :order="order" :stations="stations" @back="currentStep = 2" @booked="showSuccess = true" />
     </B2cRegistrationLayout>
 
-    <Dialog :open="showSuccess" @update:open="(open) => !open && goToDashboard()">
-        <DialogContent class="text-center sm:max-w-md">
-            <DialogHeader class="items-center">
-                <CheckCircle2 class="text-brand-green mb-2 size-12" aria-hidden="true" />
-                <DialogTitle>Vielen Dank!</DialogTitle>
-                <DialogDescription>Ihre Registrierung war erfolgreich. Sie werden zum Dashboard weitergeleitet.</DialogDescription>
-            </DialogHeader>
-            <DialogFooter class="sm:justify-center">
-                <Button @click="goToDashboard">Zum Dashboard</Button>
-            </DialogFooter>
-        </DialogContent>
-    </Dialog>
+    <AppModal
+        :open="showSuccess"
+        title="Vielen Dank!"
+        description="Ihre Registrierung war erfolgreich. Sie werden zum Dashboard weitergeleitet."
+        :width="620"
+        @update:open="(open) => !open && goToDashboard()"
+    >
+        <div class="flex justify-center px-2">
+            <CheckCircle2 class="text-brand-green size-12" aria-hidden="true" />
+        </div>
+
+        <template #footer>
+            <AppModalButton @click="goToDashboard">Zum Dashboard</AppModalButton>
+        </template>
+    </AppModal>
 </template>

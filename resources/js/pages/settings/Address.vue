@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AddressAutocompleteField from '@/components/form/AddressAutocompleteField.vue';
 import FormField from '@/components/form/FormField.vue';
 import PhoneNumberFieldset from '@/components/form/PhoneNumberFieldset.vue';
 import SelectField, { type SelectFieldOption } from '@/components/form/SelectField.vue';
@@ -8,6 +9,7 @@ import SettingsCard from '@/components/settings/SettingsCard.vue';
 import { Input } from '@/components/ui/input';
 import AppLayout from '@/layouts/AppLayout.vue';
 import SettingsLayout from '@/layouts/settings/Layout.vue';
+import type { ResolvedPlaceAddress } from '@/composables/useGooglePlaces';
 import type { BreadcrumbItem } from '@/types';
 import type { UserProfileData } from '@/types/profile';
 import { Head, useForm } from '@inertiajs/vue3';
@@ -61,6 +63,13 @@ const form = useForm({
     },
     phones: defaultPhones(),
 });
+
+function applyResolvedAddress(resolved: ResolvedPlaceAddress) {
+    if (resolved.street) form.address.street = resolved.street;
+    if (resolved.number) form.address.number = resolved.number;
+    if (resolved.zip_code) form.address.zip_code = resolved.zip_code;
+    if (resolved.city) form.address.city = resolved.city;
+}
 
 function startEditing() {
     editing.value = true;
@@ -181,7 +190,13 @@ function submit() {
                                         required
                                         :error="form.errors['address.street']"
                                     >
-                                        <Input :id="id" v-model="form.address.street" :aria-invalid="invalid" :aria-describedby="describedBy" />
+                                        <AddressAutocompleteField
+                                            :id="id"
+                                            v-model="form.address.street"
+                                            :invalid="invalid"
+                                            :described-by="describedBy"
+                                            @resolved="applyResolvedAddress"
+                                        />
                                     </FormField>
 
                                     <FormField

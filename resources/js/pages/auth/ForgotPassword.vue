@@ -20,7 +20,7 @@ const submit = () => {
 
 // Design match note: overrides the shared Input's default look to match
 // leasyback_web exactly on this page (see Login.vue for the same).
-const fieldClass = 'h-auto rounded-[5px] border-brand-green-gray bg-white px-3 py-2.5 text-sm';
+const fieldClass = 'h-auto rounded-full border-brand-green-gray bg-white px-4 py-2.5 text-sm';
 </script>
 
 <template>
