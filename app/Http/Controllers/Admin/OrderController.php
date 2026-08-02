@@ -26,7 +26,8 @@ class OrderController extends Controller
         return Inertia::render('Admin/Orders/Index', [
             'orders' => $this->adminQueryService->orders($request),
             'filters' => [
-                'status' => $request->query('status'),
+                'search' => trim((string) $request->query('search', '')),
+                'status' => (string) $request->query('status', ''),
             ],
         ]);
     }

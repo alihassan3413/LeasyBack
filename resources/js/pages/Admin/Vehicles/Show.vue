@@ -1,13 +1,26 @@
 <script setup lang="ts">
+import AdminOrderActionsMenu from '@/components/admin/AdminOrderActionsMenu.vue';
 import UploadReportDocumentModal from '@/components/admin/UploadReportDocumentModal.vue';
 import type { SelectFieldOption } from '@/components/form/SelectField.vue';
+import VehicleExpandedPanel from '@/components/vehicle/VehicleExpandedPanel.vue';
 import AdminLayout from '@/layouts/AdminLayout.vue';
 import { getAdminDashboardStatus as getStatus } from '@/lib/adminStatus';
+import { toVehicleData } from '@/lib/adminVehicle';
 import type { AdminVehicleRow } from '@/types/admin';
 import { Head, Link, router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 
 const props = defineProps<{ vehicle: AdminVehicleRow }>();
+
+/**
+ * The customer dashboard's expanded panel, rendered from the same vehicle
+ * via a shape adapter — so Admin sees exactly what the customer sees
+ * (timeline, Besichtigungsort, documents, offers) with no second copy of
+ * that UI to keep in sync.
+ */
+const panelVehicle = computed(() => toVehicleData(props.vehicle));
+
+const currentOrder = computed(() => props.vehicle.order_history.find((order) => order.id === props.vehicle.current_order_id) ?? null);
 
 const ownerRoute = computed(() => {
     if (props.vehicle.vehicle_belongs === 'B2C' && props.vehicle.user_id) {
@@ -91,13 +104,7 @@ function deleteDocument(documentId: string) {
     <AdminLayout>
         <template #header>
             <div class="flex min-w-0 flex-1 items-center gap-3">
-                <Link
-                    :href="route('admin.vehicles.index')"
-                    class="flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] bg-[#f4f7f6] text-[#6f8585] transition-all hover:bg-[#eaf0ef] hover:text-[#10393b]"
-                    title="Zurück zur Fahrzeugliste"
-                >
-                    <IconMdiArrowLeft class="size-[18px]" />
-                </Link>
+                <BackButton :href="route('admin.vehicles.index')" label="Zurück zur Fahrzeugliste" />
 
                 <div class="min-w-0 flex-1">
                     <p class="text-[10.5px] font-bold tracking-[0.12em] text-[#9bb0af] uppercase">
@@ -110,13 +117,23 @@ function deleteDocument(documentId: string) {
 
                 <button
                     type="button"
-                    class="mr-2 flex shrink-0 items-center gap-1.5 rounded-[13px] px-4 py-2 text-[12.5px] font-bold text-white transition-all hover:-translate-y-px"
+                    class="flex shrink-0 items-center gap-1.5 rounded-[13px] px-4 py-2 text-[12.5px] font-bold text-white transition-all hover:-translate-y-px"
                     style="background: linear-gradient(135deg, #10393b, #1a5052); box-shadow: 0 8px 20px rgba(16, 57, 59, 0.2)"
                     @click="uploadModalOpen = true"
                 >
                     <IconMdiFileUploadOutline class="size-4" />
                     Report hochladen
                 </button>
+
+                <div v-if="currentOrder" class="mr-2 shrink-0">
+                    <AdminOrderActionsMenu
+                        :order-id="currentOrder.id"
+                        :auftragsnummer="currentOrder.auftragsnummer"
+                        :vehicle-id="vehicle.vehicle_id"
+                        :order-status="currentOrder.order_status"
+                        :available-transitions="currentOrder.available_transitions"
+                    />
+                </div>
             </div>
         </template>
 
@@ -195,9 +212,15 @@ function deleteDocument(documentId: string) {
                         </div>
 
                         <dl class="flex flex-col">
-                            <div v-for="spec in specs" :key="spec.label" class="flex items-center justify-between gap-3 border-b border-[#f2f6f5] py-2 last:border-0">
+                            <div
+                                v-for="spec in specs"
+                                :key="spec.label"
+                                class="flex items-center justify-between gap-3 border-b border-[#f2f6f5] py-2 last:border-0"
+                            >
                                 <dt class="text-[12px] font-medium text-[#9bb0af]">{{ spec.label }}</dt>
-                                <dd class="truncate text-[12.5px] font-bold text-[#10393b]" :class="spec.mono ? 'font-mono' : ''">{{ spec.value }}</dd>
+                                <dd class="truncate text-[12.5px] font-bold text-[#10393b]" :class="spec.mono ? 'font-mono' : ''">
+                                    {{ spec.value }}
+                                </dd>
                             </div>
                         </dl>
                     </div>
@@ -212,47 +235,69 @@ function deleteDocument(documentId: string) {
                     <p v-if="!vehicle.order_history.length" class="py-12 text-center text-[13px] text-[#9bb0af]">Keine Aufträge vorhanden.</p>
 
                     <div v-else class="flex flex-col gap-1">
-                        <Link
+                        <div
                             v-for="order in vehicle.order_history"
                             :key="order.id"
-                            :href="route('admin.orders.show', order.id)"
-                            class="group flex items-center gap-3 rounded-[13px] px-3 py-2.5 transition-colors hover:bg-[#f6f9f8]"
+                            class="group flex items-center gap-1 rounded-[13px] pr-2 transition-colors hover:bg-[#f6f9f8]"
                         >
-                            <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-[11px] bg-[#6366f1]/10 text-[#6366f1]">
-                                <IconMdiFileDocumentOutline class="size-[17px]" />
-                            </div>
-
-                            <div class="min-w-0 flex-1">
-                                <div class="mb-0.5 flex flex-wrap items-center gap-2">
-                                    <span class="font-mono text-[13px] font-bold text-[#10393b]">{{ order.auftragsnummer }}</span>
-                                    <span class="text-[11.5px] text-[#9bb0af]">{{ order.leasyback_partner }}</span>
+                            <Link :href="route('admin.orders.show', order.id)" class="flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5">
+                                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-[11px] bg-[#6366f1]/10 text-[#6366f1]">
+                                    <IconMdiFileDocumentOutline class="size-[17px]" />
                                 </div>
 
-                                <p class="text-[11.5px] text-[#6f8585]">
-                                    Erstellt {{ formatDate(order.created_at) }}
-                                    <template v-if="order.confirmation_date"> · Bestätigt {{ formatDate(order.confirmation_date) }} </template>
-                                </p>
-                            </div>
+                                <div class="min-w-0 flex-1">
+                                    <div class="mb-0.5 flex flex-wrap items-center gap-2">
+                                        <span class="font-mono text-[13px] font-bold text-[#10393b]">{{ order.auftragsnummer }}</span>
+                                        <span class="text-[11.5px] text-[#9bb0af]">{{ order.leasyback_partner }}</span>
+                                    </div>
 
-                            <div class="flex shrink-0 items-center gap-2">
-                                <span
-                                    class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-bold"
-                                    :style="{
-                                        background: getStatus(order.order_status).background,
-                                        color: getStatus(order.order_status).color,
-                                    }"
-                                >
-                                    <span class="h-[4px] w-[4px] rounded-full bg-current"></span>
-                                    {{ getStatus(order.order_status).label }}
-                                </span>
+                                    <p class="text-[11.5px] text-[#6f8585]">
+                                        Erstellt {{ formatDate(order.created_at) }}
+                                        <template v-if="order.confirmation_date"> · Bestätigt {{ formatDate(order.confirmation_date) }} </template>
+                                    </p>
+                                </div>
 
-                                <span
-                                    class="flex h-7 w-7 items-center justify-center rounded-[8px] text-[#bcccca] transition-all group-hover:bg-[#10393b] group-hover:text-white"
-                                >
-                                    <IconMdiArrowTopRight class="size-[13px]" />
-                                </span>
-                            </div>
-                        </Link>
+                                <div class="flex shrink-0 items-center gap-2">
+                                    <span
+                                        class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-bold"
+                                        :style="{
+                                            background: getStatus(order.order_status).background,
+                                            color: getStatus(order.order_status).color,
+                                        }"
+                                    >
+                                        <span class="h-[4px] w-[4px] rounded-full bg-current"></span>
+                                        {{ getStatus(order.order_status).label }}
+                                    </span>
+
+                                    <span
+                                        class="flex h-7 w-7 items-center justify-center rounded-[8px] text-[#bcccca] transition-all group-hover:bg-[#10393b] group-hover:text-white"
+                                    >
+                                        <IconMdiArrowTopRight class="size-[13px]" />
+                                    </span>
+                                </div>
+                            </Link>
+
+                            <AdminOrderActionsMenu
+                                :order-id="order.id"
+                                :auftragsnummer="order.auftragsnummer"
+                                :vehicle-id="vehicle.vehicle_id"
+                                :order-status="order.order_status"
+                                :available-transitions="order.available_transitions"
+                            />
+                        </div>
+                    </div>
+                </section>
+
+                <section class="content-card">
+                    <div class="mb-4">
+                        <h2 class="text-[17px] font-extrabold tracking-[-0.3px] text-[#10393b]">Kundenansicht</h2>
+                        <p class="mt-0.5 text-[12px] font-medium text-[#9bb0af]">
+                            Der Auftragsverlauf, die Dokumente und die Angebote dieses Fahrzeugs so, wie der Kunde sie im Dashboard sieht.
+                        </p>
+                    </div>
+
+                    <div class="-mx-6 -mb-6 overflow-hidden rounded-b-[24px]">
+                        <VehicleExpandedPanel :vehicle="panelVehicle" admin />
                     </div>
                 </section>
 
@@ -361,9 +406,7 @@ function deleteDocument(documentId: string) {
 
                                 <div class="min-w-0 flex-1">
                                     <p class="truncate text-[13px] font-bold text-[#10393b]">{{ doc.original_file_name }}</p>
-                                    <p class="truncate text-[11.5px] text-[#6f8585]">
-                                        {{ doc.document_type }} · {{ formatFileSize(doc.file_size) }}
-                                    </p>
+                                    <p class="truncate text-[11.5px] text-[#6f8585]">{{ doc.document_type }} · {{ formatFileSize(doc.file_size) }}</p>
                                 </div>
 
                                 <span class="shrink-0 text-[11px] text-[#9bb0af] tabular-nums">{{ formatDate(doc.created_at) }}</span>
@@ -379,25 +422,6 @@ function deleteDocument(documentId: string) {
 </template>
 
 <style scoped>
-.identity-card {
-    position: relative;
-    min-height: 220px;
-    overflow: hidden;
-    border: 1px solid #01b990;
-    border-radius: 26px;
-    background: linear-gradient(145deg, #55bd99 0%, #0a8d70 100%);
-    padding: 28px;
-    box-shadow: 0 20px 45px rgba(1, 185, 144, 0.24);
-}
-
-.content-card {
-    border: 1px solid #eef3f2;
-    border-radius: 24px;
-    background: #ffffff;
-    padding: 24px;
-    box-shadow: 0 6px 22px rgba(16, 57, 59, 0.04);
-}
-
 button:not(:disabled) {
     cursor: pointer;
 }

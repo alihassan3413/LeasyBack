@@ -98,6 +98,151 @@
     }
 }
 
+/**
+ * Admin list-page chrome — the table header, search pill and pager shared by
+ * every Admin/*\/Index.vue. These started as a scoped block inside
+ * Admin/Vehicles/Index.vue; they moved here when the orders list needed the
+ * same chrome, rather than being copied a second time.
+ */
+@layer components {
+    .admin-th {
+        border-bottom: 1px solid #eef3f2;
+        padding: 14px 20px;
+        text-align: left;
+        color: #9bb0af;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+    }
+
+    .admin-search {
+        display: flex;
+        min-width: 0;
+        max-width: 320px;
+        flex: 1;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid #e9efee;
+        border-radius: 999px;
+        background: #f4f7f6;
+        padding: 7px 14px;
+        color: #6f8585;
+        transition:
+            border-color 150ms ease,
+            background 150ms ease;
+    }
+
+    .admin-search:focus-within {
+        border-color: #01b990;
+        background: #ffffff;
+    }
+
+    .admin-search-input {
+        min-width: 0;
+        flex: 1;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: #1a2e2f;
+        font-size: 13px;
+    }
+
+    .admin-search-input::placeholder {
+        color: #9bb0af;
+    }
+
+    .admin-search-input::-webkit-search-cancel-button {
+        display: none;
+    }
+
+    .search-clear {
+        display: flex;
+        width: 24px;
+        height: 24px;
+        cursor: pointer;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        color: #9bb0af;
+        transition:
+            background 150ms ease,
+            color 150ms ease;
+    }
+
+    .search-clear:hover {
+        background: #ffffff;
+        color: #10393b;
+    }
+
+    .lb-pg {
+        display: flex;
+        width: 32px;
+        height: 32px;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid #eef3f2;
+        border-radius: 8px;
+        color: #6f8585;
+        font-size: 12.5px;
+        font-weight: 700;
+        transition:
+            border-color 150ms ease,
+            background 150ms ease,
+            color 150ms ease;
+    }
+
+    .lb-pg:not(:disabled) {
+        cursor: pointer;
+    }
+
+    .lb-pg:hover:not(:disabled) {
+        border-color: #10393b;
+        color: #10393b;
+    }
+
+    .lb-pg:disabled {
+        cursor: not-allowed;
+        opacity: 0.35;
+    }
+
+    .lb-pg-active {
+        border-color: #10393b;
+        background: #10393b;
+        color: #ffffff;
+    }
+
+    .lb-pg-active:hover:not(:disabled) {
+        color: #ffffff;
+    }
+
+    .lb-pg-dot {
+        cursor: default;
+        border-color: transparent;
+        color: #9bb0af;
+    }
+
+    /* The two card surfaces every Admin/*\/Show.vue is built from. */
+    .identity-card {
+        position: relative;
+        min-height: 220px;
+        overflow: hidden;
+        border: 1px solid #01b990;
+        border-radius: 26px;
+        background: linear-gradient(145deg, #55bd99 0%, #0a8d70 100%);
+        padding: 28px;
+        box-shadow: 0 20px 45px rgba(1, 185, 144, 0.24);
+    }
+
+    .content-card {
+        border: 1px solid #eef3f2;
+        border-radius: 24px;
+        background: #ffffff;
+        padding: 24px;
+        box-shadow: 0 6px 22px rgba(16, 57, 59, 0.04);
+    }
+}
+
 :root {
     --background: hsl(210 40% 98%);
     --foreground: hsl(222 47% 12%);

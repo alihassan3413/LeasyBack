@@ -45,6 +45,38 @@ class OrderControllerTest extends TestCase
             );
     }
 
+    /**
+     * The order list gained the same free-text `?search=` the vehicle list
+     * already had (both now go through AdminQueryService::applyListSearch()),
+     * and the header counts are computed after it so they describe the rows
+     * actually shown.
+     */
+    public function test_admin_can_search_the_order_list(): void
+    {
+        $admin = $this->admin();
+        $wanted = Vehicle::factory()->create(['license_plate' => 'K SEARCH 1']);
+        LeasybackOrder::factory()->create(['vehicle_id' => $wanted->vehicle_id, 'auftragsnummer' => 'AUF-WANTED']);
+        LeasybackOrder::factory()->create(['auftragsnummer' => 'AUF-OTHER']);
+
+        $this->actingAs($admin)
+            ->get(route('admin.orders.index', ['search' => 'K SEARCH']))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->has('orders.data', 1)
+                ->where('orders.data.0.auftragsnummer', 'AUF-WANTED')
+                ->where('orders.total', 1)
+                ->where('filters.search', 'K SEARCH')
+            );
+
+        $this->actingAs($admin)
+            ->get(route('admin.orders.index', ['search' => 'AUF-OTHER']))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->has('orders.data', 1)
+                ->where('orders.data.0.auftragsnummer', 'AUF-OTHER')
+            );
+    }
+
     public function test_admin_can_view_an_order_detail(): void
     {
         $admin = $this->admin();

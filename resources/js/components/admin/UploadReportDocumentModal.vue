@@ -13,13 +13,34 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { AppModal, AppModalButton } from '@/components/ui/modal';
 import { useForm } from '@inertiajs/vue3';
-import { watch } from 'vue';
+import { computed, watch } from 'vue';
 
-const props = defineProps<{
-    open: boolean;
-    vehicleId: string;
-    auftragsnummerOptions: SelectFieldOption[];
-}>();
+const props = withDefaults(
+    defineProps<{
+        open: boolean;
+        vehicleId: string;
+        auftragsnummerOptions: SelectFieldOption[];
+        /**
+         * Preselects the form when opened from a per-order action ("Gutachten
+         * hochladen" / "Rechnung hochladen") instead of the page-level button.
+         * `document_type` is a free-form `nullable|string` on
+         * Admin\VehicleReportController::upload(), and `rechnung` is exactly
+         * the value customerOrderFlow.ts's findLatestDoc() looks for when it
+         * resolves an order's invoice — so no backend change is needed to
+         * upload one.
+         */
+        defaultAuftragsnummer?: string;
+        defaultDocumentType?: string;
+        title?: string;
+        description?: string;
+    }>(),
+    {
+        defaultAuftragsnummer: '',
+        defaultDocumentType: '',
+        title: 'Report-Dokument hochladen',
+        description: 'Gutachten oder Rechnung für einen Auftrag hochladen.',
+    },
+);
 
 const emit = defineEmits<{ (e: 'update:open', value: boolean): void }>();
 
@@ -37,6 +58,9 @@ const form = useForm<{
     file: null,
 });
 
+/** With a single order there is nothing to choose, so don't make the admin choose it. */
+const onlyAuftragsnummer = computed(() => (props.auftragsnummerOptions.length === 1 ? String(props.auftragsnummerOptions[0].value) : ''));
+
 watch(
     () => props.open,
     (open) => {
@@ -45,6 +69,8 @@ watch(
         }
         form.reset();
         form.clearErrors();
+        form.auftragsnummer = props.defaultAuftragsnummer || onlyAuftragsnummer.value;
+        form.document_type = props.defaultDocumentType;
     },
 );
 
@@ -66,12 +92,7 @@ function submit() {
 </script>
 
 <template>
-    <AppModal
-        :open="open"
-        title="Report-Dokument hochladen"
-        description="Gutachten oder Rechnung für einen Auftrag hochladen."
-        @update:open="(value) => emit('update:open', value)"
-    >
+    <AppModal :open="open" :title="title" :description="description" @update:open="(value) => emit('update:open', value)">
         <form @submit.prevent="submit">
             <div class="grid grid-cols-1 gap-x-6 gap-y-3 px-2">
                 <FormField id="auftragsnummer" v-slot="{ id, describedBy, invalid }" label="Auftrag" required :error="form.errors.auftragsnummer">

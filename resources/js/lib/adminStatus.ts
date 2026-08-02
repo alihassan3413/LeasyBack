@@ -5,6 +5,10 @@ export interface StatusPillStyle {
 }
 
 const ADMIN_DASHBOARD_STATUS_STYLES: Record<string, StatusPillStyle> = {
+    // `order_requested` was missing here even though ADMIN_ORDER_STATUS_FILTERS
+    // offers it as a filter, so a freshly-requested order fell through to the
+    // raw-status fallback and rendered as the literal "order_requested".
+    order_requested: { label: 'Anfrage gesendet', background: 'rgba(148, 163, 184, 0.16)', color: '#475569' },
     order_placed: { label: 'Angefragt', background: 'rgba(239, 132, 80, 0.12)', color: '#c0622e' },
     confirmed: { label: 'Bestätigt', background: 'rgba(99, 102, 241, 0.12)', color: '#4f46e5' },
     inspected: { label: 'Geprüft', background: 'rgba(1, 185, 144, 0.12)', color: '#00856a' },
@@ -25,6 +29,13 @@ export function getAdminDashboardStatus(status: string | null | undefined): Stat
     return ADMIN_DASHBOARD_STATUS_STYLES[status] ?? { label: status, background: 'rgba(0, 0, 0, 0.05)', color: '#6f8585' };
 }
 
+/**
+ * Only real `App\Enums\OrderStatus` values belong here — AdminQueryService's
+ * filters() rejects anything else with a validation error, so a chip for a
+ * status that isn't in the enum doesn't filter, it 302s the page back.
+ * `completed` used to be listed and did exactly that; `delivered` is the
+ * terminal status these lists actually store.
+ */
 export const ADMIN_ORDER_STATUS_FILTERS: { value: string; label: string }[] = [
     { value: '', label: 'Alle' },
     { value: 'order_requested', label: 'Anfrage gesendet' },
@@ -35,7 +46,6 @@ export const ADMIN_ORDER_STATUS_FILTERS: { value: string; label: string }[] = [
     { value: 'reinspection', label: 'Nachprüfung' },
     { value: 'reworkshop', label: 'Erneut in Werkstatt' },
     { value: 'delivered', label: 'Geliefert' },
-    { value: 'completed', label: 'Abgeschlossen' },
     { value: 'discarded', label: 'Verworfen' },
     { value: 'cancelled', label: 'Storniert' },
 ];

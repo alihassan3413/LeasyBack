@@ -52,6 +52,29 @@ class OfferController extends Controller
         return back()->with('success', 'Angebot wurde veröffentlicht.');
     }
 
+    /**
+     * Accept a published offer for the customer. Distinct from the customer's
+     * own offers.select route, which OfferPolicy::select() still restricts to
+     * the vehicle's owner — see selectOnBehalf() there for why the two are
+     * separate abilities.
+     */
+    public function select(Request $request, string $offerId): RedirectResponse
+    {
+        $offer = LeasybackOffer::find($offerId);
+        abort_unless($offer !== null, 404);
+        abort_unless($request->user()->can('selectOnBehalf', $offer), 403);
+
+        try {
+            $this->offerService->selectOffer($offer, $request->user(), onBehalfOfCustomer: true);
+        } catch (HttpResponseException $e) {
+            $message = $e->getResponse()->getData(true)['error'] ?? 'Angebot konnte nicht angenommen werden.';
+
+            return back()->withErrors(['offer' => $message])->with('error', $message);
+        }
+
+        return back()->with('success', 'Angebot wurde im Auftrag des Kunden angenommen.');
+    }
+
     public function cancel(Request $request, string $offerId): RedirectResponse
     {
         $validated = $request->validate(['cancellation_reason' => 'nullable|string']);

@@ -30,6 +30,13 @@ class VehicleController extends Controller
 
         $request->merge(['limit' => 10]);
 
+        // The list rows expand in place (v1's Admin vehicle table behaviour),
+        // and the expanded panel needs the detail-only hydration
+        // vehicleDetail() adds. Loading that for all ten rows would be thirty
+        // wasted queries per page, so exactly one row — the open one — is
+        // hydrated, fetched by a partial reload as the admin expands it.
+        $expandedId = trim((string) $request->query('expanded', ''));
+
         return Inertia::render('Admin/Vehicles/Index', [
             'vehicles' => $this->adminQueryService->vehicles($request, $userType),
             'filters' => [
@@ -37,6 +44,9 @@ class VehicleController extends Controller
                 'status' => (string) $request->query('status', ''),
                 'user_type' => $userType ?? 'all',
             ],
+            'expandedVehicle' => fn () => $expandedId === ''
+                ? null
+                : $this->adminQueryService->vehicleDetail($expandedId),
         ]);
     }
 

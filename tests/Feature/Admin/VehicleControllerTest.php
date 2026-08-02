@@ -2,13 +2,17 @@
 
 namespace Tests\Feature\Admin;
 
+use App\Enums\OrderStatus;
 use App\Enums\UserType;
 use App\Models\User;
+use App\Modules\UserProfile\Offer\Models\LeasybackOffer;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
+use App\Modules\UserProfile\Order\Models\OrderStatusUpdate;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle;
 use App\Modules\UserProfile\Vehicle\Models\VehicleDocument;
 use App\Modules\UserProfile\Vehicle\Models\VehicleReportDocument;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia;
 use Tests\TestCase;
@@ -119,6 +123,198 @@ class VehicleControllerTest extends TestCase
                 ->where('vehicle.order_history.0.report_documents.0.path', 'vehicle-reports/AUF-1/rechnung.pdf')
                 ->where('vehicle.order_history.0.report_documents.0.signed_url', fn ($url) => $url !== null)
             );
+    }
+
+    /**
+     * The Admin detail page renders the customer dashboard's
+     * VehicleExpandedPanel.vue through lib/adminVehicle.ts's adapter, which
+     * needs three things enrichVehicles() does not load for the list:
+     * `request_payload` (Besichtigungsort), `status_updates` (the customer
+     * flow timeline) and `offers`. `available_transitions` comes along for
+     * the per-order three-dots action menu.
+     */
+    public function test_vehicle_detail_hydrates_each_order_for_the_expanded_panel(): void
+    {
+        $admin = $this->admin();
+        $vehicle = Vehicle::factory()->create();
+        $order = LeasybackOrder::factory()->create([
+            'vehicle_id' => $vehicle->vehicle_id,
+            'auftragsnummer' => 'AUF-PANEL',
+            'order_status' => OrderStatus::Confirmed->value,
+            'request_payload' => ['besichtigungsort' => ['name' => 'TÜV SÜD Köln', 'ort' => 'Köln']],
+        ]);
+        OrderStatusUpdate::create([
+            'auftragsnummer' => $order->auftragsnummer,
+            'old_status' => 'order_placed',
+            'new_status' => 'confirmed',
+            'updated_by' => 'tuvsud',
+            'auth_source' => 'api',
+        ]);
+        LeasybackOffer::factory()->create([
+            'order_id' => $order->id,
+            'auftragsnummer' => $order->auftragsnummer,
+        ]);
+
+        $this->actingAs($admin)
+            ->get(route('admin.vehicles.show', $vehicle->vehicle_id))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('vehicle.order_history.0.request_payload.besichtigungsort.name', 'TÜV SÜD Köln')
+                ->has('vehicle.order_history.0.status_updates', 1)
+                ->where('vehicle.order_history.0.status_updates.0.new_status', 'confirmed')
+                ->has('vehicle.order_history.0.offers', 1)
+                ->where('vehicle.order_history.0.offers.0.offer_status', 'draft')
+                ->where('vehicle.order_history.0.available_transitions', fn (Collection $transitions) => $transitions->contains('inspected')
+                    && ! $transitions->contains('order_placed'))
+            );
+    }
+
+    /**
+     * The counterpart of the test above: that hydration is deliberately
+     * detail-only, so the list page — ten rows, none of which renders a
+     * payload, a status trail or an offer until it is expanded — does not
+     * pay for it on every row.
+     */
+    public function test_vehicle_list_does_not_load_the_detail_only_order_payloads(): void
+    {
+        $admin = $this->admin();
+        $vehicle = Vehicle::factory()->create();
+        LeasybackOrder::factory()->create(['vehicle_id' => $vehicle->vehicle_id]);
+
+        $this->actingAs($admin)
+            ->get(route('admin.vehicles.index'))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->has('vehicles.data.0.order_history.0')
+                ->missing('vehicles.data.0.order_history.0.request_payload')
+                ->missing('vehicles.data.0.order_history.0.status_updates')
+                ->missing('vehicles.data.0.order_history.0.offers')
+                ->where('expandedVehicle', null)
+            );
+    }
+
+    /**
+     * Expanding a row in the list (v1's Admin vehicle table behaviour) asks
+     * for exactly one fully-hydrated vehicle through `?expanded=`, so the
+     * in-place panel gets its data without the list loading it for every row.
+     */
+    public function test_expanding_a_list_row_hydrates_only_that_vehicle(): void
+    {
+        $admin = $this->admin();
+        $expanded = Vehicle::factory()->create();
+        $other = Vehicle::factory()->create();
+        LeasybackOrder::factory()->create([
+            'vehicle_id' => $expanded->vehicle_id,
+            'auftragsnummer' => 'AUF-EXPAND',
+            'request_payload' => ['besichtigungsort' => ['name' => 'TÜV SÜD Köln']],
+        ]);
+        LeasybackOrder::factory()->create(['vehicle_id' => $other->vehicle_id]);
+
+        $this->actingAs($admin)
+            ->get(route('admin.vehicles.index', ['expanded' => $expanded->vehicle_id]))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('expandedVehicle.vehicle_id', $expanded->vehicle_id)
+                ->where('expandedVehicle.order_history.0.request_payload.besichtigungsort.name', 'TÜV SÜD Köln')
+                ->has('expandedVehicle.order_history.0.status_updates')
+                ->has('expandedVehicle.order_history.0.offers')
+                ->has('vehicles.data', 2)
+            );
+    }
+
+    public function test_expanding_an_unknown_vehicle_leaves_the_list_usable(): void
+    {
+        $admin = $this->admin();
+        Vehicle::factory()->create();
+
+        $this->actingAs($admin)
+            ->get(route('admin.vehicles.index', ['expanded' => fake()->uuid()]))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('expandedVehicle', null)
+                ->has('vehicles.data', 1)
+            );
+    }
+
+    /**
+     * The list row's action menu needs to know which statuses it may offer.
+     * That is an enum lookup rather than a query, so unlike the rest of the
+     * detail-only hydration it is computed for every row.
+     */
+    public function test_list_rows_carry_the_current_orders_allowed_transitions(): void
+    {
+        $admin = $this->admin();
+        $withOrder = Vehicle::factory()->create();
+        LeasybackOrder::factory()->create([
+            'vehicle_id' => $withOrder->vehicle_id,
+            'order_status' => OrderStatus::Confirmed->value,
+        ]);
+        $withoutOrder = Vehicle::factory()->create();
+
+        $this->actingAs($admin)
+            ->get(route('admin.vehicles.index', ['search' => $withOrder->license_plate]))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('vehicles.data.0.current_order_transitions', fn (Collection $transitions) => $transitions->contains('inspected')
+                    && ! $transitions->contains('order_placed'))
+            );
+
+        $this->actingAs($admin)
+            ->get(route('admin.vehicles.index', ['search' => $withoutOrder->license_plate]))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('vehicles.data.0.current_order_id', null)
+                ->where('vehicles.data.0.current_order_transitions', [])
+            );
+    }
+
+    /**
+     * The panel links a customer document by `url`; the list only ever
+     * showed its name, so enrichVehicles() never generated one.
+     */
+    public function test_vehicle_detail_documents_carry_a_signed_url(): void
+    {
+        Storage::fake('documents');
+        Storage::disk('documents')->put('vehicle-documents/vertrag.pdf', 'content');
+        $admin = $this->admin();
+        $vehicle = Vehicle::factory()->create();
+        VehicleDocument::factory()->create([
+            'vehicle_id' => $vehicle->vehicle_id,
+            'path' => 'vehicle-documents/vertrag.pdf',
+        ]);
+
+        $this->actingAs($admin)
+            ->get(route('admin.vehicles.show', $vehicle->vehicle_id))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('vehicle.documents.0.url', fn ($url) => $url !== null)
+            );
+    }
+
+    /**
+     * Guards lib/adminStatus.ts's ADMIN_ORDER_STATUS_FILTERS against drifting
+     * away from the enum again: every chip it offers has to be a status the
+     * list endpoint will actually accept. It previously offered `completed`,
+     * which is not an OrderStatus, so that chip 302'd the page back with a
+     * validation error instead of filtering.
+     */
+    public function test_every_admin_status_filter_is_accepted_by_the_list_endpoints(): void
+    {
+        $admin = $this->admin();
+
+        foreach (OrderStatus::values() as $status) {
+            $this->actingAs($admin)
+                ->get(route('admin.vehicles.index', ['status' => $status]))
+                ->assertOk();
+
+            $this->actingAs($admin)
+                ->get(route('admin.orders.index', ['status' => $status]))
+                ->assertOk();
+        }
+
+        $this->actingAs($admin)
+            ->get(route('admin.vehicles.index', ['status' => 'completed']))
+            ->assertRedirect();
     }
 
     public function test_show_returns_404_for_unknown_vehicle(): void

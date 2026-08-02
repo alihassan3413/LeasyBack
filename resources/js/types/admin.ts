@@ -1,3 +1,5 @@
+import type { OrderRequestPayload } from './vehicle';
+
 /** Matches AdminQueryService::summary()'s response shape. */
 export interface AdminSummaryData {
     total_b2c_customers: number | string;
@@ -107,6 +109,8 @@ export interface AdminVehicleRow {
     current_auftragsnummer: string | null;
     current_order_status: string | null;
     current_order_created_at: string | null;
+    /** Allowed next statuses for `current_order_id`, for the list row's action menu. */
+    current_order_transitions: string[];
     order_history: AdminVehicleOrderHistoryEntry[];
     documents: AdminVehicleDocumentEntry[];
 }
@@ -121,6 +125,11 @@ export interface AdminVehicleOrderHistoryEntry {
     response_status: number | null;
     confirmation_date: string | null;
     report_documents: AdminReportDocument[];
+    /** Detail-page only — AdminQueryService::hydrateVehicleDetail() adds these; vehicles() (the list) omits them. */
+    request_payload?: OrderRequestPayload | null;
+    status_updates?: AdminOrderStatusUpdate[];
+    offers?: AdminOfferRow[];
+    available_transitions?: string[];
 }
 
 /** Matches AdminQueryService::reportDocuments()'s per-row shape (a `vehicle_report_documents` row plus a computed signed_url). */
@@ -134,6 +143,7 @@ export interface AdminReportDocument {
     published: boolean;
     signed_url: string | null;
     created_at: string;
+    updated_at: string;
 }
 
 export interface AdminVehicleDocumentEntry {
@@ -145,6 +155,8 @@ export interface AdminVehicleDocumentEntry {
     file_size: number;
     uploaded_by_user_id: number;
     created_at: string;
+    /** Detail-page only — see AdminVehicleOrderHistoryEntry's note. */
+    url?: string | null;
 }
 
 /** Matches AdminQueryService::enrichOrders()'s per-row shape (both orders() and orderDetail() return this). */

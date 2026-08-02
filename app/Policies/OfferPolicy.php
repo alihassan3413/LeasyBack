@@ -28,6 +28,19 @@ class OfferPolicy
         return $order !== null && $this->scope->findVehicleWithAccess($order->vehicle_id, $user) !== null;
     }
 
+    /**
+     * Admin accepting an offer for the customer ("Im Auftrag des Kunden
+     * annehmen", the v1 Admin behaviour) — a separate ability rather than
+     * an exception inside select(), so the customer endpoint keeps its
+     * strict owner-only rule and this stays reviewable on its own. The two
+     * are told apart in the audit trail: OfferService::selectOffer() writes
+     * `selected_by_admin_on_behalf` instead of `selected_by_customer`.
+     */
+    public function selectOnBehalf(User $user, LeasybackOffer $offer): bool
+    {
+        return $user->isAdmin() && $offer->order !== null;
+    }
+
     public function viewAny(User $user): bool
     {
         return $user->isAdmin();

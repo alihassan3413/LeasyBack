@@ -4,10 +4,14 @@ namespace Tests\Feature\Admin;
 
 use App\Enums\UserType;
 use App\Models\User;
+use App\Modules\UserProfile\Admin\Services\VehicleReportService;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle;
 use App\Modules\UserProfile\Vehicle\Models\VehicleReportDocument;
+use App\Notifications\SystemNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -117,5 +121,78 @@ class VehicleReportControllerTest extends TestCase
             ->assertForbidden();
 
         $this->assertDatabaseHas('vehicle_report_documents', ['id' => $document->id]);
+    }
+
+    /**
+     * Regression test: VehicleReportService::transfer() gated its "notify the
+     * customer" call on an undefined `$published` variable, which PHP read as
+     * null — so transferring a TÜV SÜD document straight to published stored
+     * it correctly but silently never told the owner about it.
+     */
+    public function test_transferring_a_published_assessment_document_notifies_the_owner(): void
+    {
+        Notification::fake();
+        Storage::fake('s3');
+        Storage::fake('documents');
+        Storage::disk('s3')->put('tim/gutachten.pdf', 'content');
+
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create(['vehicle_belongs' => 'B2C', 'b2c_user_id' => $owner->id]);
+        $sourceId = $this->assessmentDocument('AUF-TRANSFER', 'tim/gutachten.pdf');
+
+        app(VehicleReportService::class)->transfer([
+            'auftragsnummer' => 'AUF-TRANSFER',
+            'vehicle_id' => $vehicle->vehicle_id,
+            'document_type' => 'gutachten',
+            'document_title' => 'Gutachten',
+            'published' => true,
+            'source_assessment_document_id' => $sourceId,
+        ], $this->admin());
+
+        $this->assertDatabaseHas('vehicle_report_documents', [
+            'vehicle_id' => $vehicle->vehicle_id,
+            'auftragsnummer' => 'AUF-TRANSFER',
+            'published' => true,
+        ]);
+
+        Notification::assertSentTo($owner, SystemNotification::class);
+    }
+
+    public function test_transferring_an_unpublished_assessment_document_notifies_nobody(): void
+    {
+        Notification::fake();
+        Storage::fake('s3');
+        Storage::fake('documents');
+        Storage::disk('s3')->put('tim/gutachten.pdf', 'content');
+
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create(['vehicle_belongs' => 'B2C', 'b2c_user_id' => $owner->id]);
+        $sourceId = $this->assessmentDocument('AUF-DRAFT', 'tim/gutachten.pdf');
+
+        app(VehicleReportService::class)->transfer([
+            'auftragsnummer' => 'AUF-DRAFT',
+            'vehicle_id' => $vehicle->vehicle_id,
+            'published' => false,
+            'source_assessment_document_id' => $sourceId,
+        ], $this->admin());
+
+        $this->assertDatabaseHas('vehicle_report_documents', ['auftragsnummer' => 'AUF-DRAFT', 'published' => false]);
+        Notification::assertNothingSent();
+    }
+
+    private function assessmentDocument(string $auftragsnummer, string $s3Key): int
+    {
+        $assessmentId = DB::table('vehicle_assessments')->insertGetId([
+            'uid' => 'uid-'.$auftragsnummer,
+            'auftragsnummer' => $auftragsnummer,
+        ]);
+
+        return DB::table('assessment_documents')->insertGetId([
+            'assessment_id' => $assessmentId,
+            'doc_type' => 'gutachten',
+            's3_bucket' => 'test',
+            's3_key' => $s3Key,
+            's3_url' => 'https://example.test/'.$s3Key,
+        ]);
     }
 }

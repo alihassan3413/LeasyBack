@@ -40,6 +40,7 @@ Route::middleware(['auth', 'active', 'verified', 'admin'])->prefix('admin')->nam
 
         Route::post('{orderId}/offers', [OfferController::class, 'store'])->whereUuid('orderId')->name('offers.store');
         Route::patch('offers/{offerId}/publish', [OfferController::class, 'publish'])->whereUuid('offerId')->name('offers.publish');
+        Route::patch('offers/{offerId}/select', [OfferController::class, 'select'])->whereUuid('offerId')->name('offers.select');
         Route::patch('offers/{offerId}/cancel', [OfferController::class, 'cancel'])->whereUuid('offerId')->name('offers.cancel');
     });
 });

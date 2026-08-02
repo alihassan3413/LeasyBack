@@ -286,6 +286,31 @@ class AdminQueryService
         ];
     }
 
+    /**
+     * Free-text `?search=` over the columns an admin would recognise a row
+     * by. Bound LIKE, same approach as b2cList()/b2bList(). Callers apply it
+     * to the *base* query before counting, so the header stats always match
+     * the list underneath them.
+     *
+     * @param  list<string>  $columns
+     */
+    private function applyListSearch(Builder $query, Request $request, array $columns): void
+    {
+        $search = trim((string) $request->query('search', ''));
+
+        if ($search === '') {
+            return;
+        }
+
+        $term = '%'.addcslashes($search, '%_\\').'%';
+
+        $query->where(function (Builder $scoped) use ($term, $columns) {
+            foreach ($columns as $column) {
+                $scoped->orWhere($column, 'like', $term);
+            }
+        });
+    }
+
     private function applyDatesAndStatus(Builder $query, array $filters, string $dateColumn): void
     {
         $query->when($filters['start'], fn (Builder $q, $date) => $q->where($dateColumn, '>=', $date));
@@ -329,6 +354,7 @@ class AdminQueryService
             ->join('vehicles as v', 'v.vehicle_id', '=', 'o.vehicle_id');
         $this->applyDatesAndStatus($base, $filters, 'o.created_at');
         $this->applyOwnerFilter($base, $userType, $userId, $b2bId);
+        $this->applyListSearch($base, $request, ['o.auftragsnummer', 'v.license_plate', 'v.vin', 'v.make', 'v.model']);
 
         $counts = $this->orderCounts($base);
         $rows = (clone $base)
@@ -568,20 +594,7 @@ class AdminQueryService
         $base->when($filters['status'], fn (Builder $q, $status) => $q->where('o.order_status', $status));
         $this->applyOwnerFilter($base, $userType, $userId, $b2bId);
 
-        // Free-text search over the columns an admin would recognise a vehicle
-        // by. Bound LIKE, same approach as b2cList()/b2bList() — the counts
-        // below are computed after it, so the header stats match the list.
-        $search = trim((string) $request->query('search', ''));
-
-        if ($search !== '') {
-            $term = '%'.addcslashes($search, '%_\\').'%';
-
-            $base->where(function (Builder $scoped) use ($term) {
-                foreach (['v.license_plate', 'v.vin', 'v.make', 'v.model', 'v.leasinggeber', 'o.auftragsnummer'] as $column) {
-                    $scoped->orWhere($column, 'like', $term);
-                }
-            });
-        }
+        $this->applyListSearch($base, $request, ['v.license_plate', 'v.vin', 'v.make', 'v.model', 'v.leasinggeber', 'o.auftragsnummer']);
 
         $counts = $this->vehicleCounts($base);
         $rows = (clone $base)->select([
@@ -626,7 +639,72 @@ class AdminQueryService
             return null;
         }
 
-        return $this->enrichVehicles(collect([$row]))[0] ?? null;
+        $vehicle = $this->enrichVehicles(collect([$row]))[0] ?? null;
+
+        return $vehicle === null ? null : $this->hydrateVehicleDetail($vehicle);
+    }
+
+    /**
+     * Detail-page-only enrichment, deliberately kept out of the shared
+     * enrichVehicles(): the vehicle *list* renders one row per vehicle and
+     * has no use for per-order payloads, status trails or offers, so
+     * loading them there would be three extra queries per page for data
+     * nobody reads.
+     *
+     * What it adds is what VehicleExpandedPanel.vue (reused verbatim from
+     * the customer dashboard) reads beyond the list shape: `request_payload`
+     * (Besichtigungsort card), `status_updates` (customer flow timeline),
+     * `offers` (Angebote card), plus `available_transitions` for the
+     * per-order admin action menu, and a signed `url` on customer documents
+     * — the panel links documents by `url`, the list only ever showed names.
+     *
+     * @param  array<string, mixed>  $vehicle
+     * @return array<string, mixed>
+     */
+    private function hydrateVehicleDetail(array $vehicle): array
+    {
+        /** @var list<array<string, mixed>> $history */
+        $history = $vehicle['order_history'];
+        $auftragsnummern = collect($history)->pluck('auftragsnummer')->filter()->unique()->values();
+        $orderIds = collect($history)->pluck('id')->filter()->unique()->values();
+
+        $payloads = DB::table('leasyback_orders')
+            ->whereIn('id', $orderIds)
+            ->pluck('request_payload', 'id');
+
+        $statusUpdates = DB::table('leasyback_order_status_updates')
+            ->whereIn('auftragsnummer', $auftragsnummern)
+            ->orderByDesc('created_at')
+            ->get(['id', 'auftragsnummer', 'bewertung_id', 'old_status', 'new_status', 'created_at'])
+            ->groupBy('auftragsnummer');
+
+        // Every offer status, not just published/selected — Admin manages
+        // drafts and cancelled offers too (same rationale as orderDetail()).
+        $offers = DB::table('leasyback_offers')
+            ->whereIn('order_id', $orderIds)
+            ->orderBy('offer_sequence')
+            ->get()
+            ->groupBy('order_id');
+
+        $vehicle['order_history'] = array_map(function (array $order) use ($payloads, $statusUpdates, $offers) {
+            $order['request_payload'] = json_decode((string) ($payloads[$order['id']] ?? ''), false) ?: null;
+            $order['status_updates'] = $statusUpdates->get($order['auftragsnummer'], collect())->values()->all();
+            $order['offers'] = $offers->get($order['id'], collect())->values()->all();
+            $order['available_transitions'] = array_values(array_diff(
+                TransitionOrderStatus::allowedNextStatuses($order['order_status']),
+                ['order_placed', 'discarded'],
+            ));
+
+            return $order;
+        }, $history);
+
+        $vehicle['documents'] = array_map(function (array $document) {
+            $document['url'] = $this->temporaryUrl((string) $document['path'], 30, 'documents');
+
+            return $document;
+        }, $vehicle['documents']);
+
+        return $vehicle;
     }
 
     private function vehicleCounts(Builder $base): array
@@ -707,6 +785,14 @@ class AdminQueryService
                 'current_auftragsnummer' => $row->current_auftragsnummer,
                 'current_order_status' => $row->current_order_status,
                 'current_order_created_at' => $row->current_order_created_at,
+                // For the list row's action menu. Pure enum lookup, no query,
+                // so unlike the rest of the detail-only hydration this one is
+                // free to compute for every row. Same exclusions as
+                // orderDetail()'s available_transitions.
+                'current_order_transitions' => $row->current_order_status === null ? [] : array_values(array_diff(
+                    TransitionOrderStatus::allowedNextStatuses($row->current_order_status),
+                    ['order_placed', 'discarded'],
+                )),
                 'order_history' => $history[$row->vehicle_id] ?? [],
                 'documents' => $documents[$row->vehicle_id] ?? [],
             ];

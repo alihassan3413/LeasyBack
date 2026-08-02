@@ -1,23 +1,6 @@
 <script setup lang="ts">
 import StatusHelpTooltip from '@/components/shared/StatusHelpTooltip.vue';
-import { providerDisplayLabel, timelineDotStyle, timelineLineStyle } from '@/lib/timeline';
-
-export interface OrderTimelineEntry {
-    datetime: string;
-    label: string;
-    sublabel?: string;
-    completed?: boolean;
-    isFuture?: boolean;
-    isNext?: boolean;
-    isCurrent?: boolean;
-    isCancelled?: boolean;
-    isRejected?: boolean;
-    isReport?: boolean;
-    docUrl?: string;
-    invoiceUrl?: string;
-    showPaymentAction?: boolean;
-    tooltipDescription?: string;
-}
+import { providerDisplayLabel, timelineDotStyle, timelineLineStyle, type OrderTimelineEntry } from '@/lib/timeline';
 
 const props = withDefaults(
     defineProps<{

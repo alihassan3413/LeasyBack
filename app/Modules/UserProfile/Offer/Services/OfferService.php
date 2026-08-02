@@ -107,7 +107,15 @@ class OfferService
      *
      * @return array{offer: LeasybackOffer, closed_count: int}
      */
-    public function selectOffer(LeasybackOffer $offer, User $user): array
+    /**
+     * @param  bool  $onBehalfOfCustomer  True when an admin accepts for the
+     *                                    customer. Only changes the audit
+     *                                    trail — the state transition and its
+     *                                    guards are identical either way, and
+     *                                    `selected_by_user_id` records who
+     *                                    actually clicked regardless.
+     */
+    public function selectOffer(LeasybackOffer $offer, User $user, bool $onBehalfOfCustomer = false): array
     {
         if ($offer->offer_status !== 'published') {
             $this->fail(400, 'This offer is no longer available');
@@ -123,14 +131,20 @@ class OfferService
 
         $closedCount = 0;
 
-        DB::transaction(function () use ($offer, $user, &$closedCount) {
+        DB::transaction(function () use ($offer, $user, $onBehalfOfCustomer, &$closedCount) {
             $offer->update([
                 'offer_status' => 'selected',
                 'selected_at' => now(),
                 'selected_by_user_id' => $user->id,
             ]);
 
-            $this->auditOffer($offer, 'selected_by_customer', ['offer_status' => 'published'], ['offer_status' => 'selected'], $user->id);
+            $this->auditOffer(
+                $offer,
+                $onBehalfOfCustomer ? 'selected_by_admin_on_behalf' : 'selected_by_customer',
+                ['offer_status' => 'published'],
+                ['offer_status' => 'selected'],
+                $user->id,
+            );
 
             $siblingIds = LeasybackOffer::where('order_id', $offer->order_id)
                 ->where('offer_id', '!=', $offer->offer_id)

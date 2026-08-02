@@ -55,6 +55,32 @@ class OfferControllerTest extends TestCase
         $this->assertSame('published', $offer->fresh()->offer_status);
     }
 
+    /**
+     * Pins the reason VehicleExpandedPanel.vue takes an `admin` prop: the
+     * panel is reused verbatim on the Admin vehicle pages, but its offer
+     * radio posts here, and OfferPolicy::select() denies admins by design —
+     * which OfferController::select() renders as a 404. On an Admin surface
+     * the radio is therefore inert and the publish/withdraw actions
+     * (admin.orders.offers.*) are shown instead.
+     */
+    public function test_admin_cannot_select_an_offer_on_a_customers_behalf(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $admin = User::factory()->create(['user_type' => UserType::Admin]);
+        $vehicle = Vehicle::factory()->create(['b2c_user_id' => $owner->id]);
+        $order = LeasybackOrder::factory()->create(['vehicle_id' => $vehicle->vehicle_id]);
+        $offer = LeasybackOffer::factory()->published()->create([
+            'order_id' => $order->id,
+            'auftragsnummer' => $order->auftragsnummer,
+        ]);
+
+        $this->actingAs($admin)
+            ->post(route('offers.select', $offer->offer_id))
+            ->assertNotFound();
+
+        $this->assertSame('published', $offer->fresh()->offer_status);
+    }
+
     public function test_selecting_an_offer_closes_sibling_offers_for_the_same_order(): void
     {
         $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);

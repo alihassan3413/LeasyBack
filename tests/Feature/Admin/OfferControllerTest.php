@@ -105,6 +105,105 @@ class OfferControllerTest extends TestCase
         $this->assertSame('published', $offer->fresh()->offer_status);
     }
 
+    /**
+     * "Im Auftrag des Kunden annehmen" — the v1 Admin behaviour, added on an
+     * explicit product decision. It is a separate route/ability from the
+     * customer's offers.select, which stays owner-only (OfferPolicy::select).
+     */
+    public function test_admin_can_accept_a_published_offer_on_the_customers_behalf(): void
+    {
+        $admin = $this->admin();
+        $order = LeasybackOrder::factory()->create();
+        $offer = LeasybackOffer::factory()->published()->create([
+            'order_id' => $order->id,
+            'auftragsnummer' => $order->auftragsnummer,
+        ]);
+
+        $this->actingAs($admin)
+            ->patch(route('admin.orders.offers.select', $offer->offer_id))
+            ->assertRedirect();
+
+        $offer->refresh();
+        $this->assertSame('selected', $offer->offer_status);
+        $this->assertSame($admin->id, $offer->selected_by_user_id);
+    }
+
+    /** The audit trail has to tell an admin acceptance apart from a customer one. */
+    public function test_accepting_on_behalf_is_recorded_as_an_admin_action(): void
+    {
+        $admin = $this->admin();
+        $order = LeasybackOrder::factory()->create();
+        $offer = LeasybackOffer::factory()->published()->create([
+            'order_id' => $order->id,
+            'auftragsnummer' => $order->auftragsnummer,
+        ]);
+
+        $this->actingAs($admin)->patch(route('admin.orders.offers.select', $offer->offer_id));
+
+        $this->assertDatabaseHas('leasyback_offer_audit_log', [
+            'offer_id' => $offer->offer_id,
+            'action' => 'selected_by_admin_on_behalf',
+            'changed_by_user_id' => $admin->id,
+        ]);
+        $this->assertDatabaseMissing('leasyback_offer_audit_log', [
+            'offer_id' => $offer->offer_id,
+            'action' => 'selected_by_customer',
+        ]);
+    }
+
+    public function test_accepting_on_behalf_closes_the_sibling_offers(): void
+    {
+        $admin = $this->admin();
+        $order = LeasybackOrder::factory()->create();
+        $chosen = LeasybackOffer::factory()->published()->create([
+            'order_id' => $order->id,
+            'auftragsnummer' => $order->auftragsnummer,
+            'offer_sequence' => 1,
+        ]);
+        $sibling = LeasybackOffer::factory()->published()->create([
+            'order_id' => $order->id,
+            'auftragsnummer' => $order->auftragsnummer,
+            'offer_sequence' => 2,
+        ]);
+
+        $this->actingAs($admin)->patch(route('admin.orders.offers.select', $chosen->offer_id));
+
+        $this->assertSame('selected', $chosen->fresh()->offer_status);
+        $this->assertSame('closed', $sibling->fresh()->offer_status);
+    }
+
+    public function test_admin_cannot_accept_a_draft_offer_on_behalf(): void
+    {
+        $admin = $this->admin();
+        $order = LeasybackOrder::factory()->create();
+        $offer = LeasybackOffer::factory()->create([
+            'order_id' => $order->id,
+            'auftragsnummer' => $order->auftragsnummer,
+        ]);
+
+        $this->actingAs($admin)
+            ->patch(route('admin.orders.offers.select', $offer->offer_id))
+            ->assertSessionHasErrors('offer');
+
+        $this->assertSame('draft', $offer->fresh()->offer_status);
+    }
+
+    public function test_non_admin_cannot_accept_an_offer_on_a_customers_behalf(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $order = LeasybackOrder::factory()->create();
+        $offer = LeasybackOffer::factory()->published()->create([
+            'order_id' => $order->id,
+            'auftragsnummer' => $order->auftragsnummer,
+        ]);
+
+        $this->actingAs($owner)
+            ->patch(route('admin.orders.offers.select', $offer->offer_id))
+            ->assertForbidden();
+
+        $this->assertSame('published', $offer->fresh()->offer_status);
+    }
+
     public function test_admin_can_cancel_an_offer_with_a_reason(): void
     {
         $admin = $this->admin();

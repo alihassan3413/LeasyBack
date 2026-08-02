@@ -87,11 +87,13 @@ declare global {
   const storeToRefs: typeof import('pinia').storeToRefs
   const timelineDotStyle: typeof import('../lib/timeline').timelineDotStyle
   const timelineLineStyle: typeof import('../lib/timeline').timelineLineStyle
+  const toOrderTimelineEntries: typeof import('../lib/timeline').toOrderTimelineEntries
   const toPlateUpperCase: typeof import('../lib/licensePlate').toPlateUpperCase
   const toRaw: typeof import('vue').toRaw
   const toRef: typeof import('vue').toRef
   const toRefs: typeof import('vue').toRefs
   const toValue: typeof import('vue').toValue
+  const toVehicleData: typeof import('../lib/adminVehicle').toVehicleData
   const triggerRef: typeof import('vue').triggerRef
   const unref: typeof import('vue').unref
   const updateTheme: typeof import('../composables/useAppearance').updateTheme
@@ -115,6 +117,7 @@ declare global {
   const useOnboarding: typeof import('../composables/useOnboarding').useOnboarding
   const usePage: typeof import('@inertiajs/vue3').usePage
   const useRemember: typeof import('@inertiajs/vue3').useRemember
+  const useSessionGuard: typeof import('../composables/useSessionGuard').useSessionGuard
   const useSlots: typeof import('vue').useSlots
   const useTemplateRef: typeof import('vue').useTemplateRef
   const useToast: typeof import('../composables/useToast').useToast
@@ -141,6 +144,9 @@ declare global {
   export type { AppNotification } from '../composables/useNotifications'
   import('../composables/useNotifications')
   // @ts-ignore
+  export type { LogoutReason } from '../composables/useSessionGuard'
+  import('../composables/useSessionGuard')
+  // @ts-ignore
   export type { ToastVariant, ToastOptions, ToastItem } from '../composables/useToast'
   import('../composables/useToast')
   // @ts-ignore
@@ -153,7 +159,7 @@ declare global {
   export type { OrderFlowStep } from '../lib/orderFlow'
   import('../lib/orderFlow')
   // @ts-ignore
-  export type { UpcomingStep } from '../lib/timeline'
+  export type { UpcomingStep, OrderTimelineEntry } from '../lib/timeline'
   import('../lib/timeline')
   // @ts-ignore
   export type { VehicleStatusDisplay } from '../lib/vehicleStatus'
@@ -246,11 +252,13 @@ declare module 'vue' {
     readonly storeToRefs: UnwrapRef<typeof import('pinia')['storeToRefs']>
     readonly timelineDotStyle: UnwrapRef<typeof import('../lib/timeline')['timelineDotStyle']>
     readonly timelineLineStyle: UnwrapRef<typeof import('../lib/timeline')['timelineLineStyle']>
+    readonly toOrderTimelineEntries: UnwrapRef<typeof import('../lib/timeline')['toOrderTimelineEntries']>
     readonly toPlateUpperCase: UnwrapRef<typeof import('../lib/licensePlate')['toPlateUpperCase']>
     readonly toRaw: UnwrapRef<typeof import('vue')['toRaw']>
     readonly toRef: UnwrapRef<typeof import('vue')['toRef']>
     readonly toRefs: UnwrapRef<typeof import('vue')['toRefs']>
     readonly toValue: UnwrapRef<typeof import('vue')['toValue']>
+    readonly toVehicleData: UnwrapRef<typeof import('../lib/adminVehicle')['toVehicleData']>
     readonly triggerRef: UnwrapRef<typeof import('vue')['triggerRef']>
     readonly unref: UnwrapRef<typeof import('vue')['unref']>
     readonly updateTheme: UnwrapRef<typeof import('../composables/useAppearance')['updateTheme']>
@@ -274,6 +282,7 @@ declare module 'vue' {
     readonly useOnboarding: UnwrapRef<typeof import('../composables/useOnboarding')['useOnboarding']>
     readonly usePage: UnwrapRef<typeof import('@inertiajs/vue3')['usePage']>
     readonly useRemember: UnwrapRef<typeof import('@inertiajs/vue3')['useRemember']>
+    readonly useSessionGuard: UnwrapRef<typeof import('../composables/useSessionGuard')['useSessionGuard']>
     readonly useSlots: UnwrapRef<typeof import('vue')['useSlots']>
     readonly useTemplateRef: UnwrapRef<typeof import('vue')['useTemplateRef']>
     readonly useToast: UnwrapRef<typeof import('../composables/useToast')['useToast']>

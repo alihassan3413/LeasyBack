@@ -1,15 +1,10 @@
 <script setup lang="ts">
-import OrderStatusTimeline, { type OrderTimelineEntry } from '@/components/shared/OrderStatusTimeline.vue';
+import OrderStatusTimeline from '@/components/shared/OrderStatusTimeline.vue';
+import { TableCell, TableRow } from '@/components/ui/table';
 import AddVehicleModal from '@/components/vehicle/AddVehicleModal.vue';
 import UploadDocumentModal from '@/components/vehicle/UploadDocumentModal.vue';
-import { TableCell, TableRow } from '@/components/ui/table';
-import {
-    CUSTOMER_PAYMENT_FEATURE_ENABLED,
-    formatGermanDateTime,
-    getCustomerOrderFlowSteps,
-    getCustomerOrderHeadline,
-} from '@/lib/customerOrderFlow';
-import { getUpcomingSteps } from '@/lib/timeline';
+import { CUSTOMER_PAYMENT_FEATURE_ENABLED, formatGermanDateTime, getCustomerOrderFlowSteps, getCustomerOrderHeadline } from '@/lib/customerOrderFlow';
+import { toOrderTimelineEntries, type OrderTimelineEntry } from '@/lib/timeline';
 import { getOrderStatusLabel } from '@/lib/vehicleStatus';
 import type { OfferData } from '@/types/order';
 import type { VehicleData } from '@/types/vehicle';
@@ -31,9 +26,27 @@ interface PanelOffer {
     cost: number;
     note: string;
     accepted: boolean;
+    status: string;
 }
 
-const props = defineProps<{ vehicle: VehicleData }>();
+const props = withDefaults(
+    defineProps<{
+        vehicle: VehicleData;
+        /**
+         * Renders the panel for an Admin surface (the Admin vehicle list's
+         * expanded row and the detail page's Kundenansicht) rather than for
+         * the vehicle's owner.
+         *
+         * Selecting an offer stays a customer-only action: OfferPolicy::select()
+         * returns false for admins on purpose (the BOLA fix documented there)
+         * and OfferController::select() turns that into a 404 — so on an Admin
+         * surface the radio is inert and the admin publish/withdraw actions
+         * are shown instead, the same split v1's admin expanded view uses.
+         */
+        admin?: boolean;
+    }>(),
+    { admin: false },
+);
 
 const editVehicleOpen = ref(false);
 const uploadDocsOpen = ref(false);
@@ -215,32 +228,7 @@ const timelineEntries = computed<OrderTimelineEntry[]>(() => {
         return [{ datetime: '', label: 'Keine Aufträge vorhanden', completed: false }];
     }
 
-    if (customerFlowSteps.value) {
-        return customerFlowSteps.value.map((step) => ({
-            datetime: step.datetime ? formatGermanDateTime(step.datetime) : '',
-            label: step.label,
-            sublabel: step.subtitle || undefined,
-            tooltipDescription: step.tooltipDescription,
-            completed: step.completed || step.isCurrent,
-            isFuture: !(step.completed || step.isCurrent) && !step.isCancelled && !step.isRejected,
-            isNext: step.isNext,
-            isCurrent: step.isCurrent,
-            isCancelled: step.isCancelled,
-            isRejected: step.isRejected,
-            isReport: !!(step.reportDocUrl || step.invoiceDocUrl || step.showPaymentAction),
-            docUrl: step.reportDocUrl,
-            invoiceUrl: step.invoiceDocUrl,
-            showPaymentAction: step.showPaymentAction,
-        }));
-    }
-
-    return getUpcomingSteps(firstOrder.value.order_status).map((step, index) => ({
-        datetime: '',
-        label: step.label,
-        completed: false,
-        isFuture: true,
-        isNext: index === 0,
-    }));
+    return toOrderTimelineEntries(customerFlowSteps.value, firstOrder.value.order_status);
 });
 
 const offersData = computed<PanelOffer[]>(() =>
@@ -251,6 +239,7 @@ const offersData = computed<PanelOffer[]>(() =>
         cost: Number(offer.final_total_gross ?? 0),
         note: offer.additional_notes ?? '',
         accepted: offer.offer_status === 'selected',
+        status: offer.offer_status,
     })),
 );
 
@@ -260,12 +249,107 @@ const acceptedOffer = computed(() => offersData.value.find((offer) => offer.acce
 const pendingOfferId = ref<string | null>(null);
 const selectingOfferId = ref<string | null>(null);
 
+/**
+ * Both roles funnel through the same confirm dialog; only the endpoint and
+ * the wording differ. An admin may accept only a *published* offer — the same
+ * rule OfferService::selectOffer() enforces for the customer.
+ */
 function requestSelect(offerId: string) {
     if (acceptedOffer.value) {
         return;
     }
 
+    const offer = offersData.value.find((candidate) => candidate.offerId === offerId);
+
+    if (props.admin && offer?.status !== 'published') {
+        return;
+    }
+
     pendingOfferId.value = offerId;
+}
+
+function canSelect(offer: PanelOffer): boolean {
+    if (acceptedOffer.value || selectingOfferId.value === offer.offerId) {
+        return false;
+    }
+
+    return props.admin ? offer.status === 'published' : true;
+}
+
+function selectTitle(offer: PanelOffer): string {
+    if (!props.admin) {
+        return 'Angebot auswählen';
+    }
+
+    return offer.status === 'published' ? 'Im Auftrag des Kunden annehmen' : 'Nur veröffentlichte Angebote können angenommen werden';
+}
+
+const OFFER_STATUS_LABELS: Record<string, string> = {
+    draft: 'Entwurf',
+    published: 'Veröffentlicht',
+    selected: 'Angenommen',
+    closed: 'Geschlossen',
+    cancelled: 'Storniert',
+};
+
+const OFFER_STATUS_PILLS: Record<string, string> = {
+    draft: 'background: #f4f7f6; color: #6f8585',
+    published: 'background: rgba(1, 185, 144, 0.12); color: #00856a',
+    selected: 'background: rgba(239, 132, 80, 0.14); color: #c0622e',
+    closed: 'background: #f4f7f6; color: #9bb0af',
+    cancelled: 'background: rgba(220, 38, 38, 0.1); color: #991b1b',
+};
+
+function offerStatusLabel(status: string): string {
+    return OFFER_STATUS_LABELS[status] ?? status;
+}
+
+function offerStatusPill(status: string): string {
+    return OFFER_STATUS_PILLS[status] ?? OFFER_STATUS_PILLS.draft;
+}
+
+/**
+ * The one offer an admin may accept from the footer button. Only unambiguous
+ * when exactly one offer is published — with several, the admin picks a
+ * specific one from its row instead.
+ */
+const acceptableOnBehalf = computed(() => {
+    if (!props.admin || acceptedOffer.value) {
+        return null;
+    }
+
+    const published = offersData.value.filter((offer) => offer.status === 'published');
+
+    return published.length === 1 ? published[0] : null;
+});
+
+const onBehalfHint = computed(() => {
+    if (acceptedOffer.value) {
+        return 'Für diesen Auftrag wurde bereits ein Angebot angenommen';
+    }
+
+    if (acceptableOnBehalf.value) {
+        return 'Das veröffentlichte Angebot im Auftrag des Kunden annehmen';
+    }
+
+    return offersData.value.some((offer) => offer.status === 'published')
+        ? 'Mehrere Angebote veröffentlicht — bitte oben eines auswählen'
+        : 'Kein veröffentlichtes Angebot vorhanden';
+});
+
+/** Admin-side offer actions — the endpoints AdminOffersCard uses, same policy. */
+const mutatingOfferId = ref<string | null>(null);
+
+function publishOffer(offerId: string) {
+    mutatingOfferId.value = offerId;
+
+    router.patch(route('admin.orders.offers.publish', offerId), {}, { preserveScroll: true, onFinish: () => (mutatingOfferId.value = null) });
+}
+
+function withdrawOffer(offerId: string) {
+    mutatingOfferId.value = offerId;
+
+    router.patch(route('admin.orders.offers.cancel', offerId), {}, { preserveScroll: true, onFinish: () => (mutatingOfferId.value = null) });
 }
 
 function cancelSelect() {
@@ -281,17 +365,21 @@ function confirmSelect() {
 
     selectingOfferId.value = offerId;
 
-    router.post(
-        route('offers.select', offerId),
-        {},
-        {
-            preserveScroll: true,
-            onFinish: () => {
-                selectingOfferId.value = null;
-                pendingOfferId.value = null;
-            },
+    const options = {
+        preserveScroll: true,
+        onFinish: () => {
+            selectingOfferId.value = null;
+            pendingOfferId.value = null;
         },
-    );
+    };
+
+    if (props.admin) {
+        router.patch(route('admin.orders.offers.select', offerId), {}, options);
+
+        return;
+    }
+
+    router.post(route('offers.select', offerId), {}, options);
 }
 
 function deleteDocument(doc: PanelDocument) {
@@ -312,7 +400,7 @@ function formatDate(value: string | null): string {
 <template>
     <TableRow class="hidden border-0 hover:bg-transparent md:table-row">
         <TableCell colspan="12" class="max-w-0 overflow-x-auto p-0 whitespace-normal">
-            <div class="columns-1 gap-4 bg-[#EFEFEF] p-4 md:columns-2 2xl:columns-3 *:mb-4 *:break-inside-avoid">
+            <div class="columns-1 gap-4 bg-[#EFEFEF] p-4 *:mb-4 *:break-inside-avoid md:columns-2 2xl:columns-3">
                 <div class="flex w-full flex-col overflow-hidden rounded-3xl border bg-white" style="border-color: #ececec">
                     <OrderStatusTimeline
                         :entries="timelineEntries"
@@ -414,54 +502,114 @@ function formatDate(value: string | null): string {
                         </div>
 
                         <div class="flex flex-col gap-5 px-6">
-                            <div
-                                v-for="offer in offersData"
-                                :key="offer.id"
-                                class="flex items-center gap-4 rounded-[50px] border px-4 py-2"
-                                :style="
-                                    offer.accepted
-                                        ? 'border-color: #EF8450; background: rgba(239, 132, 80, 0.08)'
-                                        : 'border-color: #ECECEC; background: white'
-                                "
-                            >
-                                <button
-                                    type="button"
-                                    :disabled="!!acceptedOffer || selectingOfferId === offer.offerId"
-                                    class="mt-1 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border-2 disabled:cursor-default"
+                            <div v-for="offer in offersData" :key="offer.id" class="flex flex-col gap-2">
+                                <div
+                                    class="flex items-center gap-4 rounded-[50px] border px-4 py-2"
                                     :style="
                                         offer.accepted
-                                            ? 'border-color: #EF8450; background: #EF8450'
-                                            : 'border-color: #B7C2C2; background: white'
+                                            ? 'border-color: #EF8450; background: rgba(239, 132, 80, 0.08)'
+                                            : 'border-color: #ECECEC; background: white'
                                     "
-                                    title="Angebot auswählen"
-                                    @click.stop="requestSelect(offer.offerId)"
                                 >
-                                    <div v-if="offer.accepted" class="h-4.5 w-4.5 rounded-full bg-white"></div>
-                                </button>
+                                    <button
+                                        type="button"
+                                        :disabled="!canSelect(offer)"
+                                        class="mt-1 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border-2 disabled:cursor-default"
+                                        :style="
+                                            offer.accepted
+                                                ? 'border-color: #EF8450; background: #EF8450'
+                                                : 'border-color: #B7C2C2; background: white'
+                                        "
+                                        :title="selectTitle(offer)"
+                                        @click.stop="requestSelect(offer.offerId)"
+                                    >
+                                        <div v-if="offer.accepted" class="h-4.5 w-4.5 rounded-full bg-white"></div>
+                                    </button>
 
-                                <div class="flex min-w-0 flex-1 flex-col gap-1 overflow-hidden py-1">
-                                    <div class="flex items-center justify-between gap-3">
-                                        <p class="min-w-0 flex-1 truncate text-[14px] font-bold" style="color: #2e3e3f" :title="`${offer.id} - ${offer.name}`">
-                                            {{ offer.id }} - {{ offer.name }}
-                                        </p>
-                                        <p class="flex-shrink-0 text-[16px] font-semibold" :style="offer.accepted ? 'color: #EF8450' : 'color: #2e3e3f'">
-                                            {{ offer.cost.toLocaleString('de-DE') }} €
+                                    <div class="flex min-w-0 flex-1 flex-col gap-1 overflow-hidden py-1">
+                                        <div class="flex items-center justify-between gap-3">
+                                            <p
+                                                class="min-w-0 flex-1 truncate text-[14px] font-bold"
+                                                style="color: #2e3e3f"
+                                                :title="`${offer.id} - ${offer.name}`"
+                                            >
+                                                {{ offer.id }} - {{ offer.name }}
+                                            </p>
+                                            <p
+                                                class="flex-shrink-0 text-[16px] font-semibold"
+                                                :style="offer.accepted ? 'color: #EF8450' : 'color: #2e3e3f'"
+                                            >
+                                                {{ offer.cost.toLocaleString('de-DE') }} €
+                                            </p>
+                                        </div>
+                                        <p
+                                            class="line-clamp-2 text-[12px] leading-snug"
+                                            :class="{ 'cursor-help': offer.note && offer.note.trim() }"
+                                            :title="offer.note && offer.note.trim() ? offer.note.trim() : undefined"
+                                            style="color: #8f9ba7"
+                                        >
+                                            {{ (offer.note && offer.note.trim()) || 'Weitere Informationen zum Angebot folgen.' }}
                                         </p>
                                     </div>
-                                    <p
-                                        class="line-clamp-2 text-[12px] leading-snug"
-                                        :class="{ 'cursor-help': offer.note && offer.note.trim() }"
-                                        :title="offer.note && offer.note.trim() ? offer.note.trim() : undefined"
-                                        style="color: #8f9ba7"
+                                </div>
+
+                                <!--
+                                    Admin-only row, deliberately outside the pill so the
+                                    customer card's shape and rhythm are untouched. Indented
+                                    to the pill's text column (16px padding + 24px radio + 16px gap).
+                                -->
+                                <div v-if="admin" class="flex items-center justify-between gap-3 pr-4 pl-14">
+                                    <span
+                                        class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10.5px] font-bold"
+                                        :style="offerStatusPill(offer.status)"
                                     >
-                                        {{ (offer.note && offer.note.trim()) || 'Weitere Informationen zum Angebot folgen.' }}
-                                    </p>
+                                        <span class="h-[4px] w-[4px] rounded-full bg-current"></span>
+                                        {{ offerStatusLabel(offer.status) }}
+                                    </span>
+
+                                    <div v-if="offer.status === 'draft' || offer.status === 'published'" class="flex items-center gap-1.5">
+                                        <button
+                                            v-if="offer.status === 'draft'"
+                                            type="button"
+                                            class="rounded-full border border-[#01b990] px-3 py-1 text-[11px] font-bold text-[#01b990] transition-all hover:bg-[#01b990] hover:text-white disabled:opacity-40"
+                                            :disabled="mutatingOfferId === offer.offerId"
+                                            @click.stop="publishOffer(offer.offerId)"
+                                        >
+                                            Veröffentlichen
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            class="rounded-full border border-[#ECECEC] px-3 py-1 text-[11px] font-bold text-[#EF4444] transition-all hover:border-[#EF4444] hover:bg-[#EF4444] hover:text-white disabled:opacity-40"
+                                            :disabled="mutatingOfferId === offer.offerId"
+                                            @click.stop="withdrawOffer(offer.offerId)"
+                                        >
+                                            {{ offer.status === 'draft' ? 'Verwerfen' : 'Zurückziehen' }}
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
 
                         <div class="mt-6 px-6 pb-6">
                             <button
+                                v-if="admin"
+                                type="button"
+                                class="w-full rounded-[50px] py-4 text-[12px] font-semibold tracking-wide uppercase transition-all disabled:cursor-not-allowed"
+                                :style="
+                                    acceptableOnBehalf
+                                        ? 'background: #01B990; color: #ffffff'
+                                        : 'background: #e0e0e0; color: #9e9e9e'
+                                "
+                                :disabled="!acceptableOnBehalf"
+                                :title="onBehalfHint"
+                                @click.stop="acceptableOnBehalf && requestSelect(acceptableOnBehalf.offerId)"
+                            >
+                                Im Auftrag des Kunden annehmen
+                            </button>
+
+                            <button
+                                v-else
                                 class="w-full rounded-[50px] py-4 text-[12px] font-semibold tracking-wide uppercase"
                                 style="background: #e0e0e0; color: #9e9e9e"
                             >
@@ -494,7 +642,10 @@ function formatDate(value: string | null): string {
 
                     <template v-if="besichtigungsort">
                         <div class="flex items-center gap-5 pb-6">
-                            <div class="flex size-[56px] shrink-0 items-center justify-center rounded-full" style="background-color: rgba(1, 185, 144, 0.1)">
+                            <div
+                                class="flex size-[56px] shrink-0 items-center justify-center rounded-full"
+                                style="background-color: rgba(1, 185, 144, 0.1)"
+                            >
                                 <IconMdiOfficeBuildingOutline class="size-7" style="color: #01b990" />
                             </div>
                             <p class="min-w-0 flex-1 text-[18px] font-bold wrap-break-word" style="color: #2e3e3f">
@@ -572,7 +723,13 @@ function formatDate(value: string | null): string {
             >
                 <template #actions="{ entry }">
                     <template v-if="entry.docUrl">
-                        <a :href="entry.docUrl" target="_blank" rel="noopener" class="text-[#01b990] hover:opacity-70" title="Gutachten herunterladen">
+                        <a
+                            :href="entry.docUrl"
+                            target="_blank"
+                            rel="noopener"
+                            class="text-[#01b990] hover:opacity-70"
+                            title="Gutachten herunterladen"
+                        >
                             <IconMaterialSymbolsDownload class="size-[18.5px] shrink-0" />
                         </a>
                         <a :href="entry.docUrl" target="_blank" rel="noopener" class="text-[#01b990] hover:opacity-70" title="Gutachten öffnen">
@@ -647,44 +804,94 @@ function formatDate(value: string | null): string {
                 </div>
 
                 <div class="flex flex-col gap-3 px-4">
-                    <div
-                        v-for="offer in offersData"
-                        :key="offer.id"
-                        class="flex items-center gap-3 rounded-[20px] border px-3 py-3"
-                        :style="
-                            offer.accepted ? 'border-color: #EF8450; background: rgba(239, 132, 80, 0.08)' : 'border-color: #ECECEC; background: white'
-                        "
-                    >
-                        <button
-                            type="button"
-                            :disabled="!!acceptedOffer || selectingOfferId === offer.offerId"
-                            class="mt-1 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border-2 disabled:cursor-default"
-                            :style="offer.accepted ? 'border-color: #EF8450; background: #EF8450' : 'border-color: #B7C2C2; background: white'"
-                            title="Angebot auswählen"
-                            @click.stop="requestSelect(offer.offerId)"
+                    <div v-for="offer in offersData" :key="offer.id" class="flex flex-col gap-2">
+                        <div
+                            class="flex items-center gap-3 rounded-[20px] border px-3 py-3"
+                            :style="
+                                offer.accepted
+                                    ? 'border-color: #EF8450; background: rgba(239, 132, 80, 0.08)'
+                                    : 'border-color: #ECECEC; background: white'
+                            "
                         >
-                            <div v-if="offer.accepted" class="h-3.5 w-3.5 rounded-full bg-white"></div>
-                        </button>
+                            <button
+                                type="button"
+                                :disabled="!canSelect(offer)"
+                                class="mt-1 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border-2 disabled:cursor-default"
+                                :style="offer.accepted ? 'border-color: #EF8450; background: #EF8450' : 'border-color: #B7C2C2; background: white'"
+                                :title="selectTitle(offer)"
+                                @click.stop="requestSelect(offer.offerId)"
+                            >
+                                <div v-if="offer.accepted" class="h-3.5 w-3.5 rounded-full bg-white"></div>
+                            </button>
 
-                        <div class="flex min-w-0 flex-1 flex-col gap-1 overflow-hidden">
-                            <div class="flex items-center justify-between gap-2">
-                                <p class="min-w-0 flex-1 truncate text-[13px] font-bold" style="color: #2e3e3f" :title="`${offer.id} - ${offer.name}`">
-                                    {{ offer.id }} - {{ offer.name }}
-                                </p>
-                                <p class="flex-shrink-0 text-[14px] font-semibold" :style="offer.accepted ? 'color: #EF8450' : 'color: #2e3e3f'">
-                                    {{ offer.cost.toLocaleString('de-DE') }} €
+                            <div class="flex min-w-0 flex-1 flex-col gap-1 overflow-hidden">
+                                <div class="flex items-center justify-between gap-2">
+                                    <p
+                                        class="min-w-0 flex-1 truncate text-[13px] font-bold"
+                                        style="color: #2e3e3f"
+                                        :title="`${offer.id} - ${offer.name}`"
+                                    >
+                                        {{ offer.id }} - {{ offer.name }}
+                                    </p>
+                                    <p class="flex-shrink-0 text-[14px] font-semibold" :style="offer.accepted ? 'color: #EF8450' : 'color: #2e3e3f'">
+                                        {{ offer.cost.toLocaleString('de-DE') }} €
+                                    </p>
+                                </div>
+                                <p
+                                    class="line-clamp-2 text-[11px] leading-snug"
+                                    :class="{ 'cursor-help': offer.note && offer.note.trim() }"
+                                    :title="offer.note && offer.note.trim() ? offer.note.trim() : undefined"
+                                    style="color: #8f9ba7"
+                                >
+                                    {{ (offer.note && offer.note.trim()) || 'Weitere Informationen zum Angebot folgen.' }}
                                 </p>
                             </div>
-                            <p
-                                class="line-clamp-2 text-[11px] leading-snug"
-                                :class="{ 'cursor-help': offer.note && offer.note.trim() }"
-                                :title="offer.note && offer.note.trim() ? offer.note.trim() : undefined"
-                                style="color: #8f9ba7"
+                        </div>
+
+                        <div v-if="admin" class="flex flex-wrap items-center justify-between gap-2 pr-1 pl-8">
+                            <span
+                                class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10.5px] font-bold"
+                                :style="offerStatusPill(offer.status)"
                             >
-                                {{ (offer.note && offer.note.trim()) || 'Weitere Informationen zum Angebot folgen.' }}
-                            </p>
+                                <span class="h-[4px] w-[4px] rounded-full bg-current"></span>
+                                {{ offerStatusLabel(offer.status) }}
+                            </span>
+
+                            <div v-if="offer.status === 'draft' || offer.status === 'published'" class="flex items-center gap-1.5">
+                                <button
+                                    v-if="offer.status === 'draft'"
+                                    type="button"
+                                    class="rounded-full border border-[#01b990] px-3 py-1 text-[11px] font-bold text-[#01b990] disabled:opacity-40"
+                                    :disabled="mutatingOfferId === offer.offerId"
+                                    @click.stop="publishOffer(offer.offerId)"
+                                >
+                                    Veröffentlichen
+                                </button>
+
+                                <button
+                                    type="button"
+                                    class="rounded-full border border-[#ECECEC] px-3 py-1 text-[11px] font-bold text-[#EF4444] disabled:opacity-40"
+                                    :disabled="mutatingOfferId === offer.offerId"
+                                    @click.stop="withdrawOffer(offer.offerId)"
+                                >
+                                    {{ offer.status === 'draft' ? 'Verwerfen' : 'Zurückziehen' }}
+                                </button>
+                            </div>
                         </div>
                     </div>
+                </div>
+
+                <div v-if="admin && !acceptedOffer" class="px-4 pt-4">
+                    <button
+                        type="button"
+                        class="w-full rounded-[50px] py-3 text-[12px] font-semibold tracking-wide uppercase disabled:cursor-not-allowed"
+                        :style="acceptableOnBehalf ? 'background: #01B990; color: #ffffff' : 'background: #e0e0e0; color: #9e9e9e'"
+                        :disabled="!acceptableOnBehalf"
+                        :title="onBehalfHint"
+                        @click.stop="acceptableOnBehalf && requestSelect(acceptableOnBehalf.offerId)"
+                    >
+                        Im Auftrag des Kunden annehmen
+                    </button>
                 </div>
 
                 <div v-if="acceptedOffer" class="px-4 pt-4 pb-4">
@@ -781,9 +988,15 @@ function formatDate(value: string | null): string {
 
     <div v-if="pendingOfferId" class="fixed inset-0 z-50 flex items-center justify-center bg-black/5 p-4" @click="cancelSelect">
         <div class="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl" @click.stop>
-            <h3 class="text-[18px] font-bold text-[#2e3e3f]">Angebot auswählen</h3>
+            <h3 class="text-[18px] font-bold text-[#2e3e3f]">
+                {{ admin ? 'Im Auftrag des Kunden annehmen' : 'Angebot auswählen' }}
+            </h3>
             <p class="mt-3 text-[14px] leading-relaxed text-[#5a6b7a]">
-                Sind Sie sicher, dass Sie dieses Angebot auswählen möchten? Sie können die Auswahl danach nicht mehr ändern.
+                {{
+                    admin
+                        ? 'Dieses Angebot wird verbindlich im Auftrag des Kunden angenommen. Alle übrigen Angebote werden geschlossen und die Auswahl kann danach nicht mehr geändert werden.'
+                        : 'Sind Sie sicher, dass Sie dieses Angebot auswählen möchten? Sie können die Auswahl danach nicht mehr ändern.'
+                }}
             </p>
             <div class="mt-6 flex justify-end gap-3">
                 <button

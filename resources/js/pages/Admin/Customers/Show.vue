@@ -88,13 +88,7 @@ const createVehicleOpen = ref(false);
     <AdminLayout>
         <template #header>
             <div class="flex min-w-0 flex-1 items-center gap-3">
-                <Link
-                    :href="route('admin.customers.index', { type })"
-                    class="flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] bg-[#f4f7f6] text-[#6f8585] transition-all hover:bg-[#eaf0ef] hover:text-[#10393b]"
-                    title="Zurück zur Kundenliste"
-                >
-                    <IconMdiArrowLeft class="size-[18px]" />
-                </Link>
+                <BackButton :href="route('admin.customers.index', { type })" label="Zurück zur Kundenliste" />
 
                 <div class="min-w-0 flex-1">
                     <p class="text-[10.5px] font-bold tracking-[0.12em] text-[#9bb0af] uppercase">

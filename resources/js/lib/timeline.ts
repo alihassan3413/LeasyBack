@@ -1,3 +1,4 @@
+import { formatGermanDateTime, type CustomerOrderFlowStep } from '@/lib/customerOrderFlow';
 import { getOrderStatusLabel } from '@/lib/vehicleStatus';
 
 const CORE_PATH = ['confirmed', 'inspected', 'workshop', 'delivered', 'completed'] as const;
@@ -33,6 +34,60 @@ export function getUpcomingSteps(currentStatus?: string | null): UpcomingStep[] 
     return CORE_PATH.slice(index + 1).map((coreStatus) => ({
         status: coreStatus,
         label: getOrderStatusLabel(coreStatus),
+    }));
+}
+
+/** One rendered row of OrderStatusTimeline.vue. */
+export interface OrderTimelineEntry {
+    datetime: string;
+    label: string;
+    sublabel?: string;
+    completed?: boolean;
+    isFuture?: boolean;
+    isNext?: boolean;
+    isCurrent?: boolean;
+    isCancelled?: boolean;
+    isRejected?: boolean;
+    isReport?: boolean;
+    docUrl?: string;
+    invoiceUrl?: string;
+    showPaymentAction?: boolean;
+    tooltipDescription?: string;
+}
+
+/**
+ * Renders the customer order flow as timeline rows, falling back to the
+ * generic "what comes next" list when there is no flow to render (no order,
+ * or a status getCustomerOrderFlowSteps() can't place). Lives here rather
+ * than in a page so the Admin order detail page and the customer dashboard's
+ * VehicleExpandedPanel.vue show the same timeline from the same code.
+ */
+export function toOrderTimelineEntries(steps: CustomerOrderFlowStep[] | null, fallbackStatus?: string | null): OrderTimelineEntry[] {
+    if (steps) {
+        return steps.map((step) => ({
+            datetime: step.datetime ? formatGermanDateTime(step.datetime) : '',
+            label: step.label,
+            sublabel: step.subtitle || undefined,
+            tooltipDescription: step.tooltipDescription,
+            completed: step.completed || step.isCurrent,
+            isFuture: !(step.completed || step.isCurrent) && !step.isCancelled && !step.isRejected,
+            isNext: step.isNext,
+            isCurrent: step.isCurrent,
+            isCancelled: step.isCancelled,
+            isRejected: step.isRejected,
+            isReport: !!(step.reportDocUrl || step.invoiceDocUrl || step.showPaymentAction),
+            docUrl: step.reportDocUrl,
+            invoiceUrl: step.invoiceDocUrl,
+            showPaymentAction: step.showPaymentAction,
+        }));
+    }
+
+    return getUpcomingSteps(fallbackStatus).map((step, index) => ({
+        datetime: '',
+        label: step.label,
+        completed: false,
+        isFuture: true,
+        isNext: index === 0,
     }));
 }
 

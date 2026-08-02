@@ -1,6 +1,10 @@
 <script setup lang="ts">
+import AdminOrderActionsMenu from '@/components/admin/AdminOrderActionsMenu.vue';
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
+import VehicleExpandedPanel from '@/components/vehicle/VehicleExpandedPanel.vue';
 import AdminLayout from '@/layouts/AdminLayout.vue';
 import { ADMIN_ORDER_STATUS_FILTERS, getAdminDashboardStatus as getStatus } from '@/lib/adminStatus';
+import { toVehicleData } from '@/lib/adminVehicle';
 import type { AdminVehicleRow } from '@/types/admin';
 import { Head, router } from '@inertiajs/vue3';
 import { computed, ref, watch } from 'vue';
@@ -21,6 +25,8 @@ interface VehicleList {
 const props = defineProps<{
     vehicles: VehicleList;
     filters: { search: string; status: string; user_type: OwnerType };
+    /** Only ever the row currently expanded — see VehicleController::index(). */
+    expandedVehicle: AdminVehicleRow | null;
 }>();
 
 const search = ref(props.filters.search);
@@ -129,6 +135,47 @@ function formatGermanDate(value: string | null): string {
 function openDetail(vehicle: AdminVehicleRow) {
     router.visit(route('admin.vehicles.show', vehicle.vehicle_id));
 }
+
+/**
+ * Rows expand in place, as in v1's Admin vehicle table. The list itself is
+ * deliberately not hydrated for the panel (that would be three extra queries
+ * per row), so opening a row asks the server for just that one vehicle via a
+ * partial reload of `expandedVehicle`.
+ */
+const expandedId = ref<string | null>(null);
+const expanding = ref(false);
+
+const panelVehicle = computed(() =>
+    props.expandedVehicle && props.expandedVehicle.vehicle_id === expandedId.value ? toVehicleData(props.expandedVehicle) : null,
+);
+
+function toggleExpand(vehicle: AdminVehicleRow) {
+    if (expandedId.value === vehicle.vehicle_id) {
+        expandedId.value = null;
+
+        return;
+    }
+
+    expandedId.value = vehicle.vehicle_id;
+
+    if (props.expandedVehicle?.vehicle_id === vehicle.vehicle_id) {
+        return;
+    }
+
+    expanding.value = true;
+
+    router.reload({
+        only: ['expandedVehicle'],
+        data: { expanded: vehicle.vehicle_id },
+        onFinish: () => (expanding.value = false),
+    });
+}
+
+/** Any filter/page change re-queries the list, which drops whatever row was open. */
+watch(
+    () => props.vehicles.data,
+    () => (expandedId.value = null),
+);
 </script>
 
 <template>
@@ -221,7 +268,7 @@ function openDetail(vehicle: AdminVehicleRow) {
                                 <th class="admin-th">Kunde</th>
                                 <th class="admin-th">Auftragsstatus</th>
                                 <th class="admin-th">Leasingende</th>
-                                <th class="w-12 border-b border-[#eef3f2]"></th>
+                                <th class="w-28 border-b border-[#eef3f2]"></th>
                             </tr>
                         </thead>
 
@@ -238,63 +285,107 @@ function openDetail(vehicle: AdminVehicleRow) {
                                 <td colspan="6" class="py-16 text-center text-[13px] text-[#9bb0af]">Keine Fahrzeuge gefunden.</td>
                             </tr>
 
-                            <tr
-                                v-for="vehicle in loading ? [] : vehicles.data"
-                                :key="vehicle.vehicle_id"
-                                class="group cursor-pointer border-b border-[#eef3f2] transition-colors hover:bg-[#f6f9f8]"
-                                @click="openDetail(vehicle)"
-                            >
-                                <td class="px-5 py-3.5">
-                                    <div class="flex items-center gap-3">
-                                        <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-[#ef8450]/10 text-[#ef8450]">
-                                            <IconMdiCarOutline class="size-[17px]" />
-                                        </div>
-
-                                        <div class="min-w-0">
-                                            <div class="truncate text-[13.5px] font-bold text-[#10393b]">
-                                                {{ [vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Ohne Marke' }}
+                            <template v-for="vehicle in loading ? [] : vehicles.data" :key="vehicle.vehicle_id">
+                                <tr
+                                    class="group cursor-pointer border-b border-[#eef3f2] transition-colors hover:bg-[#f6f9f8]"
+                                    :class="expandedId === vehicle.vehicle_id ? 'bg-[#f6f9f8]' : ''"
+                                    @click="toggleExpand(vehicle)"
+                                >
+                                    <td class="px-5 py-3.5">
+                                        <div class="flex items-center gap-3">
+                                            <div
+                                                class="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-[#ef8450]/10 text-[#ef8450]"
+                                            >
+                                                <IconMdiCarOutline class="size-[17px]" />
                                             </div>
-                                            <div class="mt-0.5 text-[11px] text-[#9bb0af]">
-                                                {{ vehicle.vehicle_belongs === 'B2B' ? 'Firmenkunde' : 'Privatkunde' }}
+
+                                            <div class="min-w-0">
+                                                <div class="truncate text-[13.5px] font-bold text-[#10393b]">
+                                                    {{ [vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Ohne Marke' }}
+                                                </div>
+                                                <div class="mt-0.5 text-[11px] text-[#9bb0af]">
+                                                    {{ vehicle.vehicle_belongs === 'B2B' ? 'Firmenkunde' : 'Privatkunde' }}
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
-                                </td>
+                                    </td>
 
-                                <td class="px-5 py-3.5">
-                                    <div class="font-mono text-[13px] font-bold text-[#10393b]">{{ vehicle.license_plate }}</div>
-                                    <div class="mt-0.5 truncate font-mono text-[11px] text-[#9bb0af]">{{ vehicle.vin || '—' }}</div>
-                                </td>
+                                    <td class="px-5 py-3.5">
+                                        <div class="font-mono text-[13px] font-bold text-[#10393b]">{{ vehicle.license_plate }}</div>
+                                        <div class="mt-0.5 truncate font-mono text-[11px] text-[#9bb0af]">{{ vehicle.vin || '—' }}</div>
+                                    </td>
 
-                                <td class="max-w-[220px] truncate px-5 py-3.5 text-[13px] text-[#5a6e6c]">{{ ownerLabel(vehicle) }}</td>
+                                    <td class="max-w-[220px] truncate px-5 py-3.5 text-[13px] text-[#5a6e6c]">{{ ownerLabel(vehicle) }}</td>
 
-                                <td class="px-5 py-3.5">
-                                    <span
-                                        class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold"
-                                        :style="{
-                                            background: getStatus(vehicle.current_order_status).background,
-                                            color: getStatus(vehicle.current_order_status).color,
-                                        }"
-                                    >
-                                        <span class="h-[5px] w-[5px] rounded-full bg-current"></span>
-                                        {{ getStatus(vehicle.current_order_status).label }}
-                                    </span>
+                                    <td class="px-5 py-3.5">
+                                        <span
+                                            class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold"
+                                            :style="{
+                                                background: getStatus(vehicle.current_order_status).background,
+                                                color: getStatus(vehicle.current_order_status).color,
+                                            }"
+                                        >
+                                            <span class="h-[5px] w-[5px] rounded-full bg-current"></span>
+                                            {{ getStatus(vehicle.current_order_status).label }}
+                                        </span>
 
-                                    <div v-if="vehicle.current_auftragsnummer" class="mt-1 truncate font-mono text-[11px] text-[#9bb0af]">
-                                        {{ vehicle.current_auftragsnummer }}
-                                    </div>
-                                </td>
+                                        <div v-if="vehicle.current_auftragsnummer" class="mt-1 truncate font-mono text-[11px] text-[#9bb0af]">
+                                            {{ vehicle.current_auftragsnummer }}
+                                        </div>
+                                    </td>
 
-                                <td class="px-5 py-3.5 text-[12.5px] text-[#9bb0af] tabular-nums">{{ formatGermanDate(vehicle.leasing_end_date) }}</td>
+                                    <td class="px-5 py-3.5 text-[12.5px] text-[#9bb0af] tabular-nums">
+                                        {{ formatGermanDate(vehicle.leasing_end_date) }}
+                                    </td>
 
-                                <td class="px-3 py-3.5">
-                                    <span
-                                        class="flex h-8 w-8 items-center justify-center rounded-[9px] text-[#bcccca] transition-all group-hover:bg-[#10393b] group-hover:text-white"
-                                    >
-                                        <IconMdiArrowTopRight class="size-[15px]" />
-                                    </span>
-                                </td>
-                            </tr>
+                                    <td class="px-3 py-3.5">
+                                        <div class="flex items-center justify-end gap-1" @click.stop>
+                                            <AdminOrderActionsMenu
+                                                :vehicle-id="vehicle.vehicle_id"
+                                                :order-id="vehicle.current_order_id"
+                                                :auftragsnummer="vehicle.current_auftragsnummer"
+                                                :order-status="vehicle.current_order_status"
+                                                :available-transitions="vehicle.current_order_transitions"
+                                            >
+                                                <template #extra>
+                                                    <DropdownMenuItem @select="openDetail(vehicle)">
+                                                        <IconMdiOpenInNew />
+                                                        Detailseite öffnen
+                                                    </DropdownMenuItem>
+                                                </template>
+                                            </AdminOrderActionsMenu>
+
+                                            <button
+                                                type="button"
+                                                class="flex h-8 w-8 items-center justify-center rounded-[9px] text-[#bcccca] transition-all group-hover:bg-[#10393b] group-hover:text-white"
+                                                :title="expandedId === vehicle.vehicle_id ? 'Details ausblenden' : 'Details anzeigen'"
+                                                :aria-expanded="expandedId === vehicle.vehicle_id"
+                                                @click="toggleExpand(vehicle)"
+                                            >
+                                                <IconMdiChevronDown
+                                                    class="size-[17px] transition-transform duration-200"
+                                                    :class="expandedId === vehicle.vehicle_id ? 'rotate-180' : ''"
+                                                />
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+
+                                <tr v-if="expandedId === vehicle.vehicle_id && expanding">
+                                    <td colspan="6" class="border-b border-[#eef3f2] bg-[#EFEFEF] p-4">
+                                        <div class="flex flex-col gap-3">
+                                            <div
+                                                v-for="bar in 4"
+                                                :key="bar"
+                                                class="h-4 animate-pulse rounded-full bg-white"
+                                                :style="{ width: 40 + bar * 12 + '%' }"
+                                            ></div>
+                                        </div>
+                                    </td>
+                                </tr>
+
+                                <VehicleExpandedPanel v-else-if="expandedId === vehicle.vehicle_id && panelVehicle" :vehicle="panelVehicle" admin />
+                            </template>
                         </tbody>
                     </table>
                 </div>
@@ -325,118 +416,6 @@ function openDetail(vehicle: AdminVehicleRow) {
 </template>
 
 <style scoped>
-.admin-th {
-    border-bottom: 1px solid #eef3f2;
-    padding: 14px 20px;
-    text-align: left;
-    color: #9bb0af;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-}
-
-.admin-search {
-    display: flex;
-    min-width: 0;
-    max-width: 320px;
-    flex: 1;
-    align-items: center;
-    gap: 8px;
-    border: 1px solid #e9efee;
-    border-radius: 999px;
-    background: #f4f7f6;
-    padding: 7px 14px;
-    color: #6f8585;
-    transition:
-        border-color 150ms ease,
-        background 150ms ease;
-}
-
-.admin-search:focus-within {
-    border-color: #01b990;
-    background: #ffffff;
-}
-
-.admin-search-input {
-    min-width: 0;
-    flex: 1;
-    border: 0;
-    outline: 0;
-    background: transparent;
-    color: #1a2e2f;
-    font-size: 13px;
-}
-
-.admin-search-input::placeholder {
-    color: #9bb0af;
-}
-
-.admin-search-input::-webkit-search-cancel-button {
-    display: none;
-}
-
-.search-clear {
-    display: flex;
-    width: 24px;
-    height: 24px;
-    align-items: center;
-    justify-content: center;
-    border-radius: 999px;
-    color: #9bb0af;
-    transition:
-        background 150ms ease,
-        color 150ms ease;
-}
-
-.search-clear:hover {
-    background: #ffffff;
-    color: #10393b;
-}
-
-.lb-pg {
-    display: flex;
-    width: 32px;
-    height: 32px;
-    align-items: center;
-    justify-content: center;
-    border: 1px solid #eef3f2;
-    border-radius: 8px;
-    color: #6f8585;
-    font-size: 12.5px;
-    font-weight: 700;
-    transition:
-        border-color 150ms ease,
-        background 150ms ease,
-        color 150ms ease;
-}
-
-.lb-pg:hover:not(:disabled) {
-    border-color: #10393b;
-    color: #10393b;
-}
-
-.lb-pg:disabled {
-    cursor: not-allowed;
-    opacity: 0.35;
-}
-
-.lb-pg-active {
-    border-color: #10393b;
-    background: #10393b;
-    color: #ffffff;
-}
-
-.lb-pg-active:hover:not(:disabled) {
-    color: #ffffff;
-}
-
-.lb-pg-dot {
-    cursor: default;
-    border-color: transparent;
-    color: #9bb0af;
-}
-
 button:not(:disabled) {
     cursor: pointer;
 }

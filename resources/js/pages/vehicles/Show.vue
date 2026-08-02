@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BackButton from '@/components/BackButton.vue';
 import AddVehicleModal from '@/components/vehicle/AddVehicleModal.vue';
 import OfferComparison from '@/components/vehicle/OfferComparison.vue';
 import OrderCreationModal from '@/components/vehicle/OrderCreationModal.vue';
@@ -9,9 +10,8 @@ import { getCustomerOrderFlowSteps } from '@/lib/customerOrderFlow';
 import { getVehicleStatusDisplay } from '@/lib/vehicleStatus';
 import type { StationData } from '@/types/order';
 import type { VehicleData } from '@/types/vehicle';
-import { Head, Link, router } from '@inertiajs/vue3';
+import { Head, router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
-import MdiArrowLeft from '~icons/mdi/arrow-left';
 import MdiFileDocumentOutline from '~icons/mdi/file-document-outline';
 import MdiOpenInNew from '~icons/mdi/open-in-new';
 import MdiPencilOutline from '~icons/mdi/pencil-outline';
@@ -117,62 +117,57 @@ function formatDateTime(value: string | undefined): string {
     <Head :title="vehicle.license_plate" />
 
     <AppLayout>
+        <template #header>
+            <div class="flex min-w-0 items-center gap-3">
+                <BackButton :href="route('dashboard')" label="Zurück zum Dashboard" />
+
+                <div class="flex min-w-0 items-center gap-2.5">
+                    <h1 class="truncate text-[17px] leading-none font-extrabold tracking-tight text-[#10393b]">
+                        {{ vehicle.license_plate }}
+                    </h1>
+                    <span
+                        class="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold text-white"
+                        :style="{ backgroundColor: statusColor }"
+                    >
+                        {{ status.label }}
+                    </span>
+                </div>
+            </div>
+        </template>
+
         <div class="mx-auto flex max-w-[1100px] flex-col gap-5">
-            <Link
-                :href="route('dashboard')"
-                class="inline-flex w-fit items-center gap-1.5 text-[13px] font-semibold text-[#6f8585] transition-colors hover:text-[#10393b]"
-            >
-                <MdiArrowLeft class="text-[16px]" />
-                Zurück zum Dashboard
-            </Link>
+            <section class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p class="text-[13.5px] text-[#00000080]">
+                    {{ [vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Ohne Marke/Modell' }}
+                    <span v-if="currentOrder"> · Auftrag {{ currentOrder.auftragsnummer }}</span>
+                </p>
 
-            <section class="overflow-hidden rounded-[18px]" style="background: linear-gradient(180deg, #10393b 0%, #0d3133 100%)">
-                <div class="flex flex-col gap-5 p-6 md:flex-row md:items-center md:justify-between">
-                    <div class="min-w-0">
-                        <div class="flex flex-wrap items-center gap-3">
-                            <h1 class="text-[26px] leading-none font-extrabold tracking-tight text-white md:text-[30px]">
-                                {{ vehicle.license_plate }}
-                            </h1>
-                            <span
-                                class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11.5px] font-bold text-white"
-                                :style="{ backgroundColor: statusColor }"
-                            >
-                                {{ status.label }}
-                            </span>
-                        </div>
-                        <p class="mt-2 text-[13.5px] text-white/55">
-                            {{ [vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Ohne Marke/Modell' }}
-                            <span v-if="currentOrder"> · Auftrag {{ currentOrder.auftragsnummer }}</span>
-                        </p>
-                    </div>
-
-                    <div class="flex flex-wrap items-center gap-2">
-                        <button
-                            v-if="!currentOrder"
-                            type="button"
-                            class="h-10 rounded-full px-5 text-[13px] font-semibold text-white shadow-lg transition-all"
-                            style="background: #ef8450"
-                            @click="orderOpen = true"
-                        >
-                            Vorgang starten
-                        </button>
-                        <button
-                            type="button"
-                            class="flex h-10 items-center gap-2 rounded-full border border-white/15 px-4 text-[13px] font-semibold text-white/85 transition hover:border-white/35 hover:text-white"
-                            @click="uploadOpen = true"
-                        >
-                            <MdiTrayArrowUp class="text-[16px]" />
-                            Dokument
-                        </button>
-                        <button
-                            type="button"
-                            class="flex h-10 items-center gap-2 rounded-full border border-white/15 px-4 text-[13px] font-semibold text-white/85 transition hover:border-white/35 hover:text-white"
-                            @click="editOpen = true"
-                        >
-                            <MdiPencilOutline class="text-[16px]" />
-                            Bearbeiten
-                        </button>
-                    </div>
+                <div class="flex flex-wrap items-center gap-2">
+                    <button
+                        v-if="!currentOrder"
+                        type="button"
+                        class="h-10 rounded-full px-5 text-[13px] font-semibold text-white shadow-lg transition-all"
+                        style="background: #ef8450"
+                        @click="orderOpen = true"
+                    >
+                        Vorgang starten
+                    </button>
+                    <button
+                        type="button"
+                        class="flex h-10 items-center gap-2 rounded-full border border-[#d8e4e3] bg-white px-4 text-[13px] font-semibold text-[#10393b] transition hover:border-[#01B990]"
+                        @click="uploadOpen = true"
+                    >
+                        <MdiTrayArrowUp class="text-[16px] text-[#6f8585]" />
+                        Dokument
+                    </button>
+                    <button
+                        type="button"
+                        class="flex h-10 items-center gap-2 rounded-full border border-[#d8e4e3] bg-white px-4 text-[13px] font-semibold text-[#10393b] transition hover:border-[#01B990]"
+                        @click="editOpen = true"
+                    >
+                        <MdiPencilOutline class="text-[16px] text-[#6f8585]" />
+                        Bearbeiten
+                    </button>
                 </div>
             </section>
 

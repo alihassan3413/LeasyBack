@@ -57,14 +57,21 @@ class VehicleReportService
         $destPath = "vehicle-reports/{$validated['auftragsnummer']}/{$filename}";
         Storage::disk('documents')->put($destPath, $bytes);
 
-        $doc = DB::transaction(function () use ($validated, $destPath, $user) {
+        // Read once and reuse: the notify check below used to test an
+        // undefined `$published`, which PHP evaluated as null — so a
+        // transfer that went straight to published never notified the
+        // customer. (transfer() has no web route yet, which is why nobody
+        // noticed.)
+        $published = (bool) ($validated['published'] ?? false);
+
+        $doc = DB::transaction(function () use ($validated, $destPath, $published, $user) {
             $doc = VehicleReportDocument::create([
                 'auftragsnummer' => $validated['auftragsnummer'],
                 'vehicle_id' => $validated['vehicle_id'],
                 'document_type' => $validated['document_type'] ?? null,
                 'document_title' => $validated['document_title'] ?? null,
                 'path' => $destPath,
-                'published' => $validated['published'] ?? false,
+                'published' => $published,
                 'source_assessment_document_id' => $validated['source_assessment_document_id'],
                 'created_by_user_id' => $user->id,
                 'updated_by_user_id' => $user->id,
