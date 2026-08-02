@@ -1,8 +1,14 @@
 import type { LucideIcon } from 'lucide-vue-next';
 import type { UserType } from './auth';
+import type { B2bSharedState } from './b2b';
 
 export interface Auth {
     user: User;
+    /**
+     * Company membership context — populated for Firmenkunde accounts only,
+     * null for everyone else. See HandleInertiaRequests::b2bState().
+     */
+    b2b: B2bSharedState | null;
 }
 
 export interface BreadcrumbItem {

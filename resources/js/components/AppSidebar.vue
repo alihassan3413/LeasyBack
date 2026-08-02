@@ -1,10 +1,15 @@
 <script setup lang="ts">
+import CompanySwitcher from '@/components/b2b/CompanySwitcher.vue';
 import type { SharedData, User } from '@/types';
 import type { UserType } from '@/types/auth';
+import type { B2bPermissionValue } from '@/types/b2b';
+import { useB2bPermissions } from '@/composables/useB2bPermissions';
 import { useSessionGuard } from '@/composables/useSessionGuard';
 import { router, usePage } from '@inertiajs/vue3';
 import { computed, ref, type Component } from 'vue';
+import MdiAccountGroupOutline from '~icons/mdi/account-group-outline';
 import MdiAccountOutline from '~icons/mdi/account-outline';
+import MdiDomain from '~icons/mdi/domain';
 import MdiViewDashboardOutline from '~icons/mdi/view-dashboard-outline';
 
 const collapsed = ref(false);
@@ -16,6 +21,8 @@ interface NavItem {
     icon: Component;
     name: string;
     aliases?: string[];
+    /** Company permission required to see this entry (Firmenkunde only). */
+    permission?: B2bPermissionValue;
 }
 
 const navByRole: Record<UserType, NavItem[]> = {
@@ -24,7 +31,11 @@ const navByRole: Record<UserType, NavItem[]> = {
         { label: 'Mein Konto', icon: MdiAccountOutline, name: 'profile.edit' },
     ],
     Firmenkunde: [
-        { label: 'Mein Dashboard', icon: MdiViewDashboardOutline, name: 'dashboard' },
+        { label: 'Mein Dashboard', icon: MdiViewDashboardOutline, name: 'dashboard', permission: 'vehicles.view' },
+        // Doubles as the edit view once registered, so a company that used
+        // "Jetzt überspringen" during onboarding can still complete its data.
+        { label: 'Firmendaten', icon: MdiDomain, name: 'onboarding.b2b.show', permission: 'company.view' },
+        { label: 'Team', icon: MdiAccountGroupOutline, name: 'b2b.members.index', permission: 'members.view' },
         { label: 'Mein Konto', icon: MdiAccountOutline, name: 'profile.edit' },
     ],
     Werksatatt: [{ label: 'Mein Konto', icon: MdiAccountOutline, name: 'profile.edit' }],
@@ -41,9 +52,19 @@ const roleLabels: Record<UserType, string> = {
     Admin: 'Administrator',
 };
 
+const { can, isCompanyUser } = useB2bPermissions();
+
+// A member never sees a nav entry for a page the server would refuse them.
+// `can()` returns true for non-Firmenkunde accounts, so nothing changes for
+// Privatkunde/Werkstatt/Admin.
 const navItems = computed<NavItem[]>(() => {
     const role = user.value?.user_type;
-    return role ? navByRole[role] : [];
+
+    if (!role) {
+        return [];
+    }
+
+    return navByRole[role].filter((item) => !item.permission || can(item.permission));
 });
 
 const roleLabel = computed(() => {
@@ -112,6 +133,11 @@ function handleLogout() {
                 <path d="M9 18l6-6-6-6" />
             </svg>
         </button>
+
+        <!-- Only rendered for users who belong to more than one company. -->
+        <div v-if="isCompanyUser" class="mb-3 shrink-0">
+            <CompanySwitcher :collapsed="collapsed" />
+        </div>
 
         <!-- ── NAV — takes all remaining vertical space, scrolls if needed ── -->
         <nav class="flex min-h-0 flex-1 flex-col gap-0.5 overflow-x-hidden overflow-y-auto pr-0.5">

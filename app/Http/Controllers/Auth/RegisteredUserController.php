@@ -47,14 +47,16 @@ class RegisteredUserController extends Controller
 
         Auth::login($user);
 
-        // Privatkunde (B2C) customers land in the onboarding wizard first
-        // (profile, vehicle, appointment); other account types go straight
-        // to their dashboard, matching leasyback_web's own split between
-        // B2CRegistrationView and the B2B/workshop onboarding flows.
-        if ($user->user_type === UserType::Privatkunde) {
-            return to_route('onboarding.show');
-        }
-
-        return to_route('dashboard');
+        // Customers land in the onboarding flow matching their account type
+        // first — Privatkunde in the three-step wizard (profile, vehicle,
+        // appointment), Firmenkunde in the company registration — mirroring
+        // leasyback_web's split between B2CRegistrationView and
+        // RegisterCompanyView. Werkstatt has no wizard yet and goes straight
+        // to its dashboard.
+        return match ($user->user_type) {
+            UserType::Privatkunde => to_route('onboarding.show'),
+            UserType::Firmenkunde => to_route('onboarding.b2b.show'),
+            default => to_route('dashboard'),
+        };
     }
 }

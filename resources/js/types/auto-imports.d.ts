@@ -105,6 +105,7 @@ declare global {
   const useAppearance: typeof import('../composables/useAppearance').useAppearance
   const useAppointmentCalendar: typeof import('../composables/useAppointmentCalendar').useAppointmentCalendar
   const useAttrs: typeof import('vue').useAttrs
+  const useB2bPermissions: typeof import('../composables/useB2bPermissions').useB2bPermissions
   const useClipboard: typeof import('@vueuse/core').useClipboard
   const useCssModule: typeof import('vue').useCssModule
   const useCssVars: typeof import('vue').useCssVars
@@ -275,6 +276,7 @@ declare module 'vue' {
     readonly useAppearance: UnwrapRef<typeof import('../composables/useAppearance')['useAppearance']>
     readonly useAppointmentCalendar: UnwrapRef<typeof import('../composables/useAppointmentCalendar')['useAppointmentCalendar']>
     readonly useAttrs: UnwrapRef<typeof import('vue')['useAttrs']>
+    readonly useB2bPermissions: UnwrapRef<typeof import('../composables/useB2bPermissions')['useB2bPermissions']>
     readonly useClipboard: UnwrapRef<typeof import('@vueuse/core')['useClipboard']>
     readonly useCssModule: UnwrapRef<typeof import('vue')['useCssModule']>
     readonly useCssVars: UnwrapRef<typeof import('vue')['useCssVars']>

@@ -25,6 +25,7 @@ class B2B extends Model
         'company_name',
         'vat_id',
         'logo_url',
+        'logo_path',
         'contact_email',
         'is_active',
     ];

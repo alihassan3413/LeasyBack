@@ -2,7 +2,10 @@
 
 namespace App\Modules\UserProfile\B2B\Services;
 
+use App\Enums\B2bPermission;
+use App\Enums\B2bRole;
 use App\Models\User;
+use App\Modules\UserProfile\B2B\Data\B2bPermissionSet;
 use Carbon\Carbon;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\DB;
@@ -33,6 +36,7 @@ class B2BService
                 'company_name' => $data['company_name'],
                 'vat_id' => $data['vat_id'] ?? null,
                 'logo_url' => $data['logo_url'] ?? null,
+                'logo_path' => $data['logo_path'] ?? null,
                 'contact_email' => $data['contact_email'] ?? null,
                 'created_at' => $now,
                 'updated_at' => $now,
@@ -40,23 +44,48 @@ class B2BService
             DB::table('user_b2b')->insert([
                 'user_id' => $user->id,
                 'b2b_id' => $b2bId,
-                'role' => 'owner',
+                'role' => B2bRole::Owner->value,
+                // Owners hold every permission implicitly (see
+                // B2bMembership::can); the stored set is written anyway so the
+                // row still says the right thing if they are ever demoted.
+                'permissions' => json_encode(B2bPermissionSet::all()->toArray()),
+                'vehicle_scope' => 'all',
+                'status' => 'active',
+                'joined_at' => $now,
                 'created_at' => $now,
                 'updated_at' => $now,
             ]);
 
+            // The founder acts as the company they just created, even if they
+            // were already a member of someone else's.
+            app(B2bContext::class)->forget($user);
+            app(B2bContext::class)->switchTo($user->refresh(), $b2bId);
+
             return $this->creationResponse($b2bId);
         });
     }
+    /**
+     * The company this user is currently acting as.
+     *
+     * Resolved through B2bContext rather than "any row in user_b2b for this
+     * user": once a person can belong to two companies, picking one by
+     * created_at is arbitrary, and for a profile endpoint that means
+     * intermittently answering with the wrong company's data.
+     */
     public function findForUser(int $userId): ?array
     {
+        $b2bId = app(B2bContext::class)->activeCompanyIdForUserId($userId);
+
+        return $b2bId === null ? null : $this->findById($b2bId);
+    }
+
+    public function findById(string $b2bId): ?array
+    {
         $row = DB::table('b2b as b')
-            ->join('user_b2b as ub', 'ub.b2b_id', '=', 'b.b2b_id')
             ->leftJoin('contacts as c', 'c.contact_id', '=', 'b.contact_id')
             ->leftJoin('addresses as a', 'a.address_id', '=', 'b.address_id')
-            ->where('ub.user_id', $userId)
-            ->orderByDesc('b.created_at')
-            ->select(['b.b2b_id', 'b.company_name', 'b.logo_url', 'b.contact_email',
+            ->where('b.b2b_id', $b2bId)
+            ->select(['b.b2b_id', 'b.company_name', 'b.logo_url', 'b.logo_path', 'b.contact_email',
                 'b.vat_id', 'b.created_at', 'b.updated_at', 'c.contact_id',
                 'c.salutation', 'c.first_name', 'c.last_name', 'a.address_id',
                 'a.street', 'a.number', 'a.additional_address', 'a.zip_code',
@@ -80,6 +109,7 @@ class B2BService
             'b2b' => $row->b2b_id,
             'company_name' => $row->company_name,
             'logo_url' => $row->logo_url,
+            'logo_path' => $row->logo_path,
             'contact_email' => $row->contact_email,
             'vat_id' => $row->vat_id,
             'created_at' => Carbon::parse($row->created_at)->toISOString(),
@@ -97,11 +127,20 @@ class B2BService
     public function update(User $user, string $b2bId, array $data): array
     {
         return DB::transaction(function () use ($user, $b2bId, $data) {
-            $owned = DB::table('user_b2b')->where('user_id', $user->id)
-                ->where('b2b_id', $b2bId)->where('role', 'owner')
-                ->lockForUpdate()->exists();
-            if (! $owned) {
-                $this->fail(403, 'Access denied: you are not the owner of this B2B company');
+            // Permission-based rather than role-based: an owner implicitly
+            // holds ManageCompany, and an owner can additionally delegate it
+            // to a member. Checking the role string directly would make that
+            // delegation silently ineffective here while the route middleware
+            // already let the member through.
+            $allowed = false;
+            foreach (app(B2bContext::class)->memberships($user) as $membership) {
+                if ($membership->b2bId === $b2bId && $membership->can(B2bPermission::ManageCompany)) {
+                    $allowed = true;
+                    break;
+                }
+            }
+            if (! $allowed) {
+                $this->fail(403, 'Access denied: you may not manage this B2B company');
             }
 
             $company = DB::table('b2b')->where('b2b_id', $b2bId)
@@ -130,7 +169,7 @@ class B2BService
             }
 
             $updates = [];
-            foreach (['company_name', 'contact_email', 'vat_id', 'logo_url'] as $field) {
+            foreach (['company_name', 'contact_email', 'vat_id', 'logo_url', 'logo_path'] as $field) {
                 if (array_key_exists($field, $data)) {
                     $updates[$field] = $data[$field];
                 }
@@ -236,6 +275,7 @@ class B2BService
             'company_name' => $row->company_name,
             'vat_id' => $row->vat_id,
             'logo_url' => $row->logo_url,
+            'logo_path' => $row->logo_path,
             'contact_email' => $row->contact_email,
             'created_at' => Carbon::parse($row->created_at)->toISOString(),
             'updated_at' => Carbon::parse($row->updated_at)->toISOString(),

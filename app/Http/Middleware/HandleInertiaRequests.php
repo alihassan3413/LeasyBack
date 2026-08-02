@@ -2,14 +2,18 @@
 
 namespace App\Http\Middleware;
 
+use App\Enums\UserType;
 use App\Http\Controllers\Admin\ImpersonationController;
 use App\Models\User;
+use App\Modules\UserProfile\B2B\Services\B2bContext;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
 class HandleInertiaRequests extends Middleware
 {
+    public function __construct(private readonly B2bContext $b2bContext) {}
+
     /**
      * The root template that's loaded on the first page visit.
      *
@@ -72,6 +76,13 @@ class HandleInertiaRequests extends Middleware
                     'email_verified_at' => $request->user()->email_verified_at,
                     'user_type' => $request->user()->user_type,
                 ] : null,
+                // The company a Firmenkunde is currently acting as, what they
+                // may do in it, and every company they could switch to. Shared
+                // on every request so the UI can hide what the server would
+                // refuse anyway — this is a convenience for rendering, never
+                // the authorization itself, which lives in EnsureB2bPermission
+                // and VehicleScopeService.
+                'b2b' => $this->b2bState($request),
             ],
             // Only ever true for the admin who started the session takeover —
             // the impersonated customer's own sessions carry no such key, so
@@ -92,5 +103,40 @@ class HandleInertiaRequests extends Middleware
                 'warning' => $request->session()->get('warning'),
             ],
         ]);
+    }
+
+    /**
+     * @return array{
+     *     active: array<string, mixed>|null,
+     *     memberships: list<array<string, mixed>>,
+     *     permissions: list<string>
+     * }|null
+     */
+    private function b2bState(Request $request): ?array
+    {
+        $user = $request->user();
+
+        if ($user === null || $user->user_type !== UserType::Firmenkunde) {
+            return null;
+        }
+
+        $active = $this->b2bContext->activeMembership($user);
+
+        return [
+            'active' => $active?->toSharedArray(),
+            // Only what a company switcher needs — not each membership's full
+            // permission set, which is nobody's business but the active one's.
+            'memberships' => array_map(
+                fn ($membership) => [
+                    'b2b_id' => $membership->b2bId,
+                    'company_name' => $membership->companyName,
+                    'logo_url' => $membership->companyLogoUrl,
+                    'role' => $membership->role->value,
+                    'role_label' => $membership->role->label(),
+                ],
+                $this->b2bContext->memberships($user),
+            ),
+            'permissions' => $active?->permissions->toArray() ?? [],
+        ];
     }
 }

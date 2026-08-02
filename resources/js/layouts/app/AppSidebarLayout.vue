@@ -4,10 +4,14 @@ import ImpersonationBanner from '@/components/ImpersonationBanner.vue';
 import AppSidebarHeader from '@/components/AppSidebarHeader.vue';
 import type { BreadcrumbItemType, SharedData, User } from '@/types';
 import type { UserType } from '@/types/auth';
+import type { B2bPermissionValue } from '@/types/b2b';
+import { useB2bPermissions } from '@/composables/useB2bPermissions';
 import { useSessionGuard } from '@/composables/useSessionGuard';
 import { router, usePage } from '@inertiajs/vue3';
 import { computed, type Component } from 'vue';
+import MdiAccountGroupOutline from '~icons/mdi/account-group-outline';
 import MdiAccountOutline from '~icons/mdi/account-outline';
+import MdiDomain from '~icons/mdi/domain';
 import MdiLogout from '~icons/mdi/logout';
 import MdiViewDashboardOutline from '~icons/mdi/view-dashboard-outline';
 
@@ -27,6 +31,8 @@ interface NavItem {
     icon: Component;
     name: string;
     aliases?: string[];
+    /** Company permission required to see this entry (Firmenkunde only). */
+    permission?: B2bPermissionValue;
 }
 
 const navByRole: Record<UserType, NavItem[]> = {
@@ -35,16 +41,27 @@ const navByRole: Record<UserType, NavItem[]> = {
         { label: 'Mein Konto', icon: MdiAccountOutline, name: 'profile.edit' },
     ],
     Firmenkunde: [
-        { label: 'Mein Dashboard', icon: MdiViewDashboardOutline, name: 'dashboard' },
+        { label: 'Mein Dashboard', icon: MdiViewDashboardOutline, name: 'dashboard', permission: 'vehicles.view' },
+        { label: 'Firmendaten', icon: MdiDomain, name: 'onboarding.b2b.show', permission: 'company.view' },
+        { label: 'Team', icon: MdiAccountGroupOutline, name: 'b2b.members.index', permission: 'members.view' },
         { label: 'Mein Konto', icon: MdiAccountOutline, name: 'profile.edit' },
     ],
     Werksatatt: [{ label: 'Mein Konto', icon: MdiAccountOutline, name: 'profile.edit' }],
     Admin: [],
 };
 
+const { can } = useB2bPermissions();
+
+// Mirrors AppSidebar: hide what the server would refuse. `can()` is true for
+// every non-Firmenkunde account, so other roles are unaffected.
 const navItems = computed<NavItem[]>(() => {
     const role = user.value?.user_type;
-    return role ? navByRole[role] : [];
+
+    if (!role) {
+        return [];
+    }
+
+    return navByRole[role].filter((item) => !item.permission || can(item.permission));
 });
 
 function isActive(name: string) {

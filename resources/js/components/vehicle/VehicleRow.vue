@@ -2,6 +2,7 @@
 import { TableCell, TableRow } from '@/components/ui/table';
 import OrderCreationModal from '@/components/vehicle/OrderCreationModal.vue';
 import VehicleExpandedPanel from '@/components/vehicle/VehicleExpandedPanel.vue';
+import { useB2bPermissions } from '@/composables/useB2bPermissions';
 import { canStartNewOrder } from '@/lib/customerOrderFlow';
 import { getOrderStatusLabel } from '@/lib/vehicleStatus';
 import type { StationData } from '@/types/order';
@@ -20,7 +21,11 @@ const emit = defineEmits<{ toggle: [] }>();
 
 const orderModalOpen = ref(false);
 
-const canStartProcess = computed(() => canStartNewOrder(props.vehicle.orders));
+const { can } = useB2bPermissions();
+
+// A company member without orders.create would be refused by the route
+// anyway (b2b.can:orders.create) — don't offer the action.
+const canStartProcess = computed(() => canStartNewOrder(props.vehicle.orders) && can('orders.create'));
 
 const vehicleStatus = computed(() => {
     const current = props.vehicle.orders[0];

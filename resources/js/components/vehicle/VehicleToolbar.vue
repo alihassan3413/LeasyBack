@@ -6,22 +6,47 @@ import MdiClose from '~icons/mdi/close';
 import MdiFilterVariant from '~icons/mdi/filter-variant';
 import MdiMagnify from '~icons/mdi/magnify';
 
-const props = defineProps<{
-    search: string;
-    status: string;
-}>();
+/** A company member who can be filtered on in the "added by" list. */
+export interface MemberFilterOption {
+    value: number;
+    label: string;
+}
+
+const props = withDefaults(
+    defineProps<{
+        search: string;
+        status: string;
+        /** User id as a string, or '' for "everyone". */
+        createdBy?: string;
+        /** Empty for B2C and for members restricted to their own vehicles. */
+        memberOptions?: MemberFilterOption[];
+    }>(),
+    {
+        createdBy: '',
+        memberOptions: () => [],
+    },
+);
 
 const emit = defineEmits<{
     (e: 'update:search', value: string): void;
     (e: 'update:status', value: string): void;
+    (e: 'update:createdBy', value: string): void;
     (e: 'reset'): void;
 }>();
 
-const activeFilterCount = computed(() => (props.status ? 1 : 0));
+const showMemberFilter = computed(() => props.memberOptions.length > 1);
+
+const activeFilterCount = computed(() => (props.status ? 1 : 0) + (props.createdBy && showMemberFilter.value ? 1 : 0));
 
 const activeStatusLabel = computed(
     () => VEHICLE_STATUS_FILTER_OPTIONS.find((option) => option.value === props.status)?.label ?? '',
 );
+
+const activeMemberLabel = computed(
+    () => props.memberOptions.find((option) => String(option.value) === props.createdBy)?.label ?? '',
+);
+
+const filterButtonLabel = computed(() => activeStatusLabel.value || activeMemberLabel.value || 'Filter');
 </script>
 
 <template>
@@ -56,7 +81,7 @@ const activeStatusLabel = computed(
                     :class="activeFilterCount ? 'border-[#01B990]' : ''"
                 >
                     <MdiFilterVariant class="text-[18px] text-[#6f8585]" />
-                    <span class="hidden sm:inline">{{ activeStatusLabel || 'Filter' }}</span>
+                    <span class="hidden sm:inline">{{ filterButtonLabel }}</span>
                     <span
                         v-if="activeFilterCount"
                         class="flex h-5 min-w-5 items-center justify-center rounded-full bg-[#01B990] px-1.5 text-[11px] font-bold text-white"
@@ -92,6 +117,37 @@ const activeStatusLabel = computed(
                         <span v-if="option.value === status" class="size-2 rounded-full bg-[#01B990]"></span>
                     </button>
                 </div>
+
+                <!-- Only meaningful when there is more than one person who could have added a vehicle. -->
+                <template v-if="showMemberFilter">
+                    <div class="border-t px-4 py-3">
+                        <span class="text-sm font-bold text-[#10393b]">Angelegt von</span>
+                    </div>
+
+                    <div class="max-h-64 overflow-y-auto pb-2">
+                        <button
+                            type="button"
+                            class="flex w-full items-center justify-between px-4 py-2 text-left text-sm transition hover:bg-gray-50"
+                            :class="createdBy === '' ? 'font-semibold text-[#10393b]' : 'text-gray-600'"
+                            @click="emit('update:createdBy', '')"
+                        >
+                            <span>Alle Mitglieder</span>
+                            <span v-if="createdBy === ''" class="size-2 rounded-full bg-[#01B990]"></span>
+                        </button>
+
+                        <button
+                            v-for="option in memberOptions"
+                            :key="option.value"
+                            type="button"
+                            class="flex w-full items-center justify-between px-4 py-2 text-left text-sm transition hover:bg-gray-50"
+                            :class="String(option.value) === createdBy ? 'font-semibold text-[#10393b]' : 'text-gray-600'"
+                            @click="emit('update:createdBy', String(option.value) === createdBy ? '' : String(option.value))"
+                        >
+                            <span class="truncate">{{ option.label }}</span>
+                            <span v-if="String(option.value) === createdBy" class="size-2 shrink-0 rounded-full bg-[#01B990]"></span>
+                        </button>
+                    </div>
+                </template>
             </PopoverContent>
         </Popover>
     </div>

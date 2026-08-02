@@ -13,7 +13,11 @@ import AppLayout from '@/layouts/AppLayout.vue';
 import { canStartNewOrder } from '@/lib/customerOrderFlow';
 import { ONBOARDING_VIDEO_POSTER_URL, ONBOARDING_VIDEO_URL } from '@/lib/onboarding';
 import { getOrderStatusLabel, isVehicleCompleted } from '@/lib/vehicleStatus';
+import FleetOverview from '@/components/b2b/FleetOverview.vue';
+import { useB2bPermissions } from '@/composables/useB2bPermissions';
 import { type SharedData } from '@/types';
+import type { B2bAnalytics } from '@/types/b2b';
+import type { MemberFilterOption } from '@/components/vehicle/VehicleToolbar.vue';
 import type { StationData } from '@/types/order';
 import type { VehicleData } from '@/types/vehicle';
 import { Head, router, usePage } from '@inertiajs/vue3';
@@ -24,14 +28,25 @@ export interface DashboardFilters {
     status: string;
     sort: string;
     direction: string;
+    /** Company member who registered the vehicle; '' means everyone. */
+    created_by: string;
 }
 
-const props = defineProps<{ vehicles: VehicleData[]; stations: StationData[]; filters: DashboardFilters; pagination: PaginationMeta }>();
+const props = defineProps<{
+    vehicles: VehicleData[];
+    stations: StationData[];
+    filters: DashboardFilters;
+    pagination: PaginationMeta;
+    /** Empty unless the viewer may see the whole company fleet. */
+    memberOptions: MemberFilterOption[];
+    analytics: B2bAnalytics | null;
+}>();
 
 const search = ref(props.filters.search);
 const status = ref(props.filters.status);
 const sort = ref(props.filters.sort);
 const direction = ref(props.filters.direction);
+const createdBy = ref(props.filters.created_by ?? '');
 
 function reload(page = 1) {
     const sorted = sort.value !== 'created_at' || direction.value !== 'desc';
@@ -41,11 +56,12 @@ function reload(page = 1) {
         {
             search: search.value || undefined,
             status: status.value || undefined,
+            created_by: createdBy.value || undefined,
             sort: sorted ? sort.value : undefined,
             direction: sorted ? direction.value : undefined,
             page: page > 1 ? page : undefined,
         },
-        { preserveState: true, preserveScroll: true, replace: true, only: ['vehicles', 'filters', 'pagination'] },
+        { preserveState: true, preserveScroll: true, replace: true, only: ['vehicles', 'filters', 'pagination', 'analytics'] },
     );
 }
 
@@ -57,7 +73,7 @@ function goToPage(page: number) {
 const debouncedReload = useDebounceFn(() => reload(), 300);
 
 watch(search, () => debouncedReload());
-watch([status, sort, direction], () => reload());
+watch([status, sort, direction, createdBy], () => reload());
 
 function toggleSort(column: string) {
     if (sort.value === column) {
@@ -72,9 +88,12 @@ function toggleSort(column: string) {
 
 function resetFilters() {
     status.value = '';
+    createdBy.value = '';
 }
 
-const hasQuery = computed(() => search.value !== '' || status.value !== '');
+const hasQuery = computed(() => search.value !== '' || status.value !== '' || createdBy.value !== '');
+
+const { can, seesOwnVehiclesOnly } = useB2bPermissions();
 
 function latestOrderStatus(vehicle: VehicleData): string | undefined {
     return vehicle.orders[0]?.order_status;
@@ -163,16 +182,28 @@ onMounted(() => {
 
     <AppLayout>
         <template #header>
-            <VehicleToolbar v-model:search="search" v-model:status="status" @reset="resetFilters" />
+            <VehicleToolbar
+                v-model:search="search"
+                v-model:status="status"
+                v-model:created-by="createdBy"
+                :member-options="memberOptions"
+                @reset="resetFilters"
+            />
         </template>
 
         <div class="flex flex-col">
             <div class="mb-6 flex flex-col gap-4">
                 <div class="flex flex-col items-start justify-between gap-3 md:flex-row md:items-center">
-                    <h1 class="text-[22px] font-semibold text-[#10393b] md:text-[28px]">Mein Dashboard</h1>
+                    <div>
+                        <h1 class="text-[22px] font-semibold text-[#10393b] md:text-[28px]">Mein Dashboard</h1>
+                        <p v-if="seesOwnVehiclesOnly" class="mt-1 text-sm text-[#6f8585]">
+                            Sie sehen nur die Fahrzeuge, die Sie selbst angelegt haben.
+                        </p>
+                    </div>
 
                     <div class="flex w-full flex-col items-stretch gap-3 md:w-auto md:items-end">
                         <button
+                            v-if="can('vehicles.create')"
                             class="flex w-full items-center justify-center gap-2 rounded-full px-4 py-2 font-medium text-white md:w-auto"
                             style="background-color: #ef8450"
                             @click="addVehicleOpen = true"
@@ -182,6 +213,8 @@ onMounted(() => {
                         </button>
                     </div>
                 </div>
+
+                <FleetOverview v-if="analytics" :analytics="analytics" :active-filter="status" />
             </div>
 
             <div>
@@ -288,7 +321,10 @@ onMounted(() => {
 
                         <VehicleExpandedPanel v-if="expandedId === vehicle.vehicle_id" :vehicle="vehicle" />
 
-                        <div v-if="canStartNewOrder(vehicle.orders)" class="flex items-center justify-between border-t border-gray-100 px-4 py-3">
+                        <div
+                            v-if="canStartNewOrder(vehicle.orders) && can('orders.create')"
+                            class="flex items-center justify-between border-t border-gray-100 px-4 py-3"
+                        >
                             <button
                                 class="flex items-center gap-2 rounded-lg px-3 py-2 font-medium text-white"
                                 style="background-color: #ef8450"

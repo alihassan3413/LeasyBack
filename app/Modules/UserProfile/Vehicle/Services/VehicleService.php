@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleAuditLog;
 use App\Models\VehicleDocument;
+use App\Modules\UserProfile\B2B\Services\B2bContext;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\UploadedFile;
@@ -17,14 +18,18 @@ use Illuminate\Support\Str;
 
 class VehicleService
 {
+    public function __construct(private readonly B2bContext $b2bContext) {}
+
     /**
-     * Resolve b2b_id from user_b2b table for a given user.
+     * Resolve the b2b_id of the company a user is currently acting as.
+     *
+     * Delegates to B2bContext because a user can belong to several companies;
+     * taking the first `user_b2b` row, as this used to, would attribute a new
+     * vehicle to an arbitrary one of them.
      */
     public function getB2bIdByUser(string $userId): ?string
     {
-        $row = DB::table('user_b2b')->where('user_id', $userId)->first();
-
-        return $row?->b2b_id;
+        return $this->b2bContext->activeCompanyIdForUserId($userId);
     }
 
     /**
@@ -50,6 +55,11 @@ class VehicleService
                 'b2b_id' => $b2bId,
                 'b2c_user_id' => $b2cUserId,
                 'vehicle_belongs' => $belongs,
+                // Attribution, not ownership: the vehicle belongs to the
+                // company, but a member restricted to their own vehicles is
+                // matched on this, and the owner's per-member analytics and
+                // dashboard filter both group by it.
+                'created_by_user_id' => $user->id,
             ]);
 
             VehicleAuditLog::create([
@@ -576,6 +586,16 @@ class VehicleService
 
         $query->select('v.*')->selectSub($latestStatus, 'current_order_status');
 
+        // Owner-side "who added this?" filter. Applied on the inner query so
+        // it narrows before the status subselect is wrapped; a member with a
+        // restricted scope is already limited by VehicleScopeService, so this
+        // can only ever narrow further, never widen.
+        $createdBy = $filters['created_by'] ?? null;
+
+        if ($createdBy !== null && $createdBy !== '') {
+            $query->where('v.created_by_user_id', (int) $createdBy);
+        }
+
         $search = trim((string) ($filters['search'] ?? ''));
 
         if ($search !== '') {
@@ -594,6 +614,14 @@ class VehicleService
 
         if ($status === 'none') {
             $outer->whereNull('f.current_order_status');
+        } elseif ($status === 'open') {
+            // "Laufend" spans every status that is neither finished nor
+            // abandoned, so it can't be expressed as a single status value —
+            // it is the complement of the closed set. Mirrors
+            // B2bAnalyticsService::vehicleStates()'s in_progress bucket, so
+            // clicking that segment shows exactly the rows it counted.
+            $outer->whereNotNull('f.current_order_status')
+                ->whereNotIn('f.current_order_status', ['delivered', 'completed', 'cancelled', 'discarded']);
         } elseif ($status !== '') {
             $outer->where('f.current_order_status', $status);
         }

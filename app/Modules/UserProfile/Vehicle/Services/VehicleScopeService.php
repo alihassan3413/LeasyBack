@@ -2,9 +2,11 @@
 
 namespace App\Modules\UserProfile\Vehicle\Services;
 
+use App\Enums\B2bPermission;
 use App\Models\B2B;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Modules\UserProfile\B2B\Services\B2bContext;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle as CanonicalVehicle;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -12,6 +14,8 @@ use Illuminate\Support\Facades\DB;
 
 class VehicleScopeService
 {
+    public function __construct(private readonly B2bContext $b2bContext) {}
+
     /**
      * Resolve the owner UUID for B2B or B2C based on user type.
      */
@@ -26,26 +30,46 @@ class VehicleScopeService
     }
 
     /**
-     * Get the b2b_id linked to a user.
+     * Get the b2b_id of the company this user is currently acting as.
+     *
+     * Goes through B2bContext rather than reading `user_b2b` directly: a user
+     * can belong to several companies, and picking whichever row the database
+     * returns first would silently leak one company's fleet into another's.
      */
     public function getB2bIdForUser(int $userId): ?string
     {
-        return DB::table('user_b2b')
-            ->where('user_id', $userId)
-            ->value('b2b_id');
+        return $this->b2bContext->activeCompanyIdForUserId($userId);
     }
 
     /**
      * Scope a vehicle query based on user access.
+     *
+     * For a Firmenkunde this applies both halves of their access: the company
+     * they are acting as, and — for a member restricted to
+     * B2bVehicleScope::Own — only the vehicles they registered themselves.
+     * Every policy, listing and detail lookup in the app funnels through here
+     * or through scopeQuery()'s callers, so the restriction cannot be
+     * side-stepped by reaching a vehicle from a different direction.
      */
     public function scopeQuery(Builder $query, User $user): Builder
     {
         return match ($user->user_type->value) {
             'Admin' => $query, // no filtering
             'Firmenkunde' => $query->where(function ($q) use ($user) {
-                $b2bId = $this->getB2bIdForUser($user->id);
+                $membership = $this->b2bContext->activeMembership($user);
+
+                if (! $membership || ! $membership->can(B2bPermission::ViewVehicles)) {
+                    $q->whereRaw('1 = 0');
+
+                    return;
+                }
+
                 $q->where('vehicle_belongs', 'B2B')
-                    ->where('b2b_id', $b2bId);
+                    ->where('b2b_id', $membership->b2bId);
+
+                if ($membership->seesOwnVehiclesOnly()) {
+                    $q->where('created_by_user_id', $user->id);
+                }
             }),
             'Privatkunde' => $query->where(function ($q) use ($user) {
                 $q->where('vehicle_belongs', 'B2C')

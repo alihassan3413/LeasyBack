@@ -38,6 +38,7 @@ class Vehicle extends Model
         'model',
         'b2b_id',
         'b2c_user_id',
+        'created_by_user_id',
         'assigned_profile_id',
         'vehicle_belongs',
     ];
