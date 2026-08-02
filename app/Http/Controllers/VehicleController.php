@@ -32,15 +32,18 @@ class VehicleController extends Controller
      * docs/B2C_ADMIN_IMPLEMENTATION_PROGRESS.md, Checkpoint 3 decisions).
      * Both ultimately go through VehicleService.
      */
-    public function index(Request $request): Response
+    public function index(Request $request): Response|RedirectResponse
     {
         $user = $request->user();
-        $belongs = match ($user->user_type->value) {
-            'Admin' => 'ALL',
-            'Firmenkunde' => 'B2B',
-            default => 'B2C',
-        };
-        $ownerId = $belongs === 'ALL' ? null : $this->scope->resolveOwnerId($user);
+
+        // The customer dashboard is a customer surface only — admins have
+        // their own area (routes/admin.php) and are sent there instead.
+        if ($user->isAdmin()) {
+            return to_route('admin.dashboard');
+        }
+
+        $belongs = $user->user_type->value === 'Firmenkunde' ? 'B2B' : 'B2C';
+        $ownerId = $this->scope->resolveOwnerId($user);
 
         $filters = [
             'search' => trim((string) $request->query('search', '')),
@@ -56,6 +59,35 @@ class VehicleController extends Controller
                 ->orderBy('name')
                 ->get(['station_id', 'provider', 'name', 'strasse', 'plz', 'ort', 'bundesland', 'land']),
             'filters' => $filters,
+        ]);
+    }
+
+    public function show(Request $request, string $vehicleId): Response
+    {
+        $user = $request->user();
+        $vehicle = Vehicle::find($vehicleId);
+
+        if (! $vehicle || ! $user->can('view', $vehicle)) {
+            abort(404);
+        }
+
+        $belongs = match ($user->user_type->value) {
+            'Admin' => 'ALL',
+            'Firmenkunde' => 'B2B',
+            default => 'B2C',
+        };
+        $ownerId = $belongs === 'ALL' ? null : $this->scope->resolveOwnerId($user);
+
+        $data = $this->vehicleService->findVehicleWithOrders($vehicleId, $ownerId, $belongs);
+
+        abort_if($data === null, 404);
+
+        return Inertia::render('vehicles/Show', [
+            'vehicle' => $data,
+            'stations' => InspectionStation::where('is_active', true)
+                ->orderBy('provider')
+                ->orderBy('name')
+                ->get(['station_id', 'provider', 'name', 'strasse', 'plz', 'ort', 'bundesland', 'land']),
         ]);
     }
 

@@ -2,10 +2,15 @@
 
 namespace App\Modules\UserProfile\Admin\Services;
 
+use App\Enums\NotificationType;
 use App\Models\AssessmentDocument;
 use App\Models\User;
 use App\Models\VehicleReportDocument;
 use App\Models\VehicleReportDocumentLog;
+use App\Modules\UserProfile\Vehicle\Models\Vehicle as CanonicalVehicle;
+use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
+use App\Notifications\NotificationPayload;
+use App\Services\Notifier;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -26,6 +31,11 @@ use Illuminate\Support\Facades\Storage;
  */
 class VehicleReportService
 {
+    public function __construct(
+        private readonly VehicleScopeService $vehicleScope,
+        private readonly Notifier $notifier,
+    ) {}
+
     /**
      * @return array{document: VehicleReportDocument}
      */
@@ -64,6 +74,10 @@ class VehicleReportService
 
             return $doc;
         });
+
+        if ($published) {
+            $this->notifyDocumentPublished($doc);
+        }
 
         return ['document' => $doc];
     }
@@ -131,11 +145,37 @@ class VehicleReportService
             return $doc->fresh();
         });
 
+        if ($published) {
+            $this->notifyDocumentPublished($doc);
+        }
+
         return [
             'message' => 'Document published status updated successfully',
             'action' => $published ? 'published' : 'unpublished',
             'document' => $doc,
         ];
+    }
+
+    private function notifyDocumentPublished(VehicleReportDocument $doc): void
+    {
+        $vehicle = CanonicalVehicle::find($doc->vehicle_id);
+
+        if ($vehicle === null) {
+            return;
+        }
+
+        $label = $doc->document_title ?: ($doc->document_type ?: 'Dokument');
+
+        $this->notifier->send(
+            $this->vehicleScope->resolveOwnerUsers($vehicle),
+            NotificationPayload::make(
+                NotificationType::ReportPublished,
+                'Neues Dokument verfügbar',
+                sprintf('%s für %s wurde bereitgestellt.', $label, $vehicle->license_plate),
+                '/dashboard',
+                ['auftragsnummer' => $doc->auftragsnummer, 'document_id' => $doc->document_id],
+            ),
+        );
     }
 
     /**

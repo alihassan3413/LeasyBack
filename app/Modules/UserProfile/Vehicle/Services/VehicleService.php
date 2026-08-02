@@ -310,7 +310,18 @@ class VehicleService
      *
      * @param  array{search?: string, status?: string, sort?: string, direction?: string}  $filters
      */
-    public function listVehiclesWithOrders(?string $ownerId, string $belongs, array $filters = []): array
+    /**
+     * The same per-vehicle shape listVehiclesWithOrders() returns, for one
+     * vehicle — the detail page renders exactly what the dashboard row does.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function findVehicleWithOrders(string $vehicleId, ?string $ownerId, string $belongs): ?array
+    {
+        return $this->listVehiclesWithOrders($ownerId, $belongs, [], $vehicleId)[0] ?? null;
+    }
+
+    public function listVehiclesWithOrders(?string $ownerId, string $belongs, array $filters = [], ?string $vehicleId = null): array
     {
         $query = DB::table('vehicles as v');
 
@@ -320,6 +331,10 @@ class VehicleService
             $query->where('v.vehicle_belongs', 'B2B')->where('v.b2b_id', $ownerId);
         } else {
             $query->where('v.vehicle_belongs', 'B2C')->where('v.b2c_user_id', $ownerId);
+        }
+
+        if ($vehicleId !== null) {
+            $query->where('v.vehicle_id', $vehicleId);
         }
 
         $vehicles = $this->applyVehicleFilters($query, $filters)->get();
@@ -419,6 +434,15 @@ class VehicleService
                         'offer_id' => $offer->offer_id,
                         'offer_sequence' => $offer->offer_sequence,
                         'offer_status' => $offer->offer_status,
+                        'repair_cost_net' => $offer->repair_cost_net,
+                        'repair_cost_gross' => $offer->repair_cost_gross,
+                        'depreciation_value_net' => $offer->depreciation_value_net,
+                        'depreciation_value_gross' => $offer->depreciation_value_gross,
+                        'workshop_repair_quote_net' => $offer->workshop_repair_quote_net,
+                        'workshop_repair_quote_gross' => $offer->workshop_repair_quote_gross,
+                        'missing_parts_cost_net' => $offer->missing_parts_cost_net,
+                        'missing_parts_cost_gross' => $offer->missing_parts_cost_gross,
+                        'final_total_net' => $offer->final_total_net,
                         'final_total_gross' => $offer->final_total_gross,
                         'additional_notes' => $offer->additional_notes,
                         'published_at' => $offer->published_at,

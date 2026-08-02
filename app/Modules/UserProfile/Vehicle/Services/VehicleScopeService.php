@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Models\Vehicle;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle as CanonicalVehicle;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class VehicleScopeService
@@ -86,6 +87,27 @@ class VehicleScopeService
      *
      * @return array{email: string, name: string}|null
      */
+    /**
+     * Every user who should be notified about this vehicle: the B2C owner, or
+     * all members of the owning B2B company.
+     *
+     * @return Collection<int, User>
+     */
+    public function resolveOwnerUsers(CanonicalVehicle $vehicle): Collection
+    {
+        if ($vehicle->vehicle_belongs === 'B2C' && $vehicle->b2c_user_id) {
+            return User::where('id', $vehicle->b2c_user_id)->get();
+        }
+
+        if ($vehicle->vehicle_belongs === 'B2B' && $vehicle->b2b_id) {
+            $userIds = DB::table('user_b2b')->where('b2b_id', $vehicle->b2b_id)->pluck('user_id');
+
+            return User::whereIn('id', $userIds)->get();
+        }
+
+        return collect();
+    }
+
     public function resolveOwnerContact(CanonicalVehicle $vehicle): ?array
     {
         if ($vehicle->vehicle_belongs === 'B2C' && $vehicle->b2c_user_id) {

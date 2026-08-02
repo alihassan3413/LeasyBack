@@ -7,6 +7,7 @@ import { createApp, h, Fragment } from 'vue';
 import { ZiggyVue } from '../../vendor/tightenco/ziggy';
 import ToastHost from './components/ui/toast/ToastHost.vue';
 import { initializeTheme } from './composables/useAppearance';
+import './echo';
 
 // Extend ImportMeta interface for Vite...
 declare module 'vite/client' {

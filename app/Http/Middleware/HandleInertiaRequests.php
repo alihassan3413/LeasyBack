@@ -43,9 +43,8 @@ class HandleInertiaRequests extends Middleware
             'name' => config('app.name'),
             'quote' => ['message' => trim($message), 'author' => trim($author)],
             'auth' => [
-                // Deliberately not the raw model: excludes the internal
-                // bigint id and timestamps (unused anywhere in the
-                // frontend), and adds user_type (used nowhere yet, but a
+                // Deliberately not the raw model: excludes timestamps
+                // (unused anywhere in the frontend), and adds user_type (used nowhere yet, but a
                 // real field worth exposing). email_verified_at is kept
                 // because Settings\Profile.vue genuinely reads it for its
                 // email-verification banner — trimming it would silently
@@ -58,12 +57,22 @@ class HandleInertiaRequests extends Middleware
                 // public URL is UserProfile-module business logic (see
                 // Api\UserProfileController::show()) and out of scope
                 // here; wiring it up is a separate, deliberate task.
+                //
+                // `id` is the authenticated user's own primary key, needed
+                // client-side to subscribe to the private broadcast channel
+                // `App.Models.User.{id}` for real-time notifications. Channel
+                // authorization (routes/channels.php) is what actually
+                // protects the stream — the id itself is not a secret.
                 'user' => $request->user() ? [
+                    'id' => $request->user()->id,
                     'name' => $request->user()->name,
                     'email' => $request->user()->email,
                     'email_verified_at' => $request->user()->email_verified_at,
                     'user_type' => $request->user()->user_type,
                 ] : null,
+            ],
+            'notifications' => [
+                'unread_count' => $request->user() ? $request->user()->unreadNotifications()->count() : 0,
             ],
             'flash' => [
                 'success' => $request->session()->get('success'),

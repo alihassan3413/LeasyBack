@@ -2,6 +2,7 @@
 
 namespace App\Modules\UserProfile\Offer\Services;
 
+use App\Enums\NotificationType;
 use App\Mail\StatusChangeNotification;
 use App\Models\LeasybackOffer;
 use App\Models\LeasybackOrder;
@@ -9,6 +10,8 @@ use App\Models\OfferAuditLog;
 use App\Models\OrderAuditLog;
 use App\Models\User;
 use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
+use App\Notifications\NotificationPayload;
+use App\Services\Notifier;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -16,7 +19,10 @@ use Illuminate\Support\Facades\Mail;
 
 class OfferService
 {
-    public function __construct(private readonly VehicleScopeService $vehicleScope) {}
+    public function __construct(
+        private readonly VehicleScopeService $vehicleScope,
+        private readonly Notifier $notifier,
+    ) {}
 
     /**
      * Create the next-sequence draft offer for an order. Extracted from the
@@ -195,6 +201,17 @@ class OfferService
         if ($vehicle === null) {
             return;
         }
+
+        $this->notifier->send(
+            $this->vehicleScope->resolveOwnerUsers($vehicle),
+            NotificationPayload::make(
+                NotificationType::OfferPublished,
+                'Neues Angebot verfügbar',
+                sprintf('Für %s liegt ein neues Angebot vor.', $vehicle->license_plate),
+                '/dashboard',
+                ['auftragsnummer' => $offer->auftragsnummer, 'offer_id' => $offer->offer_id],
+            ),
+        );
 
         $owner = $this->vehicleScope->resolveOwnerContact($vehicle);
         if ($owner === null) {
