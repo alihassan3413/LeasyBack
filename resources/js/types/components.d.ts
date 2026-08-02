@@ -170,6 +170,7 @@ declare module 'vue' {
     PopoverTrigger: typeof import('./../components/ui/popover/PopoverTrigger.vue')['default']
     ProcessSection: typeof import('./../components/landing/ProcessSection.vue')['default']
     ProfileStep: typeof import('./../components/onboarding/ProfileStep.vue')['default']
+    SearchableSelectField: typeof import('./../components/form/SearchableSelectField.vue')['default']
     Select: typeof import('./../components/ui/select/Select.vue')['default']
     SelectContent: typeof import('./../components/ui/select/SelectContent.vue')['default']
     SelectField: typeof import('./../components/form/SelectField.vue')['default']

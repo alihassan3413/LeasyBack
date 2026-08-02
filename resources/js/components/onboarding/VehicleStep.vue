@@ -3,7 +3,7 @@ import InputError from '@/components/InputError.vue';
 import CalendarDateField from '@/components/form/CalendarDateField.vue';
 import FormField from '@/components/form/FormField.vue';
 import LicensePlateInput from '@/components/form/LicensePlateInput.vue';
-import SelectField from '@/components/form/SelectField.vue';
+import SearchableSelectField from '@/components/form/SearchableSelectField.vue';
 import OnboardingCard from '@/components/onboarding/OnboardingCard.vue';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -37,7 +37,6 @@ const nextButtonClass = 'rounded-[5px] px-10 py-2 text-sm font-bold text-white s
 const backButtonClass = 'rounded-[5px] px-10 py-2 text-sm font-bold text-white shadow-none bg-brand-orange hover:bg-brand-orange/90';
 
 const fieldClass = 'text-sm';
-const selectTriggerClass = 'bg-white text-sm shadow-none focus:border-brand-green focus:ring-0';
 
 const leasingEndUnknown = ref(false);
 const leasinggeberUnknown = ref(false);
@@ -135,12 +134,13 @@ function submit() {
                 </FormField>
 
                 <FormField v-slot="{ id, describedBy, invalid }" label="Marke" :error="form.errors.make">
-                    <SelectField
+                    <SearchableSelectField
                         :id="id"
                         v-model="form.make"
                         :options="VEHICLE_BRAND_OPTIONS"
                         placeholder="Marke wählen"
-                        :class="selectTriggerClass"
+                        search-placeholder="Marke suchen..."
+                        empty-label="Keine Marke gefunden"
                         :invalid="invalid"
                         :described-by="describedBy"
                     />

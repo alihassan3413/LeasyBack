@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import CalendarDateField from '@/components/form/CalendarDateField.vue';
-import SelectField, { type SelectFieldOption } from '@/components/form/SelectField.vue';
+import SearchableSelectField, { type SearchableOption } from '@/components/form/SearchableSelectField.vue';
 import StationMap from '@/components/form/StationMap.vue';
 import StationSelectField from '@/components/form/StationSelectField.vue';
 import InputError from '@/components/InputError.vue';
@@ -28,14 +28,14 @@ const selectedOrt = ref('');
 
 const ALL = '__all__';
 
-const bundeslandOptions = computed<SelectFieldOption[]>(() => [
+const bundeslandOptions = computed<SearchableOption[]>(() => [
     { value: ALL, label: 'Alle Bundesländer' },
     ...[...new Set(props.stations.map((station) => station.bundesland).filter((value): value is string => !!value))]
         .sort((a, b) => a.localeCompare(b, 'de'))
         .map((value) => ({ value, label: value })),
 ]);
 
-const ortOptions = computed<SelectFieldOption[]>(() => [
+const ortOptions = computed<SearchableOption[]>(() => [
     { value: ALL, label: 'Alle Orte' },
     ...[
         ...new Set(
@@ -132,17 +132,24 @@ function submit() {
                     <div class="grid grid-cols-2 gap-x-3">
                         <div class="flex flex-col gap-1">
                             <label class="text-sm font-semibold text-black">Bundesland</label>
-                            <SelectField
+                            <SearchableSelectField
                                 :model-value="selectedBundesland"
                                 :options="bundeslandOptions"
                                 placeholder="Bundesland wählen"
+                                search-placeholder="Bundesland suchen..."
                                 @update:model-value="setBundesland"
                             />
                         </div>
 
                         <div class="flex flex-col gap-1">
                             <label class="text-sm font-semibold text-black">Ort</label>
-                            <SelectField :model-value="selectedOrt" :options="ortOptions" placeholder="Ort wählen" @update:model-value="setOrt" />
+                            <SearchableSelectField
+                                :model-value="selectedOrt"
+                                :options="ortOptions"
+                                placeholder="Ort wählen"
+                                search-placeholder="Ort suchen..."
+                                @update:model-value="setOrt"
+                            />
                         </div>
                     </div>
 
