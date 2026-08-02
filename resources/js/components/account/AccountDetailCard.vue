@@ -63,6 +63,14 @@ const fullNameLine = computed(
 const addressLine1 = computed(() => [props.profile?.address?.street, props.profile?.address?.number].filter(Boolean).join(' ') || '—');
 const addressLine2 = computed(() => [props.profile?.address?.zip_code, props.profile?.address?.city].filter(Boolean).join(' ') || '—');
 
+const hasAddress = computed(() => Boolean(props.profile?.address?.street && props.profile?.address?.city));
+
+const phoneLines = computed(() =>
+    (props.profile?.phones ?? [])
+        .map((phone) => [phone.international_prefix, phone.phone_number].filter(Boolean).join(' ').trim())
+        .filter(Boolean),
+);
+
 // Street + city are the minimum for an unambiguous geocode: a lone street name
 // resolves to a famous default (e.g. "Leopoldstraße" → München).
 const addressQuery = computed(() => {
@@ -167,33 +175,39 @@ const dtClass = 'text-[10px] sm:text-[10.5px] font-bold uppercase tracking-[0.16
             </div>
         </div>
 
-        <div v-if="isCreateMode && !isEditMode" class="px-4 py-10 text-center sm:px-8 sm:py-12">
-            <IconMdiAccountCircleOutline class="mx-auto mb-3 size-10 text-[#9CB3B4] sm:size-12" />
-            <p class="text-[14px] font-semibold text-[#10393B] sm:text-[15px]">Noch kein Profil hinterlegt</p>
-            <p class="mt-1 text-[12px] text-[#7A9699] sm:text-[13px]">Klicken Sie auf „Profil erstellen", um Ihre Daten zu hinterlegen.</p>
-        </div>
+        <div v-if="!isEditMode" class="px-4 py-6 sm:px-5 sm:py-8">
+            <div
+                v-if="isCreateMode"
+                class="mb-6 flex items-start gap-3 rounded-2xl border border-[#EF8450]/25 bg-[#EF8450]/[0.07] px-4 py-3"
+            >
+                <IconMdiAccountCircleOutline class="mt-0.5 size-5 shrink-0 text-[#EF8450]" />
+                <div>
+                    <p class="text-[13px] font-bold text-[#10393B]">Profil noch nicht vollständig</p>
+                    <p class="mt-0.5 text-[12px] text-[#7A9699]">Klicken Sie auf „Profil erstellen", um Ihre Angaben zu hinterlegen.</p>
+                </div>
+            </div>
 
-        <div v-else-if="!isEditMode" class="px-4 py-6 sm:px-5 sm:py-8">
             <div class="flex flex-col gap-6 lg:flex-row lg:items-start">
                 <dl class="grid min-w-0 flex-1 grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2 sm:gap-x-10 sm:gap-y-7">
-                <div class="min-w-0">
-                    <dt :class="dtClass">Name</dt>
-                    <dd class="mt-1.5 text-[14px] font-semibold wrap-break-word text-[#10393B] sm:text-[15px]">{{ fullNameLine }}</dd>
-                </div>
+                    <div class="min-w-0">
+                        <dt :class="dtClass">Name</dt>
+                        <dd class="mt-1.5 text-[14px] font-semibold wrap-break-word text-[#10393B] sm:text-[15px]">{{ fullNameLine }}</dd>
+                    </div>
 
-                <div class="min-w-0">
-                    <dt :class="dtClass">E-Mail</dt>
-                    <dd class="mt-1.5 text-[14px] font-semibold break-all text-[#10393B] sm:text-[15px]">{{ email || '—' }}</dd>
-                </div>
+                    <div class="min-w-0">
+                        <dt :class="dtClass">E-Mail</dt>
+                        <dd class="mt-1.5 text-[14px] font-semibold break-all text-[#10393B] sm:text-[15px]">{{ email || '—' }}</dd>
+                    </div>
 
-                <div class="min-w-0 sm:col-span-2 lg:col-span-1">
-                    <dt :class="dtClass">Anschrift</dt>
-                    <dd class="mt-1.5 text-[14px] leading-relaxed font-semibold wrap-break-word text-[#10393B] sm:text-[15px]">
-                        {{ addressLine1 }}<br />
-                        <template v-if="profile?.address?.additional_address"> {{ profile.address.additional_address }}<br /> </template>
-                        {{ addressLine2 }}
-                    </dd>
-                </div>
+                    <div class="min-w-0">
+                        <dt :class="dtClass">Telefon</dt>
+                        <dd class="mt-1.5 text-[14px] font-semibold text-[#10393B] sm:text-[15px]">
+                            <template v-if="phoneLines.length">
+                                <span v-for="line in phoneLines" :key="line" class="block">{{ line }}</span>
+                            </template>
+                            <template v-else>—</template>
+                        </dd>
+                    </div>
 
                     <div class="min-w-0">
                         <dt :class="dtClass">Land</dt>
@@ -201,15 +215,30 @@ const dtClass = 'text-[10px] sm:text-[10.5px] font-bold uppercase tracking-[0.16
                             {{ profile?.address?.country || 'Deutschland' }}
                         </dd>
                     </div>
+
+                    <div class="min-w-0 sm:col-span-2">
+                        <dt :class="dtClass">Anschrift</dt>
+                        <dd class="mt-1.5 text-[14px] leading-relaxed font-semibold wrap-break-word text-[#10393B] sm:text-[15px]">
+                            {{ addressLine1 }}<br />
+                            <template v-if="profile?.address?.additional_address"> {{ profile.address.additional_address }}<br /> </template>
+                            {{ addressLine2 }}
+                        </dd>
+                    </div>
                 </dl>
 
                 <div class="h-[240px] w-full shrink-0 overflow-hidden rounded-2xl border border-[#D1DCDC] sm:h-[300px] lg:w-[400px]">
                     <AddressMapPicker
+                        v-if="hasAddress"
                         :latitude="form.address.latitude"
                         :longitude="form.address.longitude"
                         :address="addressQuery"
                         :interactive="false"
                     />
+                    <div v-else class="flex size-full flex-col items-center justify-center gap-1 bg-[#F1F5F5] px-6 text-center">
+                        <IconMdiMapMarkerOutline class="size-7 text-[#B7C7C7]" />
+                        <p class="text-[12px] font-semibold text-[#7A9699]">Keine Anschrift hinterlegt</p>
+                        <p class="text-[11px] text-[#9CB3B4]">Ihre Adresse erscheint hier auf der Karte.</p>
+                    </div>
                 </div>
             </div>
         </div>

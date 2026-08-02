@@ -110,12 +110,17 @@ function formatDateTime(value: string | null): string {
                 </div>
 
                 <div class="mr-2 shrink-0">
+                    <!--
+                        No `stations` here on purpose: creating an order belongs on the
+                        vehicle, not inside an existing order, so that entry stays disabled.
+                    -->
                     <AdminOrderActionsMenu
                         :order-id="order.id"
                         :auftragsnummer="order.auftragsnummer"
                         :vehicle-id="order.vehicle_id"
                         :order-status="order.order_status"
                         :available-transitions="order.available_transitions"
+                        :can-pull-documents="order.can_pull_documents"
                     />
                 </div>
             </div>

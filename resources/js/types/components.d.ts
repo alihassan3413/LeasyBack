@@ -115,6 +115,7 @@ declare module 'vue' {
     IconMdiAccountOutline: typeof import('~icons/mdi/account-outline')['default']
     IconMdiAccountTieOutline: typeof import('~icons/mdi/account-tie-outline')['default']
     IconMdiAlertOutline: typeof import('~icons/mdi/alert-outline')['default']
+    IconMdiArrowLeft: typeof import('~icons/mdi/arrow-left')['default']
     IconMdiArrowRight: typeof import('~icons/mdi/arrow-right')['default']
     IconMdiArrowTopRight: typeof import('~icons/mdi/arrow-top-right')['default']
     IconMdiBadgeOutline: typeof import('~icons/mdi/badge-outline')['default']

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Concerns\HandlesServiceValidationErrors;
 use App\Http\Controllers\Controller;
 use App\Models\VehicleReportDocument;
+use App\Modules\UserProfile\Admin\Services\AppraisalDocumentPullService;
 use App\Modules\UserProfile\Admin\Services\VehicleReportService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -23,7 +24,10 @@ class VehicleReportController extends Controller
 {
     use HandlesServiceValidationErrors;
 
-    public function __construct(private readonly VehicleReportService $vehicleReportService) {}
+    public function __construct(
+        private readonly VehicleReportService $vehicleReportService,
+        private readonly AppraisalDocumentPullService $appraisalDocumentPullService,
+    ) {}
 
     public function upload(Request $request, string $vehicleId): RedirectResponse
     {
@@ -48,6 +52,43 @@ class VehicleReportController extends Controller
                 $request->user(),
             );
         }) ?? back()->with('success', 'Dokument wurde hochgeladen.');
+    }
+
+    /**
+     * "Dokumente abrufen" — sync the vehicle's TÜV SÜD appraisal and copy the
+     * resulting documents in. Gated on the same `create` ability as a manual
+     * upload, since it produces the same kind of record.
+     */
+    public function pull(Request $request, string $vehicleId): RedirectResponse
+    {
+        $request->user()->can('create', VehicleReportDocument::class) || abort(403, 'Only admin can pull vehicle report documents');
+
+        $result = null;
+        $denied = $this->withServiceErrorHandling('report', function () use ($request, $vehicleId, &$result) {
+            $result = $this->appraisalDocumentPullService->pull($vehicleId, $request->user());
+        });
+
+        if ($denied) {
+            return $denied;
+        }
+
+        return back()->with('success', $this->pullMessage($result));
+    }
+
+    /**
+     * @param  array{auftragsnummer: string, transferred: int, skipped: int, already_synced: bool}  $result
+     */
+    private function pullMessage(array $result): string
+    {
+        if ($result['transferred'] === 0) {
+            return "Keine neuen Dokumente für {$result['auftragsnummer']} — alle bereits übernommen.";
+        }
+
+        $message = "{$result['transferred']} Dokument(e) für {$result['auftragsnummer']} übernommen.";
+
+        return $result['skipped'] > 0
+            ? $message." {$result['skipped']} bereits vorhanden."
+            : $message;
     }
 
     public function publish(Request $request, string $documentId): RedirectResponse

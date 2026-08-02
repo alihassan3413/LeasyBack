@@ -4,6 +4,7 @@ namespace Tests\Feature\Admin;
 
 use App\Enums\OrderStatus;
 use App\Enums\UserType;
+use App\Models\InspectionStation;
 use App\Models\User;
 use App\Modules\UserProfile\Offer\Models\LeasybackOffer;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
@@ -13,6 +14,7 @@ use App\Modules\UserProfile\Vehicle\Models\VehicleDocument;
 use App\Modules\UserProfile\Vehicle\Models\VehicleReportDocument;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia;
 use Tests\TestCase;
@@ -315,6 +317,129 @@ class VehicleControllerTest extends TestCase
         $this->actingAs($admin)
             ->get(route('admin.vehicles.index', ['status' => 'completed']))
             ->assertRedirect();
+    }
+
+    /**
+     * Admin order creation needs no admin-specific route: VehicleScopeService's
+     * Admin branch is unfiltered, so orders.store already accepts an admin
+     * booking for a customer's vehicle. This pins that, since the Admin row
+     * menu's "Auftrag erstellen" depends on it.
+     */
+    public function test_admin_can_create_an_order_for_a_customers_vehicle(): void
+    {
+        Http::fake(['*' => Http::response(['ok' => true], 200)]);
+        $admin = $this->admin();
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create(['b2c_user_id' => $owner->id, 'vehicle_belongs' => 'B2C']);
+        $station = InspectionStation::factory()->create(['provider' => 'tuvsud', 'is_active' => true]);
+
+        $this->actingAs($admin)
+            ->post(route('orders.store', $vehicle->vehicle_id), [
+                'station_id' => $station->station_id,
+                'termin' => now()->addWeek()->toDateTimeString(),
+            ])
+            ->assertRedirect();
+
+        $this->assertDatabaseHas('leasyback_orders', [
+            'vehicle_id' => $vehicle->vehicle_id,
+            'leasyback_partner' => 'tuvsud',
+            'created_by_user_id' => $admin->id,
+        ]);
+    }
+
+    public function test_a_non_admin_still_cannot_create_an_order_for_someone_elses_vehicle(): void
+    {
+        $stranger = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create(['b2c_user_id' => $owner->id, 'vehicle_belongs' => 'B2C']);
+        $station = InspectionStation::factory()->create(['provider' => 'tuvsud', 'is_active' => true]);
+
+        $this->actingAs($stranger)
+            ->post(route('orders.store', $vehicle->vehicle_id), [
+                'station_id' => $station->station_id,
+                'termin' => now()->addWeek()->toDateTimeString(),
+            ])
+            ->assertNotFound();
+
+        $this->assertDatabaseCount('leasyback_orders', 0);
+    }
+
+    /** The list/detail pages hand the picker its stations, so no extra endpoint is needed. */
+    public function test_vehicle_pages_provide_the_inspection_stations_for_the_order_picker(): void
+    {
+        $admin = $this->admin();
+        $vehicle = Vehicle::factory()->create();
+        InspectionStation::factory()->create(['provider' => 'tuvsud', 'is_active' => true]);
+        InspectionStation::factory()->create(['is_active' => false]);
+
+        $this->actingAs($admin)
+            ->get(route('admin.vehicles.index'))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page->has('stations', 1));
+
+        $this->actingAs($admin)
+            ->get(route('admin.vehicles.show', $vehicle->vehicle_id))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page->has('stations', 1));
+    }
+
+    /**
+     * `can_pull_documents` drives the row menu's "Dokumente abrufen" entry.
+     * It has to be a computed boolean: the Gutachtennummer lives in the
+     * order's raw `response_body`, which is a third-party payload the
+     * frontend has no business receiving.
+     */
+    public function test_pull_documents_availability_is_exposed_without_the_raw_response_body(): void
+    {
+        $admin = $this->admin();
+        $ready = Vehicle::factory()->create(['license_plate' => 'K PULL 1']);
+        LeasybackOrder::factory()->create([
+            'vehicle_id' => $ready->vehicle_id,
+            'leasyback_partner' => 'tuvsud',
+            'response_body' => 987654,
+        ]);
+        $notReady = Vehicle::factory()->create(['license_plate' => 'K PULL 2']);
+        LeasybackOrder::factory()->create([
+            'vehicle_id' => $notReady->vehicle_id,
+            'leasyback_partner' => 'tuvsud',
+            'response_body' => null,
+        ]);
+
+        $this->actingAs($admin)
+            ->get(route('admin.vehicles.index', ['search' => 'K PULL 1']))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('vehicles.data.0.can_pull_documents', true)
+                ->missing('vehicles.data.0.order_history.0.response_body')
+            );
+
+        $this->actingAs($admin)
+            ->get(route('admin.vehicles.index', ['search' => 'K PULL 2']))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('vehicles.data.0.can_pull_documents', false));
+    }
+
+    public function test_has_open_order_blocks_a_second_order(): void
+    {
+        $admin = $this->admin();
+        $busy = Vehicle::factory()->create(['license_plate' => 'K OPEN 1']);
+        LeasybackOrder::factory()->create([
+            'vehicle_id' => $busy->vehicle_id,
+            'order_status' => OrderStatus::Confirmed->value,
+        ]);
+        $free = Vehicle::factory()->create(['license_plate' => 'K OPEN 2']);
+        LeasybackOrder::factory()->create([
+            'vehicle_id' => $free->vehicle_id,
+            'order_status' => OrderStatus::Cancelled->value,
+        ]);
+
+        $this->actingAs($admin)
+            ->get(route('admin.vehicles.index', ['search' => 'K OPEN 1']))
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('vehicles.data.0.has_open_order', true));
+
+        $this->actingAs($admin)
+            ->get(route('admin.vehicles.index', ['search' => 'K OPEN 2']))
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('vehicles.data.0.has_open_order', false));
     }
 
     public function test_show_returns_404_for_unknown_vehicle(): void

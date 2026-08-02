@@ -27,7 +27,15 @@ Route::middleware(['auth', 'active', 'verified', 'admin'])->prefix('admin')->nam
         Route::post('/', [VehicleController::class, 'store'])->name('store');
         Route::get('{vehicleId}', [VehicleController::class, 'show'])->whereUuid('vehicleId')->name('show');
 
+        // Order creation deliberately has no admin-specific route: the
+        // session route orders.store already serves it. VehicleScopeService's
+        // Admin branch is unfiltered by design, so an admin may book for any
+        // vehicle, and OrderService records created_by_user_id as the admin.
+        // (Note the resulting order goes straight to order_placed rather than
+        // the order_requested staging a Firmenkunde gets — that staging
+        // exists so an admin can approve, and here the admin *is* the actor.)
         Route::post('{vehicleId}/reports', [VehicleReportController::class, 'upload'])->whereUuid('vehicleId')->name('reports.upload');
+        Route::post('{vehicleId}/reports/pull', [VehicleReportController::class, 'pull'])->whereUuid('vehicleId')->name('reports.pull');
         Route::patch('reports/{documentId}/publish', [VehicleReportController::class, 'publish'])->whereUuid('documentId')->name('reports.publish');
         Route::delete('reports/{documentId}', [VehicleReportController::class, 'delete'])->whereUuid('documentId')->name('reports.delete');
     });

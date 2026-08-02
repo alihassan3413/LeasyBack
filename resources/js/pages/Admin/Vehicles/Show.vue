@@ -7,10 +7,11 @@ import AdminLayout from '@/layouts/AdminLayout.vue';
 import { getAdminDashboardStatus as getStatus } from '@/lib/adminStatus';
 import { toVehicleData } from '@/lib/adminVehicle';
 import type { AdminVehicleRow } from '@/types/admin';
+import type { StationData } from '@/types/order';
 import { Head, Link, router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 
-const props = defineProps<{ vehicle: AdminVehicleRow }>();
+const props = defineProps<{ vehicle: AdminVehicleRow; stations: StationData[] }>();
 
 /**
  * The customer dashboard's expanded panel, rendered from the same vehicle
@@ -125,13 +126,17 @@ function deleteDocument(documentId: string) {
                     Report hochladen
                 </button>
 
-                <div v-if="currentOrder" class="mr-2 shrink-0">
+                <!-- Rendered even without an order: "Auftrag erstellen" is exactly the action needed then. -->
+                <div class="mr-2 shrink-0">
                     <AdminOrderActionsMenu
-                        :order-id="currentOrder.id"
-                        :auftragsnummer="currentOrder.auftragsnummer"
+                        :order-id="currentOrder?.id"
+                        :auftragsnummer="currentOrder?.auftragsnummer"
                         :vehicle-id="vehicle.vehicle_id"
-                        :order-status="currentOrder.order_status"
-                        :available-transitions="currentOrder.available_transitions"
+                        :order-status="currentOrder?.order_status"
+                        :available-transitions="currentOrder?.available_transitions"
+                        :stations="stations"
+                        :has-open-order="vehicle.has_open_order"
+                        :can-pull-documents="vehicle.can_pull_documents"
                     />
                 </div>
             </div>
@@ -283,6 +288,9 @@ function deleteDocument(documentId: string) {
                                 :vehicle-id="vehicle.vehicle_id"
                                 :order-status="order.order_status"
                                 :available-transitions="order.available_transitions"
+                                :stations="stations"
+                                :has-open-order="vehicle.has_open_order"
+                                :can-pull-documents="vehicle.can_pull_documents"
                             />
                         </div>
                     </div>

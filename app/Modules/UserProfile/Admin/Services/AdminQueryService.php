@@ -360,7 +360,7 @@ class AdminQueryService
         $rows = (clone $base)
             ->select([
                 'o.id', 'o.vehicle_id', 'o.auftragsnummer', 'o.leasyback_partner',
-                'o.order_status', 'o.sent_at', 'o.created_at', 'o.response_status',
+                'o.order_status', 'o.sent_at', 'o.created_at', 'o.response_status', 'o.response_body',
                 'v.license_plate', 'v.vin', 'v.make', 'v.model',
                 'v.b2c_user_id', 'v.b2b_id',
             ])
@@ -411,7 +411,7 @@ class AdminQueryService
             ->where('o.id', $orderId)
             ->select([
                 'o.id', 'o.vehicle_id', 'o.auftragsnummer', 'o.leasyback_partner',
-                'o.order_status', 'o.sent_at', 'o.created_at', 'o.response_status',
+                'o.order_status', 'o.sent_at', 'o.created_at', 'o.response_status', 'o.response_body',
                 'v.license_plate', 'v.vin', 'v.make', 'v.model',
                 'v.b2c_user_id', 'v.b2b_id',
             ])
@@ -496,6 +496,12 @@ class AdminQueryService
                 'confirmation_date' => $confirmations[$row->auftragsnummer] ?? null,
                 'assessment_documents' => $assessmentDocs[$row->auftragsnummer] ?? [],
                 'report_documents' => $reportDocs[$key] ?? [],
+                // Same boolean enrichVehicles() computes: is there a
+                // Gutachtennummer for "Dokumente abrufen" to work from? The
+                // raw response_body is read here and deliberately not
+                // forwarded — it is a third-party payload.
+                'can_pull_documents' => $row->leasyback_partner === 'tuvsud'
+                    && is_numeric(trim((string) $row->response_body, '"')),
             ];
         })->all();
     }
@@ -732,8 +738,17 @@ class AdminQueryService
             ->whereIn('o.vehicle_id', $vehicleIds)->orderByDesc('o.created_at')
             ->get([
                 'o.vehicle_id', 'o.id', 'o.auftragsnummer', 'o.leasyback_partner',
-                'o.order_status', 'o.sent_at', 'o.created_at', 'o.response_status', 'c.confirmation_date',
+                'o.order_status', 'o.sent_at', 'o.created_at', 'o.response_status', 'o.response_body',
+                'c.confirmation_date',
             ]);
+        // Whether "Dokumente abrufen" can do anything for this vehicle: it
+        // needs a TÜV SÜD order whose response_body carries the
+        // Gutachtennummer. The raw body is only read here and then dropped
+        // below — it is a third-party payload, not something the frontend
+        // should receive just to compute a boolean.
+        $canPull = $rawHistory->groupBy('vehicle_id')->map(fn (Collection $items) => $items->contains(
+            fn (object $item) => $item->leasyback_partner === 'tuvsud' && is_numeric(trim((string) $item->response_body, '"'))
+        ));
         // Report/invoice documents (Admin-managed) attached per order, the
         // same reportDocuments() helper enrichOrders() already uses, keyed
         // identically — the Admin vehicle detail page's per-order document
@@ -742,7 +757,7 @@ class AdminQueryService
         $reportDocs = $this->reportDocuments($rawHistory->pluck('auftragsnummer')->unique()->values());
         $history = $rawHistory->groupBy('vehicle_id')->map(fn (Collection $items) => $items->map(function (object $item) use ($reportDocs) {
             $key = $item->auftragsnummer.'|'.$item->vehicle_id;
-            unset($item->vehicle_id);
+            unset($item->vehicle_id, $item->response_body);
             $arr = (array) $item;
             $arr['report_documents'] = $reportDocs[$key] ?? [];
 
@@ -759,7 +774,7 @@ class AdminQueryService
                 return (array) $item;
             })->values()->all());
 
-        return $rows->map(function (object $row) use ($owners, $history, $documents) {
+        return $rows->map(function (object $row) use ($owners, $history, $documents, $canPull) {
             $owner = $owners[(string) $row->vehicle_id] ?? [];
 
             return [
@@ -793,6 +808,14 @@ class AdminQueryService
                     TransitionOrderStatus::allowedNextStatuses($row->current_order_status),
                     ['order_placed', 'discarded'],
                 )),
+                // Drives the row menu's "Auftrag erstellen" / "Dokumente
+                // abrufen" entries. has_open_order mirrors
+                // VehicleService::hasUnfinishedOrder(), the rule
+                // OrderService actually enforces on create.
+                'has_open_order' => collect($history[$row->vehicle_id] ?? [])->contains(
+                    fn (array $order) => ! in_array($order['order_status'], ['delivered', 'cancelled', 'discarded'], true)
+                ),
+                'can_pull_documents' => (bool) ($canPull[$row->vehicle_id] ?? false),
                 'order_history' => $history[$row->vehicle_id] ?? [],
                 'documents' => $documents[$row->vehicle_id] ?? [],
             ];

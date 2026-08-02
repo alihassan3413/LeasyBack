@@ -5,6 +5,8 @@ namespace Tests\Feature\Admin;
 use App\Enums\UserType;
 use App\Models\User;
 use App\Modules\UserProfile\Admin\Services\VehicleReportService;
+use App\Modules\UserProfile\Order\Models\LeasybackOrder;
+use App\Modules\UserProfile\Tim\Services\TimService;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle;
 use App\Modules\UserProfile\Vehicle\Models\VehicleReportDocument;
 use App\Notifications\SystemNotification;
@@ -13,6 +15,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage;
+use RuntimeException;
 use Tests\TestCase;
 
 class VehicleReportControllerTest extends TestCase
@@ -178,6 +181,188 @@ class VehicleReportControllerTest extends TestCase
 
         $this->assertDatabaseHas('vehicle_report_documents', ['auftragsnummer' => 'AUF-DRAFT', 'published' => false]);
         Notification::assertNothingSent();
+    }
+
+    /**
+     * "Dokumente abrufen" on an appraisal TIM has already ingested: no SOAP
+     * call is needed, and the documents on record get copied into the
+     * vehicle's report repository as unpublished drafts.
+     */
+    public function test_admin_can_pull_already_synced_appraisal_documents(): void
+    {
+        Storage::fake('s3');
+        Storage::fake('documents');
+        Storage::disk('s3')->put('tim/gutachten.pdf', 'content');
+
+        $admin = $this->admin();
+        $vehicle = Vehicle::factory()->create();
+        $order = LeasybackOrder::factory()->create([
+            'vehicle_id' => $vehicle->vehicle_id,
+            'auftragsnummer' => 'AUF-PULL',
+            'leasyback_partner' => 'tuvsud',
+            'response_body' => 4242,
+        ]);
+        $this->assessmentDocument($order->auftragsnummer, 'tim/gutachten.pdf');
+
+        $this->actingAs($admin)
+            ->post(route('admin.vehicles.reports.pull', $vehicle->vehicle_id))
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        $this->assertDatabaseHas('vehicle_report_documents', [
+            'vehicle_id' => $vehicle->vehicle_id,
+            'auftragsnummer' => 'AUF-PULL',
+            'document_type' => 'gutachten',
+            'published' => false,
+        ]);
+    }
+
+    /** A repeat pull must not duplicate documents or fail — each is skipped. */
+    public function test_pulling_twice_does_not_duplicate_documents(): void
+    {
+        Storage::fake('s3');
+        Storage::fake('documents');
+        Storage::disk('s3')->put('tim/gutachten.pdf', 'content');
+
+        $admin = $this->admin();
+        $vehicle = Vehicle::factory()->create();
+        $order = LeasybackOrder::factory()->create([
+            'vehicle_id' => $vehicle->vehicle_id,
+            'auftragsnummer' => 'AUF-TWICE',
+            'leasyback_partner' => 'tuvsud',
+            'response_body' => 5151,
+        ]);
+        $this->assessmentDocument($order->auftragsnummer, 'tim/gutachten.pdf');
+
+        $this->actingAs($admin)->post(route('admin.vehicles.reports.pull', $vehicle->vehicle_id));
+        $this->actingAs($admin)
+            ->post(route('admin.vehicles.reports.pull', $vehicle->vehicle_id))
+            ->assertRedirect();
+
+        $this->assertDatabaseCount('vehicle_report_documents', 1);
+    }
+
+    public function test_pull_is_rejected_when_the_order_has_no_gutachtennummer(): void
+    {
+        $admin = $this->admin();
+        $vehicle = Vehicle::factory()->create();
+        LeasybackOrder::factory()->create([
+            'vehicle_id' => $vehicle->vehicle_id,
+            'leasyback_partner' => 'tuvsud',
+            'response_body' => null,
+        ]);
+
+        $this->actingAs($admin)
+            ->post(route('admin.vehicles.reports.pull', $vehicle->vehicle_id))
+            ->assertSessionHasErrors('report');
+
+        $this->assertDatabaseCount('vehicle_report_documents', 0);
+    }
+
+    public function test_pull_is_rejected_for_a_vehicle_without_a_tuvsud_order(): void
+    {
+        $admin = $this->admin();
+        $vehicle = Vehicle::factory()->create();
+        LeasybackOrder::factory()->create([
+            'vehicle_id' => $vehicle->vehicle_id,
+            'leasyback_partner' => 'dekra',
+            'response_body' => 999,
+        ]);
+
+        $this->actingAs($admin)
+            ->post(route('admin.vehicles.reports.pull', $vehicle->vehicle_id))
+            ->assertSessionHasErrors('report');
+    }
+
+    /**
+     * The fresh-sync path: TimService reports a successful ingest, and the
+     * documents it wrote are transferred. TimService itself is stubbed —
+     * exercising it for real would mean standing up TIM's SOAP endpoint.
+     */
+    public function test_a_successful_sync_transfers_the_documents_it_ingested(): void
+    {
+        Storage::fake('s3');
+        Storage::fake('documents');
+        Storage::disk('s3')->put('tim/neu.pdf', 'content');
+
+        $admin = $this->admin();
+        $vehicle = Vehicle::factory()->create();
+        $order = LeasybackOrder::factory()->create([
+            'vehicle_id' => $vehicle->vehicle_id,
+            'auftragsnummer' => 'AUF-FRESH',
+            'leasyback_partner' => 'tuvsud',
+            'response_body' => 6262,
+        ]);
+
+        $this->app->bind(TimService::class, fn () => new class($order->auftragsnummer) extends TimService
+        {
+            public function __construct(private readonly string $auftragsnummer) {}
+
+            public function sync(int $bewertungId, int|string $userId): array
+            {
+                // Stand in for the SOAP ingest: write what TIM would have written.
+                $assessmentId = DB::table('vehicle_assessments')->insertGetId([
+                    'uid' => 'uid-'.$bewertungId,
+                    'auftragsnummer' => $this->auftragsnummer,
+                ]);
+                DB::table('assessment_documents')->insert([
+                    'assessment_id' => $assessmentId,
+                    'doc_type' => 'gutachten',
+                    's3_bucket' => 'test',
+                    's3_key' => 'tim/neu.pdf',
+                    's3_url' => 'https://example.test/tim/neu.pdf',
+                ]);
+
+                return ['status' => 200, 'body' => ['bewertung_id' => $bewertungId]];
+            }
+        });
+
+        $this->actingAs($admin)
+            ->post(route('admin.vehicles.reports.pull', $vehicle->vehicle_id))
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        $this->assertDatabaseHas('vehicle_report_documents', [
+            'vehicle_id' => $vehicle->vehicle_id,
+            'auftragsnummer' => 'AUF-FRESH',
+            'published' => false,
+        ]);
+    }
+
+    /** A TIM outage surfaces as a form error, not a 500. */
+    public function test_a_failing_sync_reports_an_error_instead_of_crashing(): void
+    {
+        $admin = $this->admin();
+        $vehicle = Vehicle::factory()->create();
+        LeasybackOrder::factory()->create([
+            'vehicle_id' => $vehicle->vehicle_id,
+            'leasyback_partner' => 'tuvsud',
+            'response_body' => 7373,
+        ]);
+
+        $this->app->bind(TimService::class, fn () => new class extends TimService
+        {
+            public function sync(int $bewertungId, int|string $userId): array
+            {
+                throw new RuntimeException('TIM token is unavailable');
+            }
+        });
+
+        $this->actingAs($admin)
+            ->post(route('admin.vehicles.reports.pull', $vehicle->vehicle_id))
+            ->assertSessionHasErrors('report');
+
+        $this->assertDatabaseCount('vehicle_report_documents', 0);
+    }
+
+    public function test_non_admin_cannot_pull_appraisal_documents(): void
+    {
+        $user = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create();
+
+        $this->actingAs($user)
+            ->post(route('admin.vehicles.reports.pull', $vehicle->vehicle_id))
+            ->assertForbidden();
     }
 
     private function assessmentDocument(string $auftragsnummer, string $s3Key): int

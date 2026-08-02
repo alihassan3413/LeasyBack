@@ -4,12 +4,14 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Concerns\HandlesServiceValidationErrors;
 use App\Http\Controllers\Controller;
+use App\Models\InspectionStation;
 use App\Models\Vehicle;
 use App\Modules\UserProfile\Admin\Services\AdminQueryService;
 use App\Modules\UserProfile\Vehicle\Http\Requests\StoreVehicleRequest;
 use App\Modules\UserProfile\Vehicle\Services\VehicleService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -47,6 +49,7 @@ class VehicleController extends Controller
             'expandedVehicle' => fn () => $expandedId === ''
                 ? null
                 : $this->adminQueryService->vehicleDetail($expandedId),
+            'stations' => fn () => $this->activeStations(),
         ]);
     }
 
@@ -57,7 +60,23 @@ class VehicleController extends Controller
 
         return Inertia::render('Admin/Vehicles/Show', [
             'vehicle' => $vehicle,
+            'stations' => fn () => $this->activeStations(),
         ]);
+    }
+
+    /**
+     * Inspection stations for the "Auftrag erstellen" picker — the same list
+     * and shape the customer dashboard is given, so Admin can reuse
+     * OrderCreationModal.vue as-is.
+     *
+     * @return Collection<int, InspectionStation>
+     */
+    private function activeStations(): Collection
+    {
+        return InspectionStation::where('is_active', true)
+            ->orderBy('provider')
+            ->orderBy('name')
+            ->get(['station_id', 'provider', 'name', 'strasse', 'plz', 'ort', 'bundesland', 'land']);
     }
 
     /**

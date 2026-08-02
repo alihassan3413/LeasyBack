@@ -111,6 +111,10 @@ export interface AdminVehicleRow {
     current_order_created_at: string | null;
     /** Allowed next statuses for `current_order_id`, for the list row's action menu. */
     current_order_transitions: string[];
+    /** True while an order is neither delivered nor cancelled/discarded — blocks creating another. */
+    has_open_order: boolean;
+    /** True when a TÜV SÜD order carries a Gutachtennummer the appraisal pull can use. */
+    can_pull_documents: boolean;
     order_history: AdminVehicleOrderHistoryEntry[];
     documents: AdminVehicleDocumentEntry[];
 }
@@ -181,6 +185,8 @@ export interface AdminOrderRow {
     confirmation_date: string | null;
     assessment_documents: unknown[];
     report_documents: AdminReportDocument[];
+    /** True when this TÜV SÜD order carries a Gutachtennummer the appraisal pull can use. */
+    can_pull_documents: boolean;
 }
 
 /** Matches AdminQueryService::orders()'s response envelope. */

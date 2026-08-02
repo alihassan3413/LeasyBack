@@ -12,9 +12,11 @@
  * `document_type: rechnung`, which its `nullable|string` rule already
  * accepts and customerOrderFlow.ts already recognises).
  *
- * Deliberately absent: "create order" and "pull TÜV SÜD documents" — no
- * backend endpoint exists for either (see the Admin order docs), and a menu
- * entry with nothing to call would be dead UI.
+ * "Auftrag erstellen" reuses the customer's OrderCreationModal and its
+ * orders.store route — VehicleScopeService's Admin branch is unfiltered, so
+ * that route already accepts an admin booking for any vehicle. "Dokumente
+ * abrufen" posts to admin.vehicles.reports.pull, which syncs the TÜV SÜD
+ * appraisal and copies its documents in server-side.
  */
 import CreateOfferModal from '@/components/admin/CreateOfferModal.vue';
 import UploadReportDocumentModal from '@/components/admin/UploadReportDocumentModal.vue';
@@ -29,7 +31,9 @@ import {
     DropdownMenuSubTrigger,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import OrderCreationModal from '@/components/vehicle/OrderCreationModal.vue';
 import { getAdminDashboardStatus } from '@/lib/adminStatus';
+import type { StationData } from '@/types/order';
 import { router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 
@@ -42,8 +46,23 @@ const props = withDefaults(
         orderStatus?: string | null;
         availableTransitions?: string[];
         align?: 'start' | 'center' | 'end';
+        /** Inspection stations for the "Auftrag erstellen" picker; empty disables the action. */
+        stations?: StationData[];
+        /** True while the vehicle has an order that is neither delivered nor cancelled. */
+        hasOpenOrder?: boolean;
+        /** Only a TÜV SÜD order can have its appraisal documents pulled. */
+        canPullDocuments?: boolean;
     }>(),
-    { orderId: null, auftragsnummer: null, orderStatus: null, availableTransitions: () => [], align: 'end' },
+    {
+        orderId: null,
+        auftragsnummer: null,
+        orderStatus: null,
+        availableTransitions: () => [],
+        align: 'end',
+        stations: () => [],
+        hasOpenOrder: false,
+        canPullDocuments: false,
+    },
 );
 
 const hasOrder = computed(() => !!props.orderId && !!props.auftragsnummer);
@@ -59,6 +78,26 @@ const transitions = computed(() => (hasOrder.value ? props.availableTransitions.
 const canCancel = computed(() => hasOrder.value && props.availableTransitions.includes('cancelled'));
 
 const auftragsnummerOptions = computed(() => (props.auftragsnummer ? [{ value: props.auftragsnummer, label: props.auftragsnummer }] : []));
+
+/** OrderService rejects a second order while one is still running (hasUnfinishedOrder). */
+const canCreateOrder = computed(() => !props.hasOpenOrder && props.stations.length > 0);
+
+const createOrderHint = computed(() => {
+    if (props.hasOpenOrder) {
+        return 'Für dieses Fahrzeug läuft bereits ein Auftrag';
+    }
+
+    return props.stations.length === 0 ? 'Keine aktive Begutachtungsstelle hinterlegt' : '';
+});
+
+const createOrderOpen = ref(false);
+const pulling = ref(false);
+
+function pullDocuments() {
+    pulling.value = true;
+
+    router.post(route('admin.vehicles.reports.pull', props.vehicleId), {}, { preserveScroll: true, onFinish: () => (pulling.value = false) });
+}
 
 const createOfferOpen = ref(false);
 const uploadOpen = ref(false);
@@ -185,22 +224,18 @@ function statusLabel(status: string): string {
 
             <DropdownMenuSeparator />
 
-            <!--
-                v1 parity, intentionally inert: both actions exist as Sanctum
-                bearer-token API routes (order/{provider}/create/{vehicleId},
-                tim/appraisal/xml/sync/{bewertungId}) that a session-based
-                Inertia page cannot call. They stay visible-but-disabled so the
-                menu matches v1 and the gap is obvious, rather than silently
-                missing. See the handover notes for the web-route wiring needed.
-            -->
-            <DropdownMenuItem disabled title="Backend: noch keine Session-Route für die Auftragserstellung">
+            <DropdownMenuItem :disabled="!canCreateOrder" :title="createOrderHint" @select="createOrderOpen = true">
                 <IconMdiClipboardPlusOutline />
                 Auftrag erstellen
             </DropdownMenuItem>
 
-            <DropdownMenuItem disabled title="Backend: noch keine Session-Route für den TÜV-SÜD-Abruf">
-                <IconMdiSync />
-                Dokumente abrufen
+            <DropdownMenuItem
+                :disabled="!canPullDocuments || pulling"
+                :title="canPullDocuments ? 'Gutachten-Dokumente von TÜV SÜD übernehmen' : 'Nur für TÜV SÜD Aufträge mit Gutachtennummer verfügbar'"
+                @select="pullDocuments"
+            >
+                <IconMdiSync :class="pulling ? 'animate-spin' : ''" />
+                {{ pulling ? 'Dokumente werden abgerufen…' : 'Dokumente abrufen' }}
             </DropdownMenuItem>
 
             <template v-if="$slots.extra">
@@ -255,7 +290,9 @@ function statusLabel(status: string): string {
         </div>
     </div>
 
-    <CreateOfferModal v-model:open="createOfferOpen" :order-id="orderId" />
+    <OrderCreationModal v-if="stations.length" v-model:open="createOrderOpen" :vehicle-id="vehicleId" :stations="stations" />
+
+    <CreateOfferModal v-if="orderId" v-model:open="createOfferOpen" :order-id="orderId" />
 
     <UploadReportDocumentModal
         v-model:open="uploadOpen"

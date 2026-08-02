@@ -6,6 +6,7 @@ import AdminLayout from '@/layouts/AdminLayout.vue';
 import { ADMIN_ORDER_STATUS_FILTERS, getAdminDashboardStatus as getStatus } from '@/lib/adminStatus';
 import { toVehicleData } from '@/lib/adminVehicle';
 import type { AdminVehicleRow } from '@/types/admin';
+import type { StationData } from '@/types/order';
 import { Head, router } from '@inertiajs/vue3';
 import { computed, ref, watch } from 'vue';
 
@@ -27,6 +28,8 @@ const props = defineProps<{
     filters: { search: string; status: string; user_type: OwnerType };
     /** Only ever the row currently expanded — see VehicleController::index(). */
     expandedVehicle: AdminVehicleRow | null;
+    /** Inspection stations for the row menu's "Auftrag erstellen" picker. */
+    stations: StationData[];
 }>();
 
 const search = ref(props.filters.search);
@@ -346,6 +349,9 @@ watch(
                                                 :auftragsnummer="vehicle.current_auftragsnummer"
                                                 :order-status="vehicle.current_order_status"
                                                 :available-transitions="vehicle.current_order_transitions"
+                                                :stations="stations"
+                                                :has-open-order="vehicle.has_open_order"
+                                                :can-pull-documents="vehicle.can_pull_documents"
                                             >
                                                 <template #extra>
                                                     <DropdownMenuItem @select="openDetail(vehicle)">
