@@ -26,6 +26,9 @@ class VehicleController extends Controller
     {
         return Inertia::render('Admin/Vehicles/Index', [
             'vehicles' => $this->adminQueryService->vehicles($request),
+            'filters' => [
+                'status' => $request->query('status'),
+            ],
         ]);
     }
 
