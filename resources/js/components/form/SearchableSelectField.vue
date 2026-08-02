@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { onClickOutside } from '@vueuse/core';
-import { computed, ref, watch } from 'vue';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { computed, nextTick, ref, watch } from 'vue';
 import MdiChevronDown from '~icons/mdi/chevron-down';
 import MdiMagnify from '~icons/mdi/magnify';
 
@@ -34,16 +34,18 @@ const props = withDefaults(
 
 const emit = defineEmits<{ (e: 'update:modelValue', value: string): void }>();
 
-const root = ref<HTMLElement | null>(null);
 const open = ref(false);
 const search = ref('');
-
-onClickOutside(root, () => (open.value = false));
+const searchInput = ref<HTMLInputElement | null>(null);
 
 watch(open, (isOpen) => {
     if (!isOpen) {
         search.value = '';
+
+        return;
     }
+
+    void nextTick(() => searchInput.value?.focus());
 });
 
 const selected = computed(() => props.options.find((option) => option.value === props.modelValue) ?? null);
@@ -60,14 +62,6 @@ const visibleOptions = computed(() => {
     );
 });
 
-function toggle() {
-    if (props.disabled) {
-        return;
-    }
-
-    open.value = !open.value;
-}
-
 function select(option: SearchableOption) {
     emit('update:modelValue', option.value);
     open.value = false;
@@ -75,56 +69,64 @@ function select(option: SearchableOption) {
 </script>
 
 <template>
-    <div ref="root" class="relative flex w-full flex-col gap-1">
-        <div
-            :id="id"
-            role="combobox"
-            :aria-expanded="open"
-            :aria-invalid="invalid"
-            :aria-describedby="describedBy"
-            :tabindex="disabled ? -1 : 0"
-            class="border-input flex h-10 w-full items-center justify-between rounded-full border bg-white px-4 outline-none transition focus:border-emerald-500"
-            :class="[disabled ? 'cursor-not-allowed bg-gray-100' : 'cursor-pointer', invalid ? 'border-red-400 bg-red-50' : '']"
-            @click="toggle"
-            @keydown.enter.prevent="toggle"
-            @keydown.space.prevent="toggle"
-        >
-            <span class="truncate text-sm" :class="selected ? 'text-gray-800' : 'text-gray-400'">
-                {{ selected ? selected.label : placeholder }}
-            </span>
-            <MdiChevronDown class="shrink-0 text-[24px] text-gray-500 transition-transform duration-200" :class="open ? 'rotate-180' : 'rotate-0'" />
-        </div>
+    <Popover v-model:open="open">
+        <PopoverTrigger as-child :disabled="disabled">
+            <button
+                :id="id"
+                type="button"
+                :aria-invalid="invalid"
+                :aria-describedby="describedBy"
+                :disabled="disabled"
+                class="border-input focus-visible:border-brand-green focus-visible:ring-ring/30 flex h-10 w-full items-center justify-between gap-2 rounded-full border bg-white px-4 text-sm transition-colors focus-visible:ring-2 focus-visible:outline-hidden disabled:cursor-not-allowed disabled:bg-gray-100 disabled:opacity-60 data-[state=open]:border-[#01B990] aria-[invalid=true]:border-red-400 aria-[invalid=true]:bg-red-50"
+            >
+                <span class="truncate" :class="selected ? 'text-gray-800' : 'text-gray-400'">
+                    {{ selected ? selected.label : placeholder }}
+                </span>
+                <MdiChevronDown
+                    class="shrink-0 text-[20px] text-gray-500 transition-transform duration-200"
+                    :class="open ? 'rotate-180' : 'rotate-0'"
+                />
+            </button>
+        </PopoverTrigger>
 
-        <div v-if="open" class="absolute top-full z-[10000] mt-1 max-h-56 w-full overflow-y-auto rounded-2xl border border-gray-200 bg-white shadow-lg">
-            <div class="sticky top-0 z-10 bg-white p-2">
+        <PopoverContent
+            align="start"
+            :side-offset="6"
+            class="w-[var(--reka-popover-trigger-width)] overflow-hidden rounded-2xl border-gray-200 p-0 shadow-[0_12px_34px_rgba(16,57,59,0.16)]"
+            @open-auto-focus.prevent
+        >
+            <div class="border-b border-[#f1f5f5] p-2">
                 <div
-                    class="flex h-8 items-center gap-2 rounded-full border border-gray-200 bg-gray-50 px-3 focus-within:border-emerald-500 focus-within:bg-white"
+                    class="flex h-8 items-center gap-2 rounded-full border border-gray-200 bg-gray-50 px-3 transition-colors focus-within:border-[#01B990] focus-within:bg-white"
                 >
                     <MdiMagnify class="shrink-0 text-[18px] text-gray-400" />
                     <input
+                        ref="searchInput"
                         v-model="search"
                         type="text"
                         :placeholder="searchPlaceholder"
                         class="w-full bg-transparent text-sm outline-none placeholder:text-gray-400"
-                        @click.stop
                     />
                 </div>
             </div>
 
-            <div v-if="!visibleOptions.length" class="px-4 py-2 text-sm text-gray-400">
-                {{ emptyLabel }}
-            </div>
+            <div class="max-h-56 overflow-y-auto py-1">
+                <p v-if="!visibleOptions.length" class="px-4 py-3 text-sm text-gray-400">
+                    {{ emptyLabel }}
+                </p>
 
-            <div
-                v-for="option in visibleOptions"
-                :key="option.value"
-                class="flex cursor-pointer flex-col px-4 py-2 hover:bg-gray-50"
-                :class="option.value === modelValue ? 'bg-gray-50' : ''"
-                @click="select(option)"
-            >
-                <span class="text-sm text-gray-800" :class="option.description ? 'font-medium' : ''">{{ option.label }}</span>
-                <span v-if="option.description" class="text-xs text-gray-400">{{ option.description }}</span>
+                <button
+                    v-for="option in visibleOptions"
+                    :key="option.value"
+                    type="button"
+                    class="flex w-full flex-col items-start px-4 py-2 text-left transition-colors hover:bg-gray-50"
+                    :class="option.value === modelValue ? 'bg-[#01B990]/[0.07]' : ''"
+                    @click="select(option)"
+                >
+                    <span class="text-sm text-gray-800" :class="option.description ? 'font-medium' : ''">{{ option.label }}</span>
+                    <span v-if="option.description" class="text-xs text-gray-400">{{ option.description }}</span>
+                </button>
             </div>
-        </div>
-    </div>
+        </PopoverContent>
+    </Popover>
 </template>

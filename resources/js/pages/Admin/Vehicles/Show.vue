@@ -1,41 +1,58 @@
 <script setup lang="ts">
 import UploadReportDocumentModal from '@/components/admin/UploadReportDocumentModal.vue';
 import type { SelectFieldOption } from '@/components/form/SelectField.vue';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import AdminLayout from '@/layouts/AdminLayout.vue';
-import { getVehicleStatusDisplay } from '@/lib/vehicleStatus';
+import { getAdminDashboardStatus as getStatus } from '@/lib/adminStatus';
 import type { AdminVehicleRow } from '@/types/admin';
-import type { BreadcrumbItem } from '@/types';
 import { Head, Link, router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 
 const props = defineProps<{ vehicle: AdminVehicleRow }>();
 
-const breadcrumbs = computed<BreadcrumbItem[]>(() => [
-    { title: 'Fahrzeuge', href: route('admin.vehicles.index') },
-    { title: props.vehicle.license_plate, href: route('admin.vehicles.show', props.vehicle.vehicle_id) },
-]);
-
 const ownerRoute = computed(() => {
     if (props.vehicle.vehicle_belongs === 'B2C' && props.vehicle.user_id) {
         return route('admin.customers.show', { type: 'b2c', id: props.vehicle.user_id });
     }
+
     if (props.vehicle.vehicle_belongs === 'B2B' && props.vehicle.b2b_id) {
         return route('admin.customers.show', { type: 'b2b', id: props.vehicle.b2b_id });
     }
+
     return null;
 });
 
-const ownerLabel = computed(() => (props.vehicle.vehicle_belongs === 'B2B' ? props.vehicle.company_name : props.vehicle.user_email) ?? '—');
+const ownerLabel = computed(() => props.vehicle.company_name || props.vehicle.user_email || 'Nicht zugeordnet');
+const vehicleTitle = computed(() => [props.vehicle.make, props.vehicle.model].filter(Boolean).join(' ') || 'Ohne Marke');
+
+const specs = computed(() => [
+    { label: 'Kennzeichen', value: props.vehicle.license_plate, mono: true },
+    { label: 'FIN', value: props.vehicle.vin || '—', mono: true },
+    { label: 'Erstzulassung', value: formatDate(props.vehicle.first_registration_date) },
+    { label: 'Leasingende', value: formatDate(props.vehicle.leasing_end_date) },
+    { label: 'Leasinggeber', value: props.vehicle.leasinggeber || '—' },
+    { label: 'Angelegt am', value: formatDate(props.vehicle.created_at) },
+]);
 
 function formatDate(value: string | null): string {
     if (!value) {
         return '—';
     }
-    return new Date(value).toLocaleDateString('de-DE');
+
+    const date = new Date(value);
+
+    return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+function formatFileSize(bytes: number): string {
+    if (bytes < 1024) {
+        return `${bytes} B`;
+    }
+
+    if (bytes < 1024 * 1024) {
+        return `${Math.round(bytes / 1024)} KB`;
+    }
+
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 const auftragsnummerOptions = computed<SelectFieldOption[]>(() =>
@@ -52,6 +69,7 @@ const confirmingDeleteId = ref<string | null>(null);
 
 function togglePublished(documentId: string, published: boolean) {
     publishingId.value = documentId;
+
     router.patch(
         route('admin.vehicles.reports.publish', documentId),
         { published: !published },
@@ -70,149 +88,317 @@ function deleteDocument(documentId: string) {
 <template>
     <Head :title="vehicle.license_plate" />
 
-    <AdminLayout :breadcrumbs="breadcrumbs">
-        <div class="flex h-full flex-1 flex-col gap-6 p-4">
-            <Card>
-                <CardContent class="flex flex-wrap items-center justify-between gap-4 pt-6">
-                    <div>
-                        <div class="flex items-center gap-2">
-                            <h1 class="text-lg font-semibold">{{ vehicle.license_plate }}</h1>
-                            <Badge :variant="getVehicleStatusDisplay(vehicle.current_order_status ?? undefined).variant">
-                                {{ getVehicleStatusDisplay(vehicle.current_order_status ?? undefined).label }}
-                            </Badge>
-                        </div>
-                        <p class="text-muted-foreground text-sm">{{ [vehicle.make, vehicle.model].filter(Boolean).join(' · ') || '—' }}</p>
-                    </div>
-                    <Link v-if="ownerRoute" :href="ownerRoute" class="text-sm hover:underline"> Halter: {{ ownerLabel }} </Link>
-                    <span v-else class="text-muted-foreground text-sm">Halter: {{ ownerLabel }}</span>
-                </CardContent>
-            </Card>
+    <AdminLayout>
+        <template #header>
+            <div class="flex min-w-0 flex-1 items-center gap-3">
+                <Link
+                    :href="route('admin.vehicles.index')"
+                    class="flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] bg-[#f4f7f6] text-[#6f8585] transition-all hover:bg-[#eaf0ef] hover:text-[#10393b]"
+                    title="Zurück zur Fahrzeugliste"
+                >
+                    <IconMdiArrowLeft class="size-[18px]" />
+                </Link>
 
-            <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
-                <Card>
-                    <CardHeader>
-                        <CardTitle class="text-sm">Fahrzeugdaten</CardTitle>
-                    </CardHeader>
-                    <CardContent class="space-y-1 text-sm">
-                        <p>VIN: {{ vehicle.vin ?? '—' }}</p>
-                        <p>Erstzulassung: {{ formatDate(vehicle.first_registration_date) }}</p>
-                        <p>Leasingende: {{ formatDate(vehicle.leasing_end_date) }}</p>
-                    </CardContent>
-                </Card>
-                <Card>
-                    <CardHeader>
-                        <CardTitle class="text-sm">Leasing</CardTitle>
-                    </CardHeader>
-                    <CardContent class="text-sm">
-                        <p>Leasinggeber: {{ vehicle.leasinggeber ?? '—' }}</p>
-                    </CardContent>
-                </Card>
-                <Card>
-                    <CardHeader>
-                        <CardTitle class="text-sm">Meta</CardTitle>
-                    </CardHeader>
-                    <CardContent class="text-sm">
-                        <p>Angelegt: {{ formatDate(vehicle.created_at) }}</p>
-                    </CardContent>
-                </Card>
+                <div class="min-w-0 flex-1">
+                    <p class="text-[10.5px] font-bold tracking-[0.12em] text-[#9bb0af] uppercase">
+                        {{ vehicle.vehicle_belongs === 'B2B' ? 'Firmenkunde' : 'Privatkunde' }}
+                    </p>
+                    <h1 class="truncate text-[16px] leading-tight font-extrabold tracking-[-0.3px] text-[#10393b]">
+                        {{ vehicle.license_plate }} · {{ vehicleTitle }}
+                    </h1>
+                </div>
+
+                <button
+                    type="button"
+                    class="mr-2 flex shrink-0 items-center gap-1.5 rounded-[13px] px-4 py-2 text-[12.5px] font-bold text-white transition-all hover:-translate-y-px"
+                    style="background: linear-gradient(135deg, #10393b, #1a5052); box-shadow: 0 8px 20px rgba(16, 57, 59, 0.2)"
+                    @click="uploadModalOpen = true"
+                >
+                    <IconMdiFileUploadOutline class="size-4" />
+                    Report hochladen
+                </button>
             </div>
+        </template>
 
-            <Card>
-                <CardHeader>
-                    <CardTitle class="text-sm">Auftragsverlauf</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead>Auftragsnummer</TableHead>
-                                <TableHead>Partner</TableHead>
-                                <TableHead>Status</TableHead>
-                                <TableHead>Erstellt</TableHead>
-                                <TableHead>Bestätigt</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            <TableEmpty v-if="vehicle.order_history.length === 0" :colspan="5"> Kein Auftragsverlauf. </TableEmpty>
-                            <TableRow v-for="order in vehicle.order_history" :key="order.id">
-                                <TableCell class="font-medium">{{ order.auftragsnummer }}</TableCell>
-                                <TableCell>{{ order.leasyback_partner }}</TableCell>
-                                <TableCell>
-                                    <Badge :variant="getVehicleStatusDisplay(order.order_status).variant">
-                                        {{ getVehicleStatusDisplay(order.order_status).label }}
-                                    </Badge>
-                                </TableCell>
-                                <TableCell>{{ formatDate(order.created_at) }}</TableCell>
-                                <TableCell>{{ formatDate(order.confirmation_date) }}</TableCell>
-                            </TableRow>
-                        </TableBody>
-                    </Table>
-                </CardContent>
-            </Card>
+        <div class="flex h-full flex-col gap-5">
+            <main class="flex flex-1 flex-col gap-5 overflow-y-auto pr-1 pb-4">
+                <section class="grid grid-cols-[1.15fr_1fr_1fr] gap-4 max-[1100px]:grid-cols-1">
+                    <div class="identity-card">
+                        <div class="absolute -top-24 -right-20 h-64 w-64 rounded-full bg-white/10 blur-2xl"></div>
 
-            <Card>
-                <CardHeader class="flex-row items-start justify-between gap-4 space-y-0">
-                    <div>
-                        <CardTitle class="text-sm">Report-Dokumente</CardTitle>
-                        <CardDescription>Gutachten und Rechnungen je Auftrag.</CardDescription>
-                    </div>
-                    <Button size="sm" variant="outline" :disabled="vehicle.order_history.length === 0" @click="uploadModalOpen = true">
-                        Hochladen
-                    </Button>
-                </CardHeader>
-                <CardContent class="space-y-2">
-                    <p v-if="reportDocuments.length === 0" class="text-muted-foreground text-sm">Keine Report-Dokumente.</p>
-                    <div
-                        v-for="doc in reportDocuments"
-                        :key="doc.id"
-                        class="flex items-center justify-between gap-4 rounded-lg border p-3 text-sm"
-                    >
-                        <div>
-                            <div class="flex items-center gap-2">
-                                <span class="font-medium">{{ doc.document_title || doc.document_type || 'Dokument' }}</span>
-                                <Badge variant="outline">{{ doc.auftragsnummer }}</Badge>
-                                <Badge :variant="doc.published ? 'success' : 'outline'">{{ doc.published ? 'Veröffentlicht' : 'Entwurf' }}</Badge>
+                        <div class="relative z-10 flex h-full flex-col">
+                            <div class="flex items-start gap-4">
+                                <div
+                                    class="flex h-16 w-16 shrink-0 items-center justify-center rounded-[19px] border border-white/25 bg-white/15 text-white"
+                                >
+                                    <IconMdiCarOutline class="size-8" />
+                                </div>
+
+                                <div class="min-w-0 flex-1">
+                                    <p class="truncate text-[19px] font-extrabold tracking-[-0.4px] text-white">{{ vehicleTitle }}</p>
+                                    <p class="mt-1 truncate font-mono text-[12.5px] text-white/70">{{ vehicle.license_plate }}</p>
+
+                                    <span
+                                        class="mt-3 inline-flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-1 text-[11px] font-extrabold text-white"
+                                    >
+                                        <span class="h-[5px] w-[5px] rounded-full bg-current"></span>
+                                        {{ getStatus(vehicle.current_order_status).label }}
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div class="mt-auto grid grid-cols-2 gap-2 border-t border-white/20 pt-5">
+                                <div class="rounded-[13px] bg-white/10 px-3 py-2.5">
+                                    <p class="text-[10px] font-bold tracking-[0.05em] text-white/55 uppercase">Aufträge</p>
+                                    <p class="mt-1 text-[15px] font-extrabold text-white">{{ vehicle.order_history.length }}</p>
+                                </div>
+
+                                <div class="rounded-[13px] bg-white/10 px-3 py-2.5">
+                                    <p class="text-[10px] font-bold tracking-[0.05em] text-white/55 uppercase">Aktueller Auftrag</p>
+                                    <p class="mt-1 truncate font-mono text-[12px] font-bold text-white">
+                                        {{ vehicle.current_auftragsnummer || '—' }}
+                                    </p>
+                                </div>
                             </div>
                         </div>
-                        <div class="flex items-center gap-2">
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                :loading="publishingId === doc.id"
-                                @click="togglePublished(doc.id, doc.published)"
+                    </div>
+
+                    <div class="content-card flex flex-col">
+                        <div class="mb-4 flex items-center gap-2.5">
+                            <span class="flex h-9 w-9 items-center justify-center rounded-[11px] bg-[#01B990]/10 text-[#00856a]">
+                                <IconMdiAccountOutline class="size-[17px]" />
+                            </span>
+                            <h2 class="text-[15px] font-extrabold tracking-[-0.3px] text-[#10393b]">Halter</h2>
+                        </div>
+
+                        <p class="text-[14px] font-bold text-[#10393b]">{{ ownerLabel }}</p>
+                        <p v-if="vehicle.company_name && vehicle.user_email" class="mt-1 truncate text-[12.5px] text-[#6f8585]">
+                            {{ vehicle.user_email }}
+                        </p>
+
+                        <Link
+                            v-if="ownerRoute"
+                            :href="ownerRoute"
+                            class="mt-auto flex items-center justify-center gap-1.5 rounded-[13px] border border-[#e9efee] bg-white px-4 py-2.5 text-[13px] font-bold text-[#10393b] transition-all hover:border-[#10393b] hover:bg-[#f4f7f6]"
+                        >
+                            Kundenprofil öffnen
+                            <IconMdiArrowTopRight class="size-4" />
+                        </Link>
+                    </div>
+
+                    <div class="content-card">
+                        <div class="mb-4 flex items-center gap-2.5">
+                            <span class="flex h-9 w-9 items-center justify-center rounded-[11px] bg-[#ef8450]/10 text-[#ef8450]">
+                                <IconMdiClipboardTextOutline class="size-[17px]" />
+                            </span>
+                            <h2 class="text-[15px] font-extrabold tracking-[-0.3px] text-[#10393b]">Fahrzeugdaten</h2>
+                        </div>
+
+                        <dl class="flex flex-col">
+                            <div v-for="spec in specs" :key="spec.label" class="flex items-center justify-between gap-3 border-b border-[#f2f6f5] py-2 last:border-0">
+                                <dt class="text-[12px] font-medium text-[#9bb0af]">{{ spec.label }}</dt>
+                                <dd class="truncate text-[12.5px] font-bold text-[#10393b]" :class="spec.mono ? 'font-mono' : ''">{{ spec.value }}</dd>
+                            </div>
+                        </dl>
+                    </div>
+                </section>
+
+                <section class="content-card">
+                    <div class="mb-4">
+                        <h2 class="text-[17px] font-extrabold tracking-[-0.3px] text-[#10393b]">Auftragsverlauf</h2>
+                        <p class="mt-0.5 text-[12px] font-medium text-[#9bb0af]">{{ vehicle.order_history.length }} Aufträge</p>
+                    </div>
+
+                    <p v-if="!vehicle.order_history.length" class="py-12 text-center text-[13px] text-[#9bb0af]">Keine Aufträge vorhanden.</p>
+
+                    <div v-else class="flex flex-col gap-1">
+                        <Link
+                            v-for="order in vehicle.order_history"
+                            :key="order.id"
+                            :href="route('admin.orders.show', order.id)"
+                            class="group flex items-center gap-3 rounded-[13px] px-3 py-2.5 transition-colors hover:bg-[#f6f9f8]"
+                        >
+                            <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-[11px] bg-[#6366f1]/10 text-[#6366f1]">
+                                <IconMdiFileDocumentOutline class="size-[17px]" />
+                            </div>
+
+                            <div class="min-w-0 flex-1">
+                                <div class="mb-0.5 flex flex-wrap items-center gap-2">
+                                    <span class="font-mono text-[13px] font-bold text-[#10393b]">{{ order.auftragsnummer }}</span>
+                                    <span class="text-[11.5px] text-[#9bb0af]">{{ order.leasyback_partner }}</span>
+                                </div>
+
+                                <p class="text-[11.5px] text-[#6f8585]">
+                                    Erstellt {{ formatDate(order.created_at) }}
+                                    <template v-if="order.confirmation_date"> · Bestätigt {{ formatDate(order.confirmation_date) }} </template>
+                                </p>
+                            </div>
+
+                            <div class="flex shrink-0 items-center gap-2">
+                                <span
+                                    class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-bold"
+                                    :style="{
+                                        background: getStatus(order.order_status).background,
+                                        color: getStatus(order.order_status).color,
+                                    }"
+                                >
+                                    <span class="h-[4px] w-[4px] rounded-full bg-current"></span>
+                                    {{ getStatus(order.order_status).label }}
+                                </span>
+
+                                <span
+                                    class="flex h-7 w-7 items-center justify-center rounded-[8px] text-[#bcccca] transition-all group-hover:bg-[#10393b] group-hover:text-white"
+                                >
+                                    <IconMdiArrowTopRight class="size-[13px]" />
+                                </span>
+                            </div>
+                        </Link>
+                    </div>
+                </section>
+
+                <section class="grid grid-cols-2 gap-4 max-[1180px]:grid-cols-1">
+                    <div class="content-card">
+                        <div class="mb-4 flex items-start justify-between gap-3">
+                            <div>
+                                <h2 class="text-[17px] font-extrabold tracking-[-0.3px] text-[#10393b]">Gutachten &amp; Rechnungen</h2>
+                                <p class="mt-0.5 text-[12px] font-medium text-[#9bb0af]">{{ reportDocuments.length }} Dokumente</p>
+                            </div>
+
+                            <button
+                                type="button"
+                                class="flex shrink-0 items-center gap-1.5 rounded-[11px] border border-[#e9efee] bg-white px-3 py-2 text-[12px] font-bold text-[#10393b] transition-all hover:border-[#01B990] hover:bg-[#f0fbf8] hover:text-[#00856a]"
+                                @click="uploadModalOpen = true"
                             >
-                                {{ doc.published ? 'Zurückziehen' : 'Veröffentlichen' }}
-                            </Button>
-                            <template v-if="confirmingDeleteId === doc.id">
-                                <Button variant="ghost" size="sm" @click="confirmingDeleteId = null">Abbrechen</Button>
-                                <Button variant="destructive" size="sm" @click="deleteDocument(doc.id)">Bestätigen</Button>
-                            </template>
-                            <Button v-else variant="destructive" size="sm" @click="confirmingDeleteId = doc.id"> Löschen </Button>
+                                <IconMdiPlus class="size-3.5" />
+                                Hochladen
+                            </button>
+                        </div>
+
+                        <p v-if="!reportDocuments.length" class="py-12 text-center text-[13px] text-[#9bb0af]">Keine Dokumente vorhanden.</p>
+
+                        <div v-else class="flex flex-col gap-1">
+                            <div
+                                v-for="doc in reportDocuments"
+                                :key="doc.id"
+                                class="flex items-center gap-3 rounded-[13px] px-3 py-2.5 transition-colors hover:bg-[#f6f9f8]"
+                            >
+                                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-[11px] bg-[#01B990]/10 text-[#00856a]">
+                                    <IconMdiFileDocumentOutline class="size-[17px]" />
+                                </div>
+
+                                <div class="min-w-0 flex-1">
+                                    <p class="truncate text-[13px] font-bold text-[#10393b]">
+                                        {{ doc.document_title || doc.document_type || 'Dokument' }}
+                                    </p>
+                                    <p class="truncate font-mono text-[11.5px] text-[#6f8585]">{{ doc.auftragsnummer }}</p>
+                                </div>
+
+                                <span
+                                    class="shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-bold"
+                                    :class="doc.published ? 'bg-[#01B990]/10 text-[#00856a]' : 'bg-[#f4f7f6] text-[#9bb0af]'"
+                                >
+                                    {{ doc.published ? 'Veröffentlicht' : 'Entwurf' }}
+                                </span>
+
+                                <div class="flex shrink-0 items-center gap-1">
+                                    <a
+                                        v-if="doc.signed_url"
+                                        :href="doc.signed_url"
+                                        target="_blank"
+                                        rel="noopener"
+                                        class="flex h-8 w-8 items-center justify-center rounded-[9px] text-[#bcccca] transition-all hover:bg-[#10393b] hover:text-white"
+                                        title="Öffnen"
+                                    >
+                                        <IconMdiOpenInNew class="size-[15px]" />
+                                    </a>
+
+                                    <button
+                                        type="button"
+                                        class="flex h-8 w-8 items-center justify-center rounded-[9px] text-[#bcccca] transition-all hover:bg-[#01B990] hover:text-white disabled:opacity-40"
+                                        :title="doc.published ? 'Veröffentlichung zurückziehen' : 'Für Kunden freigeben'"
+                                        :disabled="publishingId === doc.id"
+                                        @click="togglePublished(doc.id, doc.published)"
+                                    >
+                                        <IconMdiEyeOffOutline v-if="doc.published" class="size-[15px]" />
+                                        <IconMdiEyeOutline v-else class="size-[15px]" />
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        class="flex h-8 w-8 items-center justify-center rounded-[9px] transition-all"
+                                        :class="
+                                            confirmingDeleteId === doc.id
+                                                ? 'bg-[#EF4444] text-white'
+                                                : 'text-[#bcccca] hover:bg-[#EF4444] hover:text-white'
+                                        "
+                                        :title="confirmingDeleteId === doc.id ? 'Zum Löschen erneut klicken' : 'Löschen'"
+                                        @click="confirmingDeleteId === doc.id ? deleteDocument(doc.id) : (confirmingDeleteId = doc.id)"
+                                    >
+                                        <IconMdiDeleteOutline class="size-[15px]" />
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                </CardContent>
-            </Card>
 
-            <Card>
-                <CardHeader>
-                    <CardTitle class="text-sm">Kundendokumente</CardTitle>
-                    <CardDescription>Vom Kunden hochgeladene Dokumente (nur Ansicht).</CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <p v-if="vehicle.documents.length === 0" class="text-muted-foreground text-sm">Keine Dokumente.</p>
-                    <ul v-else class="space-y-1 text-sm">
-                        <li v-for="doc in vehicle.documents" :key="doc.document_id">
-                            {{ doc.document_type }} — {{ doc.original_file_name }} ({{ formatDate(doc.created_at) }})
-                        </li>
-                    </ul>
-                </CardContent>
-            </Card>
+                    <div class="content-card">
+                        <div class="mb-4">
+                            <h2 class="text-[17px] font-extrabold tracking-[-0.3px] text-[#10393b]">Kundendokumente</h2>
+                            <p class="mt-0.5 text-[12px] font-medium text-[#9bb0af]">{{ vehicle.documents.length }} Dokumente</p>
+                        </div>
+
+                        <p v-if="!vehicle.documents.length" class="py-12 text-center text-[13px] text-[#9bb0af]">Keine Dokumente vorhanden.</p>
+
+                        <div v-else class="flex flex-col gap-1">
+                            <div
+                                v-for="doc in vehicle.documents"
+                                :key="doc.document_id"
+                                class="flex items-center gap-3 rounded-[13px] px-3 py-2.5 transition-colors hover:bg-[#f6f9f8]"
+                            >
+                                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-[11px] bg-[#f4f7f6] text-[#6f8585]">
+                                    <IconMdiPaperclip class="size-[17px]" />
+                                </div>
+
+                                <div class="min-w-0 flex-1">
+                                    <p class="truncate text-[13px] font-bold text-[#10393b]">{{ doc.original_file_name }}</p>
+                                    <p class="truncate text-[11.5px] text-[#6f8585]">
+                                        {{ doc.document_type }} · {{ formatFileSize(doc.file_size) }}
+                                    </p>
+                                </div>
+
+                                <span class="shrink-0 text-[11px] text-[#9bb0af] tabular-nums">{{ formatDate(doc.created_at) }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </main>
         </div>
 
-        <UploadReportDocumentModal
-            v-model:open="uploadModalOpen"
-            :vehicle-id="vehicle.vehicle_id"
-            :auftragsnummer-options="auftragsnummerOptions"
-        />
+        <UploadReportDocumentModal v-model:open="uploadModalOpen" :vehicle-id="vehicle.vehicle_id" :auftragsnummer-options="auftragsnummerOptions" />
     </AdminLayout>
 </template>
+
+<style scoped>
+.identity-card {
+    position: relative;
+    min-height: 220px;
+    overflow: hidden;
+    border: 1px solid #01b990;
+    border-radius: 26px;
+    background: linear-gradient(145deg, #55bd99 0%, #0a8d70 100%);
+    padding: 28px;
+    box-shadow: 0 20px 45px rgba(1, 185, 144, 0.24);
+}
+
+.content-card {
+    border: 1px solid #eef3f2;
+    border-radius: 24px;
+    background: #ffffff;
+    padding: 24px;
+    box-shadow: 0 6px 22px rgba(16, 57, 59, 0.04);
+}
+
+button:not(:disabled) {
+    cursor: pointer;
+}
+</style>

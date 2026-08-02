@@ -1,13 +1,13 @@
 <script setup lang="ts">
 /**
  * Create or edit a vehicle. Reuses the same reusable form components as the
- * Profile pages (FormField, SelectField, LicensePlateInput) — nothing here
+ * Profile pages (FormField, SearchableSelectField, LicensePlateInput) — nothing here
  * is a native <select> or a one-off dropdown.
  */
 import CalendarDateField from '@/components/form/CalendarDateField.vue';
 import FormField from '@/components/form/FormField.vue';
 import LicensePlateInput from '@/components/form/LicensePlateInput.vue';
-import SelectField from '@/components/form/SelectField.vue';
+import SearchableSelectField from '@/components/form/SearchableSelectField.vue';
 import InputError from '@/components/InputError.vue';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -132,11 +132,13 @@ function submit() {
                 </FormField>
 
                 <FormField v-slot="{ id, describedBy, invalid }" label="Marke" required :error="form.errors.make">
-                    <SelectField
+                    <SearchableSelectField
                         :id="id"
                         v-model="form.make"
                         :options="VEHICLE_BRAND_OPTIONS"
                         placeholder="Marke wählen"
+                        search-placeholder="Marke suchen..."
+                        empty-label="Keine Marke gefunden"
                         :invalid="invalid"
                         :described-by="describedBy"
                     />

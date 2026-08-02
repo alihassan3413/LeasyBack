@@ -2,13 +2,10 @@
 
 namespace App\Http\Requests\Auth;
 
-use App\Models\User;
 use Illuminate\Auth\Events\Lockout;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -53,23 +50,6 @@ class LoginRequest extends FormRequest
 
         if (! Auth::attempt($credentials, $this->boolean('remember'))) {
             RateLimiter::hit($this->throttleKey());
-
-            // TEMPORARY login debugging — remove once the admin-login issue is
-            // resolved. Records what actually reached the server (never the
-            // password itself, only its length).
-            if (app()->environment('local')) {
-                $submittedEmail = (string) $this->input('email');
-                $user = User::where('email', $submittedEmail)->first();
-
-                Log::debug('login failed', [
-                    'email_raw' => '['.$submittedEmail.']',
-                    'email_length' => strlen($submittedEmail),
-                    'password_length' => strlen((string) $this->input('password')),
-                    'user_found' => (bool) $user,
-                    'is_active' => $user?->is_active,
-                    'password_matches' => $user ? Hash::check((string) $this->input('password'), $user->password) : null,
-                ]);
-            }
 
             // Bug found and fixed here: trans('auth.failed') passes a raw
             // translation key to trans(). This app has no lang/ directory

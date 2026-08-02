@@ -6,14 +6,14 @@
  * admin-facing inputs. Avoids needing a separate owner-search picker: the
  * admin is already looking at the exact customer they want to create a
  * vehicle for. Reuses the same field set as the B2C self-service
- * AddVehicleModal.vue (LicensePlateInput, brand SelectField, the
+ * AddVehicleModal.vue (LicensePlateInput, brand SearchableSelectField, the
  * "ich weiß es nicht" pattern) — StoreVehicleRequest already validates
  * b2b_id/b2c_user_id are real records (see Checkpoint 10 decisions).
  */
 import CalendarDateField from '@/components/form/CalendarDateField.vue';
 import FormField from '@/components/form/FormField.vue';
 import LicensePlateInput from '@/components/form/LicensePlateInput.vue';
-import SelectField from '@/components/form/SelectField.vue';
+import SearchableSelectField from '@/components/form/SearchableSelectField.vue';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -123,11 +123,13 @@ function submit() {
                 </FormField>
 
                 <FormField v-slot="{ id, describedBy, invalid }" label="Marke" :error="form.errors.make">
-                    <SelectField
+                    <SearchableSelectField
                         :id="id"
                         v-model="form.make"
                         :options="VEHICLE_BRAND_OPTIONS"
                         placeholder="Marke wählen"
+                        search-placeholder="Marke suchen..."
+                        empty-label="Keine Marke gefunden"
                         :invalid="invalid"
                         :described-by="describedBy"
                     />
