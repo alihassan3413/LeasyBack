@@ -19,6 +19,7 @@ declare global {
   const VEHICLE_BRANDS: typeof import('../lib/vehicleBrands').VEHICLE_BRANDS
   const VEHICLE_BRAND_OPTIONS: typeof import('../lib/vehicleBrands').VEHICLE_BRAND_OPTIONS
   const VEHICLE_STATUS_FILTER_OPTIONS: typeof import('../lib/vehicleStatus').VEHICLE_STATUS_FILTER_OPTIONS
+  const canStartNewOrder: typeof import('../lib/customerOrderFlow').canStartNewOrder
   const cn: typeof import('../lib/utils').cn
   const computed: typeof import('vue').computed
   const createApp: typeof import('vue').createApp
@@ -184,6 +185,7 @@ declare module 'vue' {
     readonly VEHICLE_BRANDS: UnwrapRef<typeof import('../lib/vehicleBrands')['VEHICLE_BRANDS']>
     readonly VEHICLE_BRAND_OPTIONS: UnwrapRef<typeof import('../lib/vehicleBrands')['VEHICLE_BRAND_OPTIONS']>
     readonly VEHICLE_STATUS_FILTER_OPTIONS: UnwrapRef<typeof import('../lib/vehicleStatus')['VEHICLE_STATUS_FILTER_OPTIONS']>
+    readonly canStartNewOrder: UnwrapRef<typeof import('../lib/customerOrderFlow')['canStartNewOrder']>
     readonly cn: UnwrapRef<typeof import('../lib/utils')['cn']>
     readonly computed: UnwrapRef<typeof import('vue')['computed']>
     readonly createApp: UnwrapRef<typeof import('vue')['createApp']>

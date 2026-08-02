@@ -218,6 +218,43 @@ function statusLabel(status: string): string {
         </DropdownMenuContent>
     </DropdownMenu>
 
+    <div v-if="cancelDialogOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/20 p-4" @click="cancelDialogOpen = false">
+        <div class="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl" @click.stop>
+            <div class="flex items-start gap-3">
+                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#fee2e2] text-[#b91c1c]">
+                    <IconMdiAlertOutline class="size-5" />
+                </span>
+
+                <div class="min-w-0">
+                    <h3 class="text-[17px] font-bold text-[#10393b]">Auftrag stornieren</h3>
+                    <p class="mt-2 text-[13.5px] leading-relaxed text-[#5a6b7a]">
+                        Auftrag <span class="font-mono font-bold text-[#10393b]">{{ auftragsnummer }}</span> wird storniert. Der Kunde sieht die
+                        Stornierung in seiner Auftragsübersicht. Dieser Schritt kann nicht rückgängig gemacht werden.
+                    </p>
+                </div>
+            </div>
+
+            <div class="mt-6 flex justify-end gap-3">
+                <button
+                    type="button"
+                    :disabled="busy"
+                    class="rounded-full border border-[#e9efee] px-5 py-2.5 text-[13.5px] font-bold text-[#10393b] transition-all hover:bg-[#f4f7f6] disabled:opacity-50"
+                    @click="cancelDialogOpen = false"
+                >
+                    Abbrechen
+                </button>
+                <button
+                    type="button"
+                    :disabled="busy"
+                    class="rounded-full bg-[#EF4444] px-5 py-2.5 text-[13.5px] font-bold text-white transition-all hover:bg-[#dc2626] disabled:opacity-50"
+                    @click="confirmCancel"
+                >
+                    {{ busy ? 'Wird storniert…' : 'Auftrag stornieren' }}
+                </button>
+            </div>
+        </div>
+    </div>
+
     <CreateOfferModal v-model:open="createOfferOpen" :order-id="orderId" />
 
     <UploadReportDocumentModal

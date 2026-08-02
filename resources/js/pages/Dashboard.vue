@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import OnboardingModal from '@/components/dashboard/OnboardingModal.vue';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import AddVehicleModal from '@/components/vehicle/AddVehicleModal.vue';
 import OrderCreationModal from '@/components/vehicle/OrderCreationModal.vue';
 import SortableTableHead from '@/components/vehicle/SortableTableHead.vue';
 import VehicleExpandedPanel from '@/components/vehicle/VehicleExpandedPanel.vue';
-import VehicleRow from '@/components/vehicle/VehicleRow.vue';
 import VehiclePagination, { type PaginationMeta } from '@/components/vehicle/VehiclePagination.vue';
+import VehicleRow from '@/components/vehicle/VehicleRow.vue';
 import VehicleToolbar from '@/components/vehicle/VehicleToolbar.vue';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import AppLayout from '@/layouts/AppLayout.vue';
 import { useOnboarding } from '@/composables/useOnboarding';
+import AppLayout from '@/layouts/AppLayout.vue';
+import { canStartNewOrder } from '@/lib/customerOrderFlow';
 import { ONBOARDING_VIDEO_POSTER_URL, ONBOARDING_VIDEO_URL } from '@/lib/onboarding';
 import { getOrderStatusLabel, isVehicleCompleted } from '@/lib/vehicleStatus';
 import { type SharedData } from '@/types';
@@ -109,11 +110,16 @@ function startProcess(vehicle: VehicleData) {
 }
 
 function getVehicleStatus(vehicle: VehicleData) {
-    if (vehicle.orders.length === 0) {
+    const current = vehicle.orders[0];
+
+    if (!current) {
         return { label: 'Eingeplant', dotColor: '#ef8450' };
     }
 
-    return { label: getOrderStatusLabel(vehicle.orders[0].order_status), dotColor: '#01B990' };
+    return {
+        label: getOrderStatusLabel(current.order_status),
+        dotColor: current.order_status === 'cancelled' ? '#EF4444' : '#01B990',
+    };
 }
 
 function formatDate(value: string | null): string {
@@ -183,13 +189,7 @@ onMounted(() => {
                     <Table>
                         <TableHeader>
                             <TableRow style="background-color: #01b990; height: 44px">
-                                <SortableTableHead
-                                    column="license_plate"
-                                    :sort="sort"
-                                    :direction="direction"
-                                    class="w-[22%] px-4"
-                                    @sort="toggleSort"
-                                >
+                                <SortableTableHead column="license_plate" :sort="sort" :direction="direction" class="w-[22%] px-4" @sort="toggleSort">
                                     Kennzeichen
                                 </SortableTableHead>
                                 <SortableTableHead column="make" :sort="sort" :direction="direction" class="w-[30%] px-4" @sort="toggleSort">
@@ -288,7 +288,7 @@ onMounted(() => {
 
                         <VehicleExpandedPanel v-if="expandedId === vehicle.vehicle_id" :vehicle="vehicle" />
 
-                        <div v-if="vehicle.orders.length === 0" class="flex items-center justify-between border-t border-gray-100 px-4 py-3">
+                        <div v-if="canStartNewOrder(vehicle.orders)" class="flex items-center justify-between border-t border-gray-100 px-4 py-3">
                             <button
                                 class="flex items-center gap-2 rounded-lg px-3 py-2 font-medium text-white"
                                 style="background-color: #ef8450"

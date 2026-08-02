@@ -2,8 +2,11 @@
 
 namespace Tests\Feature;
 
+use App\Enums\OrderStatus;
 use App\Enums\UserType;
 use App\Models\User;
+use App\Modules\UserProfile\Order\Models\LeasybackOrder;
+use App\Modules\UserProfile\Order\Models\OrderStatusUpdate;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle;
 use App\Modules\UserProfile\Vehicle\Models\VehicleDocument;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -47,6 +50,91 @@ class VehicleDashboardControllerTest extends TestCase
                 ->has('vehicles.0.documents', 1)
                 ->where('vehicles.0.documents.0.document_type', 'Leasingvertrag')
                 ->has('vehicles.0.orders', 0)
+            );
+    }
+
+    /**
+     * A cancelled order used to be filtered out of the customer's dashboard
+     * entirely, so an order Admin had cancelled simply disappeared — no
+     * timeline, no documents, no explanation — while Admin still saw the full
+     * history. The customer now sees the same order, and `auth_source` lets
+     * the timeline say who cancelled it.
+     */
+    public function test_dashboard_still_shows_an_order_after_it_is_cancelled(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create(['b2c_user_id' => $owner->id]);
+        $order = LeasybackOrder::factory()->create([
+            'vehicle_id' => $vehicle->vehicle_id,
+            'order_status' => OrderStatus::Cancelled->value,
+        ]);
+        OrderStatusUpdate::create([
+            'auftragsnummer' => $order->auftragsnummer,
+            'old_status' => 'confirmed',
+            'new_status' => 'cancelled',
+            'updated_by' => 'admin@leasyback.test',
+            'auth_source' => 'admin',
+        ]);
+
+        $this->actingAs($owner)
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->has('vehicles.0.orders', 1)
+                ->where('vehicles.0.orders.0.order_status', 'cancelled')
+                ->where('vehicles.0.orders.0.status_updates.0.new_status', 'cancelled')
+                ->where('vehicles.0.orders.0.status_updates.0.auth_source', 'admin')
+            );
+    }
+
+    /** `updated_by` can name a staff member, so it stays out of the customer payload. */
+    public function test_dashboard_does_not_expose_who_changed_the_status_by_name(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create(['b2c_user_id' => $owner->id]);
+        $order = LeasybackOrder::factory()->create(['vehicle_id' => $vehicle->vehicle_id]);
+        OrderStatusUpdate::create([
+            'auftragsnummer' => $order->auftragsnummer,
+            'old_status' => 'order_placed',
+            'new_status' => 'confirmed',
+            'updated_by' => 'admin@leasyback.test',
+            'auth_source' => 'admin',
+        ]);
+
+        $this->actingAs($owner)
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->missing('vehicles.0.orders.0.status_updates.0.updated_by')
+            );
+    }
+
+    /**
+     * The dashboard's status filter reads the latest order. It used to skip
+     * cancelled ones, so a vehicle cancelled after an earlier delivered order
+     * kept advertising "delivered" to its owner.
+     */
+    public function test_vehicle_status_reflects_a_cancelled_latest_order(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create(['b2c_user_id' => $owner->id]);
+        LeasybackOrder::factory()->create([
+            'vehicle_id' => $vehicle->vehicle_id,
+            'order_status' => OrderStatus::Delivered->value,
+            'created_at' => now()->subDays(5),
+        ]);
+        LeasybackOrder::factory()->create([
+            'vehicle_id' => $vehicle->vehicle_id,
+            'order_status' => OrderStatus::Cancelled->value,
+            'created_at' => now(),
+        ]);
+
+        $this->actingAs($owner)
+            ->get(route('dashboard', ['status' => 'cancelled']))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->has('vehicles', 1)
+                ->where('vehicles.0.orders.0.order_status', 'cancelled')
             );
     }
 

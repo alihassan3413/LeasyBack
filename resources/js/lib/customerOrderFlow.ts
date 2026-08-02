@@ -96,11 +96,7 @@ export function formatGermanDateTime(iso: string): string {
     );
 }
 
-function findHistoryDate(
-    history: ReadonlyArray<CustomerOrderStatusHistoryEntry>,
-    statuses: ReadonlySet<string>,
-    preferredStatus?: string,
-): string {
+function findHistoryDate(history: ReadonlyArray<CustomerOrderStatusHistoryEntry>, statuses: ReadonlySet<string>, preferredStatus?: string): string {
     if (preferredStatus) {
         const preferred = history.find((entry) => entry.new_status === preferredStatus);
 
@@ -337,9 +333,7 @@ function buildStep(
         label,
         shortLabel: state.isCancelled ? 'Auftrag storniert' : state.isRejected ? 'Wunschtermin abgelehnt' : STAGE_SHORT_LABEL[stage],
         subtitle,
-        tooltipDescription: state.isCancelled
-            ? 'Dieser Auftrag wurde storniert und wird nicht weiter bearbeitet.'
-            : STAGE_TOOLTIP[stage],
+        tooltipDescription: state.isCancelled ? 'Dieser Auftrag wurde storniert und wird nicht weiter bearbeitet.' : STAGE_TOOLTIP[stage],
         datetime: state.datetime,
         completed: state.completed,
         isCurrent: state.isCurrent,
@@ -441,9 +435,26 @@ export function getCustomerOrderFlowSteps(ctx: CustomerOrderFlowInput): Customer
     });
 }
 
-export function getCustomerOrderHeadline(
-    steps: ReadonlyArray<CustomerOrderFlowStep> | null,
-): { label: string; tooltipDescription: string } | null {
+/**
+ * Statuses that leave a vehicle free for a new order — the frontend mirror of
+ * VehicleService::hasUnfinishedOrder(), which the create-order endpoint
+ * enforces.
+ */
+const FINISHED_ORDER_STATUSES = new Set(['delivered', 'cancelled', 'discarded']);
+
+/**
+ * Whether the customer may start a new process for this vehicle.
+ *
+ * Must not be "has no orders at all": cancelled orders are part of the
+ * customer's history now, and a vehicle whose only order was cancelled has to
+ * stay startable — otherwise a cancellation permanently locks the vehicle out
+ * of the flow.
+ */
+export function canStartNewOrder(orders: ReadonlyArray<{ order_status: string }>): boolean {
+    return orders.every((order) => FINISHED_ORDER_STATUSES.has((order.order_status ?? '').trim()));
+}
+
+export function getCustomerOrderHeadline(steps: ReadonlyArray<CustomerOrderFlowStep> | null): { label: string; tooltipDescription: string } | null {
     if (!steps) {
         return null;
     }

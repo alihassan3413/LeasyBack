@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import { TableCell, TableRow } from '@/components/ui/table';
 import OrderCreationModal from '@/components/vehicle/OrderCreationModal.vue';
 import VehicleExpandedPanel from '@/components/vehicle/VehicleExpandedPanel.vue';
-import { TableCell, TableRow } from '@/components/ui/table';
+import { canStartNewOrder } from '@/lib/customerOrderFlow';
 import { getOrderStatusLabel } from '@/lib/vehicleStatus';
 import type { StationData } from '@/types/order';
 import type { VehicleData } from '@/types/vehicle';
@@ -19,14 +20,19 @@ const emit = defineEmits<{ toggle: [] }>();
 
 const orderModalOpen = ref(false);
 
-const canStartProcess = computed(() => props.vehicle.orders.length === 0);
+const canStartProcess = computed(() => canStartNewOrder(props.vehicle.orders));
 
 const vehicleStatus = computed(() => {
-    if (props.vehicle.orders.length === 0) {
+    const current = props.vehicle.orders[0];
+
+    if (!current) {
         return { label: 'Eingeplant', dotColor: '#ef8450' };
     }
 
-    return { label: getOrderStatusLabel(props.vehicle.orders[0].order_status), dotColor: '#01B990' };
+    return {
+        label: getOrderStatusLabel(current.order_status),
+        dotColor: current.order_status === 'cancelled' ? '#EF4444' : '#01B990',
+    };
 });
 
 function formatDate(value: string | null): string {
@@ -91,14 +97,9 @@ function startProcess() {
                     <IconMdiOpenInNew class="h-[18px] w-[18px]" />
                 </button>
 
-                <button
-                    v-if="canStartProcess"
-                    class="rounded p-1 transition-opacity hover:bg-orange-50 hover:opacity-70"
-                    @click.stop="startProcess"
-                >
+                <button v-if="canStartProcess" class="rounded p-1 transition-opacity hover:bg-orange-50 hover:opacity-70" @click.stop="startProcess">
                     <IconSolarPlayBold class="h-5 w-5" style="color: rgb(239, 132, 80)" />
                 </button>
-
 
                 <button class="transition-transform focus:outline-none" :class="isExpanded ? 'rotate-180' : ''">
                     <IconIcRoundArrowDropDown class="text-[32px] text-gray-400 transition-transform duration-200" />

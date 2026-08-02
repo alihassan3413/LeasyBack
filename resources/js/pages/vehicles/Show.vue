@@ -6,7 +6,7 @@ import OrderCreationModal from '@/components/vehicle/OrderCreationModal.vue';
 import OrderProgress from '@/components/vehicle/OrderProgress.vue';
 import UploadDocumentModal from '@/components/vehicle/UploadDocumentModal.vue';
 import AppLayout from '@/layouts/AppLayout.vue';
-import { getCustomerOrderFlowSteps } from '@/lib/customerOrderFlow';
+import { canStartNewOrder, getCustomerOrderFlowSteps } from '@/lib/customerOrderFlow';
 import { getVehicleStatusDisplay } from '@/lib/vehicleStatus';
 import type { StationData } from '@/types/order';
 import type { VehicleData } from '@/types/vehicle';
@@ -25,6 +25,8 @@ const orderOpen = ref(false);
 const uploadOpen = ref(false);
 
 const currentOrder = computed(() => props.vehicle.orders[0] ?? null);
+/** Not `!currentOrder`: a cancelled order still shows in the history but must not block a new one. */
+const canStart = computed(() => canStartNewOrder(props.vehicle.orders));
 const status = computed(() => getVehicleStatusDisplay(currentOrder.value?.order_status));
 
 const offers = computed(() => props.vehicle.orders.flatMap((order) => order.offers));
@@ -69,9 +71,7 @@ const appointment = computed(() => currentOrder.value?.request_payload?.besichti
 
 const reportDocuments = computed(() =>
     props.vehicle.orders.flatMap((order) =>
-        order.report_documents
-            .filter((doc) => doc.published && doc.url)
-            .map((doc) => ({ ...doc, auftragsnummer: order.auftragsnummer })),
+        order.report_documents.filter((doc) => doc.published && doc.url).map((doc) => ({ ...doc, auftragsnummer: order.auftragsnummer })),
     ),
 );
 
@@ -125,10 +125,7 @@ function formatDateTime(value: string | undefined): string {
                     <h1 class="truncate text-[17px] leading-none font-extrabold tracking-tight text-[#10393b]">
                         {{ vehicle.license_plate }}
                     </h1>
-                    <span
-                        class="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold text-white"
-                        :style="{ backgroundColor: statusColor }"
-                    >
+                    <span class="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold text-white" :style="{ backgroundColor: statusColor }">
                         {{ status.label }}
                     </span>
                 </div>
@@ -144,7 +141,7 @@ function formatDateTime(value: string | undefined): string {
 
                 <div class="flex flex-wrap items-center gap-2">
                     <button
-                        v-if="!currentOrder"
+                        v-if="canStart"
                         type="button"
                         class="h-10 rounded-full px-5 text-[13px] font-semibold text-white shadow-lg transition-all"
                         style="background: #ef8450"
@@ -187,9 +184,7 @@ function formatDateTime(value: string | undefined): string {
                             <OrderProgress v-if="steps" :steps="steps" />
 
                             <div v-else class="flex flex-col items-start gap-3 py-2">
-                                <p class="text-[13px] text-[#00000080]">
-                                    Starten Sie den Vorgang, um einen Begutachtungstermin zu buchen.
-                                </p>
+                                <p class="text-[13px] text-[#00000080]">Starten Sie den Vorgang, um einen Begutachtungstermin zu buchen.</p>
                                 <button
                                     type="button"
                                     class="h-9 rounded-full px-5 text-[13px] font-semibold text-white shadow-lg"
