@@ -38,14 +38,17 @@ const leasinggeberUnknownId = `${uid}-leasinggeber-unknown`;
 const leasingEndUnknown = ref(false);
 const leasinggeberUnknown = ref(false);
 
-const form = useForm({
+// Function form on purpose: useForm() adopts the submitted values as its new
+// defaults on success, so with an object literal reset() would refill the
+// modal with the vehicle just created. See CreateOfferModal for the detail.
+const form = useForm(() => ({
     license_plate: '',
     make: '',
     model: '',
     vin: '',
     leasing_end_date: '',
     leasinggeber: '',
-});
+}));
 
 watch(
     () => props.open,
@@ -105,12 +108,7 @@ function submit() {
             <div class="grid grid-cols-1 gap-x-6 gap-y-3 px-2 md:grid-cols-2">
                 <LicensePlateInput v-model="form.license_plate" :server-error="form.errors.license_plate" />
 
-                <FormField
-                    v-slot="{ id, describedBy, invalid }"
-                    label="FIN"
-                    label-hint="* (siehe Fahrzeugschein – Feld E)"
-                    :error="form.errors.vin"
-                >
+                <FormField v-slot="{ id, describedBy, invalid }" label="FIN" label-hint="* (siehe Fahrzeugschein – Feld E)" :error="form.errors.vin">
                     <Input
                         :id="id"
                         v-model="form.vin"
@@ -163,12 +161,7 @@ function submit() {
                 </div>
 
                 <div>
-                    <FormField
-                        v-slot="{ id, describedBy, invalid }"
-                        label="Leasinggeber"
-                        label-hint="*"
-                        :error="form.errors.leasinggeber"
-                    >
+                    <FormField v-slot="{ id, describedBy, invalid }" label="Leasinggeber" label-hint="*" :error="form.errors.leasinggeber">
                         <Input
                             :id="id"
                             v-model="form.leasinggeber"

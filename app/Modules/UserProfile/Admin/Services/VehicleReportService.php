@@ -128,6 +128,10 @@ class VehicleReportService
             return $doc;
         });
 
+        if ($published) {
+            $this->notifyDocumentPublished($doc);
+        }
+
         return ['document' => $doc];
     }
 

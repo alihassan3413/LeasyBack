@@ -9,13 +9,16 @@ declare global {
   const ADMIN_ORDER_STATUS_FILTERS: typeof import('../lib/adminStatus').ADMIN_ORDER_STATUS_FILTERS
   const CUSTOMER_ORDER_STAGE_SEQUENCE: typeof import('../lib/customerOrderFlow').CUSTOMER_ORDER_STAGE_SEQUENCE
   const CUSTOMER_PAYMENT_FEATURE_ENABLED: typeof import('../lib/customerOrderFlow').CUSTOMER_PAYMENT_FEATURE_ENABLED
+  const DOCUMENT_TYPE_LABELS: typeof import('../lib/documentTypes').DOCUMENT_TYPE_LABELS
   const EffectScope: typeof import('vue').EffectScope
   const Head: typeof import('@inertiajs/vue3').Head
+  const INVOICE_DOCUMENT_TYPE: typeof import('../lib/documentTypes').INVOICE_DOCUMENT_TYPE
   const Link: typeof import('@inertiajs/vue3').Link
   const ONBOARDING_VIDEO_POSTER_URL: typeof import('../lib/onboarding').ONBOARDING_VIDEO_POSTER_URL
   const ONBOARDING_VIDEO_URL: typeof import('../lib/onboarding').ONBOARDING_VIDEO_URL
   const PLATE_MAX_TOTAL: typeof import('../lib/licensePlate').PLATE_MAX_TOTAL
   const PLATE_MESSAGES: typeof import('../lib/licensePlate').PLATE_MESSAGES
+  const REPORT_DOCUMENT_TYPES: typeof import('../lib/documentTypes').REPORT_DOCUMENT_TYPES
   const VEHICLE_BRANDS: typeof import('../lib/vehicleBrands').VEHICLE_BRANDS
   const VEHICLE_BRAND_OPTIONS: typeof import('../lib/vehicleBrands').VEHICLE_BRAND_OPTIONS
   const VEHICLE_STATUS_FILTER_OPTIONS: typeof import('../lib/vehicleStatus').VEHICLE_STATUS_FILTER_OPTIONS
@@ -54,6 +57,7 @@ declare global {
   const isTerminalOffRamp: typeof import('../lib/orderFlow').isTerminalOffRamp
   const isValidDeCoord: typeof import('../composables/useGooglePlaces').isValidDeCoord
   const isVehicleCompleted: typeof import('../lib/vehicleStatus').isVehicleCompleted
+  const labelForDocumentType: typeof import('../lib/documentTypes').labelForDocumentType
   const loadGoogleMaps: typeof import('../composables/useGoogleMapsLoader').loadGoogleMaps
   const markRaw: typeof import('vue').markRaw
   const nextTick: typeof import('vue').nextTick
@@ -175,13 +179,16 @@ declare module 'vue' {
     readonly ADMIN_ORDER_STATUS_FILTERS: UnwrapRef<typeof import('../lib/adminStatus')['ADMIN_ORDER_STATUS_FILTERS']>
     readonly CUSTOMER_ORDER_STAGE_SEQUENCE: UnwrapRef<typeof import('../lib/customerOrderFlow')['CUSTOMER_ORDER_STAGE_SEQUENCE']>
     readonly CUSTOMER_PAYMENT_FEATURE_ENABLED: UnwrapRef<typeof import('../lib/customerOrderFlow')['CUSTOMER_PAYMENT_FEATURE_ENABLED']>
+    readonly DOCUMENT_TYPE_LABELS: UnwrapRef<typeof import('../lib/documentTypes')['DOCUMENT_TYPE_LABELS']>
     readonly EffectScope: UnwrapRef<typeof import('vue')['EffectScope']>
     readonly Head: UnwrapRef<typeof import('@inertiajs/vue3')['Head']>
+    readonly INVOICE_DOCUMENT_TYPE: UnwrapRef<typeof import('../lib/documentTypes')['INVOICE_DOCUMENT_TYPE']>
     readonly Link: UnwrapRef<typeof import('@inertiajs/vue3')['Link']>
     readonly ONBOARDING_VIDEO_POSTER_URL: UnwrapRef<typeof import('../lib/onboarding')['ONBOARDING_VIDEO_POSTER_URL']>
     readonly ONBOARDING_VIDEO_URL: UnwrapRef<typeof import('../lib/onboarding')['ONBOARDING_VIDEO_URL']>
     readonly PLATE_MAX_TOTAL: UnwrapRef<typeof import('../lib/licensePlate')['PLATE_MAX_TOTAL']>
     readonly PLATE_MESSAGES: UnwrapRef<typeof import('../lib/licensePlate')['PLATE_MESSAGES']>
+    readonly REPORT_DOCUMENT_TYPES: UnwrapRef<typeof import('../lib/documentTypes')['REPORT_DOCUMENT_TYPES']>
     readonly VEHICLE_BRANDS: UnwrapRef<typeof import('../lib/vehicleBrands')['VEHICLE_BRANDS']>
     readonly VEHICLE_BRAND_OPTIONS: UnwrapRef<typeof import('../lib/vehicleBrands')['VEHICLE_BRAND_OPTIONS']>
     readonly VEHICLE_STATUS_FILTER_OPTIONS: UnwrapRef<typeof import('../lib/vehicleStatus')['VEHICLE_STATUS_FILTER_OPTIONS']>
@@ -220,6 +227,7 @@ declare module 'vue' {
     readonly isTerminalOffRamp: UnwrapRef<typeof import('../lib/orderFlow')['isTerminalOffRamp']>
     readonly isValidDeCoord: UnwrapRef<typeof import('../composables/useGooglePlaces')['isValidDeCoord']>
     readonly isVehicleCompleted: UnwrapRef<typeof import('../lib/vehicleStatus')['isVehicleCompleted']>
+    readonly labelForDocumentType: UnwrapRef<typeof import('../lib/documentTypes')['labelForDocumentType']>
     readonly loadGoogleMaps: UnwrapRef<typeof import('../composables/useGoogleMapsLoader')['loadGoogleMaps']>
     readonly markRaw: UnwrapRef<typeof import('vue')['markRaw']>
     readonly nextTick: UnwrapRef<typeof import('vue')['nextTick']>

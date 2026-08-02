@@ -46,12 +46,16 @@ const nextPage = ref<number | null>(null);
 
 let boundUserId: number | null = null;
 
-function upsert(notification: AppNotification): void {
+/** Returns false when the notification was already known, so a redelivered
+ *  broadcast can't inflate the badge or re-fire the toast/sound. */
+function upsert(notification: AppNotification): boolean {
     if (items.value.some((item) => item.id === notification.id)) {
-        return;
+        return false;
     }
 
     items.value = [notification, ...items.value];
+
+    return true;
 }
 
 async function fetchPage(page = 1): Promise<void> {
@@ -139,6 +143,12 @@ function showBrowserNotification(notification: AppNotification): void {
     };
 }
 
+/**
+ * Bound once per user for the app's lifetime. The bell remounts on every
+ * Inertia navigation (each page renders its own layout), so tearing the
+ * channel down per component would either drop it entirely or, on a
+ * re-bind, stack a second callback onto the same channel.
+ */
 function listen(userId: number): void {
     if (!echo || boundUserId === userId) {
         return;
@@ -164,7 +174,10 @@ function listen(userId: number): void {
             created_at: new Date().toISOString(),
         };
 
-        upsert(notification);
+        if (!upsert(notification)) {
+            return;
+        }
+
         unreadCount.value += 1;
 
         useToast().toast(notification.variant, notification.title, { description: notification.body });

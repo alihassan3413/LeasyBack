@@ -33,10 +33,12 @@ const isDraggingOver = ref(false);
 const duplicateType = ref<string | null>(null);
 const fileInput = ref<HTMLInputElement | null>(null);
 
-const form = useForm<{ file: File | null; document_type: string }>({
+// Function form on purpose — see CreateOfferModal: an object literal would
+// make reset() restore the last uploaded document instead of clearing.
+const form = useForm<{ file: File | null; document_type: string }>(() => ({
     file: null,
     document_type: '',
-});
+}));
 
 watch([() => form.file, () => form.document_type], () => {
     duplicateType.value = null;
@@ -178,10 +180,7 @@ function deleteSequentially(documents: VehicleDocumentData[], onDone: () => void
         </form>
 
         <template #footer>
-            <AppModalButton
-                :disabled="!form.file || !form.document_type || !!duplicateType || form.processing"
-                @click="attemptUpload"
-            >
+            <AppModalButton :disabled="!form.file || !form.document_type || !!duplicateType || form.processing" @click="attemptUpload">
                 {{ form.processing ? 'Lädt...' : 'Hochladen' }}
             </AppModalButton>
         </template>

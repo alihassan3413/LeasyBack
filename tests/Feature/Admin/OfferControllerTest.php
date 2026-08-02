@@ -51,6 +51,37 @@ class OfferControllerTest extends TestCase
         ]);
     }
 
+    /**
+     * CreateOfferModal shows a running "Gesamtsumme" while the admin types,
+     * and that preview is only honest if the stored total is the same sum.
+     * LeasybackOffer's `saving` hook adds the four positions up — net and
+     * gross each summed independently, not gross derived from net — so the
+     * modal previews it exactly that way. This pins the arithmetic the
+     * preview is promising.
+     */
+    public function test_the_stored_total_is_the_sum_of_the_four_positions(): void
+    {
+        $admin = $this->admin();
+        $order = LeasybackOrder::factory()->create();
+
+        $this->actingAs($admin)->post(route('admin.orders.offers.store', $order->id), [
+            'repair_cost_net' => 100,
+            'repair_cost_gross' => 119,
+            'depreciation_value_net' => 50,
+            'depreciation_value_gross' => 59.5,
+            'workshop_repair_quote_net' => 200,
+            'workshop_repair_quote_gross' => 238,
+            'missing_parts_cost_net' => 25,
+            'missing_parts_cost_gross' => 29.75,
+            'additional_notes' => null,
+        ])->assertRedirect();
+
+        $offer = LeasybackOffer::where('order_id', $order->id)->firstOrFail();
+
+        $this->assertSame('375.00', (string) $offer->final_total_net);
+        $this->assertSame('446.25', (string) $offer->final_total_gross);
+    }
+
     public function test_offer_sequence_increments_per_order(): void
     {
         $admin = $this->admin();

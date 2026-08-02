@@ -5,7 +5,21 @@ import { computed, ref } from 'vue';
 import MdiCheck from '~icons/mdi/check';
 import MdiTrendingDown from '~icons/mdi/trending-down';
 
-const props = defineProps<{ offers: OfferData[] }>();
+const props = withDefaults(
+    defineProps<{
+        offers: OfferData[];
+        /**
+         * Accept on the customer's behalf via admin.orders.offers.select
+         * instead of the customer's own offers.select, which
+         * OfferPolicy::select() refuses for admins. Same split as
+         * VehicleExpandedPanel's `admin` prop.
+         */
+        admin?: boolean;
+        /** Drop the card chrome when the parent already provides a header (e.g. inside a modal). */
+        bare?: boolean;
+    }>(),
+    { admin: false, bare: false },
+);
 
 interface Row {
     key: keyof OfferData;
@@ -68,17 +82,21 @@ function isBest(offer: OfferData): boolean {
 function selectOffer(offer: OfferData) {
     selectingOfferId.value = offer.offer_id;
 
-    router.post(
-        route('offers.select', offer.offer_id),
-        {},
-        { preserveScroll: true, onFinish: () => (selectingOfferId.value = null) },
-    );
+    const options = { preserveScroll: true, onFinish: () => (selectingOfferId.value = null) };
+
+    if (props.admin) {
+        router.patch(route('admin.orders.offers.select', offer.offer_id), {}, options);
+
+        return;
+    }
+
+    router.post(route('offers.select', offer.offer_id), {}, options);
 }
 </script>
 
 <template>
-    <section v-if="sorted.length" class="overflow-hidden rounded-[16px] border border-[#e6eded] bg-white">
-        <header class="flex items-center justify-between gap-3 border-b border-[#f1f5f5] px-5 py-4">
+    <section v-if="sorted.length" :class="bare ? '' : 'overflow-hidden rounded-[16px] border border-[#e6eded] bg-white'">
+        <header v-if="!bare" class="flex items-center justify-between gap-3 border-b border-[#f1f5f5] px-5 py-4">
             <div>
                 <h2 class="text-[15px] font-bold text-[#10393b]">Angebote</h2>
                 <p class="mt-0.5 text-[12.5px] text-[#00000080]">
@@ -131,7 +149,7 @@ function selectOffer(offer: OfferData) {
                         <td
                             v-for="offer in sorted"
                             :key="offer.offer_id"
-                            class="px-4 py-2.5 text-right text-[13px] tabular-nums text-[#10393b]"
+                            class="px-4 py-2.5 text-right text-[13px] text-[#10393b] tabular-nums"
                             :class="offer.offer_status === 'selected' ? 'bg-[#01B990]/[0.06]' : ''"
                         >
                             {{ currency(offer[row.key] as string | number | null) }}

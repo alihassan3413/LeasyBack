@@ -65,13 +65,15 @@ const filteredStations = computed(() =>
     ),
 );
 
-const form = useForm({
+// Function form on purpose — see CreateOfferModal: an object literal would
+// make reset() restore the previously booked appointment instead of clearing.
+const form = useForm(() => ({
     station_id: '',
     date: '',
     time: '',
     remarks: '',
     fee_acknowledged: false,
-});
+}));
 
 const selectedStation = computed(() => props.stations.find((station) => station.station_id === form.station_id) ?? null);
 

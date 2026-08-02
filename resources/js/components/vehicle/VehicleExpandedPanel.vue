@@ -1,8 +1,11 @@
 <script setup lang="ts">
+import AdminReportDocumentsList, { type AdminPanelReportDocument } from '@/components/admin/AdminReportDocumentsList.vue';
 import OrderStatusTimeline from '@/components/shared/OrderStatusTimeline.vue';
-import { TableCell, TableRow } from '@/components/ui/table';
+import { AppModal } from '@/components/ui/modal';
 import AddVehicleModal from '@/components/vehicle/AddVehicleModal.vue';
+import OfferComparison from '@/components/vehicle/OfferComparison.vue';
 import UploadDocumentModal from '@/components/vehicle/UploadDocumentModal.vue';
+import VehiclePanelShell from '@/components/vehicle/VehiclePanelShell.vue';
 import { CUSTOMER_PAYMENT_FEATURE_ENABLED, formatGermanDateTime, getCustomerOrderFlowSteps, getCustomerOrderHeadline } from '@/lib/customerOrderFlow';
 import { toOrderTimelineEntries, type OrderTimelineEntry } from '@/lib/timeline';
 import { getOrderStatusLabel } from '@/lib/vehicleStatus';
@@ -45,8 +48,15 @@ const props = withDefaults(
          * two paths stay separate abilities with separate audit actions.
          */
         admin?: boolean;
+        /**
+         * Renders the panel as a standalone block instead of an expanded
+         * table row. The dashboard needs the <tr>/<td colspan> wrapper; the
+         * Admin detail page's "Kundenansicht" embeds it inside a plain
+         * section, where that wrapper collapses the cell to zero width.
+         */
+        embedded?: boolean;
     }>(),
-    { admin: false },
+    { admin: false, embedded: false },
 );
 
 const editVehicleOpen = ref(false);
@@ -191,6 +201,16 @@ const terminFormatted = computed(() => {
 
 const allReportDocuments = computed(() => props.vehicle.orders.flatMap((order) => order.report_documents));
 
+/**
+ * Admin-only: every report/invoice document with its release state, so a
+ * draft upload can be published without leaving the expanded row. The
+ * customer never sees this list — their payload only ever contains published
+ * documents (VehicleService::hydrateVehicles filters on `published`).
+ */
+const adminReportDocuments = computed<AdminPanelReportDocument[]>(() =>
+    props.vehicle.orders.flatMap((order) => order.report_documents.map((document) => ({ ...document, auftragsnummer: order.auftragsnummer }))),
+);
+
 const rawOffers = computed<OfferData[]>(() => firstOrder.value?.offers ?? []);
 
 const customerFlowSteps = computed(() => {
@@ -245,6 +265,15 @@ const offersData = computed<PanelOffer[]>(() =>
 );
 
 const hasRealOffers = computed(() => offersData.value.length > 0);
+
+/**
+ * The side-by-side comparison lived only on the customer's vehicle detail
+ * page, so neither the dashboard's expanded row nor Admin could reach it.
+ * It opens from here as a modal instead of being inlined, because the panel
+ * column is far too narrow for a column-per-offer table.
+ */
+const compareOpen = ref(false);
+const canCompareOffers = computed(() => rawOffers.value.length > 1);
 const acceptedOffer = computed(() => offersData.value.find((offer) => offer.accepted));
 
 const pendingOfferId = ref<string | null>(null);
@@ -399,314 +428,318 @@ function formatDate(value: string | null): string {
 </script>
 
 <template>
-    <TableRow class="hidden border-0 hover:bg-transparent md:table-row">
-        <TableCell colspan="12" class="max-w-0 overflow-x-auto p-0 whitespace-normal">
-            <div class="columns-1 gap-4 bg-[#EFEFEF] p-4 *:mb-4 *:break-inside-avoid md:columns-2 2xl:columns-3">
-                <div class="flex w-full flex-col overflow-hidden rounded-3xl border bg-white" style="border-color: #ececec">
-                    <OrderStatusTimeline
-                        :entries="timelineEntries"
-                        :header-label="timelineHeaderLabel"
-                        :header-tooltip-description="timelineHeaderTooltipDescription"
-                    >
-                        <template #actions="{ entry }">
-                            <template v-if="entry.docUrl">
-                                <a
-                                    :href="entry.docUrl"
-                                    target="_blank"
-                                    rel="noopener"
-                                    class="text-[#01b990] hover:opacity-70"
-                                    title="Gutachten herunterladen"
-                                >
-                                    <IconMaterialSymbolsDownload class="size-[18.5px] shrink-0" />
-                                </a>
-                                <a
-                                    :href="entry.docUrl"
-                                    target="_blank"
-                                    rel="noopener"
-                                    class="text-[#01b990] hover:opacity-70"
-                                    title="Gutachten öffnen"
-                                >
-                                    <IconMdiOpenInNew class="size-[18.5px] shrink-0" />
-                                </a>
-                            </template>
+    <VehiclePanelShell :embedded="embedded">
+        <div class="columns-1 gap-4 bg-[#EFEFEF] p-4 *:mb-4 *:break-inside-avoid md:columns-2 2xl:columns-3">
+            <div class="flex w-full flex-col overflow-hidden rounded-3xl border bg-white" style="border-color: #ececec">
+                <OrderStatusTimeline
+                    :entries="timelineEntries"
+                    :header-label="timelineHeaderLabel"
+                    :header-tooltip-description="timelineHeaderTooltipDescription"
+                >
+                    <template #actions="{ entry }">
+                        <template v-if="entry.docUrl">
                             <a
-                                v-if="entry.invoiceUrl"
-                                :href="entry.invoiceUrl"
+                                :href="entry.docUrl"
                                 target="_blank"
                                 rel="noopener"
                                 class="text-[#01b990] hover:opacity-70"
-                                title="Rechnung ansehen"
+                                title="Gutachten herunterladen"
                             >
-                                <IconMdiReceiptTextOutline class="size-[18.5px] shrink-0" />
+                                <IconMaterialSymbolsDownload class="size-[18.5px] shrink-0" />
                             </a>
-                            <button
-                                v-if="entry.showPaymentAction"
-                                type="button"
-                                :disabled="!CUSTOMER_PAYMENT_FEATURE_ENABLED"
-                                class="text-[#01b990] hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-30"
-                                title="Bezahlen (bald verfügbar)"
-                            >
-                                <IconMdiCreditCardOutline class="size-[18.5px] shrink-0" />
-                            </button>
+                            <a :href="entry.docUrl" target="_blank" rel="noopener" class="text-[#01b990] hover:opacity-70" title="Gutachten öffnen">
+                                <IconMdiOpenInNew class="size-[18.5px] shrink-0" />
+                            </a>
                         </template>
-                    </OrderStatusTimeline>
-                </div>
-
-                <div class="flex w-full flex-col gap-4">
-                    <div class="relative flex flex-col rounded-[16px] border bg-white" style="border-color: #ececec">
-                        <button class="absolute top-5 right-5 transition-opacity hover:opacity-60" @click="uploadDocsOpen = true">
-                            <IconMdiFileUploadOutline class="size-[18.5px] shrink-0" style="color: #01b990" />
+                        <a
+                            v-if="entry.invoiceUrl"
+                            :href="entry.invoiceUrl"
+                            target="_blank"
+                            rel="noopener"
+                            class="text-[#01b990] hover:opacity-70"
+                            title="Rechnung ansehen"
+                        >
+                            <IconMdiReceiptTextOutline class="size-[18.5px] shrink-0" />
+                        </a>
+                        <button
+                            v-if="entry.showPaymentAction"
+                            type="button"
+                            :disabled="!CUSTOMER_PAYMENT_FEATURE_ENABLED"
+                            class="text-[#01b990] hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-30"
+                            title="Bezahlen (bald verfügbar)"
+                        >
+                            <IconMdiCreditCardOutline class="size-[18.5px] shrink-0" />
                         </button>
-                        <div class="p-6">
-                            <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">Fahrzeugdokumente</p>
-                            <div class="mt-2 h-px bg-gray-200"></div>
-                        </div>
+                    </template>
+                </OrderStatusTimeline>
+            </div>
 
-                        <div class="flex flex-col gap-5 p-6 pt-0">
-                            <div v-for="group in groupedDocuments" :key="group.key" class="flex flex-col gap-3">
-                                <div>
-                                    <p class="text-[16px] font-semibold text-[#000000] uppercase">
-                                        {{ group.title }}
-                                    </p>
-                                    <div class="mt-2 h-px bg-gray-200"></div>
-                                </div>
-                                <div v-for="doc in group.items" :key="doc.id" class="flex items-center justify-between gap-3">
-                                    <span class="flex-1 truncate text-[14px] font-normal text-[#475569]" :title="getDocumentDisplayText(doc)">
-                                        {{ getDocumentDisplayText(doc) }}
-                                    </span>
-                                    <div class="flex items-center gap-2">
-                                        <a v-if="doc.url" :href="doc.url" target="_blank" class="flex-shrink-0 text-[#01b990] hover:opacity-70">
-                                            <IconMaterialSymbolsDownload class="size-[18.5px] shrink-0" />
-                                        </a>
-                                        <button
-                                            v-if="canDeleteDocument(doc)"
-                                            class="flex-shrink-0 text-[#EF4444] hover:opacity-70"
-                                            @click="deleteDocument(doc)"
-                                        >
-                                            <IconMdiDeleteOutline class="size-[18.5px] shrink-0" />
-                                        </button>
-                                    </div>
+            <div class="flex w-full flex-col gap-4">
+                <div class="relative flex flex-col rounded-[16px] border bg-white" style="border-color: #ececec">
+                    <button class="absolute top-5 right-5 transition-opacity hover:opacity-60" @click="uploadDocsOpen = true">
+                        <IconMdiFileUploadOutline class="size-[18.5px] shrink-0" style="color: #01b990" />
+                    </button>
+                    <div class="p-6">
+                        <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">Fahrzeugdokumente</p>
+                        <div class="mt-2 h-px bg-gray-200"></div>
+                    </div>
+
+                    <div class="flex flex-col gap-5 p-6 pt-0">
+                        <div v-for="group in groupedDocuments" :key="group.key" class="flex flex-col gap-3">
+                            <div>
+                                <p class="text-[16px] font-semibold text-[#000000] uppercase">
+                                    {{ group.title }}
+                                </p>
+                                <div class="mt-2 h-px bg-gray-200"></div>
+                            </div>
+                            <div v-for="doc in group.items" :key="doc.id" class="flex items-center justify-between gap-3">
+                                <span class="flex-1 truncate text-[14px] font-normal text-[#475569]" :title="getDocumentDisplayText(doc)">
+                                    {{ getDocumentDisplayText(doc) }}
+                                </span>
+                                <div class="flex items-center gap-2">
+                                    <a v-if="doc.url" :href="doc.url" target="_blank" class="flex-shrink-0 text-[#01b990] hover:opacity-70">
+                                        <IconMaterialSymbolsDownload class="size-[18.5px] shrink-0" />
+                                    </a>
+                                    <button
+                                        v-if="canDeleteDocument(doc)"
+                                        class="flex-shrink-0 text-[#EF4444] hover:opacity-70"
+                                        @click="deleteDocument(doc)"
+                                    >
+                                        <IconMdiDeleteOutline class="size-[18.5px] shrink-0" />
+                                    </button>
                                 </div>
                             </div>
-                            <div v-if="documents.length === 0" class="text-[14px] text-[#b7c2c2]">Keine Dokumente gefunden</div>
                         </div>
+                        <AdminReportDocumentsList v-if="admin" :documents="adminReportDocuments" />
+
+                        <div v-if="!admin && documents.length === 0" class="text-[14px] text-[#b7c2c2]">Keine Dokumente gefunden</div>
                     </div>
                 </div>
+            </div>
 
-                <div class="relative w-full">
-                    <div
-                        class="flex flex-col rounded-[16px] border bg-white"
-                        :style="hasRealOffers ? 'border-color: #ececec' : 'border-color: #ececec; opacity: 0.5'"
-                    >
-                        <div class="px-6 py-6">
-                            <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">Angebote</p>
-                        </div>
+            <div class="relative w-full">
+                <div
+                    class="flex flex-col rounded-[16px] border bg-white"
+                    :style="hasRealOffers ? 'border-color: #ececec' : 'border-color: #ececec; opacity: 0.5'"
+                >
+                    <div class="flex items-center justify-between gap-3 px-6 py-6">
+                        <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">Angebote</p>
 
-                        <div class="flex flex-col gap-5 px-6">
-                            <div v-for="offer in offersData" :key="offer.id" class="flex flex-col gap-2">
-                                <div
-                                    class="flex items-center gap-4 rounded-[50px] border px-4 py-2"
+                        <button
+                            v-if="canCompareOffers"
+                            type="button"
+                            class="flex shrink-0 items-center gap-1.5 rounded-full border border-[#ececec] px-3 py-1.5 text-[11.5px] font-bold text-[#2e3e3f] transition-all hover:border-[#01b990] hover:text-[#01b990]"
+                            @click.stop="compareOpen = true"
+                        >
+                            <IconMdiScaleBalance class="size-[15px]" />
+                            Vergleichen
+                        </button>
+                    </div>
+
+                    <div class="flex flex-col gap-5 px-6">
+                        <div v-for="offer in offersData" :key="offer.id" class="flex flex-col gap-2">
+                            <div
+                                class="flex items-center gap-4 rounded-[50px] border px-4 py-2"
+                                :style="
+                                    offer.accepted
+                                        ? 'border-color: #EF8450; background: rgba(239, 132, 80, 0.08)'
+                                        : 'border-color: #ECECEC; background: white'
+                                "
+                            >
+                                <button
+                                    type="button"
+                                    :disabled="!canSelect(offer)"
+                                    class="mt-1 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border-2 disabled:cursor-default"
                                     :style="
-                                        offer.accepted
-                                            ? 'border-color: #EF8450; background: rgba(239, 132, 80, 0.08)'
-                                            : 'border-color: #ECECEC; background: white'
+                                        offer.accepted ? 'border-color: #EF8450; background: #EF8450' : 'border-color: #B7C2C2; background: white'
                                     "
+                                    :title="selectTitle(offer)"
+                                    @click.stop="requestSelect(offer.offerId)"
                                 >
-                                    <button
-                                        type="button"
-                                        :disabled="!canSelect(offer)"
-                                        class="mt-1 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border-2 disabled:cursor-default"
-                                        :style="
-                                            offer.accepted ? 'border-color: #EF8450; background: #EF8450' : 'border-color: #B7C2C2; background: white'
-                                        "
-                                        :title="selectTitle(offer)"
-                                        @click.stop="requestSelect(offer.offerId)"
-                                    >
-                                        <div v-if="offer.accepted" class="h-4.5 w-4.5 rounded-full bg-white"></div>
-                                    </button>
+                                    <div v-if="offer.accepted" class="h-4.5 w-4.5 rounded-full bg-white"></div>
+                                </button>
 
-                                    <div class="flex min-w-0 flex-1 flex-col gap-1 overflow-hidden py-1">
-                                        <div class="flex items-center justify-between gap-3">
-                                            <p
-                                                class="min-w-0 flex-1 truncate text-[14px] font-bold"
-                                                style="color: #2e3e3f"
-                                                :title="`${offer.id} - ${offer.name}`"
-                                            >
-                                                {{ offer.id }} - {{ offer.name }}
-                                            </p>
-                                            <p
-                                                class="flex-shrink-0 text-[16px] font-semibold"
-                                                :style="offer.accepted ? 'color: #EF8450' : 'color: #2e3e3f'"
-                                            >
-                                                {{ offer.cost.toLocaleString('de-DE') }} €
-                                            </p>
-                                        </div>
+                                <div class="flex min-w-0 flex-1 flex-col gap-1 overflow-hidden py-1">
+                                    <div class="flex items-center justify-between gap-3">
                                         <p
-                                            class="line-clamp-2 text-[12px] leading-snug"
-                                            :class="{ 'cursor-help': offer.note && offer.note.trim() }"
-                                            :title="offer.note && offer.note.trim() ? offer.note.trim() : undefined"
-                                            style="color: #8f9ba7"
+                                            class="min-w-0 flex-1 truncate text-[14px] font-bold"
+                                            style="color: #2e3e3f"
+                                            :title="`${offer.id} - ${offer.name}`"
                                         >
-                                            {{ (offer.note && offer.note.trim()) || 'Weitere Informationen zum Angebot folgen.' }}
+                                            {{ offer.id }} - {{ offer.name }}
+                                        </p>
+                                        <p
+                                            class="flex-shrink-0 text-[16px] font-semibold"
+                                            :style="offer.accepted ? 'color: #EF8450' : 'color: #2e3e3f'"
+                                        >
+                                            {{ offer.cost.toLocaleString('de-DE') }} €
                                         </p>
                                     </div>
+                                    <p
+                                        class="line-clamp-2 text-[12px] leading-snug"
+                                        :class="{ 'cursor-help': offer.note && offer.note.trim() }"
+                                        :title="offer.note && offer.note.trim() ? offer.note.trim() : undefined"
+                                        style="color: #8f9ba7"
+                                    >
+                                        {{ (offer.note && offer.note.trim()) || 'Weitere Informationen zum Angebot folgen.' }}
+                                    </p>
                                 </div>
+                            </div>
 
-                                <!--
+                            <!--
                                     Admin-only row, deliberately outside the pill so the
                                     customer card's shape and rhythm are untouched. Indented
                                     to the pill's text column (16px padding + 24px radio + 16px gap).
                                 -->
-                                <div v-if="admin" class="flex items-center justify-between gap-3 pr-4 pl-14">
-                                    <span
-                                        class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10.5px] font-bold"
-                                        :style="offerStatusPill(offer.status)"
+                            <div v-if="admin" class="flex items-center justify-between gap-3 pr-4 pl-14">
+                                <span
+                                    class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10.5px] font-bold"
+                                    :style="offerStatusPill(offer.status)"
+                                >
+                                    <span class="h-[4px] w-[4px] rounded-full bg-current"></span>
+                                    {{ offerStatusLabel(offer.status) }}
+                                </span>
+
+                                <div v-if="offer.status === 'draft' || offer.status === 'published'" class="flex items-center gap-1.5">
+                                    <button
+                                        v-if="offer.status === 'draft'"
+                                        type="button"
+                                        class="rounded-full border border-[#01b990] px-3 py-1 text-[11px] font-bold text-[#01b990] transition-all hover:bg-[#01b990] hover:text-white disabled:opacity-40"
+                                        :disabled="mutatingOfferId === offer.offerId"
+                                        @click.stop="publishOffer(offer.offerId)"
                                     >
-                                        <span class="h-[4px] w-[4px] rounded-full bg-current"></span>
-                                        {{ offerStatusLabel(offer.status) }}
-                                    </span>
+                                        Veröffentlichen
+                                    </button>
 
-                                    <div v-if="offer.status === 'draft' || offer.status === 'published'" class="flex items-center gap-1.5">
-                                        <button
-                                            v-if="offer.status === 'draft'"
-                                            type="button"
-                                            class="rounded-full border border-[#01b990] px-3 py-1 text-[11px] font-bold text-[#01b990] transition-all hover:bg-[#01b990] hover:text-white disabled:opacity-40"
-                                            :disabled="mutatingOfferId === offer.offerId"
-                                            @click.stop="publishOffer(offer.offerId)"
-                                        >
-                                            Veröffentlichen
-                                        </button>
-
-                                        <button
-                                            type="button"
-                                            class="rounded-full border border-[#ECECEC] px-3 py-1 text-[11px] font-bold text-[#EF4444] transition-all hover:border-[#EF4444] hover:bg-[#EF4444] hover:text-white disabled:opacity-40"
-                                            :disabled="mutatingOfferId === offer.offerId"
-                                            @click.stop="withdrawOffer(offer.offerId)"
-                                        >
-                                            {{ offer.status === 'draft' ? 'Verwerfen' : 'Zurückziehen' }}
-                                        </button>
-                                    </div>
+                                    <button
+                                        type="button"
+                                        class="rounded-full border border-[#ECECEC] px-3 py-1 text-[11px] font-bold text-[#EF4444] transition-all hover:border-[#EF4444] hover:bg-[#EF4444] hover:text-white disabled:opacity-40"
+                                        :disabled="mutatingOfferId === offer.offerId"
+                                        @click.stop="withdrawOffer(offer.offerId)"
+                                    >
+                                        {{ offer.status === 'draft' ? 'Verwerfen' : 'Zurückziehen' }}
+                                    </button>
                                 </div>
                             </div>
                         </div>
-
-                        <div class="mt-6 px-6 pb-6">
-                            <button
-                                v-if="admin"
-                                type="button"
-                                class="w-full rounded-[50px] py-4 text-[12px] font-semibold tracking-wide uppercase transition-all disabled:cursor-not-allowed"
-                                :style="acceptableOnBehalf ? 'background: #01B990; color: #ffffff' : 'background: #e0e0e0; color: #9e9e9e'"
-                                :disabled="!acceptableOnBehalf"
-                                :title="onBehalfHint"
-                                @click.stop="acceptableOnBehalf && requestSelect(acceptableOnBehalf.offerId)"
-                            >
-                                Im Auftrag des Kunden annehmen
-                            </button>
-
-                            <button
-                                v-else
-                                class="w-full rounded-[50px] py-4 text-[12px] font-semibold tracking-wide uppercase"
-                                style="background: #e0e0e0; color: #9e9e9e"
-                            >
-                                Angebot annehmen
-                            </button>
-                        </div>
-
-                        <div v-if="acceptedOffer" class="px-6 pt-5 pb-6">
-                            <div class="flex items-center justify-between gap-3 rounded-[50px] px-7 py-2.5" style="background: #ef8450">
-                                <span class="min-w-0 flex-1 text-[13px] leading-snug font-normal text-white">
-                                    Angenommenes Angebot: {{ acceptedOffer.id }} {{ acceptedOffer.name }}
-                                </span>
-                                <span class="shrink-0 text-[15px] font-normal whitespace-nowrap text-white">
-                                    {{ acceptedOffer.cost.toLocaleString('de-DE') }} €
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-                    <div v-if="!hasRealOffers" class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
-                        <div class="rounded-full bg-white/80 px-6 py-3 shadow-lg">
-                            <p class="text-[18px] font-bold" style="color: #ef8450">Keine Angebote</p>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="relative flex w-full flex-col rounded-[24px] border bg-white p-6" style="border-color: #ececec">
-                    <div class="pb-6">
-                        <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">Besichtigungsort</p>
                     </div>
 
-                    <template v-if="besichtigungsort">
-                        <div class="flex items-center gap-5 pb-6">
-                            <div
-                                class="flex size-[56px] shrink-0 items-center justify-center rounded-full"
-                                style="background-color: rgba(1, 185, 144, 0.1)"
-                            >
-                                <IconMdiOfficeBuildingOutline class="size-7" style="color: #01b990" />
-                            </div>
-                            <p class="min-w-0 flex-1 text-[18px] font-bold wrap-break-word" style="color: #2e3e3f">
-                                {{ besichtigungsort.name }}
-                            </p>
-                        </div>
+                    <div class="mt-6 px-6 pb-6">
+                        <button
+                            v-if="admin"
+                            type="button"
+                            class="w-full rounded-[50px] py-4 text-[12px] font-semibold tracking-wide uppercase transition-all disabled:cursor-not-allowed"
+                            :style="acceptableOnBehalf ? 'background: #01B990; color: #ffffff' : 'background: #e0e0e0; color: #9e9e9e'"
+                            :disabled="!acceptableOnBehalf"
+                            :title="onBehalfHint"
+                            @click.stop="acceptableOnBehalf && requestSelect(acceptableOnBehalf.offerId)"
+                        >
+                            Im Auftrag des Kunden annehmen
+                        </button>
 
-                        <div class="pb-5">
-                            <p class="text-[10px] font-medium uppercase" style="color: #8f9ba7; letter-spacing: 0.5px">Termin</p>
-                            <div class="flex items-center gap-3 pt-2">
-                                <IconMdiCalendarClockOutline class="size-[18px] shrink-0" style="color: #5a6b7a" />
-                                <p class="text-[14px] font-bold" style="color: #2e3e3f">
-                                    {{ terminFormatted || 'Kein Termin' }}
-                                </p>
-                            </div>
-                        </div>
+                        <button
+                            v-else
+                            class="w-full rounded-[50px] py-4 text-[12px] font-semibold tracking-wide uppercase"
+                            style="background: #e0e0e0; color: #9e9e9e"
+                        >
+                            Angebot annehmen
+                        </button>
+                    </div>
 
-                        <div class="mb-5 h-px bg-gray-200"></div>
-
-                        <div class="flex items-start gap-4">
-                            <IconMdiMapMarkerOutline class="mt-0.5 size-[18px] shrink-0" style="color: #5a6b7a" />
-                            <span class="text-[14px] leading-relaxed font-normal" style="color: #2e3e3f">
-                                {{ besichtigungsort.strasse }}<br />
-                                {{ besichtigungsort.plz }} {{ besichtigungsort.ort }}
-                                <template v-if="besichtigungsort.land"> ({{ besichtigungsort.land.toUpperCase() }}) </template>
+                    <div v-if="acceptedOffer" class="px-6 pt-5 pb-6">
+                        <div class="flex items-center justify-between gap-3 rounded-[50px] px-7 py-2.5" style="background: #ef8450">
+                            <span class="min-w-0 flex-1 text-[13px] leading-snug font-normal text-white">
+                                Angenommenes Angebot: {{ acceptedOffer.id }} {{ acceptedOffer.name }}
+                            </span>
+                            <span class="shrink-0 text-[15px] font-normal whitespace-nowrap text-white">
+                                {{ acceptedOffer.cost.toLocaleString('de-DE') }} €
                             </span>
                         </div>
-                    </template>
-                    <div v-else class="text-[14px] font-normal" style="color: #b7c2c2">Kein Besichtigungsort verfügbar</div>
-                </div>
-
-                <div class="relative flex w-full flex-col overflow-hidden rounded-3xl border bg-white" style="border-color: #ececec">
-                    <button class="absolute top-6 right-6 transition-opacity hover:opacity-60" @click="editVehicleOpen = true">
-                        <IconMdiPencil class="size-5 shrink-0" style="color: #01b990" />
-                    </button>
-                    <div class="px-6 pt-6">
-                        <p class="text-[16px] font-bold uppercase" style="color: #000">FAHRZEUGDATEN</p>
                     </div>
-
-                    <div class="flex flex-col gap-0 px-6 pt-4 pb-6">
-                        <div class="flex items-center justify-between py-4">
-                            <span class="text-[16px] font-normal" style="color: #64748b">Kennzeichen</span>
-                            <span class="text-[16px] font-semibold" style="color: #000">{{ vehicle.license_plate }}</span>
-                        </div>
-                        <div class="h-px bg-gray-200"></div>
-                        <div class="flex items-center justify-between py-4">
-                            <span class="text-[16px] font-normal" style="color: #64748b">Modell</span>
-                            <span class="text-[16px] font-semibold" style="color: #000">{{ vehicle.make }} {{ vehicle.model }}</span>
-                        </div>
-                        <div class="h-px bg-gray-200"></div>
-                        <div class="flex items-center justify-between py-4">
-                            <span class="text-[16px] font-normal" style="color: #64748b">Leasinggeber</span>
-                            <span class="text-[16px] font-semibold" style="color: #000">{{ vehicle.leasinggeber || 'Nicht verfügbar' }}</span>
-                        </div>
-                        <div class="h-px bg-gray-200"></div>
-                        <div class="flex items-center justify-between py-4">
-                            <span class="text-[16px] font-normal" style="color: #64748b">Rückgabetermin</span>
-                            <span class="text-[16px] font-semibold" style="color: #000">{{ formatDate(vehicle.leasing_end_date) }}</span>
-                        </div>
+                </div>
+                <div v-if="!hasRealOffers" class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+                    <div class="rounded-full bg-white/80 px-6 py-3 shadow-lg">
+                        <p class="text-[18px] font-bold" style="color: #ef8450">Keine Angebote</p>
                     </div>
                 </div>
             </div>
-        </TableCell>
-    </TableRow>
 
-    <div class="flex flex-col gap-4 bg-[#EFEFEF] p-4 md:hidden">
+            <div class="relative flex w-full flex-col rounded-[24px] border bg-white p-6" style="border-color: #ececec">
+                <div class="pb-6">
+                    <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">Besichtigungsort</p>
+                </div>
+
+                <template v-if="besichtigungsort">
+                    <div class="flex items-center gap-5 pb-6">
+                        <div
+                            class="flex size-[56px] shrink-0 items-center justify-center rounded-full"
+                            style="background-color: rgba(1, 185, 144, 0.1)"
+                        >
+                            <IconMdiOfficeBuildingOutline class="size-7" style="color: #01b990" />
+                        </div>
+                        <p class="min-w-0 flex-1 text-[18px] font-bold wrap-break-word" style="color: #2e3e3f">
+                            {{ besichtigungsort.name }}
+                        </p>
+                    </div>
+
+                    <div class="pb-5">
+                        <p class="text-[10px] font-medium uppercase" style="color: #8f9ba7; letter-spacing: 0.5px">Termin</p>
+                        <div class="flex items-center gap-3 pt-2">
+                            <IconMdiCalendarClockOutline class="size-[18px] shrink-0" style="color: #5a6b7a" />
+                            <p class="text-[14px] font-bold" style="color: #2e3e3f">
+                                {{ terminFormatted || 'Kein Termin' }}
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="mb-5 h-px bg-gray-200"></div>
+
+                    <div class="flex items-start gap-4">
+                        <IconMdiMapMarkerOutline class="mt-0.5 size-[18px] shrink-0" style="color: #5a6b7a" />
+                        <span class="text-[14px] leading-relaxed font-normal" style="color: #2e3e3f">
+                            {{ besichtigungsort.strasse }}<br />
+                            {{ besichtigungsort.plz }} {{ besichtigungsort.ort }}
+                            <template v-if="besichtigungsort.land"> ({{ besichtigungsort.land.toUpperCase() }}) </template>
+                        </span>
+                    </div>
+                </template>
+                <div v-else class="text-[14px] font-normal" style="color: #b7c2c2">Kein Besichtigungsort verfügbar</div>
+            </div>
+
+            <div class="relative flex w-full flex-col overflow-hidden rounded-3xl border bg-white" style="border-color: #ececec">
+                <button class="absolute top-6 right-6 transition-opacity hover:opacity-60" @click="editVehicleOpen = true">
+                    <IconMdiPencil class="size-5 shrink-0" style="color: #01b990" />
+                </button>
+                <div class="px-6 pt-6">
+                    <p class="text-[16px] font-bold uppercase" style="color: #000">FAHRZEUGDATEN</p>
+                </div>
+
+                <div class="flex flex-col gap-0 px-6 pt-4 pb-6">
+                    <div class="flex items-center justify-between py-4">
+                        <span class="text-[16px] font-normal" style="color: #64748b">Kennzeichen</span>
+                        <span class="text-[16px] font-semibold" style="color: #000">{{ vehicle.license_plate }}</span>
+                    </div>
+                    <div class="h-px bg-gray-200"></div>
+                    <div class="flex items-center justify-between py-4">
+                        <span class="text-[16px] font-normal" style="color: #64748b">Modell</span>
+                        <span class="text-[16px] font-semibold" style="color: #000">{{ vehicle.make }} {{ vehicle.model }}</span>
+                    </div>
+                    <div class="h-px bg-gray-200"></div>
+                    <div class="flex items-center justify-between py-4">
+                        <span class="text-[16px] font-normal" style="color: #64748b">Leasinggeber</span>
+                        <span class="text-[16px] font-semibold" style="color: #000">{{ vehicle.leasinggeber || 'Nicht verfügbar' }}</span>
+                    </div>
+                    <div class="h-px bg-gray-200"></div>
+                    <div class="flex items-center justify-between py-4">
+                        <span class="text-[16px] font-normal" style="color: #64748b">Rückgabetermin</span>
+                        <span class="text-[16px] font-semibold" style="color: #000">{{ formatDate(vehicle.leasing_end_date) }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </VehiclePanelShell>
+
+    <div v-if="!embedded" class="flex flex-col gap-4 bg-[#EFEFEF] p-4 md:hidden">
         <div class="flex flex-col overflow-hidden rounded-3xl border bg-white" style="border-color: #ececec">
             <OrderStatusTimeline
                 :entries="timelineEntries"
@@ -785,7 +818,9 @@ function formatDate(value: string | null): string {
                         </div>
                     </div>
                 </div>
-                <div v-if="documents.length === 0" class="text-[14px] text-[#b7c2c2]">Keine Dokumente gefunden</div>
+                <AdminReportDocumentsList v-if="admin" :documents="adminReportDocuments" compact />
+
+                <div v-if="!admin && documents.length === 0" class="text-[14px] text-[#b7c2c2]">Keine Dokumente gefunden</div>
             </div>
         </div>
 
@@ -794,8 +829,18 @@ function formatDate(value: string | null): string {
                 class="flex flex-col rounded-[16px] border bg-white"
                 :style="hasRealOffers ? 'border-color: #ececec' : 'border-color: #ececec; opacity: 0.5'"
             >
-                <div class="px-4 py-4">
+                <div class="flex items-center justify-between gap-3 px-4 py-4">
                     <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">Angebote</p>
+
+                    <button
+                        v-if="canCompareOffers"
+                        type="button"
+                        class="flex shrink-0 items-center gap-1.5 rounded-full border border-[#ececec] px-3 py-1.5 text-[11px] font-bold text-[#2e3e3f]"
+                        @click.stop="compareOpen = true"
+                    >
+                        <IconMdiScaleBalance class="size-[14px]" />
+                        Vergleichen
+                    </button>
                 </div>
 
                 <div class="flex flex-col gap-3 px-4">
@@ -980,6 +1025,21 @@ function formatDate(value: string | null): string {
 
     <AddVehicleModal v-model:open="editVehicleOpen" :vehicle="vehicle" />
     <UploadDocumentModal v-model:open="uploadDocsOpen" :vehicle-id="vehicle.vehicle_id" :documents="vehicle.documents" />
+
+    <AppModal
+        v-model:open="compareOpen"
+        :width="900"
+        title="Angebote vergleichen"
+        :description="
+            admin
+                ? 'Alle Angebote dieses Auftrags nebeneinander. Annehmen erfolgt im Auftrag des Kunden.'
+                : 'Alle Angebote dieses Auftrags nebeneinander.'
+        "
+    >
+        <div class="px-2">
+            <OfferComparison :offers="rawOffers" :admin="admin" bare />
+        </div>
+    </AppModal>
 
     <div v-if="pendingOfferId" class="fixed inset-0 z-50 flex items-center justify-center bg-black/5 p-4" @click="cancelSelect">
         <div class="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl" @click.stop>

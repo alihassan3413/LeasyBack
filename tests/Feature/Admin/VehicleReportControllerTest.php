@@ -36,7 +36,7 @@ class VehicleReportControllerTest extends TestCase
         $response = $this->actingAs($admin)
             ->post(route('admin.vehicles.reports.upload', $vehicle->vehicle_id), [
                 'auftragsnummer' => 'AUF-12345678',
-                'document_type' => 'invoice',
+                'document_type' => 'rechnung',
                 'document_title' => 'Rechnung',
                 'published' => true,
                 'file' => UploadedFile::fake()->create('rechnung.pdf', 100),
@@ -55,6 +55,98 @@ class VehicleReportControllerTest extends TestCase
             'vehicle_id' => $vehicle->vehicle_id,
             'action' => 'uploaded',
         ]);
+    }
+
+    /**
+     * The customer is told about a document exactly when it becomes visible
+     * to them — never on a draft upload. Both report and invoice uploads
+     * default to draft (v1 posts published=false for each), so this is the
+     * normal path and it must stay silent.
+     */
+    public function test_uploading_a_draft_document_notifies_nobody(): void
+    {
+        Notification::fake();
+        Storage::fake('documents');
+        $admin = $this->admin();
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create(['vehicle_belongs' => 'B2C', 'b2c_user_id' => $owner->id]);
+
+        $this->actingAs($admin)
+            ->post(route('admin.vehicles.reports.upload', $vehicle->vehicle_id), [
+                'auftragsnummer' => 'AUF-DRAFT-UP',
+                'document_type' => 'gutachten',
+                'published' => false,
+                'file' => UploadedFile::fake()->create('gutachten.pdf', 100),
+            ])
+            ->assertRedirect();
+
+        $this->assertDatabaseHas('vehicle_report_documents', [
+            'auftragsnummer' => 'AUF-DRAFT-UP',
+            'published' => false,
+        ]);
+        Notification::assertNothingSent();
+    }
+
+    /** …and releasing that draft is what reaches the customer. */
+    public function test_publishing_a_draft_document_notifies_the_owner(): void
+    {
+        Notification::fake();
+        Storage::fake('documents');
+        $admin = $this->admin();
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create(['vehicle_belongs' => 'B2C', 'b2c_user_id' => $owner->id]);
+        $document = VehicleReportDocument::factory()->create([
+            'vehicle_id' => $vehicle->vehicle_id,
+            'published' => false,
+        ]);
+
+        $this->actingAs($admin)
+            ->patch(route('admin.vehicles.reports.publish', $document->id), ['published' => true])
+            ->assertRedirect();
+
+        $this->assertTrue((bool) $document->fresh()->published);
+        Notification::assertSentTo($owner, SystemNotification::class);
+    }
+
+    /** Opting in at upload time still notifies — "notify when published" holds on every path. */
+    public function test_uploading_an_already_published_document_notifies_the_owner(): void
+    {
+        Notification::fake();
+        Storage::fake('documents');
+        $admin = $this->admin();
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create(['vehicle_belongs' => 'B2C', 'b2c_user_id' => $owner->id]);
+
+        $this->actingAs($admin)
+            ->post(route('admin.vehicles.reports.upload', $vehicle->vehicle_id), [
+                'auftragsnummer' => 'AUF-PUB-UP',
+                'document_type' => 'rechnung',
+                'published' => true,
+                'file' => UploadedFile::fake()->create('rechnung.pdf', 100),
+            ])
+            ->assertRedirect();
+
+        Notification::assertSentTo($owner, SystemNotification::class);
+    }
+
+    /** Withdrawing must not fire a second "new document" notification. */
+    public function test_withdrawing_a_published_document_notifies_nobody(): void
+    {
+        Notification::fake();
+        $admin = $this->admin();
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create(['vehicle_belongs' => 'B2C', 'b2c_user_id' => $owner->id]);
+        $document = VehicleReportDocument::factory()->create([
+            'vehicle_id' => $vehicle->vehicle_id,
+            'published' => true,
+        ]);
+
+        $this->actingAs($admin)
+            ->patch(route('admin.vehicles.reports.publish', $document->id), ['published' => false])
+            ->assertRedirect();
+
+        $this->assertFalse((bool) $document->fresh()->published);
+        Notification::assertNothingSent();
     }
 
     public function test_non_admin_cannot_upload_a_report_document(): void

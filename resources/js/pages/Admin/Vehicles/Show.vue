@@ -78,6 +78,12 @@ const reportDocuments = computed(() =>
 );
 
 const uploadModalOpen = ref(false);
+const uploadDocumentType = ref('gutachten');
+
+function openUpload(documentType: string) {
+    uploadDocumentType.value = documentType;
+    uploadModalOpen.value = true;
+}
 const publishingId = ref<string | null>(null);
 const confirmingDeleteId = ref<string | null>(null);
 
@@ -116,15 +122,26 @@ function deleteDocument(documentId: string) {
                     </h1>
                 </div>
 
-                <button
-                    type="button"
-                    class="flex shrink-0 items-center gap-1.5 rounded-[13px] px-4 py-2 text-[12.5px] font-bold text-white transition-all hover:-translate-y-px"
-                    style="background: linear-gradient(135deg, #10393b, #1a5052); box-shadow: 0 8px 20px rgba(16, 57, 59, 0.2)"
-                    @click="uploadModalOpen = true"
-                >
-                    <IconMdiFileUploadOutline class="size-4" />
-                    Report hochladen
-                </button>
+                <div class="flex shrink-0 items-center gap-2">
+                    <button
+                        type="button"
+                        class="flex shrink-0 items-center gap-1.5 rounded-[13px] border border-[#e9efee] bg-white px-4 py-2 text-[12.5px] font-bold text-[#10393b] transition-all hover:border-[#01B990] hover:text-[#00856a]"
+                        @click="openUpload('rechnung')"
+                    >
+                        <IconMdiReceiptTextOutline class="size-4" />
+                        Rechnung hochladen
+                    </button>
+
+                    <button
+                        type="button"
+                        class="flex shrink-0 items-center gap-1.5 rounded-[13px] px-4 py-2 text-[12.5px] font-bold text-white transition-all hover:-translate-y-px"
+                        style="background: linear-gradient(135deg, #10393b, #1a5052); box-shadow: 0 8px 20px rgba(16, 57, 59, 0.2)"
+                        @click="openUpload('gutachten')"
+                    >
+                        <IconMdiFileUploadOutline class="size-4" />
+                        Gutachten hochladen
+                    </button>
+                </div>
 
                 <!-- Rendered even without an order: "Auftrag erstellen" is exactly the action needed then. -->
                 <div class="mr-2 shrink-0">
@@ -305,7 +322,7 @@ function deleteDocument(documentId: string) {
                     </div>
 
                     <div class="-mx-6 -mb-6 overflow-hidden rounded-b-[24px]">
-                        <VehicleExpandedPanel :vehicle="panelVehicle" admin />
+                        <VehicleExpandedPanel :vehicle="panelVehicle" admin embedded />
                     </div>
                 </section>
 
@@ -320,7 +337,7 @@ function deleteDocument(documentId: string) {
                             <button
                                 type="button"
                                 class="flex shrink-0 items-center gap-1.5 rounded-[11px] border border-[#e9efee] bg-white px-3 py-2 text-[12px] font-bold text-[#10393b] transition-all hover:border-[#01B990] hover:bg-[#f0fbf8] hover:text-[#00856a]"
-                                @click="uploadModalOpen = true"
+                                @click="openUpload('gutachten')"
                             >
                                 <IconMdiPlus class="size-3.5" />
                                 Hochladen
@@ -365,15 +382,31 @@ function deleteDocument(documentId: string) {
                                         <IconMdiOpenInNew class="size-[15px]" />
                                     </a>
 
+                                    <!--
+                                        Labelled, not a bare eye icon: uploads are drafts by
+                                        default, so this is the step that actually reaches the
+                                        customer (and notifies them). It needs to read as an
+                                        action, not as a view toggle.
+                                    -->
                                     <button
                                         type="button"
-                                        class="flex h-8 w-8 items-center justify-center rounded-[9px] text-[#bcccca] transition-all hover:bg-[#01B990] hover:text-white disabled:opacity-40"
-                                        :title="doc.published ? 'Veröffentlichung zurückziehen' : 'Für Kunden freigeben'"
+                                        class="flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-[11px] font-bold transition-all disabled:opacity-40"
+                                        :class="
+                                            doc.published
+                                                ? 'border-[#ececec] text-[#6f8585] hover:border-[#EF4444] hover:text-[#EF4444]'
+                                                : 'border-[#01B990] text-[#00856a] hover:bg-[#01B990] hover:text-white'
+                                        "
+                                        :title="
+                                            doc.published
+                                                ? 'Dokument wieder als Entwurf verbergen'
+                                                : 'Für den Kunden freigeben — der Kunde wird benachrichtigt'
+                                        "
                                         :disabled="publishingId === doc.id"
                                         @click="togglePublished(doc.id, doc.published)"
                                     >
-                                        <IconMdiEyeOffOutline v-if="doc.published" class="size-[15px]" />
-                                        <IconMdiEyeOutline v-else class="size-[15px]" />
+                                        <IconMdiEyeOffOutline v-if="doc.published" class="size-[14px]" />
+                                        <IconMdiEyeOutline v-else class="size-[14px]" />
+                                        {{ doc.published ? 'Zurückziehen' : 'Freigeben' }}
                                     </button>
 
                                     <button
@@ -425,7 +458,12 @@ function deleteDocument(documentId: string) {
             </main>
         </div>
 
-        <UploadReportDocumentModal v-model:open="uploadModalOpen" :vehicle-id="vehicle.vehicle_id" :auftragsnummer-options="auftragsnummerOptions" />
+        <UploadReportDocumentModal
+            v-model:open="uploadModalOpen"
+            :vehicle-id="vehicle.vehicle_id"
+            :auftragsnummer-options="auftragsnummerOptions"
+            :default-document-type="uploadDocumentType"
+        />
     </AdminLayout>
 </template>
 

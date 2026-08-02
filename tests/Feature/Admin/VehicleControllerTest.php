@@ -442,6 +442,37 @@ class VehicleControllerTest extends TestCase
             ->assertInertia(fn (AssertableInertia $page) => $page->where('vehicles.data.0.has_open_order', false));
     }
 
+    /**
+     * The expanded panel's Admin document list offers Freigeben/Zurückziehen,
+     * which only works if drafts reach it. Admin sees every report document
+     * with its `published` flag — unlike the customer payload, which
+     * VehicleService::hydrateVehicles() filters to published only.
+     */
+    public function test_admin_sees_unpublished_report_documents_with_their_state(): void
+    {
+        Storage::fake('documents');
+        $admin = $this->admin();
+        $vehicle = Vehicle::factory()->create();
+        $order = LeasybackOrder::factory()->create([
+            'vehicle_id' => $vehicle->vehicle_id,
+            'auftragsnummer' => 'AUF-DRAFTDOC',
+        ]);
+        VehicleReportDocument::factory()->create([
+            'vehicle_id' => $vehicle->vehicle_id,
+            'auftragsnummer' => $order->auftragsnummer,
+            'document_type' => 'gutachten',
+            'published' => false,
+        ]);
+
+        $this->actingAs($admin)
+            ->get(route('admin.vehicles.show', $vehicle->vehicle_id))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->has('vehicle.order_history.0.report_documents', 1)
+                ->where('vehicle.order_history.0.report_documents.0.published', false)
+            );
+    }
+
     public function test_show_returns_404_for_unknown_vehicle(): void
     {
         $admin = $this->admin();

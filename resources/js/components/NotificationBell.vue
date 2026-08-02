@@ -5,11 +5,11 @@ import { useNotifications } from '@/composables/useNotifications';
 import { useWebPush } from '@/composables/useWebPush';
 import type { SharedData } from '@/types';
 import { usePage } from '@inertiajs/vue3';
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import MdiBellOutline from '~icons/mdi/bell-outline';
 
 const page = usePage<SharedData>();
-const { unreadCount, loaded, setUnreadCount, fetchNotifications, listen, stopListening } = useNotifications();
+const { unreadCount, setUnreadCount, fetchNotifications, listen } = useNotifications();
 const { syncPushState } = useWebPush();
 
 const open = ref(false);
@@ -17,10 +17,12 @@ const open = ref(false);
 const badge = computed(() => (unreadCount.value > 99 ? '99+' : String(unreadCount.value)));
 const userId = computed(() => page.props.auth?.user?.id ?? null);
 
+// The server count is authoritative on every navigation: it self-heals a
+// badge drifted by a duplicate broadcast or a read in another tab.
 watch(
     () => page.props.notifications?.unread_count,
     (value) => {
-        if (typeof value === 'number' && !loaded.value) {
+        if (typeof value === 'number') {
             setUnreadCount(value);
         }
     },
@@ -44,7 +46,6 @@ watch(open, (isOpen) => {
 });
 
 onMounted(() => void syncPushState());
-onBeforeUnmount(stopListening);
 </script>
 
 <template>

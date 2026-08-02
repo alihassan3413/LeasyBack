@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Enums\DocumentType;
 use App\Http\Controllers\Concerns\HandlesServiceValidationErrors;
 use App\Http\Controllers\Controller;
 use App\Models\VehicleReportDocument;
@@ -9,6 +10,7 @@ use App\Modules\UserProfile\Admin\Services\AppraisalDocumentPullService;
 use App\Modules\UserProfile\Admin\Services\VehicleReportService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 /**
  * Session-authenticated counterpart of the Sanctum API's
@@ -35,7 +37,7 @@ class VehicleReportController extends Controller
 
         $validated = $request->validate([
             'auftragsnummer' => 'required|string',
-            'document_type' => 'nullable|string',
+            'document_type' => ['required', 'string', Rule::in(DocumentType::values())],
             'document_title' => 'nullable|string',
             'published' => 'nullable|boolean',
             'file' => 'required|file|max:51200',
