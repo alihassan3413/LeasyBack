@@ -42,12 +42,20 @@ class VehicleController extends Controller
         };
         $ownerId = $belongs === 'ALL' ? null : $this->scope->resolveOwnerId($user);
 
+        $filters = [
+            'search' => trim((string) $request->query('search', '')),
+            'status' => (string) $request->query('status', ''),
+            'sort' => (string) $request->query('sort', 'created_at'),
+            'direction' => strtolower((string) $request->query('direction', 'desc')) === 'asc' ? 'asc' : 'desc',
+        ];
+
         return Inertia::render('Dashboard', [
-            'vehicles' => $this->vehicleService->listVehiclesWithOrders($ownerId, $belongs),
+            'vehicles' => $this->vehicleService->listVehiclesWithOrders($ownerId, $belongs, $filters),
             'stations' => InspectionStation::where('is_active', true)
                 ->orderBy('provider')
                 ->orderBy('name')
                 ->get(['station_id', 'provider', 'name', 'strasse', 'plz', 'ort', 'bundesland', 'land']),
+            'filters' => $filters,
         ]);
     }
 

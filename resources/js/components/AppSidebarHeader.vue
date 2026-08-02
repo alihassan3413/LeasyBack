@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import NotificationBell from '@/components/NotificationBell.vue';
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
 import type { BreadcrumbItemType } from '@/types';
 
@@ -8,10 +9,10 @@ defineProps<{
 </script>
 
 <template>
-    <header v-if="breadcrumbs && breadcrumbs.length > 0" class="flex h-16 shrink-0 items-center gap-2 px-6 md:px-4">
-        <div class="flex items-center gap-2">
-            <template v-if="breadcrumbs.length > 0">
-                <Breadcrumb>
+    <header class="flex h-16 shrink-0 items-center gap-3 border-b border-[#e6eded] px-4 md:px-6">
+        <div class="flex min-w-0 flex-1 items-center">
+            <slot>
+                <Breadcrumb v-if="breadcrumbs && breadcrumbs.length > 0">
                     <BreadcrumbList>
                         <template v-for="(item, index) in breadcrumbs" :key="index">
                             <BreadcrumbItem>
@@ -28,7 +29,9 @@ defineProps<{
                         </template>
                     </BreadcrumbList>
                 </Breadcrumb>
-            </template>
+            </slot>
         </div>
+
+        <NotificationBell />
     </header>
 </template>

@@ -65,18 +65,28 @@ const handleLogout = () => {
             <AppSidebar />
 
             <!-- Main content -->
-            <main class="flex-1 overflow-hidden overflow-y-auto bg-white p-6">
-                <AppSidebarHeader :breadcrumbs="breadcrumbs" />
-                <slot />
+            <main class="flex min-w-0 flex-1 flex-col overflow-hidden bg-white">
+                <AppSidebarHeader :breadcrumbs="breadcrumbs">
+                    <template v-if="$slots.header" #default><slot name="header" /></template>
+                </AppSidebarHeader>
+
+                <div class="flex-1 overflow-y-auto p-6">
+                    <slot />
+                </div>
             </main>
         </div>
 
         <!-- Mobile view -->
         <div class="relative flex flex-1 flex-col overflow-hidden md:hidden">
             <!-- Main content -->
-            <main class="flex-1 overflow-hidden overflow-y-auto bg-white">
-                <AppSidebarHeader :breadcrumbs="breadcrumbs" />
-                <slot />
+            <main class="flex min-w-0 flex-1 flex-col overflow-hidden bg-white">
+                <AppSidebarHeader :breadcrumbs="breadcrumbs">
+                    <template v-if="$slots.header" #default><slot name="header" /></template>
+                </AppSidebarHeader>
+
+                <div class="flex-1 overflow-y-auto p-4">
+                    <slot />
+                </div>
             </main>
 
             <!-- Bottom tab bar for mobile -->

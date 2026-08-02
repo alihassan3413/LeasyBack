@@ -49,6 +49,14 @@ const ORDER_STATUS_LABELS: Record<string, string> = {
     cancelled: 'Storniert',
 };
 
+/** Status choices offered by the dashboard filter; `none` means "no order yet". */
+export const VEHICLE_STATUS_FILTER_OPTIONS: { value: string; label: string }[] = [
+    { value: 'none', label: 'Eingeplant' },
+    ...Object.entries(ORDER_STATUS_DISPLAY)
+        .filter(([value]) => value !== 'cancelled')
+        .map(([value, display]) => ({ value, label: display.label })),
+];
+
 export function getOrderStatusLabel(status: string | null | undefined): string {
     if (!status) {
         return 'Unbekannt';

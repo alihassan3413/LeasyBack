@@ -156,6 +156,7 @@ declare module 'vue' {
     NavigationMenuViewport: typeof import('./../components/ui/navigation-menu/NavigationMenuViewport.vue')['default']
     NavMain: typeof import('./../components/NavMain.vue')['default']
     NavUser: typeof import('./../components/NavUser.vue')['default']
+    NotificationBell: typeof import('./../components/NotificationBell.vue')['default']
     OffersCard: typeof import('./../components/vehicle/OffersCard.vue')['default']
     OnboardingCard: typeof import('./../components/onboarding/OnboardingCard.vue')['default']
     OnboardingModal: typeof import('./../components/dashboard/OnboardingModal.vue')['default']
@@ -217,6 +218,7 @@ declare module 'vue' {
     SidebarSeparator: typeof import('./../components/ui/sidebar/SidebarSeparator.vue')['default']
     SidebarTrigger: typeof import('./../components/ui/sidebar/SidebarTrigger.vue')['default']
     Skeleton: typeof import('./../components/ui/skeleton/Skeleton.vue')['default']
+    SortableTableHead: typeof import('./../components/vehicle/SortableTableHead.vue')['default']
     StationMap: typeof import('./../components/form/StationMap.vue')['default']
     StationSelectField: typeof import('./../components/form/StationSelectField.vue')['default']
     StatusHelpTooltip: typeof import('./../components/shared/StatusHelpTooltip.vue')['default']
@@ -247,5 +249,6 @@ declare module 'vue' {
     VehicleExpandedPanel: typeof import('./../components/vehicle/VehicleExpandedPanel.vue')['default']
     VehicleRow: typeof import('./../components/vehicle/VehicleRow.vue')['default']
     VehicleStep: typeof import('./../components/onboarding/VehicleStep.vue')['default']
+    VehicleToolbar: typeof import('./../components/vehicle/VehicleToolbar.vue')['default']
   }
 }

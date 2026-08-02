@@ -17,6 +17,7 @@ declare global {
   const PLATE_MESSAGES: typeof import('../lib/licensePlate').PLATE_MESSAGES
   const VEHICLE_BRANDS: typeof import('../lib/vehicleBrands').VEHICLE_BRANDS
   const VEHICLE_BRAND_OPTIONS: typeof import('../lib/vehicleBrands').VEHICLE_BRAND_OPTIONS
+  const VEHICLE_STATUS_FILTER_OPTIONS: typeof import('../lib/vehicleStatus').VEHICLE_STATUS_FILTER_OPTIONS
   const cn: typeof import('../lib/utils').cn
   const computed: typeof import('vue').computed
   const createApp: typeof import('vue').createApp
@@ -40,13 +41,16 @@ declare global {
   const h: typeof import('vue').h
   const initializeTheme: typeof import('../composables/useAppearance').initializeTheme
   const inject: typeof import('vue').inject
+  const isGoogleMapsConfigured: typeof import('../composables/useGoogleMapsLoader').isGoogleMapsConfigured
   const isProxy: typeof import('vue').isProxy
   const isReactive: typeof import('vue').isReactive
   const isReadonly: typeof import('vue').isReadonly
   const isRef: typeof import('vue').isRef
   const isShallow: typeof import('vue').isShallow
   const isTerminalOffRamp: typeof import('../lib/orderFlow').isTerminalOffRamp
+  const isValidDeCoord: typeof import('../composables/useGooglePlaces').isValidDeCoord
   const isVehicleCompleted: typeof import('../lib/vehicleStatus').isVehicleCompleted
+  const loadGoogleMaps: typeof import('../composables/useGoogleMapsLoader').loadGoogleMaps
   const markRaw: typeof import('vue').markRaw
   const nextTick: typeof import('vue').nextTick
   const normalizePlate: typeof import('../lib/licensePlate').normalizePlate
@@ -97,6 +101,7 @@ declare global {
   const useDark: typeof import('@vueuse/core').useDark
   const useDebounceFn: typeof import('@vueuse/core').useDebounceFn
   const useForm: typeof import('@inertiajs/vue3').useForm
+  const useGooglePlaces: typeof import('../composables/useGooglePlaces').useGooglePlaces
   const useId: typeof import('vue').useId
   const useInitials: typeof import('../composables/useInitials').useInitials
   const useLocalStorage: typeof import('@vueuse/core').useLocalStorage
@@ -121,6 +126,9 @@ declare global {
   // @ts-ignore
   export type { Component, Slot, Slots, ComponentPublicInstance, ComputedRef, DirectiveBinding, ExtractDefaultPropTypes, ExtractPropTypes, ExtractPublicPropTypes, InjectionKey, PropType, Ref, ShallowRef, MaybeRef, MaybeRefOrGetter, VNode, WritableComputedRef } from 'vue'
   import('vue')
+  // @ts-ignore
+  export type { PlaceSuggestion, ResolvedPlaceAddress } from '../composables/useGooglePlaces'
+  import('../composables/useGooglePlaces')
   // @ts-ignore
   export type { CustomerOrderStage, CustomerOrderFlowStep, CustomerOrderStatusHistoryEntry, CustomerOrderBesichtigungsort, CustomerOrderReportDocument, CustomerOrderOffer, CustomerOrderFlowInput } from '../lib/customerOrderFlow'
   import('../lib/customerOrderFlow')
@@ -151,6 +159,7 @@ declare module 'vue' {
     readonly PLATE_MESSAGES: UnwrapRef<typeof import('../lib/licensePlate')['PLATE_MESSAGES']>
     readonly VEHICLE_BRANDS: UnwrapRef<typeof import('../lib/vehicleBrands')['VEHICLE_BRANDS']>
     readonly VEHICLE_BRAND_OPTIONS: UnwrapRef<typeof import('../lib/vehicleBrands')['VEHICLE_BRAND_OPTIONS']>
+    readonly VEHICLE_STATUS_FILTER_OPTIONS: UnwrapRef<typeof import('../lib/vehicleStatus')['VEHICLE_STATUS_FILTER_OPTIONS']>
     readonly cn: UnwrapRef<typeof import('../lib/utils')['cn']>
     readonly computed: UnwrapRef<typeof import('vue')['computed']>
     readonly createApp: UnwrapRef<typeof import('vue')['createApp']>
@@ -174,13 +183,16 @@ declare module 'vue' {
     readonly h: UnwrapRef<typeof import('vue')['h']>
     readonly initializeTheme: UnwrapRef<typeof import('../composables/useAppearance')['initializeTheme']>
     readonly inject: UnwrapRef<typeof import('vue')['inject']>
+    readonly isGoogleMapsConfigured: UnwrapRef<typeof import('../composables/useGoogleMapsLoader')['isGoogleMapsConfigured']>
     readonly isProxy: UnwrapRef<typeof import('vue')['isProxy']>
     readonly isReactive: UnwrapRef<typeof import('vue')['isReactive']>
     readonly isReadonly: UnwrapRef<typeof import('vue')['isReadonly']>
     readonly isRef: UnwrapRef<typeof import('vue')['isRef']>
     readonly isShallow: UnwrapRef<typeof import('vue')['isShallow']>
     readonly isTerminalOffRamp: UnwrapRef<typeof import('../lib/orderFlow')['isTerminalOffRamp']>
+    readonly isValidDeCoord: UnwrapRef<typeof import('../composables/useGooglePlaces')['isValidDeCoord']>
     readonly isVehicleCompleted: UnwrapRef<typeof import('../lib/vehicleStatus')['isVehicleCompleted']>
+    readonly loadGoogleMaps: UnwrapRef<typeof import('../composables/useGoogleMapsLoader')['loadGoogleMaps']>
     readonly markRaw: UnwrapRef<typeof import('vue')['markRaw']>
     readonly nextTick: UnwrapRef<typeof import('vue')['nextTick']>
     readonly normalizePlate: UnwrapRef<typeof import('../lib/licensePlate')['normalizePlate']>
@@ -231,6 +243,7 @@ declare module 'vue' {
     readonly useDark: UnwrapRef<typeof import('@vueuse/core')['useDark']>
     readonly useDebounceFn: UnwrapRef<typeof import('@vueuse/core')['useDebounceFn']>
     readonly useForm: UnwrapRef<typeof import('@inertiajs/vue3')['useForm']>
+    readonly useGooglePlaces: UnwrapRef<typeof import('../composables/useGooglePlaces')['useGooglePlaces']>
     readonly useId: UnwrapRef<typeof import('vue')['useId']>
     readonly useInitials: UnwrapRef<typeof import('../composables/useInitials')['useInitials']>
     readonly useLocalStorage: UnwrapRef<typeof import('@vueuse/core')['useLocalStorage']>

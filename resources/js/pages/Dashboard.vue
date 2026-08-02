@@ -2,23 +2,70 @@
 import OnboardingModal from '@/components/dashboard/OnboardingModal.vue';
 import AddVehicleModal from '@/components/vehicle/AddVehicleModal.vue';
 import OrderCreationModal from '@/components/vehicle/OrderCreationModal.vue';
+import SortableTableHead from '@/components/vehicle/SortableTableHead.vue';
 import VehicleExpandedPanel from '@/components/vehicle/VehicleExpandedPanel.vue';
 import VehicleRow from '@/components/vehicle/VehicleRow.vue';
+import VehicleToolbar from '@/components/vehicle/VehicleToolbar.vue';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { useOnboarding } from '@/composables/useOnboarding';
 import { ONBOARDING_VIDEO_POSTER_URL, ONBOARDING_VIDEO_URL } from '@/lib/onboarding';
 import { getOrderStatusLabel, isVehicleCompleted } from '@/lib/vehicleStatus';
-import { type BreadcrumbItem, type SharedData } from '@/types';
+import { type SharedData } from '@/types';
 import type { StationData } from '@/types/order';
 import type { VehicleData } from '@/types/vehicle';
-import { Head, usePage } from '@inertiajs/vue3';
+import { Head, router, usePage } from '@inertiajs/vue3';
 import { computed, onMounted, ref, watch } from 'vue';
 
-const props = defineProps<{ vehicles: VehicleData[]; stations: StationData[] }>();
+export interface DashboardFilters {
+    search: string;
+    status: string;
+    sort: string;
+    direction: string;
+}
 
-const breadcrumbs: BreadcrumbItem[] = [{ title: 'Dashboard', href: '/dashboard' }];
+const props = defineProps<{ vehicles: VehicleData[]; stations: StationData[]; filters: DashboardFilters }>();
+
+const search = ref(props.filters.search);
+const status = ref(props.filters.status);
+const sort = ref(props.filters.sort);
+const direction = ref(props.filters.direction);
+
+function reload() {
+    router.get(
+        route('dashboard'),
+        {
+            search: search.value || undefined,
+            status: status.value || undefined,
+            sort: sort.value !== 'created_at' || direction.value !== 'desc' ? sort.value : undefined,
+            direction: sort.value !== 'created_at' || direction.value !== 'desc' ? direction.value : undefined,
+        },
+        { preserveState: true, preserveScroll: true, replace: true, only: ['vehicles', 'filters'] },
+    );
+}
+
+const debouncedReload = useDebounceFn(reload, 300);
+
+watch(search, debouncedReload);
+watch([status, sort, direction], reload);
+
+function toggleSort(column: string) {
+    if (sort.value === column) {
+        direction.value = direction.value === 'asc' ? 'desc' : 'asc';
+
+        return;
+    }
+
+    sort.value = column;
+    direction.value = 'asc';
+}
+
+function resetFilters() {
+    status.value = '';
+}
+
+const hasQuery = computed(() => search.value !== '' || status.value !== '');
 
 function latestOrderStatus(vehicle: VehicleData): string | undefined {
     return vehicle.orders[0]?.order_status;
@@ -100,9 +147,13 @@ onMounted(() => {
 <template>
     <Head title="Dashboard" />
 
-    <AppLayout :breadcrumbs="breadcrumbs">
-        <div class="flex h-full flex-col overflow-hidden p-4">
-            <div class="mb-6 flex flex-col gap-4 px-4 md:px-0">
+    <AppLayout>
+        <template #header>
+            <VehicleToolbar v-model:search="search" v-model:status="status" @reset="resetFilters" />
+        </template>
+
+        <div class="flex flex-col">
+            <div class="mb-6 flex flex-col gap-4">
                 <div class="flex flex-col items-start justify-between gap-3 md:flex-row md:items-center">
                     <h1 class="text-[22px] font-semibold text-[#10393b] md:text-[28px]">Mein Dashboard</h1>
 
@@ -119,20 +170,46 @@ onMounted(() => {
                 </div>
             </div>
 
-            <div class="flex-1 overflow-auto">
+            <div>
                 <div class="hidden overflow-hidden rounded-[12px] border border-gray-100 shadow-sm md:block">
                     <Table>
                         <TableHeader>
                             <TableRow style="background-color: #01b990; height: 44px">
-                                <TableHead class="w-[22%] px-4 text-[13px] font-medium text-white">Kennzeichen</TableHead>
-                                <TableHead class="w-[30%] px-4 text-[13px] font-medium text-white">Marke / Modell</TableHead>
-                                <TableHead class="w-[20%] px-4 text-[13px] font-medium text-white">Leasingende</TableHead>
-                                <TableHead class="w-[16%] px-4 text-[13px] font-medium text-white">Status</TableHead>
+                                <SortableTableHead
+                                    column="license_plate"
+                                    :sort="sort"
+                                    :direction="direction"
+                                    class="w-[22%] px-4"
+                                    @sort="toggleSort"
+                                >
+                                    Kennzeichen
+                                </SortableTableHead>
+                                <SortableTableHead column="make" :sort="sort" :direction="direction" class="w-[30%] px-4" @sort="toggleSort">
+                                    Marke / Modell
+                                </SortableTableHead>
+                                <SortableTableHead
+                                    column="leasing_end_date"
+                                    :sort="sort"
+                                    :direction="direction"
+                                    class="w-[20%] px-4"
+                                    @sort="toggleSort"
+                                >
+                                    Leasingende
+                                </SortableTableHead>
+                                <SortableTableHead column="status" :sort="sort" :direction="direction" class="w-[16%] px-4" @sort="toggleSort">
+                                    Status
+                                </SortableTableHead>
                                 <TableHead class="w-[10%] px-4 text-right text-[13px] font-medium text-white">Optionen</TableHead>
                             </TableRow>
                         </TableHeader>
 
                         <TableBody>
+                            <TableRow v-if="!vehicles.length" class="hover:bg-transparent">
+                                <TableCell colspan="5" class="px-4 py-10 text-center text-[14px] text-gray-500">
+                                    {{ hasQuery ? 'Keine Fahrzeuge gefunden.' : 'Noch keine Fahrzeuge angelegt.' }}
+                                </TableCell>
+                            </TableRow>
+
                             <VehicleRow
                                 v-for="vehicle in activeVehicles"
                                 :key="vehicle.vehicle_id"
@@ -165,6 +242,10 @@ onMounted(() => {
                 </div>
 
                 <div class="space-y-4 md:hidden">
+                    <p v-if="!vehicles.length" class="rounded-xl border border-gray-100 bg-white p-6 text-center text-[14px] text-gray-500">
+                        {{ hasQuery ? 'Keine Fahrzeuge gefunden.' : 'Noch keine Fahrzeuge angelegt.' }}
+                    </p>
+
                     <div
                         v-for="vehicle in activeVehicles"
                         :key="vehicle.vehicle_id"

@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleAuditLog;
 use App\Models\VehicleDocument;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -282,9 +283,30 @@ class VehicleService
     }
 
     /**
-     * List vehicles with nested orders for dashboard.
+     * Columns the dashboard table may be sorted by, mapped to the ordering
+     * actually applied. Anything else falls back to VEHICLE_SORT_DEFAULT.
+     *
+     * @var array<string, list<string>>
      */
-    public function listVehiclesWithOrders(?string $ownerId, string $belongs): array
+    private const VEHICLE_SORTS = [
+        'license_plate' => ['license_plate'],
+        'make' => ['make', 'model'],
+        'leasing_end_date' => ['leasing_end_date'],
+        'status' => ['current_order_status'],
+        'created_at' => ['created_at'],
+    ];
+
+    private const VEHICLE_SORT_DEFAULT = 'created_at';
+
+    /** Free-text search covers every column a customer would recognise a vehicle by. */
+    private const VEHICLE_SEARCH_COLUMNS = ['license_plate', 'make', 'model', 'vin', 'leasinggeber'];
+
+    /**
+     * List vehicles with nested orders for dashboard.
+     *
+     * @param  array{search?: string, status?: string, sort?: string, direction?: string}  $filters
+     */
+    public function listVehiclesWithOrders(?string $ownerId, string $belongs, array $filters = []): array
     {
         $query = DB::table('vehicles as v');
 
@@ -296,7 +318,7 @@ class VehicleService
             $query->where('v.vehicle_belongs', 'B2C')->where('v.b2c_user_id', $ownerId);
         }
 
-        $vehicles = $query->orderByDesc('v.created_at')->get();
+        $vehicles = $this->applyVehicleFilters($query, $filters)->get();
 
         $result = [];
         foreach ($vehicles as $vehicle) {
@@ -423,5 +445,63 @@ class VehicleService
         }
 
         return $result;
+    }
+
+    /**
+     * Apply the dashboard's search / status filter / sort to the vehicle query.
+     *
+     * The current status lives on the vehicle's latest non-cancelled order, so
+     * it is resolved as a correlated subquery and the whole thing is wrapped in
+     * a derived table — neither MySQL nor SQLite allows filtering or ordering a
+     * select alias directly in the same statement.
+     *
+     * @param  array{search?: string, status?: string, sort?: string, direction?: string}  $filters
+     */
+    private function applyVehicleFilters(Builder $query, array $filters): Builder
+    {
+        $latestStatus = DB::table('leasyback_orders as lo')
+            ->select('lo.order_status')
+            ->whereColumn('lo.vehicle_id', 'v.vehicle_id')
+            ->where('lo.order_status', '!=', 'cancelled')
+            ->orderByDesc('lo.created_at')
+            ->limit(1);
+
+        $query->select('v.*')->selectSub($latestStatus, 'current_order_status');
+
+        $search = trim((string) ($filters['search'] ?? ''));
+
+        if ($search !== '') {
+            $term = '%'.addcslashes($search, '%_\\').'%';
+
+            $query->where(function (Builder $scoped) use ($term) {
+                foreach (self::VEHICLE_SEARCH_COLUMNS as $column) {
+                    $scoped->orWhere("v.{$column}", 'like', $term);
+                }
+            });
+        }
+
+        $outer = DB::query()->fromSub($query, 'f');
+
+        $status = (string) ($filters['status'] ?? '');
+
+        if ($status === 'none') {
+            $outer->whereNull('f.current_order_status');
+        } elseif ($status !== '') {
+            $outer->where('f.current_order_status', $status);
+        }
+
+        $direction = strtolower((string) ($filters['direction'] ?? 'desc')) === 'asc' ? 'asc' : 'desc';
+        $sort = (string) ($filters['sort'] ?? self::VEHICLE_SORT_DEFAULT);
+        $columns = self::VEHICLE_SORTS[$sort] ?? self::VEHICLE_SORTS[self::VEHICLE_SORT_DEFAULT];
+
+        foreach ($columns as $column) {
+            $outer->orderBy("f.{$column}", $direction);
+        }
+
+        if ($sort !== self::VEHICLE_SORT_DEFAULT) {
+            $outer->orderByDesc('f.created_at');
+        }
+
+        return $outer;
     }
 }
