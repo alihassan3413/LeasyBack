@@ -23,7 +23,7 @@ class HandleInertiaRequestsTest extends TestCase
                 ->where('auth.user.email', $user->email)
                 ->where('auth.user.user_type', UserType::Firmenkunde->value)
                 ->has('auth.user.email_verified_at')
-                ->missing('auth.user.id')
+                ->where('auth.user.id', $user->id)
                 ->missing('auth.user.avatar')
                 ->missing('auth.user.created_at')
                 ->missing('auth.user.updated_at')

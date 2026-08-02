@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import OrderCreationModal from '@/components/vehicle/OrderCreationModal.vue';
 import VehicleExpandedPanel from '@/components/vehicle/VehicleExpandedPanel.vue';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { TableCell, TableRow } from '@/components/ui/table';
 import { getOrderStatusLabel } from '@/lib/vehicleStatus';
 import type { StationData } from '@/types/order';
 import type { VehicleData } from '@/types/vehicle';
+import { router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 
 const props = defineProps<{
@@ -18,7 +18,6 @@ const props = defineProps<{
 const emit = defineEmits<{ toggle: [] }>();
 
 const orderModalOpen = ref(false);
-const activeAction = ref<string | null>(null);
 
 const canStartProcess = computed(() => props.vehicle.orders.length === 0);
 
@@ -52,12 +51,12 @@ function handleClick() {
     emit('toggle');
 }
 
-function handleAction(action: string) {
-    activeAction.value = action;
+function openDetail() {
+    router.visit(route('vehicles.show', props.vehicle.vehicle_id));
+}
 
-    if (action === 'Start Process') {
-        orderModalOpen.value = true;
-    }
+function startProcess() {
+    orderModalOpen.value = true;
 }
 </script>
 
@@ -84,30 +83,22 @@ function handleAction(action: string) {
         <TableCell class="h-[52px] px-4 text-right">
             <div class="flex items-center justify-end gap-1">
                 <button
+                    class="rounded p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-[#10393b]"
+                    title="Details öffnen"
+                    aria-label="Details öffnen"
+                    @click.stop="openDetail"
+                >
+                    <IconMdiOpenInNew class="h-[18px] w-[18px]" />
+                </button>
+
+                <button
                     v-if="canStartProcess"
                     class="rounded p-1 transition-opacity hover:bg-orange-50 hover:opacity-70"
-                    @click.stop="handleAction('Start Process')"
+                    @click.stop="startProcess"
                 >
                     <IconSolarPlayBold class="h-5 w-5" style="color: rgb(239, 132, 80)" />
                 </button>
 
-                <DropdownMenu v-if="canStartProcess">
-                    <DropdownMenuTrigger as-child>
-                        <button class="rounded p-1 transition-opacity hover:bg-gray-100 hover:opacity-70" @click.stop>
-                            <IconMdiDotsVertical class="h-5 w-5 text-gray-400" />
-                        </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" class="w-56 rounded-xl border border-gray-100 shadow-lg">
-                        <DropdownMenuItem
-                            class="flex cursor-pointer items-center gap-3 px-4 py-3 hover:bg-gray-50"
-                            :class="{ 'bg-gray-100': activeAction === 'Start Process' }"
-                            @click="handleAction('Start Process')"
-                        >
-                            <IconSolarPlayBold class="h-6 w-6 text-gray-600" />
-                            <span class="font-medium text-gray-800">Vorgang starten</span>
-                        </DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
 
                 <button class="transition-transform focus:outline-none" :class="isExpanded ? 'rotate-180' : ''">
                     <IconIcRoundArrowDropDown class="text-[32px] text-gray-400 transition-transform duration-200" />

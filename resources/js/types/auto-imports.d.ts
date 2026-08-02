@@ -39,6 +39,7 @@ declare global {
   const getUpcomingSteps: typeof import('../lib/timeline').getUpcomingSteps
   const getVehicleStatusDisplay: typeof import('../lib/vehicleStatus').getVehicleStatusDisplay
   const h: typeof import('vue').h
+  const http: typeof import('../lib/http').http
   const initializeTheme: typeof import('../composables/useAppearance').initializeTheme
   const inject: typeof import('vue').inject
   const isGoogleMapsConfigured: typeof import('../composables/useGoogleMapsLoader').isGoogleMapsConfigured
@@ -107,6 +108,8 @@ declare global {
   const useInitials: typeof import('../composables/useInitials').useInitials
   const useLocalStorage: typeof import('@vueuse/core').useLocalStorage
   const useModel: typeof import('vue').useModel
+  const useNotificationSound: typeof import('../composables/useNotificationSound').useNotificationSound
+  const useNotifications: typeof import('../composables/useNotifications').useNotifications
   const useOnboarding: typeof import('../composables/useOnboarding').useOnboarding
   const usePage: typeof import('@inertiajs/vue3').usePage
   const useRemember: typeof import('@inertiajs/vue3').useRemember
@@ -114,6 +117,7 @@ declare global {
   const useTemplateRef: typeof import('vue').useTemplateRef
   const useToast: typeof import('../composables/useToast').useToast
   const useToggle: typeof import('@vueuse/core').useToggle
+  const useWebPush: typeof import('../composables/useWebPush').useWebPush
   const validatePlateCity: typeof import('../lib/licensePlate').validatePlateCity
   const validatePlateLetters: typeof import('../lib/licensePlate').validatePlateLetters
   const validatePlateNumber: typeof import('../lib/licensePlate').validatePlateNumber
@@ -131,6 +135,9 @@ declare global {
   // @ts-ignore
   export type { PlaceSuggestion, ResolvedPlaceAddress } from '../composables/useGooglePlaces'
   import('../composables/useGooglePlaces')
+  // @ts-ignore
+  export type { AppNotification } from '../composables/useNotifications'
+  import('../composables/useNotifications')
   // @ts-ignore
   export type { ToastVariant, ToastOptions, ToastItem } from '../composables/useToast'
   import('../composables/useToast')
@@ -186,6 +193,7 @@ declare module 'vue' {
     readonly getUpcomingSteps: UnwrapRef<typeof import('../lib/timeline')['getUpcomingSteps']>
     readonly getVehicleStatusDisplay: UnwrapRef<typeof import('../lib/vehicleStatus')['getVehicleStatusDisplay']>
     readonly h: UnwrapRef<typeof import('vue')['h']>
+    readonly http: UnwrapRef<typeof import('../lib/http')['http']>
     readonly initializeTheme: UnwrapRef<typeof import('../composables/useAppearance')['initializeTheme']>
     readonly inject: UnwrapRef<typeof import('vue')['inject']>
     readonly isGoogleMapsConfigured: UnwrapRef<typeof import('../composables/useGoogleMapsLoader')['isGoogleMapsConfigured']>
@@ -254,6 +262,8 @@ declare module 'vue' {
     readonly useInitials: UnwrapRef<typeof import('../composables/useInitials')['useInitials']>
     readonly useLocalStorage: UnwrapRef<typeof import('@vueuse/core')['useLocalStorage']>
     readonly useModel: UnwrapRef<typeof import('vue')['useModel']>
+    readonly useNotificationSound: UnwrapRef<typeof import('../composables/useNotificationSound')['useNotificationSound']>
+    readonly useNotifications: UnwrapRef<typeof import('../composables/useNotifications')['useNotifications']>
     readonly useOnboarding: UnwrapRef<typeof import('../composables/useOnboarding')['useOnboarding']>
     readonly usePage: UnwrapRef<typeof import('@inertiajs/vue3')['usePage']>
     readonly useRemember: UnwrapRef<typeof import('@inertiajs/vue3')['useRemember']>
@@ -261,6 +271,7 @@ declare module 'vue' {
     readonly useTemplateRef: UnwrapRef<typeof import('vue')['useTemplateRef']>
     readonly useToast: UnwrapRef<typeof import('../composables/useToast')['useToast']>
     readonly useToggle: UnwrapRef<typeof import('@vueuse/core')['useToggle']>
+    readonly useWebPush: UnwrapRef<typeof import('../composables/useWebPush')['useWebPush']>
     readonly validatePlateCity: UnwrapRef<typeof import('../lib/licensePlate')['validatePlateCity']>
     readonly validatePlateLetters: UnwrapRef<typeof import('../lib/licensePlate')['validatePlateLetters']>
     readonly validatePlateNumber: UnwrapRef<typeof import('../lib/licensePlate')['validatePlateNumber']>

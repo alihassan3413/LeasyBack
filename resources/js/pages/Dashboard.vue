@@ -6,7 +6,6 @@ import SortableTableHead from '@/components/vehicle/SortableTableHead.vue';
 import VehicleExpandedPanel from '@/components/vehicle/VehicleExpandedPanel.vue';
 import VehicleRow from '@/components/vehicle/VehicleRow.vue';
 import VehicleToolbar from '@/components/vehicle/VehicleToolbar.vue';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { useOnboarding } from '@/composables/useOnboarding';
@@ -289,22 +288,6 @@ onMounted(() => {
                                 <IconSolarPlayBold class="h-5 w-5" />
                                 <span class="text-[14px]">Vorgang starten</span>
                             </button>
-                            <DropdownMenu>
-                                <DropdownMenuTrigger as-child>
-                                    <button class="rounded-lg p-2 transition-opacity hover:bg-gray-100 hover:opacity-70" @click.stop>
-                                        <IconMdiDotsVertical class="h-6 w-6 text-gray-500" />
-                                    </button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" class="w-56 rounded-xl border border-gray-100 shadow-lg">
-                                    <DropdownMenuItem
-                                        class="flex cursor-pointer items-center gap-3 px-4 py-3 hover:bg-gray-50"
-                                        @click.stop="startProcess(vehicle)"
-                                    >
-                                        <IconSolarPlayBold class="h-6 w-6 text-gray-600" />
-                                        <span class="font-medium text-gray-800">Vorgang starten</span>
-                                    </DropdownMenuItem>
-                                </DropdownMenuContent>
-                            </DropdownMenu>
                         </div>
                     </div>
 

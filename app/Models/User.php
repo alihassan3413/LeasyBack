@@ -12,11 +12,12 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
+use NotificationChannels\WebPush\HasPushSubscriptions;
 
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
-    use HasApiTokens, HasFactory, Notifiable;
+    use HasApiTokens, HasFactory, HasPushSubscriptions, Notifiable;
 
     /**
      * The attributes that are mass assignable.
@@ -80,6 +81,15 @@ class User extends Authenticatable
     public function isType(UserType $type): bool
     {
         return $this->user_type === $type;
+    }
+
+    /**
+     * The landing route for this user after authentication. Admins live in
+     * their own area and never see the customer dashboard.
+     */
+    public function homeRouteName(): string
+    {
+        return $this->isAdmin() ? 'admin.dashboard' : 'dashboard';
     }
 
     /**

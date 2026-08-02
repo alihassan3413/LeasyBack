@@ -29,6 +29,7 @@ export interface SharedData {
     quote: { message: string; author: string };
     auth: Auth;
     flash: FlashBag;
+    notifications: { unread_count: number };
     ziggy: {
         location: string;
         url: string;
@@ -39,6 +40,7 @@ export interface SharedData {
 }
 
 export interface User {
+    id: number;
     name: string;
     email: string;
     /**
