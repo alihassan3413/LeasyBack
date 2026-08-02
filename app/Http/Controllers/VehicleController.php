@@ -18,6 +18,8 @@ class VehicleController extends Controller
 {
     use HandlesServiceValidationErrors;
 
+    private const VEHICLES_PER_PAGE = 10;
+
     public function __construct(
         private readonly VehicleScopeService $scope,
         private readonly VehicleService $vehicleService,
@@ -52,8 +54,12 @@ class VehicleController extends Controller
             'direction' => strtolower((string) $request->query('direction', 'desc')) === 'asc' ? 'asc' : 'desc',
         ];
 
+        $page = max(1, (int) $request->query('page', 1));
+        $paginated = $this->vehicleService->paginateVehiclesWithOrders($ownerId, $belongs, $filters, self::VEHICLES_PER_PAGE, $page);
+
         return Inertia::render('Dashboard', [
-            'vehicles' => $this->vehicleService->listVehiclesWithOrders($ownerId, $belongs, $filters),
+            'vehicles' => $paginated['data'],
+            'pagination' => $paginated['meta'],
             'stations' => InspectionStation::where('is_active', true)
                 ->orderBy('provider')
                 ->orderBy('name')
@@ -111,6 +117,6 @@ class VehicleController extends Controller
         return $this->withServiceErrorHandling(
             'vehicle',
             fn () => $this->vehicleService->updateVehicle($vehicle, $request->validated(), $user)
-        ) ?? to_route('dashboard')->with('success', 'Fahrzeug wurde aktualisiert.');
+        ) ?? back()->with('success', 'Fahrzeug wurde aktualisiert.');
     }
 }

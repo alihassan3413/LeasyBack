@@ -1,11 +1,16 @@
 <?php
 
+use App\Http\Controllers\Admin\ImpersonationController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
 Route::get('/', function () {
     return Inertia::render('Welcome');
 })->name('home');
+
+Route::delete('impersonate', [ImpersonationController::class, 'destroy'])
+    ->middleware('auth')
+    ->name('impersonate.destroy');
 
 require __DIR__.'/vehicles.php';
 require __DIR__.'/orders.php';

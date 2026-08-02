@@ -23,6 +23,7 @@ class OrderControllerTest extends TestCase
         $station = InspectionStation::factory()->create(['provider' => 'tuvsud']);
 
         $this->actingAs($owner)
+            ->from(route('dashboard'))
             ->post(route('orders.store', $vehicle->vehicle_id), [
                 'station_id' => $station->station_id,
                 'termin' => '2026-09-01T10:00:00+02:00',
@@ -43,6 +44,7 @@ class OrderControllerTest extends TestCase
         $station = InspectionStation::factory()->create(['provider' => 'dekra']);
 
         $this->actingAs($owner)
+            ->from(route('dashboard'))
             ->post(route('orders.store', $vehicle->vehicle_id), [
                 'station_id' => $station->station_id,
                 'termin' => '2026-09-01T10:00:00+02:00',
@@ -64,6 +66,7 @@ class OrderControllerTest extends TestCase
         $station = InspectionStation::factory()->create(['provider' => 'tuvsud']);
 
         $this->actingAs($intruder)
+            ->from(route('dashboard'))
             ->post(route('orders.store', $vehicle->vehicle_id), [
                 'station_id' => $station->station_id,
                 'termin' => '2026-09-01T10:00:00+02:00',
@@ -84,6 +87,7 @@ class OrderControllerTest extends TestCase
         $station = InspectionStation::factory()->create(['provider' => 'tuvsud']);
 
         $this->actingAs($owner)
+            ->from(route('dashboard'))
             ->post(route('orders.store', $vehicle->vehicle_id), [
                 'station_id' => $station->station_id,
                 'termin' => '2026-09-01T10:00:00+02:00',

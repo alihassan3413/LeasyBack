@@ -25,6 +25,7 @@ class OfferControllerTest extends TestCase
         ]);
 
         $this->actingAs($owner)
+            ->from(route('dashboard'))
             ->post(route('offers.select', $offer->offer_id))
             ->assertRedirect(route('dashboard'));
 
@@ -47,6 +48,7 @@ class OfferControllerTest extends TestCase
         ]);
 
         $this->actingAs($attacker)
+            ->from(route('dashboard'))
             ->post(route('offers.select', $offer->offer_id))
             ->assertNotFound();
 
@@ -66,6 +68,7 @@ class OfferControllerTest extends TestCase
         ]);
 
         $this->actingAs($owner)
+            ->from(route('dashboard'))
             ->post(route('offers.select', $offerA->offer_id))
             ->assertRedirect(route('dashboard'));
 

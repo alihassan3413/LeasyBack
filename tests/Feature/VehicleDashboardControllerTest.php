@@ -55,6 +55,7 @@ class VehicleDashboardControllerTest extends TestCase
         $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
 
         $this->actingAs($owner)
+            ->from(route('dashboard'))
             ->post(route('vehicles.store'), [
                 'license_plate' => 'K LB 2026',
                 'make' => 'Volkswagen',
@@ -75,6 +76,7 @@ class VehicleDashboardControllerTest extends TestCase
         $vehicle = Vehicle::factory()->create(['b2c_user_id' => $owner->id]);
 
         $this->actingAs($owner)
+            ->from(route('dashboard'))
             ->patch(route('vehicles.update', $vehicle->vehicle_id), ['make' => 'Volkswagen'])
             ->assertRedirect(route('dashboard'));
 
@@ -88,6 +90,7 @@ class VehicleDashboardControllerTest extends TestCase
         $vehicle = Vehicle::factory()->create(['b2c_user_id' => $owner->id, 'make' => 'Original']);
 
         $this->actingAs($intruder)
+            ->from(route('dashboard'))
             ->patch(route('vehicles.update', $vehicle->vehicle_id), ['make' => 'Hijacked'])
             ->assertNotFound();
 

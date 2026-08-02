@@ -30,7 +30,7 @@ class VehicleDocumentController extends Controller
 
         $this->vehicleService->uploadDocument($vehicleId, $validated['file'], $validated['document_type'], $request->user());
 
-        return to_route('dashboard')->with('success', 'Dokument wurde hochgeladen.');
+        return back()->with('success', 'Dokument wurde hochgeladen.');
     }
 
     public function destroy(Request $request, string $vehicleId, string $documentId): RedirectResponse
@@ -45,6 +45,6 @@ class VehicleDocumentController extends Controller
 
         $this->vehicleService->deleteDocument($doc);
 
-        return to_route('dashboard')->with('success', 'Dokument wurde gelöscht.');
+        return back()->with('success', 'Dokument wurde gelöscht.');
     }
 }

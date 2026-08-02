@@ -1,37 +1,29 @@
 <script setup lang="ts">
 import type { SharedData, User } from '@/types';
 import { router, usePage } from '@inertiajs/vue3';
-import { computed, ref } from 'vue';
+import { computed, ref, type Component } from 'vue';
+import MdiAccountGroupOutline from '~icons/mdi/account-group-outline';
+import MdiCarMultiple from '~icons/mdi/car-multiple';
+import MdiClipboardTextClockOutline from '~icons/mdi/clipboard-text-clock-outline';
+import MdiLogoutVariant from '~icons/mdi/logout-variant';
+import MdiViewDashboardOutline from '~icons/mdi/view-dashboard-outline';
 
 const collapsed = ref(false);
 const page = usePage<SharedData>();
 const user = computed(() => page.props.auth.user as User | undefined);
 
-const nav = [
-    {
-        id: 'dashboard',
-        label: 'Dashboard',
-        name: 'admin.dashboard',
-        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>`,
-    },
-    {
-        id: 'kunden',
-        label: 'Kunden',
-        name: 'admin.customers.index',
-        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>`,
-    },
-    {
-        id: 'fahrzeuge',
-        label: 'Fahrzeuge',
-        name: 'admin.vehicles.index',
-        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 17H3a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v9a2 2 0 01-2 2h-1"/><circle cx="9" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg>`,
-    },
-    {
-        id: 'auftraege',
-        label: 'Alle Aufträge',
-        name: 'admin.orders.index',
-        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8"/></svg>`,
-    },
+interface AdminNavItem {
+    id: string;
+    label: string;
+    name: string;
+    icon: Component;
+}
+
+const nav: AdminNavItem[] = [
+    { id: 'dashboard', label: 'Dashboard', name: 'admin.dashboard', icon: MdiViewDashboardOutline },
+    { id: 'kunden', label: 'Kunden', name: 'admin.customers.index', icon: MdiAccountGroupOutline },
+    { id: 'fahrzeuge', label: 'Fahrzeuge', name: 'admin.vehicles.index', icon: MdiCarMultiple },
+    { id: 'auftraege', label: 'Alle Aufträge', name: 'admin.orders.index', icon: MdiClipboardTextClockOutline },
 ];
 
 const userName = computed(() => {
@@ -128,7 +120,7 @@ function logout() {
                         : 'text-white/55 hover:bg-white/[0.07] hover:text-white',
                 ]"
             >
-                <span class="flex shrink-0 items-center" v-html="item.icon"></span>
+                <component :is="item.icon" class="size-[19px] shrink-0" aria-hidden="true" />
 
                 <transition name="lb-fade">
                     <span
@@ -160,9 +152,7 @@ function logout() {
                 class="group relative mb-1.5 flex w-full items-center gap-3 rounded-[13px] text-white/35 transition-all hover:bg-white/[0.06] hover:text-white/75"
                 :class="collapsed ? 'justify-center p-2.5' : 'px-3 py-2'"
             >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0">
-                    <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" />
-                </svg>
+                <MdiLogoutVariant class="size-[17px] shrink-0" aria-hidden="true" />
                 <transition name="lb-fade">
                     <span v-if="!collapsed" class="text-[13px] font-medium">Abmelden</span>
                 </transition>

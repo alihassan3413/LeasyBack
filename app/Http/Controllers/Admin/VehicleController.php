@@ -24,10 +24,18 @@ class VehicleController extends Controller
 
     public function index(Request $request): Response
     {
+        $userType = in_array($request->query('user_type'), ['Privatkunde', 'Firmenkunde'], true)
+            ? $request->query('user_type')
+            : null;
+
+        $request->merge(['limit' => 10]);
+
         return Inertia::render('Admin/Vehicles/Index', [
-            'vehicles' => $this->adminQueryService->vehicles($request),
+            'vehicles' => $this->adminQueryService->vehicles($request, $userType),
             'filters' => [
-                'status' => $request->query('status'),
+                'search' => trim((string) $request->query('search', '')),
+                'status' => (string) $request->query('status', ''),
+                'user_type' => $userType ?? 'all',
             ],
         ]);
     }

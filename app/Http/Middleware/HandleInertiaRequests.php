@@ -2,6 +2,8 @@
 
 namespace App\Http\Middleware;
 
+use App\Http\Controllers\Admin\ImpersonationController;
+use App\Models\User;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
@@ -70,6 +72,15 @@ class HandleInertiaRequests extends Middleware
                     'email_verified_at' => $request->user()->email_verified_at,
                     'user_type' => $request->user()->user_type,
                 ] : null,
+            ],
+            // Only ever true for the admin who started the session takeover —
+            // the impersonated customer's own sessions carry no such key, so
+            // nothing about this is visible to them.
+            'impersonation' => [
+                'active' => $request->session()->has(ImpersonationController::SESSION_KEY),
+                'admin_name' => $request->session()->has(ImpersonationController::SESSION_KEY)
+                    ? User::find($request->session()->get(ImpersonationController::SESSION_KEY))?->name
+                    : null,
             ],
             'notifications' => [
                 'unread_count' => $request->user() ? $request->user()->unreadNotifications()->count() : 0,

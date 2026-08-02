@@ -29,6 +29,8 @@ export interface SharedData {
     quote: { message: string; author: string };
     auth: Auth;
     flash: FlashBag;
+    /** Set only for an admin who has taken over a customer session — never for the customer themselves. */
+    impersonation: { active: boolean; admin_name: string | null };
     notifications: { unread_count: number };
     ziggy: {
         location: string;

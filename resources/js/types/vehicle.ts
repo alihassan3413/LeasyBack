@@ -4,6 +4,7 @@ export interface VehicleDocumentData {
     document_id: string;
     document_type: string;
     original_file_name: string;
+    url: string | null;
     created_at: string;
 }
 

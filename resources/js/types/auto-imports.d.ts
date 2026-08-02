@@ -6,6 +6,7 @@
 // biome-ignore lint: disable
 export {}
 declare global {
+  const ADMIN_ORDER_STATUS_FILTERS: typeof import('../lib/adminStatus').ADMIN_ORDER_STATUS_FILTERS
   const CUSTOMER_ORDER_STAGE_SEQUENCE: typeof import('../lib/customerOrderFlow').CUSTOMER_ORDER_STAGE_SEQUENCE
   const CUSTOMER_PAYMENT_FEATURE_ENABLED: typeof import('../lib/customerOrderFlow').CUSTOMER_PAYMENT_FEATURE_ENABLED
   const EffectScope: typeof import('vue').EffectScope
@@ -27,6 +28,7 @@ declare global {
   const defineStore: typeof import('pinia').defineStore
   const effectScope: typeof import('vue').effectScope
   const formatGermanDateTime: typeof import('../lib/customerOrderFlow').formatGermanDateTime
+  const getAdminDashboardStatus: typeof import('../lib/adminStatus').getAdminDashboardStatus
   const getCurrentInstance: typeof import('vue').getCurrentInstance
   const getCurrentScope: typeof import('vue').getCurrentScope
   const getCurrentWatcher: typeof import('vue').getCurrentWatcher
@@ -142,6 +144,9 @@ declare global {
   export type { ToastVariant, ToastOptions, ToastItem } from '../composables/useToast'
   import('../composables/useToast')
   // @ts-ignore
+  export type { StatusPillStyle } from '../lib/adminStatus'
+  import('../lib/adminStatus')
+  // @ts-ignore
   export type { CustomerOrderStage, CustomerOrderFlowStep, CustomerOrderStatusHistoryEntry, CustomerOrderBesichtigungsort, CustomerOrderReportDocument, CustomerOrderOffer, CustomerOrderFlowInput } from '../lib/customerOrderFlow'
   import('../lib/customerOrderFlow')
   // @ts-ignore
@@ -160,6 +165,7 @@ import { UnwrapRef } from 'vue'
 declare module 'vue' {
   interface GlobalComponents {}
   interface ComponentCustomProperties {
+    readonly ADMIN_ORDER_STATUS_FILTERS: UnwrapRef<typeof import('../lib/adminStatus')['ADMIN_ORDER_STATUS_FILTERS']>
     readonly CUSTOMER_ORDER_STAGE_SEQUENCE: UnwrapRef<typeof import('../lib/customerOrderFlow')['CUSTOMER_ORDER_STAGE_SEQUENCE']>
     readonly CUSTOMER_PAYMENT_FEATURE_ENABLED: UnwrapRef<typeof import('../lib/customerOrderFlow')['CUSTOMER_PAYMENT_FEATURE_ENABLED']>
     readonly EffectScope: UnwrapRef<typeof import('vue')['EffectScope']>
@@ -181,6 +187,7 @@ declare module 'vue' {
     readonly defineStore: UnwrapRef<typeof import('pinia')['defineStore']>
     readonly effectScope: UnwrapRef<typeof import('vue')['effectScope']>
     readonly formatGermanDateTime: UnwrapRef<typeof import('../lib/customerOrderFlow')['formatGermanDateTime']>
+    readonly getAdminDashboardStatus: UnwrapRef<typeof import('../lib/adminStatus')['getAdminDashboardStatus']>
     readonly getCurrentInstance: UnwrapRef<typeof import('vue')['getCurrentInstance']>
     readonly getCurrentScope: UnwrapRef<typeof import('vue')['getCurrentScope']>
     readonly getCurrentWatcher: UnwrapRef<typeof import('vue')['getCurrentWatcher']>

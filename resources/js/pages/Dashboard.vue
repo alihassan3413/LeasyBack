@@ -5,6 +5,7 @@ import OrderCreationModal from '@/components/vehicle/OrderCreationModal.vue';
 import SortableTableHead from '@/components/vehicle/SortableTableHead.vue';
 import VehicleExpandedPanel from '@/components/vehicle/VehicleExpandedPanel.vue';
 import VehicleRow from '@/components/vehicle/VehicleRow.vue';
+import VehiclePagination, { type PaginationMeta } from '@/components/vehicle/VehiclePagination.vue';
 import VehicleToolbar from '@/components/vehicle/VehicleToolbar.vue';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import AppLayout from '@/layouts/AppLayout.vue';
@@ -24,30 +25,38 @@ export interface DashboardFilters {
     direction: string;
 }
 
-const props = defineProps<{ vehicles: VehicleData[]; stations: StationData[]; filters: DashboardFilters }>();
+const props = defineProps<{ vehicles: VehicleData[]; stations: StationData[]; filters: DashboardFilters; pagination: PaginationMeta }>();
 
 const search = ref(props.filters.search);
 const status = ref(props.filters.status);
 const sort = ref(props.filters.sort);
 const direction = ref(props.filters.direction);
 
-function reload() {
+function reload(page = 1) {
+    const sorted = sort.value !== 'created_at' || direction.value !== 'desc';
+
     router.get(
         route('dashboard'),
         {
             search: search.value || undefined,
             status: status.value || undefined,
-            sort: sort.value !== 'created_at' || direction.value !== 'desc' ? sort.value : undefined,
-            direction: sort.value !== 'created_at' || direction.value !== 'desc' ? direction.value : undefined,
+            sort: sorted ? sort.value : undefined,
+            direction: sorted ? direction.value : undefined,
+            page: page > 1 ? page : undefined,
         },
-        { preserveState: true, preserveScroll: true, replace: true, only: ['vehicles', 'filters'] },
+        { preserveState: true, preserveScroll: true, replace: true, only: ['vehicles', 'filters', 'pagination'] },
     );
 }
 
-const debouncedReload = useDebounceFn(reload, 300);
+function goToPage(page: number) {
+    expandedId.value = null;
+    reload(page);
+}
 
-watch(search, debouncedReload);
-watch([status, sort, direction], reload);
+const debouncedReload = useDebounceFn(() => reload(), 300);
+
+watch(search, () => debouncedReload());
+watch([status, sort, direction], () => reload());
 
 function toggleSort(column: string) {
     if (sort.value === column) {
@@ -314,6 +323,8 @@ onMounted(() => {
                         </div>
                     </div>
                 </div>
+
+                <VehiclePagination :meta="pagination" @change="goToPage" />
             </div>
         </div>
 

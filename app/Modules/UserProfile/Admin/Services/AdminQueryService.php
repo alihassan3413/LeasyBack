@@ -568,6 +568,21 @@ class AdminQueryService
         $base->when($filters['status'], fn (Builder $q, $status) => $q->where('o.order_status', $status));
         $this->applyOwnerFilter($base, $userType, $userId, $b2bId);
 
+        // Free-text search over the columns an admin would recognise a vehicle
+        // by. Bound LIKE, same approach as b2cList()/b2bList() — the counts
+        // below are computed after it, so the header stats match the list.
+        $search = trim((string) $request->query('search', ''));
+
+        if ($search !== '') {
+            $term = '%'.addcslashes($search, '%_\\').'%';
+
+            $base->where(function (Builder $scoped) use ($term) {
+                foreach (['v.license_plate', 'v.vin', 'v.make', 'v.model', 'v.leasinggeber', 'o.auftragsnummer'] as $column) {
+                    $scoped->orWhere($column, 'like', $term);
+                }
+            });
+        }
+
         $counts = $this->vehicleCounts($base);
         $rows = (clone $base)->select([
             'v.vehicle_id', 'v.license_plate', 'v.first_registration_date', 'v.leasing_end_date',

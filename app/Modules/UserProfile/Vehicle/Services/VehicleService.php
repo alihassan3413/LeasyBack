@@ -10,6 +10,7 @@ use App\Models\VehicleDocument;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -321,7 +322,44 @@ class VehicleService
         return $this->listVehiclesWithOrders($ownerId, $belongs, [], $vehicleId)[0] ?? null;
     }
 
+    /**
+     * One page of the dashboard list. Only the page's vehicles are hydrated,
+     * so the payload and the seven child queries stay bounded regardless of
+     * how many vehicles the customer owns.
+     *
+     * @param  array{search?: string, status?: string, sort?: string, direction?: string}  $filters
+     * @return array{data: list<array<string, mixed>>, meta: array{current_page: int, last_page: int, per_page: int, total: int, from: int|null, to: int|null}}
+     */
+    public function paginateVehiclesWithOrders(?string $ownerId, string $belongs, array $filters = [], int $perPage = 10, int $page = 1): array
+    {
+        $paginator = $this->applyVehicleFilters($this->scopedVehicleQuery($ownerId, $belongs), $filters)
+            ->paginate(perPage: $perPage, page: $page);
+
+        return [
+            'data' => $this->hydrateVehicles(collect($paginator->items())),
+            'meta' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+                'from' => $paginator->firstItem(),
+                'to' => $paginator->lastItem(),
+            ],
+        ];
+    }
+
     public function listVehiclesWithOrders(?string $ownerId, string $belongs, array $filters = [], ?string $vehicleId = null): array
+    {
+        $query = $this->scopedVehicleQuery($ownerId, $belongs);
+
+        if ($vehicleId !== null) {
+            $query->where('v.vehicle_id', $vehicleId);
+        }
+
+        return $this->hydrateVehicles($this->applyVehicleFilters($query, $filters)->get());
+    }
+
+    private function scopedVehicleQuery(?string $ownerId, string $belongs): Builder
     {
         $query = DB::table('vehicles as v');
 
@@ -333,12 +371,15 @@ class VehicleService
             $query->where('v.vehicle_belongs', 'B2C')->where('v.b2c_user_id', $ownerId);
         }
 
-        if ($vehicleId !== null) {
-            $query->where('v.vehicle_id', $vehicleId);
-        }
+        return $query;
+    }
 
-        $vehicles = $this->applyVehicleFilters($query, $filters)->get();
-
+    /**
+     * @param  Collection<int, object>  $vehicles
+     * @return list<array<string, mixed>>
+     */
+    private function hydrateVehicles(Collection $vehicles): array
+    {
         if ($vehicles->isEmpty()) {
             return [];
         }
@@ -474,6 +515,7 @@ class VehicleService
                     'document_id' => $doc->document_id,
                     'document_type' => $doc->document_type,
                     'original_file_name' => $doc->original_file_name,
+                    'url' => $this->generateSignedUrl($doc->path, 1800),
                     'created_at' => $doc->created_at,
                 ])
                 ->values()

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import AdminSidebar from '@/components/AdminSidebar.vue';
 import AppSidebarHeader from '@/components/AppSidebarHeader.vue';
+import ImpersonationBanner from '@/components/ImpersonationBanner.vue';
 import type { BreadcrumbItemType } from '@/types';
 
 interface Props {
@@ -27,13 +28,22 @@ withDefaults(defineProps<Props>(), {
                 linear-gradient(180deg, #fbfcfb 0%, #f3f6f5 100%);
         "
     >
+        <ImpersonationBanner />
+
         <!-- sidebar stays fixed on the left, never scrolls -->
         <AdminSidebar />
 
         <!-- right side: each page controls its own scroll -->
         <div class="relative z-10 flex min-w-0 flex-1 flex-col gap-4 overflow-y-auto">
-            <AppSidebarHeader :breadcrumbs="breadcrumbs" />
-            <slot />
+            <AppSidebarHeader :breadcrumbs="breadcrumbs">
+                <template v-if="$slots.header" #default><slot name="header" /></template>
+            </AppSidebarHeader>
+
+            <!-- Same horizontal rhythm as the header, so page titles in the
+                 header slot line up with the cards underneath them. -->
+            <div class="flex min-h-0 flex-1 flex-col px-4 pb-4 md:px-6">
+                <slot />
+            </div>
         </div>
     </div>
 </template>

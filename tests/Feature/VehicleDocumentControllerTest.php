@@ -22,6 +22,7 @@ class VehicleDocumentControllerTest extends TestCase
         $vehicle = Vehicle::factory()->create(['b2c_user_id' => $owner->id]);
 
         $this->actingAs($owner)
+            ->from(route('dashboard'))
             ->post(route('vehicles.documents.store', $vehicle->vehicle_id), [
                 'file' => UploadedFile::fake()->create('vertrag.pdf', 100),
                 'document_type' => 'Leasingvertrag',
@@ -39,6 +40,7 @@ class VehicleDocumentControllerTest extends TestCase
         $vehicle = Vehicle::factory()->create(['b2c_user_id' => $owner->id]);
 
         $this->actingAs($intruder)
+            ->from(route('dashboard'))
             ->post(route('vehicles.documents.store', $vehicle->vehicle_id), [
                 'file' => UploadedFile::fake()->create('vertrag.pdf', 100),
                 'document_type' => 'Leasingvertrag',
@@ -59,6 +61,7 @@ class VehicleDocumentControllerTest extends TestCase
         $vehicle = Vehicle::factory()->create(['b2c_user_id' => $owner->id]);
 
         $this->actingAs($owner)
+            ->from(route('dashboard'))
             ->post(route('vehicles.documents.store', $vehicle->vehicle_id), [
                 'file' => UploadedFile::fake()->create('gutachten.pdf', 100),
                 'document_type' => 'gutachten',
@@ -76,6 +79,7 @@ class VehicleDocumentControllerTest extends TestCase
         $document = VehicleDocument::factory()->create(['vehicle_id' => $vehicle->vehicle_id]);
 
         $this->actingAs($owner)
+            ->from(route('dashboard'))
             ->delete(route('vehicles.documents.destroy', [$vehicle->vehicle_id, $document->document_id]))
             ->assertRedirect(route('dashboard'));
 
@@ -91,6 +95,7 @@ class VehicleDocumentControllerTest extends TestCase
         $document = VehicleDocument::factory()->create(['vehicle_id' => $vehicle->vehicle_id]);
 
         $this->actingAs($intruder)
+            ->from(route('dashboard'))
             ->delete(route('vehicles.documents.destroy', [$vehicle->vehicle_id, $document->document_id]))
             ->assertNotFound();
 

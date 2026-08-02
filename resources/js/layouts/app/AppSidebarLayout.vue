@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AppSidebar from '@/components/AppSidebar.vue';
+import ImpersonationBanner from '@/components/ImpersonationBanner.vue';
 import AppSidebarHeader from '@/components/AppSidebarHeader.vue';
 import type { BreadcrumbItemType, SharedData, User } from '@/types';
 import type { UserType } from '@/types/auth';
@@ -60,6 +61,7 @@ const handleLogout = () => {
 
 <template>
     <div class="flex h-screen flex-col overflow-hidden md:gap-4 md:p-4">
+        <ImpersonationBanner />
         <!-- Body: sidebar + main for desktop -->
         <div class="relative hidden flex-1 overflow-hidden md:flex">
             <AppSidebar />

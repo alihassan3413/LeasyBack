@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\CustomerController;
 use App\Http\Controllers\Admin\DashboardController;
+use App\Http\Controllers\Admin\ImpersonationController;
 use App\Http\Controllers\Admin\OfferController;
 use App\Http\Controllers\Admin\OrderController;
 use App\Http\Controllers\Admin\VehicleController;
@@ -10,6 +11,10 @@ use Illuminate\Support\Facades\Route;
 
 Route::middleware(['auth', 'active', 'verified', 'admin'])->prefix('admin')->name('admin.')->group(function () {
     Route::get('dashboard', [DashboardController::class, 'index'])->name('dashboard');
+
+    Route::post('impersonate/{userId}', [ImpersonationController::class, 'store'])
+        ->whereNumber('userId')
+        ->name('impersonate.store');
 
     Route::prefix('customers')->name('customers.')->group(function () {
         Route::get('/', [CustomerController::class, 'index'])->name('index');

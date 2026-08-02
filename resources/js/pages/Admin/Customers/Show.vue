@@ -1,17 +1,9 @@
 <script setup lang="ts">
 import CreateVehicleModal from '@/components/admin/CreateVehicleModal.vue';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useInitials } from '@/composables/useInitials';
 import AdminLayout from '@/layouts/AdminLayout.vue';
-import { getVehicleStatusDisplay } from '@/lib/vehicleStatus';
+import { getAdminDashboardStatus as getStatus } from '@/lib/adminStatus';
 import type { AdminCustomerDetail, AdminCustomerOrder, AdminCustomerType, AdminCustomerVehicle } from '@/types/admin';
-import type { BreadcrumbItem } from '@/types';
-import { Head, router } from '@inertiajs/vue3';
+import { Head, Link, router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 
 const props = defineProps<{
@@ -21,207 +13,374 @@ const props = defineProps<{
     orders: AdminCustomerOrder[];
 }>();
 
-const { getInitials } = useInitials();
+const identifier = computed(() => (props.type === 'b2b' ? (props.customer.b2b_id ?? '') : String(props.customer.user_id ?? '')));
 
 const displayName = computed(() => {
     if (props.type === 'b2b' && props.customer.company_name) {
         return props.customer.company_name;
     }
-    return [props.customer.salutation, props.customer.first_name, props.customer.last_name].filter(Boolean).join(' ') || props.customer.user_email;
+
+    return (
+        [props.customer.salutation, props.customer.first_name, props.customer.last_name].filter(Boolean).join(' ') ||
+        props.customer.user_email ||
+        'Kunde'
+    );
 });
 
-const identifier = computed(() => (props.type === 'b2b' ? props.customer.b2b_id : String(props.customer.user_id)));
+const initials = computed(() => {
+    const source = props.type === 'b2b' && props.customer.company_name ? props.customer.company_name : displayName.value;
+    const parts = source.trim().split(/\s+/).filter(Boolean);
 
-const breadcrumbs = computed<BreadcrumbItem[]>(() => [
-    { title: 'Kunden', href: route('admin.customers.index') },
-    { title: displayName.value, href: route('admin.customers.show', { type: props.type, id: identifier.value }) },
-]);
-
-function formatDate(value: string | null): string {
-    if (!value) {
-        return '—';
+    if (parts.length >= 2) {
+        return (parts[0][0] + parts[1][0]).toUpperCase();
     }
-    return new Date(value).toLocaleDateString('de-DE');
+
+    return source.slice(0, 2).toUpperCase() || '?';
+});
+
+const email = computed(() => props.customer.user_email ?? props.customer.contact_email ?? '—');
+
+const addressLines = computed(() => {
+    const streetLine = [props.customer.street, props.customer.number].filter(Boolean).join(' ');
+    const cityLine = [props.customer.zip_code, props.customer.city].filter(Boolean).join(' ');
+
+    return [streetLine, props.customer.additional_address, cityLine, props.customer.country].filter((line): line is string => !!line);
+});
+
+const activeVehicles = computed(() => props.vehicles.filter((vehicle) => vehicle.current_order_status !== null).length);
+const openOrders = computed(() => props.orders.filter((order) => !['delivered', 'cancelled', 'discarded'].includes(order.order_status)).length);
+
+const statusUpdating = ref(false);
+const impersonating = ref(false);
+
+function impersonate() {
+    impersonating.value = true;
+
+    router.post(route('admin.impersonate.store', props.customer.user_id), {}, { onFinish: () => (impersonating.value = false) });
 }
 
-const confirmingStatusChange = ref(false);
-const statusProcessing = ref(false);
-const createVehicleOpen = ref(false);
-
 function toggleStatus() {
-    statusProcessing.value = true;
+    statusUpdating.value = true;
+
     router.patch(
         route('admin.customers.status', { type: props.type, id: identifier.value }),
         { is_active: !props.customer.is_active },
-        {
-            preserveScroll: true,
-            onFinish: () => {
-                statusProcessing.value = false;
-                confirmingStatusChange.value = false;
-            },
-        },
+        { preserveScroll: true, onFinish: () => (statusUpdating.value = false) },
     );
 }
+
+function formatGermanDate(value: string | null): string {
+    if (!value) {
+        return '—';
+    }
+
+    const date = new Date(value);
+
+    return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+const createVehicleOpen = ref(false);
 </script>
 
 <template>
     <Head :title="displayName" />
 
-    <AdminLayout :breadcrumbs="breadcrumbs">
-        <div class="flex h-full flex-1 flex-col gap-6 p-4">
-            <Card>
-                <CardContent class="flex flex-wrap items-center justify-between gap-4 pt-6">
-                    <div class="flex items-center gap-4">
-                        <Avatar size="base">
-                            <AvatarFallback>{{ getInitials(displayName) }}</AvatarFallback>
-                        </Avatar>
-                        <div>
-                            <div class="flex items-center gap-2">
-                                <h1 class="text-lg font-semibold">{{ displayName }}</h1>
-                                <Badge :variant="customer.is_active ? 'success' : 'outline'">
-                                    {{ customer.is_active ? 'Aktiv' : 'Inaktiv' }}
-                                </Badge>
+    <AdminLayout>
+        <template #header>
+            <div class="flex min-w-0 flex-1 items-center gap-3">
+                <Link
+                    :href="route('admin.customers.index', { type })"
+                    class="flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] bg-[#f4f7f6] text-[#6f8585] transition-all hover:bg-[#eaf0ef] hover:text-[#10393b]"
+                    title="Zurück zur Kundenliste"
+                >
+                    <IconMdiArrowLeft class="size-[18px]" />
+                </Link>
+
+                <div class="min-w-0 flex-1">
+                    <p class="text-[10.5px] font-bold tracking-[0.12em] text-[#9bb0af] uppercase">
+                        {{ type === 'b2b' ? 'Firmenkunde' : 'Privatkunde' }}
+                    </p>
+                    <h1 class="truncate text-[16px] leading-tight font-extrabold tracking-[-0.3px] text-[#10393b]">{{ displayName }}</h1>
+                </div>
+
+                <button
+                    v-if="customer.is_active && customer.user_id"
+                    type="button"
+                    class="flex shrink-0 items-center gap-1.5 rounded-[13px] border border-[#e9efee] bg-white px-4 py-2 text-[12.5px] font-bold text-[#10393b] transition-all hover:border-[#10393b] hover:bg-[#f4f7f6] disabled:opacity-50"
+                    :disabled="impersonating"
+                    @click="impersonate"
+                >
+                    <IconMdiAccountArrowRightOutline class="size-4" />
+                    Als Kunde anmelden
+                </button>
+
+                <button
+                    type="button"
+                    class="mr-2 flex shrink-0 items-center gap-1.5 rounded-[13px] px-4 py-2 text-[12.5px] font-bold text-white transition-all hover:-translate-y-px disabled:opacity-50"
+                    :style="
+                        customer.is_active
+                            ? 'background: linear-gradient(135deg, #ef8450, #e0703a); box-shadow: 0 8px 20px rgba(239, 132, 80, 0.24)'
+                            : 'background: linear-gradient(135deg, #10393b, #1a5052); box-shadow: 0 8px 20px rgba(16, 57, 59, 0.2)'
+                    "
+                    :disabled="statusUpdating"
+                    @click="toggleStatus"
+                >
+                    <IconMdiAccountOffOutline v-if="customer.is_active" class="size-4" />
+                    <IconMdiAccountCheckOutline v-else class="size-4" />
+                    {{ customer.is_active ? 'Deaktivieren' : 'Aktivieren' }}
+                </button>
+            </div>
+        </template>
+
+        <div class="flex h-full flex-col gap-5">
+            <main class="flex flex-1 flex-col gap-5 overflow-y-auto pr-1 pb-4">
+                <section class="grid grid-cols-[1.15fr_1fr_1fr] gap-4 max-[1100px]:grid-cols-1">
+                    <div class="identity-card">
+                        <div class="absolute -top-24 -right-20 h-64 w-64 rounded-full bg-white/10 blur-2xl"></div>
+
+                        <div class="relative z-10 flex h-full flex-col">
+                            <div class="flex items-start gap-4">
+                                <div
+                                    class="flex h-16 w-16 shrink-0 items-center justify-center rounded-[19px] border border-white/25 bg-white/15 text-[19px] font-extrabold text-white"
+                                >
+                                    {{ initials }}
+                                </div>
+
+                                <div class="min-w-0 flex-1">
+                                    <p class="truncate text-[19px] font-extrabold tracking-[-0.4px] text-white">{{ displayName }}</p>
+                                    <p class="mt-1 truncate text-[12.5px] text-white/70">{{ email }}</p>
+
+                                    <span
+                                        class="mt-3 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-extrabold"
+                                        :class="customer.is_active ? 'bg-white/20 text-white' : 'bg-[#ef8450] text-white'"
+                                    >
+                                        <span class="h-[5px] w-[5px] rounded-full bg-current"></span>
+                                        {{ customer.is_active ? 'Aktiv' : 'Inaktiv' }}
+                                    </span>
+                                </div>
                             </div>
-                            <p class="text-muted-foreground text-sm">{{ customer.user_email ?? customer.contact_email }}</p>
+
+                            <div class="mt-auto grid grid-cols-2 gap-2 border-t border-white/20 pt-5">
+                                <div class="rounded-[13px] bg-white/10 px-3 py-2.5">
+                                    <p class="text-[10px] font-bold tracking-[0.05em] text-white/55 uppercase">Kunde seit</p>
+                                    <p class="mt-1 text-[15px] font-extrabold text-white">{{ formatGermanDate(customer.created_at) }}</p>
+                                </div>
+
+                                <div class="rounded-[13px] bg-white/10 px-3 py-2.5">
+                                    <p class="text-[10px] font-bold tracking-[0.05em] text-white/55 uppercase">ID</p>
+                                    <p class="mt-1 truncate font-mono text-[13px] font-bold text-white">{{ identifier }}</p>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
-                    <div v-if="!confirmingStatusChange">
-                        <Button :variant="customer.is_active ? 'destructive' : 'default'" size="sm" @click="confirmingStatusChange = true">
-                            {{ customer.is_active ? 'Deaktivieren' : 'Aktivieren' }}
-                        </Button>
+                    <div class="content-card flex flex-col">
+                        <div class="mb-4 flex items-center gap-2.5">
+                            <span class="flex h-9 w-9 items-center justify-center rounded-[11px] bg-[#01B990]/10 text-[#00856a]">
+                                <IconMdiMapMarkerOutline class="size-[17px]" />
+                            </span>
+                            <h2 class="text-[15px] font-extrabold tracking-[-0.3px] text-[#10393b]">Anschrift</h2>
+                        </div>
+
+                        <div v-if="addressLines.length" class="space-y-1">
+                            <p v-for="line in addressLines" :key="line" class="text-[13.5px] leading-relaxed font-semibold text-[#10393b]">
+                                {{ line }}
+                            </p>
+                        </div>
+
+                        <p v-else class="text-[13px] text-[#9bb0af]">Keine Anschrift hinterlegt.</p>
+
+                        <div v-if="type === 'b2b' && customer.vat_id" class="mt-auto border-t border-[#eef3f2] pt-4">
+                            <p class="text-[10px] font-bold tracking-[0.05em] text-[#9bb0af] uppercase">USt-IdNr.</p>
+                            <p class="mt-1 font-mono text-[13px] font-bold text-[#10393b]">{{ customer.vat_id }}</p>
+                        </div>
                     </div>
-                    <div v-else class="bg-muted flex items-center gap-3 rounded-md border p-3 text-sm">
-                        <span>{{ customer.is_active ? 'Kunde wirklich deaktivieren?' : 'Kunde wirklich aktivieren?' }}</span>
-                        <Button variant="ghost" size="sm" :disabled="statusProcessing" @click="confirmingStatusChange = false"> Abbrechen </Button>
-                        <Button
-                            :variant="customer.is_active ? 'destructive' : 'default'"
-                            size="sm"
-                            :loading="statusProcessing"
-                            @click="toggleStatus"
+
+                    <div class="content-card flex flex-col gap-3">
+                        <div class="flex items-center justify-between rounded-[13px] bg-[#f4f7f6] px-4 py-3.5">
+                            <div class="flex items-center gap-2.5">
+                                <span class="flex h-9 w-9 items-center justify-center rounded-[11px] bg-[#ef8450]/10 text-[#ef8450]">
+                                    <IconMdiCarMultiple class="size-[17px]" />
+                                </span>
+                                <div>
+                                    <p class="text-[10px] font-bold tracking-[0.05em] text-[#9bb0af] uppercase">Fahrzeuge</p>
+                                    <p class="text-[11.5px] font-semibold text-[#6f8585]">{{ activeVehicles }} im Prozess</p>
+                                </div>
+                            </div>
+
+                            <p class="text-[26px] leading-none font-extrabold text-[#10393b]">{{ vehicles.length }}</p>
+                        </div>
+
+                        <div class="flex items-center justify-between rounded-[13px] bg-[#f4f7f6] px-4 py-3.5">
+                            <div class="flex items-center gap-2.5">
+                                <span class="flex h-9 w-9 items-center justify-center rounded-[11px] bg-[#6366f1]/10 text-[#6366f1]">
+                                    <IconMdiClipboardTextClockOutline class="size-[17px]" />
+                                </span>
+                                <div>
+                                    <p class="text-[10px] font-bold tracking-[0.05em] text-[#9bb0af] uppercase">Aufträge</p>
+                                    <p class="text-[11.5px] font-semibold text-[#6f8585]">{{ openOrders }} offen</p>
+                                </div>
+                            </div>
+
+                            <p class="text-[26px] leading-none font-extrabold text-[#10393b]">{{ orders.length }}</p>
+                        </div>
+
+                        <button
+                            type="button"
+                            class="mt-auto flex items-center justify-center gap-1.5 rounded-[13px] border border-[#e9efee] bg-white px-4 py-2.5 text-[13px] font-bold text-[#10393b] transition-all hover:border-[#01B990] hover:bg-[#f0fbf8] hover:text-[#00856a]"
+                            @click="createVehicleOpen = true"
                         >
-                            Bestätigen
-                        </Button>
+                            <IconMdiPlus class="size-4" />
+                            Fahrzeug anlegen
+                        </button>
                     </div>
-                </CardContent>
-            </Card>
+                </section>
 
-            <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
-                <Card>
-                    <CardHeader>
-                        <CardTitle class="text-sm">Adresse</CardTitle>
-                    </CardHeader>
-                    <CardContent class="text-sm">
-                        <p v-if="customer.street">{{ customer.street }} {{ customer.number }}</p>
-                        <p v-if="customer.additional_address">{{ customer.additional_address }}</p>
-                        <p v-if="customer.zip_code || customer.city">{{ customer.zip_code }} {{ customer.city }}</p>
-                        <p v-if="!customer.street" class="text-muted-foreground">Keine Adresse hinterlegt.</p>
-                    </CardContent>
-                </Card>
-                <Card>
-                    <CardHeader>
-                        <CardTitle class="text-sm">Land</CardTitle>
-                    </CardHeader>
-                    <CardContent class="text-sm">
-                        <p>{{ customer.country ?? '—' }}</p>
-                    </CardContent>
-                </Card>
-                <Card>
-                    <CardHeader>
-                        <CardTitle class="text-sm">Meta</CardTitle>
-                    </CardHeader>
-                    <CardContent class="text-sm">
-                        <p>Beigetreten: {{ formatDate(customer.created_at) }}</p>
-                        <p v-if="type === 'b2b' && customer.vat_id">USt-ID: {{ customer.vat_id }}</p>
-                    </CardContent>
-                </Card>
-            </div>
+                <section v-if="type === 'b2b' && customer.members?.length" class="content-card">
+                    <h2 class="mb-4 text-[17px] font-extrabold tracking-[-0.3px] text-[#10393b]">Mitglieder</h2>
 
-            <Card v-if="type === 'b2b' && customer.members && customer.members.length > 0">
-                <CardHeader>
-                    <CardTitle class="text-sm">Mitglieder</CardTitle>
-                </CardHeader>
-                <CardContent class="space-y-2 text-sm">
-                    <div v-for="member in customer.members" :key="member.user_id" class="flex items-center justify-between">
-                        <span>{{ member.user_email }}</span>
-                        <Badge variant="outline">{{ member.role }}</Badge>
+                    <div class="flex flex-col gap-1">
+                        <div
+                            v-for="member in customer.members"
+                            :key="member.user_id"
+                            class="flex items-center gap-3 rounded-[13px] px-3 py-2.5 transition-colors hover:bg-[#f6f9f8]"
+                        >
+                            <div
+                                class="flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] text-[11px] font-extrabold text-white"
+                                style="background: linear-gradient(150deg, #01b990, #10393b)"
+                            >
+                                {{ member.user_email.slice(0, 2).toUpperCase() }}
+                            </div>
+
+                            <p class="min-w-0 flex-1 truncate text-[13px] font-semibold text-[#10393b]">{{ member.user_email }}</p>
+
+                            <span class="rounded-full bg-[#f4f7f6] px-2.5 py-1 text-[11px] font-bold text-[#6f8585]">{{ member.role }}</span>
+                        </div>
                     </div>
-                </CardContent>
-            </Card>
+                </section>
 
-            <Tabs default-value="vehicles">
-                <TabsList>
-                    <TabsTrigger value="vehicles">Fahrzeuge</TabsTrigger>
-                    <TabsTrigger value="orders">Aufträge</TabsTrigger>
-                </TabsList>
+                <section class="grid grid-cols-2 gap-4 max-[1180px]:grid-cols-1">
+                    <div class="content-card">
+                        <div class="mb-4">
+                            <h2 class="text-[17px] font-extrabold tracking-[-0.3px] text-[#10393b]">Fahrzeuge</h2>
+                            <p class="mt-0.5 text-[12px] font-medium text-[#9bb0af]">{{ vehicles.length }} Fahrzeuge</p>
+                        </div>
 
-                <TabsContent value="vehicles">
-                    <div class="mb-3 flex justify-end">
-                        <Button size="sm" variant="outline" @click="createVehicleOpen = true">Fahrzeug anlegen</Button>
-                    </div>
-                    <div class="rounded-xl border">
-                        <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead>Kennzeichen</TableHead>
-                                    <TableHead>Marke · Modell</TableHead>
-                                    <TableHead>VIN</TableHead>
-                                    <TableHead>Leasingende</TableHead>
-                                    <TableHead>Status</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                <TableEmpty v-if="vehicles.length === 0" :colspan="5"> Keine Fahrzeuge. </TableEmpty>
-                                <TableRow v-for="vehicle in vehicles" :key="vehicle.vehicle_id">
-                                    <TableCell class="font-medium">{{ vehicle.license_plate }}</TableCell>
-                                    <TableCell>{{ [vehicle.make, vehicle.model].filter(Boolean).join(' · ') || '—' }}</TableCell>
-                                    <TableCell>{{ vehicle.vin ?? '—' }}</TableCell>
-                                    <TableCell>{{ formatDate(vehicle.leasing_end_date) }}</TableCell>
-                                    <TableCell>
-                                        <Badge :variant="getVehicleStatusDisplay(vehicle.current_order_status ?? undefined).variant">
-                                            {{ getVehicleStatusDisplay(vehicle.current_order_status ?? undefined).label }}
-                                        </Badge>
-                                    </TableCell>
-                                </TableRow>
-                            </TableBody>
-                        </Table>
-                    </div>
-                </TabsContent>
+                        <div class="flex flex-col gap-1">
+                            <p v-if="!vehicles.length" class="py-12 text-center text-[13px] text-[#9bb0af]">Keine Fahrzeuge vorhanden.</p>
 
-                <TabsContent value="orders">
-                    <div class="rounded-xl border">
-                        <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead>Auftragsnummer</TableHead>
-                                    <TableHead>Marke · Modell</TableHead>
-                                    <TableHead>Partner</TableHead>
-                                    <TableHead>Kennzeichen</TableHead>
-                                    <TableHead>Erstellt</TableHead>
-                                    <TableHead>Status</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                <TableEmpty v-if="orders.length === 0" :colspan="6"> Keine Aufträge. </TableEmpty>
-                                <TableRow v-for="order in orders" :key="order.id">
-                                    <TableCell class="font-medium">{{ order.auftragsnummer }}</TableCell>
-                                    <TableCell>{{ [order.make, order.model].filter(Boolean).join(' · ') || '—' }}</TableCell>
-                                    <TableCell>{{ order.leasyback_partner }}</TableCell>
-                                    <TableCell>{{ order.license_plate }}</TableCell>
-                                    <TableCell>{{ formatDate(order.created_at) }}</TableCell>
-                                    <TableCell>
-                                        <Badge :variant="getVehicleStatusDisplay(order.order_status).variant">
-                                            {{ getVehicleStatusDisplay(order.order_status).label }}
-                                        </Badge>
-                                    </TableCell>
-                                </TableRow>
-                            </TableBody>
-                        </Table>
+                            <Link
+                                v-for="vehicle in vehicles"
+                                :key="vehicle.vehicle_id"
+                                :href="route('admin.vehicles.show', vehicle.vehicle_id)"
+                                class="group flex items-center gap-3 rounded-[13px] px-3 py-2.5 transition-colors hover:bg-[#f6f9f8]"
+                            >
+                                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-[11px] bg-[#ef8450]/10 text-[#ef8450]">
+                                    <IconMdiCarOutline class="size-[18px]" />
+                                </div>
+
+                                <div class="min-w-0 flex-1">
+                                    <p class="truncate text-[13px] font-bold text-[#10393b]">{{ vehicle.make }} {{ vehicle.model }}</p>
+                                    <p class="truncate font-mono text-[11.5px] text-[#6f8585]">{{ vehicle.license_plate }}</p>
+                                </div>
+
+                                <span
+                                    v-if="vehicle.current_order_status"
+                                    class="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-bold"
+                                    :style="{
+                                        background: getStatus(vehicle.current_order_status).background,
+                                        color: getStatus(vehicle.current_order_status).color,
+                                    }"
+                                >
+                                    <span class="h-[4px] w-[4px] rounded-full bg-current"></span>
+                                    {{ getStatus(vehicle.current_order_status).label }}
+                                </span>
+
+                                <span
+                                    class="flex h-7 w-7 shrink-0 items-center justify-center rounded-[8px] text-[#bcccca] transition-all group-hover:bg-[#10393b] group-hover:text-white"
+                                >
+                                    <IconMdiArrowTopRight class="size-[13px]" />
+                                </span>
+                            </Link>
+                        </div>
                     </div>
-                </TabsContent>
-            </Tabs>
+
+                    <div class="content-card">
+                        <div class="mb-4">
+                            <h2 class="text-[17px] font-extrabold tracking-[-0.3px] text-[#10393b]">Aufträge</h2>
+                            <p class="mt-0.5 text-[12px] font-medium text-[#9bb0af]">{{ orders.length }} Aufträge</p>
+                        </div>
+
+                        <div class="flex flex-col gap-1">
+                            <p v-if="!orders.length" class="py-12 text-center text-[13px] text-[#9bb0af]">Keine Aufträge vorhanden.</p>
+
+                            <Link
+                                v-for="order in orders"
+                                :key="order.id"
+                                :href="route('admin.orders.show', order.id)"
+                                class="group flex items-center gap-3 rounded-[13px] px-3 py-2.5 transition-colors hover:bg-[#f6f9f8]"
+                            >
+                                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-[11px] bg-[#6366f1]/10 text-[#6366f1]">
+                                    <IconMdiFileDocumentOutline class="size-[17px]" />
+                                </div>
+
+                                <div class="min-w-0 flex-1">
+                                    <div class="mb-0.5 flex flex-wrap items-center gap-2">
+                                        <span class="font-mono text-[13px] font-bold text-[#10393b]">{{ order.auftragsnummer }}</span>
+                                        <span class="text-[11.5px] text-[#9bb0af]">{{ order.make }} {{ order.model }}</span>
+                                    </div>
+
+                                    <p class="truncate font-mono text-[11.5px] text-[#6f8585]">{{ order.license_plate }}</p>
+                                </div>
+
+                                <div class="flex shrink-0 items-center gap-2">
+                                    <span
+                                        class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-bold"
+                                        :style="{
+                                            background: getStatus(order.order_status).background,
+                                            color: getStatus(order.order_status).color,
+                                        }"
+                                    >
+                                        <span class="h-[4px] w-[4px] rounded-full bg-current"></span>
+                                        {{ getStatus(order.order_status).label }}
+                                    </span>
+
+                                    <span class="hidden text-[11px] text-[#9bb0af] tabular-nums lg:block">
+                                        {{ formatGermanDate(order.created_at) }}
+                                    </span>
+                                </div>
+                            </Link>
+                        </div>
+                    </div>
+                </section>
+            </main>
         </div>
 
-        <CreateVehicleModal v-model:open="createVehicleOpen" :type="type" :owner-id="identifier ?? ''" />
+        <CreateVehicleModal v-model:open="createVehicleOpen" :type="type" :owner-id="identifier" />
     </AdminLayout>
 </template>
+
+<style scoped>
+.identity-card {
+    position: relative;
+    min-height: 220px;
+    overflow: hidden;
+    border: 1px solid #01b990;
+    border-radius: 26px;
+    background: linear-gradient(145deg, #55bd99 0%, #0a8d70 100%);
+    padding: 28px;
+    box-shadow: 0 20px 45px rgba(1, 185, 144, 0.24);
+}
+
+.content-card {
+    border: 1px solid #eef3f2;
+    border-radius: 24px;
+    background: #ffffff;
+    padding: 24px;
+    box-shadow: 0 6px 22px rgba(16, 57, 59, 0.04);
+}
+
+button:not(:disabled) {
+    cursor: pointer;
+}
+</style>
