@@ -31,10 +31,32 @@ const { messages, unreadCount, loading, loaded, sending, hasOlder, load, loadOld
     currentUserId,
 );
 
+const MAX_LENGTH = 2000;
+
 const draft = ref('');
 const scroller = ref<HTMLElement | null>(null);
+const composer = ref<HTMLTextAreaElement | null>(null);
 
 const canSend = computed(() => draft.value.trim().length > 0 && !sending.value);
+const remaining = computed(() => MAX_LENGTH - draft.value.length);
+
+/** The composer starts one line tall and grows with the draft up to the
+ *  max-height the class sets, after which it scrolls — a long message must
+ *  not push the thread off the card. */
+function resizeComposer(): void {
+    nextTick(() => {
+        const element = composer.value;
+
+        if (!element) {
+            return;
+        }
+
+        element.style.height = 'auto';
+        element.style.height = `${element.scrollHeight}px`;
+    });
+}
+
+watch(draft, resizeComposer);
 
 function isMine(senderId: number | null): boolean {
     return senderId !== null && senderId === currentUserId.value;
@@ -208,24 +230,44 @@ function formatTime(value: string | null): string {
             </div>
         </div>
 
-        <form class="flex items-end gap-2 border-t border-[#f1f5f5] px-5 py-4" @submit.prevent="submit">
-            <textarea
-                v-model="draft"
-                rows="2"
-                maxlength="2000"
-                placeholder="Nachricht schreiben …"
-                class="min-h-[44px] flex-1 resize-none rounded-[13px] border border-[#d8e4e3] px-3.5 py-2.5 text-[13.5px] text-[#10393b] transition outline-none focus:border-[#01B990]"
-                @keydown="onKeydown"
-            ></textarea>
-
-            <button
-                type="submit"
-                :disabled="!canSend"
-                aria-label="Senden"
-                class="flex size-11 shrink-0 items-center justify-center rounded-[13px] bg-[#01B990] text-white transition hover:opacity-90 disabled:opacity-40"
+        <form class="flex flex-col gap-2 border-t border-[#f1f5f5] px-5 py-4" @submit.prevent="submit">
+            <div
+                class="flex items-end gap-2 rounded-[16px] border border-[#d8e4e3] bg-white px-3 py-2.5 transition-all focus-within:border-[#01B990] focus-within:ring-4 focus-within:ring-[#01B990]/12"
             >
-                <MdiSend class="text-[18px]" />
-            </button>
+                <textarea
+                    ref="composer"
+                    v-model="draft"
+                    rows="1"
+                    :maxlength="MAX_LENGTH"
+                    placeholder="Nachricht schreiben …"
+                    class="max-h-[132px] min-h-[24px] flex-1 resize-none border-0 bg-transparent p-0 text-[13.5px] leading-[1.55] text-[#10393b] outline-none placeholder:text-[#9aacac]"
+                    @keydown="onKeydown"
+                ></textarea>
+
+                <button
+                    type="submit"
+                    :disabled="!canSend"
+                    aria-label="Nachricht senden"
+                    class="flex size-9 shrink-0 items-center justify-center rounded-full bg-[#01B990] text-white transition-all hover:opacity-90 active:scale-95 disabled:bg-[#e6eded] disabled:text-[#9aacac] disabled:active:scale-100"
+                >
+                    <MdiSend class="ml-px text-[16px]" />
+                </button>
+            </div>
+
+            <div class="flex items-center justify-between gap-3 px-1">
+                <p class="text-[11px] text-[#9aacac]">
+                    <span class="font-semibold text-[#6f8585]">Enter</span> zum Senden ·
+                    <span class="font-semibold text-[#6f8585]">Shift + Enter</span> für neue Zeile
+                </p>
+
+                <p
+                    v-if="remaining <= 200"
+                    class="shrink-0 text-[11px] font-semibold tabular-nums"
+                    :class="remaining === 0 ? 'text-[#E5533D]' : 'text-[#9aacac]'"
+                >
+                    {{ remaining }}
+                </p>
+            </div>
         </form>
     </section>
 </template>
