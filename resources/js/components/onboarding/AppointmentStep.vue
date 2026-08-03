@@ -76,28 +76,24 @@ const forwardButtonClass = 'bg-brand-green hover:bg-brand-green/90 rounded-[5px]
         <OnboardingCard title="Suchen Sie Ihre Prüfstation aus">
             <InputError :message="form.errors.appointment" />
 
-            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div class="flex flex-col gap-4">
-                    <FormField id="station_id" v-slot="{ id, describedBy, invalid }" label="Prüfstation" required :error="form.errors.station_id">
-                        <StationSelectField
-                            :id="id"
-                            v-model="form.station_id"
-                            :stations="stations"
-                            placeholder="Station wählen"
-                            :invalid="invalid"
-                            :described-by="describedBy"
-                        />
-                    </FormField>
+            <FormField id="station_id" v-slot="{ id, describedBy, invalid }" label="Prüfstation" required :error="form.errors.station_id">
+                <StationSelectField
+                    :id="id"
+                    v-model="form.station_id"
+                    :stations="stations"
+                    placeholder="Station wählen"
+                    :invalid="invalid"
+                    :described-by="describedBy"
+                />
+            </FormField>
 
-                    <div v-if="selectedStation">
-                        <p class="text-sm font-semibold text-black">{{ selectedStation.name }}</p>
-                        <p class="text-xs text-[#00000080]">
-                            {{ selectedStation.strasse }}, {{ selectedStation.plz }} {{ selectedStation.ort }}
-                        </p>
-                    </div>
+            <div v-if="selectedStation" class="mt-4 space-y-3">
+                <div>
+                    <p class="text-sm font-semibold text-black">{{ selectedStation.name }}</p>
+                    <p class="text-xs text-[#00000080]">{{ selectedStation.strasse }}, {{ selectedStation.plz }} {{ selectedStation.ort }}</p>
                 </div>
 
-                <div class="h-[220px] w-full sm:h-full sm:min-h-[220px]">
+                <div class="h-[260px] w-full">
                     <StationMap :station="selectedStation" />
                 </div>
             </div>

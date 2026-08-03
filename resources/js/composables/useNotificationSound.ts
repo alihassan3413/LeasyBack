@@ -1,7 +1,7 @@
 import { ref, watch } from 'vue';
 
 const STORAGE_KEY = 'leasyback:notification-sound';
-const SOUND_URL = '/sounds/notification.mp3';
+const SOUND_URL = '/sounds/notification.wav';
 
 const enabled = ref(readStored());
 

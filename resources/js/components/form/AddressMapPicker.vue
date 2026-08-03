@@ -214,7 +214,9 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <div ref="mapContainer" class="size-full">
+    <!-- `isolate` traps the high z-index values Google Maps assigns to its internal panes and controls,
+         so overlays such as the station select dropdown are not painted behind the map. -->
+    <div ref="mapContainer" class="isolate size-full">
         <div v-if="loadFailed" class="flex size-full items-center justify-center bg-[#F1F5F5] text-xs text-[#7A9699]">
             Karte konnte nicht geladen werden.
         </div>
