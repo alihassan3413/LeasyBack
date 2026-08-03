@@ -10,12 +10,13 @@ enum NotificationType: string
     case ReportPublished = 'report.published';
     case DocumentPublished = 'document.published';
     case AccountStatusChanged = 'account.status_changed';
+    case MessageReceived = 'message.received';
     case Generic = 'generic';
 
     public function variant(): string
     {
         return match ($this) {
-            self::OrderStatusChanged, self::Generic => 'info',
+            self::OrderStatusChanged, self::MessageReceived, self::Generic => 'info',
             self::OrderApproved, self::OfferPublished, self::ReportPublished, self::DocumentPublished => 'success',
             self::AccountStatusChanged => 'warning',
         };
@@ -29,6 +30,7 @@ enum NotificationType: string
             self::OfferPublished => 'tag-outline',
             self::ReportPublished, self::DocumentPublished => 'file-document-outline',
             self::AccountStatusChanged => 'account-alert-outline',
+            self::MessageReceived => 'message-text-outline',
             self::Generic => 'bell-outline',
         };
     }

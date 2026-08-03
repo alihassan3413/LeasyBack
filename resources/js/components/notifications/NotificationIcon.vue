@@ -4,6 +4,7 @@ import MdiAccountAlertOutline from '~icons/mdi/account-alert-outline';
 import MdiBellOutline from '~icons/mdi/bell-outline';
 import MdiCheckDecagram from '~icons/mdi/check-decagram';
 import MdiFileDocumentOutline from '~icons/mdi/file-document-outline';
+import MdiMessageTextOutline from '~icons/mdi/message-text-outline';
 import MdiProgressClock from '~icons/mdi/progress-clock';
 import MdiTagOutline from '~icons/mdi/tag-outline';
 
@@ -15,6 +16,7 @@ const ICONS: Record<string, unknown> = {
     'tag-outline': MdiTagOutline,
     'file-document-outline': MdiFileDocumentOutline,
     'account-alert-outline': MdiAccountAlertOutline,
+    'message-text-outline': MdiMessageTextOutline,
     'bell-outline': MdiBellOutline,
 };
 

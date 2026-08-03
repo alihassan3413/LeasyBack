@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import AccountDetailCard from '@/components/account/AccountDetailCard.vue';
+import CompanyAddressCard from '@/components/account/CompanyAddressCard.vue';
+import CompanyContactCard from '@/components/account/CompanyContactCard.vue';
+import CompanyMasterDataCard from '@/components/account/CompanyMasterDataCard.vue';
+import CompanyNoticeCard from '@/components/account/CompanyNoticeCard.vue';
 import ContactPersonCard from '@/components/account/ContactPersonCard.vue';
 import DeleteAccountCard from '@/components/account/DeleteAccountCard.vue';
 import ManagePasswordCard from '@/components/account/ManagePasswordCard.vue';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { type BreadcrumbItem, type SharedData } from '@/types';
-import type { UserProfileData } from '@/types/profile';
+import type { AccountCompanyState, UserProfileData } from '@/types/profile';
 import { Head, usePage } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 
@@ -13,6 +17,8 @@ const props = defineProps<{
     mustVerifyEmail: boolean;
     status?: string;
     profile: UserProfileData | null;
+    /** Null for every account type that has no company (Privatkunde, …). */
+    company: AccountCompanyState | null;
 }>();
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Mein Konto', href: '/settings/profile' }];
@@ -21,34 +27,66 @@ const page = usePage<SharedData>();
 
 const email = computed(() => props.profile?.email ?? page.props.auth.user?.email ?? '');
 
-const fullName = computed(() => {
-    const contact = props.profile?.contact;
+/**
+ * A company account has no personal profile: its address, contact person and
+ * phone numbers are the company's, entered once during registration. Falls
+ * back to the personal cards for every other account type.
+ */
+const isCompanyAccount = computed(() => props.company !== null);
+const companyData = computed(() => props.company?.data ?? null);
 
-    if (!contact) {
+const contact = computed(() => (isCompanyAccount.value ? (companyData.value?.contact ?? null) : (props.profile?.contact ?? null)));
+
+const fullName = computed(() => {
+    // The company's own name identifies a company account better than whoever
+    // happens to administer it.
+    if (isCompanyAccount.value) {
+        return companyData.value?.company_name ?? '';
+    }
+
+    if (!contact.value) {
         return '';
     }
 
-    return [contact.first_name, contact.last_name].filter(Boolean).join(' ');
+    return [contact.value.first_name, contact.value.last_name].filter(Boolean).join(' ');
 });
 
 const initials = computed(() => {
-    const contact = props.profile?.contact;
+    if (isCompanyAccount.value) {
+        return (companyData.value?.company_name ?? '').trim().slice(0, 2).toUpperCase() || '•';
+    }
 
-    if (!contact) {
+    if (!contact.value) {
         return '•';
     }
 
-    return ((contact.first_name?.[0] ?? '') + (contact.last_name?.[0] ?? '')).toUpperCase() || '•';
+    return ((contact.value.first_name?.[0] ?? '') + (contact.value.last_name?.[0] ?? '')).toUpperCase() || '•';
 });
 
-const sections = [
-    { id: 'kontodaten', label: 'Kontodaten' },
-    { id: 'ansprechpartner', label: 'Ansprechpartner' },
-    { id: 'passwort', label: 'Passwort' },
-    { id: 'konto-loeschen', label: 'Konto löschen' },
-];
+const sections = computed(() => {
+    // With no company to show, the single notice card is the whole company
+    // half of the page — there is nothing for the other two anchors to reach.
+    const companySections = companyData.value
+        ? [
+              { id: 'firmendaten', label: 'Firmendaten' },
+              { id: 'kontodaten', label: 'Kontodaten' },
+              { id: 'ansprechpartner', label: 'Ansprechpartner' },
+          ]
+        : [{ id: 'firmendaten', label: 'Firmendaten' }];
 
-const activeSection = ref('kontodaten');
+    const personalSections = [
+        { id: 'kontodaten', label: 'Kontodaten' },
+        { id: 'ansprechpartner', label: 'Ansprechpartner' },
+    ];
+
+    return [
+        ...(isCompanyAccount.value ? companySections : personalSections),
+        { id: 'passwort', label: 'Passwort' },
+        { id: 'konto-loeschen', label: 'Konto löschen' },
+    ];
+});
+
+const activeSection = ref(isCompanyAccount.value ? 'firmendaten' : 'kontodaten');
 
 function scrollTo(id: string) {
     activeSection.value = id;
@@ -127,13 +165,35 @@ function scrollTo(id: string) {
                     </aside>
 
                     <main class="min-w-0 flex-1 scroll-smooth space-y-4 sm:space-y-5">
-                        <section id="kontodaten" class="scroll-mt-6 sm:scroll-mt-8">
-                            <AccountDetailCard :profile="profile" :email="email" />
-                        </section>
+                        <template v-if="isCompanyAccount">
+                            <template v-if="company?.data">
+                                <section id="firmendaten" class="scroll-mt-6 sm:scroll-mt-8">
+                                    <CompanyMasterDataCard :company="company.data" :can-manage="company.can_manage" />
+                                </section>
 
-                        <section id="ansprechpartner" class="scroll-mt-6 sm:scroll-mt-8">
-                            <ContactPersonCard :profile="profile" />
-                        </section>
+                                <section id="kontodaten" class="scroll-mt-6 sm:scroll-mt-8">
+                                    <CompanyAddressCard :company="company.data" :email="email" :can-manage="company.can_manage" />
+                                </section>
+
+                                <section id="ansprechpartner" class="scroll-mt-6 sm:scroll-mt-8">
+                                    <CompanyContactCard :company="company.data" :can-manage="company.can_manage" />
+                                </section>
+                            </template>
+
+                            <section v-else id="firmendaten" class="scroll-mt-6 sm:scroll-mt-8">
+                                <CompanyNoticeCard :can-register="company?.can_register ?? false" />
+                            </section>
+                        </template>
+
+                        <template v-else>
+                            <section id="kontodaten" class="scroll-mt-6 sm:scroll-mt-8">
+                                <AccountDetailCard :profile="profile" :email="email" />
+                            </section>
+
+                            <section id="ansprechpartner" class="scroll-mt-6 sm:scroll-mt-8">
+                                <ContactPersonCard :profile="profile" />
+                            </section>
+                        </template>
 
                         <section id="passwort" class="scroll-mt-6 sm:scroll-mt-8">
                             <ManagePasswordCard :email="email" />

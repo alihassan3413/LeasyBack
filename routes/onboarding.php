@@ -12,13 +12,13 @@ Route::middleware(['auth', 'active'])->prefix('onboarding')->name('onboarding.')
     // Firmenkunde (B2B) counterpart of the wizard above: company master data
     // and the LeasyBack admin contact. Same middleware as step 1 — reachable
     // straight after registration, before the email is verified.
-    // `show` is deliberately ungated: a Firmenkunde who belongs to no company
-    // yet has no permissions at all and must still be able to create one.
-    // The page itself renders read-only without company.manage.
+    // Deliberately ungated: a Firmenkunde who belongs to no company yet has no
+    // permissions at all and must still be able to create one. This is a
+    // one-time step — once a company exists `show` sends the user to "Mein
+    // Konto", which is where the record is edited from then on
+    // (see `company.update` in settings.php).
     Route::get('/b2b', [B2bRegistrationController::class, 'show'])->name('b2b.show');
     Route::post('/b2b', [B2bRegistrationController::class, 'store'])->name('b2b.store');
-    Route::put('/b2b', [B2bRegistrationController::class, 'update'])
-        ->middleware('b2b.can:company.manage')->name('b2b.update');
 });
 
 // Vehicle and appointment creation require a verified email, matching

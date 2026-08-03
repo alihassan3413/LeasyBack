@@ -24,6 +24,7 @@ declare global {
   const VEHICLE_STATUS_FILTER_OPTIONS: typeof import('../lib/vehicleStatus').VEHICLE_STATUS_FILTER_OPTIONS
   const canStartNewOrder: typeof import('../lib/customerOrderFlow').canStartNewOrder
   const cn: typeof import('../lib/utils').cn
+  const companyFormData: typeof import('../lib/company').companyFormData
   const computed: typeof import('vue').computed
   const createApp: typeof import('vue').createApp
   const customRef: typeof import('vue').customRef
@@ -107,6 +108,7 @@ declare global {
   const useAttrs: typeof import('vue').useAttrs
   const useB2bPermissions: typeof import('../composables/useB2bPermissions').useB2bPermissions
   const useClipboard: typeof import('@vueuse/core').useClipboard
+  const useCompanyCard: typeof import('../composables/useCompanyCard').useCompanyCard
   const useCssModule: typeof import('vue').useCssModule
   const useCssVars: typeof import('vue').useCssVars
   const useDark: typeof import('@vueuse/core').useDark
@@ -121,6 +123,7 @@ declare global {
   const useNotificationSound: typeof import('../composables/useNotificationSound').useNotificationSound
   const useNotifications: typeof import('../composables/useNotifications').useNotifications
   const useOnboarding: typeof import('../composables/useOnboarding').useOnboarding
+  const useOrderMessages: typeof import('../composables/useOrderMessages').useOrderMessages
   const usePage: typeof import('@inertiajs/vue3').usePage
   const useRemember: typeof import('@inertiajs/vue3').useRemember
   const useSessionGuard: typeof import('../composables/useSessionGuard').useSessionGuard
@@ -195,6 +198,7 @@ declare module 'vue' {
     readonly VEHICLE_STATUS_FILTER_OPTIONS: UnwrapRef<typeof import('../lib/vehicleStatus')['VEHICLE_STATUS_FILTER_OPTIONS']>
     readonly canStartNewOrder: UnwrapRef<typeof import('../lib/customerOrderFlow')['canStartNewOrder']>
     readonly cn: UnwrapRef<typeof import('../lib/utils')['cn']>
+    readonly companyFormData: UnwrapRef<typeof import('../lib/company')['companyFormData']>
     readonly computed: UnwrapRef<typeof import('vue')['computed']>
     readonly createApp: UnwrapRef<typeof import('vue')['createApp']>
     readonly customRef: UnwrapRef<typeof import('vue')['customRef']>
@@ -278,6 +282,7 @@ declare module 'vue' {
     readonly useAttrs: UnwrapRef<typeof import('vue')['useAttrs']>
     readonly useB2bPermissions: UnwrapRef<typeof import('../composables/useB2bPermissions')['useB2bPermissions']>
     readonly useClipboard: UnwrapRef<typeof import('@vueuse/core')['useClipboard']>
+    readonly useCompanyCard: UnwrapRef<typeof import('../composables/useCompanyCard')['useCompanyCard']>
     readonly useCssModule: UnwrapRef<typeof import('vue')['useCssModule']>
     readonly useCssVars: UnwrapRef<typeof import('vue')['useCssVars']>
     readonly useDark: UnwrapRef<typeof import('@vueuse/core')['useDark']>
@@ -292,6 +297,7 @@ declare module 'vue' {
     readonly useNotificationSound: UnwrapRef<typeof import('../composables/useNotificationSound')['useNotificationSound']>
     readonly useNotifications: UnwrapRef<typeof import('../composables/useNotifications')['useNotifications']>
     readonly useOnboarding: UnwrapRef<typeof import('../composables/useOnboarding')['useOnboarding']>
+    readonly useOrderMessages: UnwrapRef<typeof import('../composables/useOrderMessages')['useOrderMessages']>
     readonly usePage: UnwrapRef<typeof import('@inertiajs/vue3')['usePage']>
     readonly useRemember: UnwrapRef<typeof import('@inertiajs/vue3')['useRemember']>
     readonly useSessionGuard: UnwrapRef<typeof import('../composables/useSessionGuard')['useSessionGuard']>

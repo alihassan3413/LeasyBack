@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import BackButton from '@/components/BackButton.vue';
+import OrderMessages from '@/components/shared/OrderMessages.vue';
 import AddVehicleModal from '@/components/vehicle/AddVehicleModal.vue';
 import OfferComparison from '@/components/vehicle/OfferComparison.vue';
 import OrderCreationModal from '@/components/vehicle/OrderCreationModal.vue';
@@ -196,6 +197,9 @@ function formatDateTime(value: string | undefined): string {
                             </div>
                         </div>
                     </section>
+
+                    <!-- Bound to the current order: a thread belongs to a Vorgang, not to the vehicle. -->
+                    <OrderMessages v-if="currentOrder" :order-id="currentOrder.id" :auftragsnummer="currentOrder.auftragsnummer" />
 
                     <section class="overflow-hidden rounded-[16px] border border-[#e6eded] bg-white">
                         <header class="flex items-center justify-between border-b border-[#f1f5f5] px-5 py-4">

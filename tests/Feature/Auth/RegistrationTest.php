@@ -29,12 +29,23 @@ class RegistrationTest extends TestCase
         $response->assertRedirect(route('onboarding.show', absolute: false));
     }
 
-    public function test_firmenkunde_and_werkstatt_registration_redirects_straight_to_dashboard(): void
+    public function test_firmenkunde_registration_redirects_to_the_company_registration(): void
     {
-        // Only Privatkunde (B2C) goes through the onboarding wizard.
         $response = $this->post('/register', [
             'user_type' => 'Firmenkunde',
             'email' => 'firmenkunde-redirect@example.com',
+            'password' => 'password',
+        ]);
+
+        $response->assertRedirect(route('onboarding.b2b.show', absolute: false));
+    }
+
+    public function test_werkstatt_registration_redirects_straight_to_dashboard(): void
+    {
+        // Werkstatt has no onboarding wizard of its own.
+        $response = $this->post('/register', [
+            'user_type' => 'Werksatatt',
+            'email' => 'werkstatt-redirect@example.com',
             'password' => 'password',
         ]);
 

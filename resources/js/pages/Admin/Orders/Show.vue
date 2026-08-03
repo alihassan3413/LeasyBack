@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import AdminOffersCard from '@/components/admin/AdminOffersCard.vue';
 import AdminOrderActionsMenu from '@/components/admin/AdminOrderActionsMenu.vue';
+import OrderMessages from '@/components/shared/OrderMessages.vue';
 import OrderStatusTimeline from '@/components/shared/OrderStatusTimeline.vue';
 import AdminLayout from '@/layouts/AdminLayout.vue';
 import { getAdminDashboardStatus as getStatus } from '@/lib/adminStatus';
@@ -254,6 +255,12 @@ function formatDateTime(value: string | null): string {
                     </div>
 
                     <div class="flex flex-col gap-4">
+                        <OrderMessages
+                            :order-id="order.id"
+                            :auftragsnummer="order.auftragsnummer"
+                            container-class="content-card overflow-hidden p-0"
+                        />
+
                         <AdminOffersCard :order-id="order.id" :offers="order.offers" />
 
                         <div class="content-card">

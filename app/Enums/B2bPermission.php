@@ -129,7 +129,10 @@ enum B2bPermission: string
     {
         return match ($this) {
             self::ViewVehicles => 'dashboard',
-            self::ViewCompany => 'onboarding.b2b.show',
+            // The company's master data is a section of "Mein Konto"; the
+            // registration form under /onboarding/b2b is a one-time step and
+            // not a page this permission unlocks.
+            self::ViewCompany => 'profile.edit',
             self::ViewMembers => 'b2b.members.index',
             default => null,
         };

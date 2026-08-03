@@ -2,8 +2,13 @@
 
 namespace App\Http\Controllers\Settings;
 
+use App\Enums\B2bPermission;
+use App\Enums\UserType;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Settings\ProfileUpdateRequest;
+use App\Models\User;
+use App\Modules\UserProfile\B2B\Services\B2bContext;
+use App\Modules\UserProfile\B2B\Services\B2BService;
 use App\Modules\UserProfile\Profile\Services\ProfileService;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Http\RedirectResponse;
@@ -16,10 +21,19 @@ use Inertia\Response;
 
 class ProfileController extends Controller
 {
-    public function __construct(private readonly ProfileService $profileService) {}
+    public function __construct(
+        private readonly ProfileService $profileService,
+        private readonly B2bContext $context,
+        private readonly B2BService $b2bService,
+    ) {}
 
     /**
      * Show the user's "Mein Konto" page.
+     *
+     * For a Firmenkunde the page shows the company's master data instead of a
+     * personal profile: the address, contact person and phone numbers entered
+     * during company registration are the account's, and there is no second
+     * set of them to keep in sync.
      */
     public function edit(Request $request): Response
     {
@@ -27,7 +41,40 @@ class ProfileController extends Controller
             'mustVerifyEmail' => $request->user() instanceof MustVerifyEmail,
             'status' => $request->session()->get('status'),
             'profile' => $this->profileService->findForUser($request->user()),
+            'company' => $this->companyState($request->user()),
         ]);
+    }
+
+    /**
+     * The company half of "Mein Konto", or null for every account type that
+     * has no company at all — which is what tells the page to fall back to the
+     * personal profile cards.
+     *
+     * @return array{data: array<string, mixed>|null, can_manage: bool, can_register: bool}|null
+     */
+    private function companyState(User $user): ?array
+    {
+        if ($user->user_type !== UserType::Firmenkunde) {
+            return null;
+        }
+
+        $membership = $this->context->activeMembership($user);
+
+        // Belongs to no company yet — the page offers the registration form
+        // rather than an empty set of company cards.
+        if ($membership === null) {
+            return ['data' => null, 'can_manage' => false, 'can_register' => true];
+        }
+
+        // A member without company.view is told the data exists but isn't
+        // theirs to see, exactly as the server would answer.
+        return [
+            'data' => $membership->can(B2bPermission::ViewCompany)
+                ? $this->b2bService->findById($membership->b2bId)
+                : null,
+            'can_manage' => $membership->can(B2bPermission::ManageCompany),
+            'can_register' => false,
+        ];
     }
 
     /**
