@@ -2,7 +2,7 @@
 
 - **Domain:** `leasyback.insuretechgurus.com`
 - **Server:** `172.105.74.98`
-- **App path:** `/var/www/LeasyBack`
+- **App path:** `/var/www/LeasyBack` (case-sensitive — not `leasyback`)
 - **Stack:** Ubuntu + Nginx + PHP-FPM 8.4 + **SQLite** + Redis + Supervisor + Certbot
 - **Node:** 22 (assets are built on the server)
 
