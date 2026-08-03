@@ -112,4 +112,23 @@ return [
 
     'password_timeout' => env('AUTH_PASSWORD_TIMEOUT', 10800),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Initial Administrator Account
+    |--------------------------------------------------------------------------
+    |
+    | Credentials for the bootstrap Admin account created by AdminUserSeeder.
+    | They are read through config (not env() directly) so that seeding keeps
+    | working on a host with a cached config. In production the password has
+    | no default: ADMIN_SEED_PASSWORD must be set, otherwise the seeder fails
+    | rather than installing a publicly known password.
+    |
+    */
+
+    'admin_seed' => [
+        'name' => env('ADMIN_SEED_NAME', 'Leasyback Admin'),
+        'email' => env('ADMIN_SEED_EMAIL', 'admin@leasyback.com'),
+        'password' => env('ADMIN_SEED_PASSWORD'),
+    ],
+
 ];

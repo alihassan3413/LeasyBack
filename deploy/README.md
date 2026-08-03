@@ -48,6 +48,11 @@ sudo -u deploy bash /var/www/LeasyBack/deploy/deploy.sh --seed
 curl -I https://leasyback.insuretechgurus.com/up
 ```
 
+`--seed` creates the bootstrap Admin from `ADMIN_SEED_EMAIL` / `ADMIN_SEED_PASSWORD` in
+`.env` — set them first, seeding aborts while `ADMIN_SEED_PASSWORD` is empty. Seeding is
+idempotent: rerunning it updates that one account instead of creating duplicates, and it
+resets the password back to whatever `.env` currently holds.
+
 ## 2. Every release after that
 
 ```bash
