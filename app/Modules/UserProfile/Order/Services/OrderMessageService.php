@@ -124,7 +124,7 @@ class OrderMessageService
             ? route('vehicles.show', $vehicle->vehicle_id, false)
             : route('admin.orders.show', $order->id, false);
 
-        $this->notifier->send(
+        $this->notifier->sendNow(
             $recipients,
             NotificationPayload::make(
                 NotificationType::MessageReceived,

@@ -5,7 +5,7 @@ namespace App\Events;
 use App\Models\OrderMessage;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PrivateChannel;
-use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
@@ -18,8 +18,12 @@ use Illuminate\Queue\SerializesModels;
  * to an already-open thread. The sender receives this one (their own client
  * reconciles it against the message it just posted) but not the
  * notification — see OrderMessageService::notifyRecipients().
+ *
+ * Broadcast inline rather than queued: a bubble that appears whenever a
+ * worker next picks up the job is not a live thread. The cost is one Reverb
+ * HTTP call on the send request.
  */
-class OrderMessageSent implements ShouldBroadcast
+class OrderMessageSent implements ShouldBroadcastNow
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
