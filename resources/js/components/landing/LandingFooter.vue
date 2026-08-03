@@ -36,9 +36,9 @@ const currentYear = new Date().getFullYear();
 <template>
     <footer class="px-4 pb-6 sm:px-6 lg:px-8">
         <div class="mx-auto max-w-7xl">
-            <div class="bg-brand-teal rounded-[24px] px-6 py-12 sm:px-10 lg:px-14 lg:py-16">
-                <div class="grid gap-10 lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
-                    <div>
+            <div class="bg-brand-teal rounded-[24px] px-5 py-10 sm:px-10 sm:py-12 lg:px-14 lg:py-16">
+                <div class="grid grid-cols-2 gap-x-6 gap-y-9 sm:gap-x-8 sm:gap-y-10 lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
+                    <div class="col-span-2 lg:col-span-1">
                         <img src="/leasyback-logo.svg" alt="LeasyBack" class="h-8 w-auto" />
                         <p class="mt-5 max-w-xs text-sm leading-relaxed text-white/70">
                             Kostenlose Minderwert-Gutachten, günstige Reparaturangebote und eine Leasingrückgabe ohne böse Überraschung.
@@ -93,7 +93,7 @@ const currentYear = new Date().getFullYear();
                     </div>
                 </div>
 
-                <div class="mt-12 flex flex-col gap-4 border-t border-white/15 pt-6 sm:flex-row sm:items-center sm:justify-between">
+                <div class="mt-10 flex flex-col gap-4 border-t border-white/15 pt-6 sm:mt-12 sm:flex-row sm:items-center sm:justify-between">
                     <p class="text-xs text-white/60">© {{ currentYear }} LeasyBack. Alle Rechte vorbehalten.</p>
                     <!-- PLATZHALTER: auf echte Rechtsseiten verlinken, sobald die Routen existieren. -->
                     <ul class="flex flex-wrap gap-x-6 gap-y-2">

@@ -64,7 +64,7 @@ function onKeydown(event: KeyboardEvent, index: number) {
 </script>
 
 <template>
-    <section id="ablauf" class="px-4 py-16 sm:px-6 lg:px-8 lg:py-24">
+    <section id="ablauf" class="scroll-mt-24 px-4 py-12 sm:px-6 sm:py-16 lg:px-8 lg:py-24">
         <div class="mx-auto max-w-7xl">
             <div class="grid gap-10 lg:grid-cols-[1fr_1.1fr] lg:items-start lg:gap-16">
                 <div>
@@ -87,7 +87,7 @@ function onKeydown(event: KeyboardEvent, index: number) {
                             :aria-selected="activeIndex === index"
                             :aria-controls="`step-panel-${step.id}`"
                             :tabindex="activeIndex === index ? 0 : -1"
-                            class="border-brand-green-gray/60 focus-visible:ring-brand-teal flex w-full items-center gap-4 border-t py-5 text-left transition-colors last:border-b focus-visible:ring-2 focus-visible:outline-none motion-reduce:transition-none"
+                            class="border-brand-green-gray/60 focus-visible:ring-brand-teal flex w-full items-center gap-3 border-t py-4 text-left transition-colors last:border-b focus-visible:ring-2 focus-visible:outline-none motion-reduce:transition-none sm:gap-4 sm:py-5"
                             @click="activeIndex = index"
                             @keydown="onKeydown($event, index)"
                         >
@@ -98,7 +98,7 @@ function onKeydown(event: KeyboardEvent, index: number) {
                                 {{ String(index + 1).padStart(2, '0') }}
                             </span>
                             <span
-                                class="min-w-0 flex-1 text-lg font-bold transition-colors motion-reduce:transition-none"
+                                class="min-w-0 flex-1 text-base font-bold transition-colors motion-reduce:transition-none sm:text-lg"
                                 :class="activeIndex === index ? 'text-brand-teal' : 'text-brand-black'"
                             >
                                 {{ step.title }}
@@ -114,7 +114,7 @@ function onKeydown(event: KeyboardEvent, index: number) {
                     </div>
                 </div>
 
-                <div class="bg-brand-teal relative overflow-hidden rounded-[24px] p-6 sm:p-10">
+                <div class="bg-brand-teal relative overflow-hidden rounded-[24px] p-5 sm:p-10">
                     <img
                         src="/path-green.svg"
                         alt=""

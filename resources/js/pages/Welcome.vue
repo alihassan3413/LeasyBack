@@ -21,7 +21,8 @@ import { Head } from '@inertiajs/vue3';
         <link rel="preconnect" href="https://fonts.bunny.net" />
     </Head>
 
-    <div class="text-brand-black min-h-screen bg-[#FAFAFA] antialiased">
+    <!-- overflow-x-clip (not -hidden) keeps the decorative SVGs contained without breaking the sticky header. -->
+    <div class="text-brand-black min-h-screen overflow-x-clip bg-[#FAFAFA] antialiased">
         <LandingHeader />
 
         <main>

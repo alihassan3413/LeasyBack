@@ -16,7 +16,7 @@ const damageRows = [
     <section class="relative overflow-hidden px-4 pt-10 sm:px-6 lg:px-8 lg:pt-16">
         <div class="mx-auto max-w-7xl">
             <div
-                class="border-brand-green-gray/50 relative overflow-hidden rounded-[24px] border bg-white px-5 pt-12 pb-12 shadow-[0_4px_24px_rgba(16,57,59,0.06)] sm:px-8 lg:px-14 lg:pt-20 lg:pb-20"
+                class="border-brand-green-gray/50 relative overflow-hidden rounded-[24px] border bg-white px-4 pt-10 pb-10 shadow-[0_4px_24px_rgba(16,57,59,0.06)] sm:px-8 sm:pt-12 sm:pb-12 lg:px-14 lg:pt-20 lg:pb-20"
             >
                 <img
                     src="/path-orange.svg"
@@ -31,7 +31,7 @@ const damageRows = [
                     class="pointer-events-none absolute -bottom-20 -left-24 w-[380px] max-w-none opacity-20"
                 />
 
-                <div class="relative grid items-center gap-12 lg:grid-cols-[1.05fr_1fr] lg:gap-10">
+                <div class="relative grid items-center gap-10 sm:gap-12 lg:grid-cols-[1.05fr_1fr] lg:gap-10">
                     <div
                         class="translate-y-0 opacity-100 transition-all duration-700 motion-reduce:transition-none starting:translate-y-3 starting:opacity-0"
                     >
@@ -43,13 +43,13 @@ const damageRows = [
                         </p>
 
                         <h1
-                            class="text-brand-teal mt-6 text-[2.35rem] leading-[1.06] font-bold tracking-[-0.02em] break-words sm:text-6xl lg:text-[4.1rem]"
+                            class="text-brand-teal mt-5 text-[1.95rem] leading-[1.12] font-bold tracking-[-0.02em] break-words sm:mt-6 sm:text-5xl sm:leading-[1.06] lg:text-[4.1rem]"
                         >
-                            Leasing zurückgeben.<br />
+                            Leasing zurückgeben.<br class="hidden lg:inline" />
                             Ohne teure Überraschung.
                         </h1>
 
-                        <p class="text-brand-black mt-6 max-w-xl text-base leading-relaxed sm:text-lg">
+                        <p class="text-brand-black mt-5 max-w-xl text-base leading-relaxed sm:mt-6 sm:text-lg">
                             Sicher dir jetzt dein kostenloses Minderwert-Gutachten, erhalte günstige
                             <span class="text-brand-orange font-semibold">Reparaturangebote</span>
                             und gib dein Leasingfahrzeug mit bis zu 42 % Ersparnis stressfrei zurück!
@@ -58,7 +58,7 @@ const damageRows = [
                         <div class="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
                             <Link
                                 :href="route('register')"
-                                class="group bg-brand-orange hover:bg-brand-orange/90 focus-visible:ring-brand-orange inline-flex w-full items-center justify-center gap-2 rounded-[5px] px-6 py-3 text-base font-bold text-white transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none sm:w-auto"
+                                class="group bg-brand-orange hover:bg-brand-orange/90 focus-visible:ring-brand-orange inline-flex w-full items-center justify-center gap-2 rounded-[5px] px-4 py-3 text-center text-[15px] leading-snug font-bold text-white transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none sm:w-auto sm:px-6 sm:text-base"
                             >
                                 Kostenloses Gutachten starten
                                 <ArrowRight
@@ -68,7 +68,7 @@ const damageRows = [
                             </Link>
                             <a
                                 href="#ablauf"
-                                class="border-brand-green-gray text-brand-teal hover:bg-brand-teal/[0.04] focus-visible:ring-brand-teal inline-flex w-full items-center justify-center rounded-[5px] border px-6 py-3 text-base font-bold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none sm:w-auto"
+                                class="border-brand-green-gray text-brand-teal hover:bg-brand-teal/[0.04] focus-visible:ring-brand-teal inline-flex w-full items-center justify-center rounded-[5px] border px-4 py-3 text-[15px] leading-snug font-bold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none sm:w-auto sm:px-6 sm:text-base"
                             >
                                 So funktioniert’s
                             </a>
@@ -145,10 +145,16 @@ const damageRows = [
                             </div>
 
                             <ul class="mt-5 space-y-3">
-                                <li v-for="row in damageRows" :key="row.label" class="flex items-center justify-between gap-3 text-sm">
-                                    <span class="text-brand-black min-w-0 flex-1 truncate">{{ row.label }}</span>
-                                    <span class="text-brand-green-gray shrink-0 line-through">{{ row.claim }}</span>
-                                    <span class="text-brand-teal shrink-0 font-bold">{{ row.offer }}</span>
+                                <li
+                                    v-for="row in damageRows"
+                                    :key="row.label"
+                                    class="flex flex-col gap-0.5 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+                                >
+                                    <span class="text-brand-black min-w-0 sm:flex-1 sm:truncate">{{ row.label }}</span>
+                                    <span class="flex shrink-0 items-center gap-3">
+                                        <span class="text-brand-green-gray line-through">{{ row.claim }}</span>
+                                        <span class="text-brand-teal font-bold">{{ row.offer }}</span>
+                                    </span>
                                 </li>
                             </ul>
 

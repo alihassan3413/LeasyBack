@@ -16,6 +16,10 @@ Homestead.yaml
 npm-debug.log
 yarn-error.log
 /auth.json
+
+# Per-server deployment settings (domain, DB password). Copied from
+# deploy/config.example.sh on the server — never committed.
+/deploy/config.sh
 /.fleet
 /.idea
 /.nova

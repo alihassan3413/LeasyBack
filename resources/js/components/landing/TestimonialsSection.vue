@@ -25,7 +25,7 @@ const testimonials = [
 </script>
 
 <template>
-    <section id="stimmen" class="px-4 py-16 sm:px-6 lg:px-8 lg:py-24">
+    <section id="stimmen" class="scroll-mt-24 px-4 py-12 sm:px-6 sm:py-16 lg:px-8 lg:py-24">
         <div class="mx-auto max-w-7xl">
             <div class="mx-auto max-w-2xl text-center">
                 <p class="text-brand-green-gray text-xs font-medium tracking-[0.16em] uppercase">Stimmen</p>

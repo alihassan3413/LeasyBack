@@ -1,0 +1,18 @@
+; Managed by deploy/provision.sh — placeholders are substituted at install time.
+; Laravel Reverb websocket server. Nginx proxies /app/ and /apps/ to this port.
+
+[program:leasyback-reverb]
+process_name=%(program_name)s
+command=/usr/bin/php__PHP_VERSION__ __APP_DIR__/artisan reverb:start --host=127.0.0.1 --port=__REVERB_PORT__
+directory=__APP_DIR__
+autostart=true
+autorestart=true
+stopasgroup=true
+killasgroup=true
+user=__DEPLOY_USER__
+numprocs=1
+redirect_stderr=true
+stdout_logfile=__APP_DIR__/storage/logs/reverb.log
+stdout_logfile_maxbytes=20MB
+stdout_logfile_backups=3
+stopwaitsecs=10

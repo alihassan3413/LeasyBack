@@ -1,0 +1,76 @@
+# Managed by deploy/provision.sh — placeholders are substituted at install time.
+# Nginx site for the Leasyback Laravel app (HTTP only; certbot adds the TLS
+# server block and the :80 -> :443 redirect when you run it in provision.sh).
+
+server {
+    listen 80;
+    listen [::]:80;
+
+    server_name __DOMAIN__;
+    root __APP_DIR__/public;
+
+    index index.php;
+    charset utf-8;
+
+    # Vehicle photos / documents are uploaded through this app.
+    client_max_body_size __UPLOAD_MAX__;
+
+    add_header X-Frame-Options "SAMEORIGIN";
+    add_header X-Content-Type-Options "nosniff";
+    add_header Referrer-Policy "strict-origin-when-cross-origin";
+
+    # ---- Laravel Reverb (websockets) ------------------------------------
+    # /app/{key}  -> client websocket connection
+    # /apps/{id}  -> server-side broadcasting HTTP API
+    location ~ ^/(app|apps)/ {
+        proxy_pass http://127.0.0.1:__REVERB_PORT__;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    # Long-cache the Vite build output (hashed filenames).
+    location /build/ {
+        expires 1y;
+        access_log off;
+        add_header Cache-Control "public, immutable";
+        try_files $uri =404;
+    }
+
+    location = /favicon.ico { access_log off; log_not_found off; }
+    location = /robots.txt  { access_log off; log_not_found off; }
+
+    location ~ \.php$ {
+        fastcgi_pass unix:/run/php/php__PHP_VERSION__-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+        fastcgi_param DOCUMENT_ROOT $realpath_root;
+        include fastcgi_params;
+        fastcgi_read_timeout 120;
+        fastcgi_buffers 16 16k;
+        fastcgi_buffer_size 32k;
+    }
+
+    # Never serve dotfiles (.env, .git) even if they land in public/.
+    location ~ /\.(?!well-known).* {
+        deny all;
+    }
+
+    gzip on;
+    gzip_types text/css application/javascript application/json image/svg+xml;
+    gzip_min_length 1000;
+
+    error_page 404 /index.php;
+
+    access_log /var/log/nginx/leasyback-access.log;
+    error_log  /var/log/nginx/leasyback-error.log;
+}

@@ -4,9 +4,9 @@ import { ArrowRight } from 'lucide-vue-next';
 </script>
 
 <template>
-    <section class="px-4 pt-4 pb-16 sm:px-6 lg:px-8 lg:pb-24">
+    <section class="px-4 pt-4 pb-12 sm:px-6 sm:pb-16 lg:px-8 lg:pb-24">
         <div class="mx-auto max-w-7xl">
-            <div class="bg-brand-teal relative overflow-hidden rounded-[24px] px-6 py-14 text-center sm:px-10 lg:px-16 lg:py-20">
+            <div class="bg-brand-teal relative overflow-hidden rounded-[24px] px-5 py-12 text-center sm:px-10 sm:py-14 lg:px-16 lg:py-20">
                 <img
                     src="/path-orange.svg"
                     alt=""
@@ -30,7 +30,7 @@ import { ArrowRight } from 'lucide-vue-next';
                     <div class="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
                         <Link
                             :href="route('register')"
-                            class="group bg-brand-orange hover:bg-brand-orange/90 focus-visible:ring-brand-orange focus-visible:ring-offset-brand-teal inline-flex w-full items-center justify-center gap-2 rounded-[5px] px-6 py-3 text-base font-bold text-white transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none sm:w-auto"
+                            class="group bg-brand-orange hover:bg-brand-orange/90 focus-visible:ring-brand-orange focus-visible:ring-offset-brand-teal inline-flex w-full items-center justify-center gap-2 rounded-[5px] px-4 py-3 text-center text-[15px] leading-snug font-bold text-white transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none sm:w-auto sm:px-6 sm:text-base"
                         >
                             Kostenloses Gutachten starten
                             <ArrowRight
@@ -40,7 +40,7 @@ import { ArrowRight } from 'lucide-vue-next';
                         </Link>
                         <Link
                             :href="route('login')"
-                            class="focus-visible:ring-offset-brand-teal inline-flex w-full items-center justify-center rounded-[5px] border border-white/30 px-6 py-3 text-base font-bold text-white transition-colors hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:outline-none sm:w-auto"
+                            class="focus-visible:ring-offset-brand-teal inline-flex w-full items-center justify-center rounded-[5px] border border-white/30 px-4 py-3 text-center text-[15px] leading-snug font-bold text-white transition-colors hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:outline-none sm:w-auto sm:px-6 sm:text-base"
                         >
                             Ich habe schon ein Konto
                         </Link>

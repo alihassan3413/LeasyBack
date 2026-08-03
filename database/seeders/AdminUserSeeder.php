@@ -23,12 +23,12 @@ class AdminUserSeeder extends Seeder
                 'name' => 'Leasyback Admin',
                 'email' => 'admin@leasyback.com',
                 'user_type' => 'Admin',
-                'password' => Hash::make('Admin@1234'),
+                'password' => Hash::make('12345678'),
                 'is_active' => true,
                 'email_verified_at' => now(),
             ])
             ->save();
 
-        $this->command->info('Admin user seeded: admin@leasyback.com / Admin@1234');
+        $this->command->info('Admin user seeded: admin@leasyback.com / 12345678');
     }
 }

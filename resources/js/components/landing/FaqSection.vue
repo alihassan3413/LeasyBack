@@ -43,7 +43,7 @@ function toggle(id: string) {
 </script>
 
 <template>
-    <section id="faq" class="px-4 py-16 sm:px-6 lg:px-8 lg:py-24">
+    <section id="faq" class="scroll-mt-24 px-4 py-12 sm:px-6 sm:py-16 lg:px-8 lg:py-24">
         <div class="mx-auto max-w-7xl">
             <div class="grid gap-10 lg:grid-cols-[0.8fr_1.2fr] lg:gap-16">
                 <div>
@@ -65,7 +65,7 @@ function toggle(id: string) {
                         <dt>
                             <button
                                 type="button"
-                                class="focus-visible:ring-brand-teal flex w-full items-center justify-between gap-4 py-5 text-left focus-visible:ring-2 focus-visible:outline-none"
+                                class="focus-visible:ring-brand-teal flex w-full items-center justify-between gap-3 py-4 text-left focus-visible:ring-2 focus-visible:outline-none sm:gap-4 sm:py-5"
                                 :aria-expanded="openId === faq.id"
                                 :aria-controls="`faq-answer-${faq.id}`"
                                 @click="toggle(faq.id)"
@@ -81,7 +81,7 @@ function toggle(id: string) {
                                 </span>
                             </button>
                         </dt>
-                        <dd v-show="openId === faq.id" :id="`faq-answer-${faq.id}`" class="text-brand-black pr-12 pb-6 text-sm leading-relaxed">
+                        <dd v-show="openId === faq.id" :id="`faq-answer-${faq.id}`" class="text-brand-black pb-6 text-sm leading-relaxed sm:pr-12">
                             {{ faq.answer }}
                         </dd>
                     </div>

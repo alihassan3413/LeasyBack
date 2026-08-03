@@ -1,0 +1,18 @@
+; Managed by deploy/provision.sh — placeholders are substituted at install time.
+; Laravel queue workers (mail, web-push notifications, DEKRA/TÜV SÜD jobs).
+
+[program:leasyback-worker]
+process_name=%(program_name)s_%(process_num)02d
+command=/usr/bin/php__PHP_VERSION__ __APP_DIR__/artisan queue:work --queue=default --sleep=3 --tries=3 --max-time=3600 --max-jobs=1000
+directory=__APP_DIR__
+autostart=true
+autorestart=true
+stopasgroup=true
+killasgroup=true
+user=__DEPLOY_USER__
+numprocs=__QUEUE_WORKERS__
+redirect_stderr=true
+stdout_logfile=__APP_DIR__/storage/logs/worker.log
+stdout_logfile_maxbytes=20MB
+stdout_logfile_backups=3
+stopwaitsecs=3600
