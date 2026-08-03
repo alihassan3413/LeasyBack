@@ -37,9 +37,24 @@ class SystemNotification extends Notification implements ShouldQueue
         return $this->payload->toArray();
     }
 
+    /**
+     * Broadcast inline instead of via the queue.
+     *
+     * BroadcastChannel wraps this in a BroadcastNotificationCreated event,
+     * which is itself ShouldBroadcast — so without this the socket push sits
+     * on the queue even when the notification was sent with sendNow(), and
+     * the bell only catches up on the next page visit. BroadcastChannel
+     * copies this connection onto that event, which is what makes it fire
+     * on the current request.
+     *
+     * Only the socket push is affected: `database` still writes inline as
+     * before and WebPush still queues, so a slow push service cannot hold up
+     * the request. Every caller reaches this through Notifier, which already
+     * swallows and logs a failed dispatch.
+     */
     public function toBroadcast(object $notifiable): BroadcastMessage
     {
-        return new BroadcastMessage($this->payload->toArray());
+        return (new BroadcastMessage($this->payload->toArray()))->onConnection('sync');
     }
 
     public function toWebPush(object $notifiable, Notification $notification): WebPushMessage
