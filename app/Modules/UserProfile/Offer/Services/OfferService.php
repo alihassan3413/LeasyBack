@@ -3,7 +3,6 @@
 namespace App\Modules\UserProfile\Offer\Services;
 
 use App\Enums\NotificationType;
-use App\Mail\StatusChangeNotification;
 use App\Models\LeasybackOffer;
 use App\Models\LeasybackOrder;
 use App\Models\OfferAuditLog;
@@ -11,17 +10,17 @@ use App\Models\OrderAuditLog;
 use App\Models\User;
 use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
 use App\Notifications\NotificationPayload;
+use App\Services\Mail\OrderMailer;
 use App\Services\Notifier;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 
 class OfferService
 {
     public function __construct(
         private readonly VehicleScopeService $vehicleScope,
         private readonly Notifier $notifier,
+        private readonly OrderMailer $orderMailer,
     ) {}
 
     /**
@@ -70,12 +69,9 @@ class OfferService
         });
 
         // A published offer is the moment the customer has something
-        // actionable to review — the second of the two real notification
-        // triggers this checkpoint wires up (order-created and
-        // order-status-changed cover the rest; see OrderService/
-        // TransitionOrderStatus). Reuses StatusChangeNotification's
-        // existing generic "there's an update to your vehicle" copy rather
-        // than inventing offer-specific content.
+        // actionable to review, so it gets its own "Reparaturangebot liegt
+        // vor" email (OrderMailer::repairQuotationAvailable) rather than the
+        // generic status-update copy.
         $this->notifyOfferPublished($offer);
 
         return $offer;
@@ -190,7 +186,11 @@ class OfferService
             ]);
         });
 
-        return ['offer' => $offer->fresh(), 'closed_count' => $closedCount];
+        $selected = $offer->fresh() ?? $offer;
+
+        $this->notifyOfferSelected($selected);
+
+        return ['offer' => $selected, 'closed_count' => $closedCount];
     }
 
     private function auditOffer(LeasybackOffer $offer, string $action, ?array $old, ?array $new, ?int $userId): void
@@ -227,25 +227,15 @@ class OfferService
             ),
         );
 
-        $owner = $this->vehicleScope->resolveOwnerContact($vehicle);
-        if ($owner === null) {
-            Log::warning('Could not resolve a vehicle owner contact — skipping offer-published notification', [
-                'auftragsnummer' => $offer->auftragsnummer,
-                'offer_id' => $offer->offer_id,
-            ]);
+        $this->orderMailer->repairQuotationAvailable($offer);
+    }
 
-            return;
-        }
-
-        try {
-            Mail::to($owner['email'])->queue(new StatusChangeNotification(
-                firstName: $owner['name'],
-                licensePlate: $vehicle->license_plate,
-                actionUrl: rtrim((string) config('app.frontend_url'), '/').'/dashboard',
-            ));
-        } catch (\Throwable $e) {
-            Log::error('Offer-published notification failed', ['offer_id' => $offer->offer_id, 'error' => $e->getMessage()]);
-        }
+    /**
+     * Best-effort, never breaks the selection if the send fails.
+     */
+    private function notifyOfferSelected(LeasybackOffer $offer): void
+    {
+        $this->orderMailer->repairApprovalConfirmed($offer);
     }
 
     private function fail(int $status, string $message): never

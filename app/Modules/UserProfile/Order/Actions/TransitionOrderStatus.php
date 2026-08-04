@@ -3,16 +3,14 @@
 namespace App\Modules\UserProfile\Order\Actions;
 
 use App\Enums\NotificationType;
-use App\Mail\StatusChangeNotification;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Order\Models\OrderStatusUpdate;
 use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
 use App\Notifications\NotificationPayload;
+use App\Services\Mail\OrderMailer;
 use App\Services\Notifier;
 use App\Support\OrderStatusLabel;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -44,6 +42,7 @@ class TransitionOrderStatus
     public function __construct(
         private readonly VehicleScopeService $vehicleScope,
         private readonly Notifier $notifier,
+        private readonly OrderMailer $orderMailer,
     ) {}
 
     /**
@@ -145,25 +144,7 @@ class TransitionOrderStatus
             ),
         );
 
-        $owner = $this->vehicleScope->resolveOwnerContact($vehicle);
-        if ($owner === null) {
-            Log::warning('Could not resolve a vehicle owner contact — skipping status-change notification', [
-                'auftragsnummer' => $order->auftragsnummer,
-                'vehicle_id' => $vehicle->vehicle_id,
-            ]);
-
-            return;
-        }
-
-        try {
-            Mail::to($owner['email'])->queue(new StatusChangeNotification(
-                firstName: $owner['name'],
-                licensePlate: $vehicle->license_plate,
-                actionUrl: rtrim((string) config('app.frontend_url'), '/').'/dashboard',
-            ));
-        } catch (\Throwable $e) {
-            Log::error('Status-change notification failed', ['auftragsnummer' => $order->auftragsnummer, 'error' => $e->getMessage()]);
-        }
+        $this->orderMailer->statusUpdated($order, $vehicle);
     }
 
     /**

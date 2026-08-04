@@ -68,13 +68,14 @@ return [
     ],
 
     'notifications' => [
-        // Internal/ops recipient for OrderCreatedNotification (staff-facing
-        // "a new order came in", not customer-facing). No hardcoded
-        // personal-address default, on purpose — the reference system's
-        // biggest email flaw was exactly that (a hardcoded personal Gmail
-        // address as the effective only recipient, docs/B2C_ADMIN_MIGRATION_AUDIT.md
-        // §4.7). If unset, order-created ops emails are skipped (logged),
-        // not silently sent nowhere useful.
+        // Legacy single-value ops recipient, still honoured as the fallback
+        // for mail_notifications.admin_recipients (staff-facing "a new order
+        // came in", not customer-facing). No hardcoded personal-address
+        // default, on purpose — the reference system's biggest email flaw was
+        // exactly that (a hardcoded personal Gmail address as the effective
+        // only recipient, docs/B2C_ADMIN_MIGRATION_AUDIT.md §4.7). If unset,
+        // order-created ops emails are skipped (logged), not silently sent
+        // nowhere useful.
         'ops_email' => env('OPS_NOTIFICATION_EMAIL'),
     ],
 

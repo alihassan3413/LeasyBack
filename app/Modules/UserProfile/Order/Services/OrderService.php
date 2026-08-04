@@ -2,21 +2,17 @@
 
 namespace App\Modules\UserProfile\Order\Services;
 
-use App\Mail\OrderCreatedNotification;
-use App\Mail\StatusChangeNotification;
 use App\Models\InspectionStation;
 use App\Models\OrderAuditLog;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
-use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
 use App\Modules\UserProfile\Vehicle\Services\VehicleService;
+use App\Services\Mail\OrderMailer;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 
 /**
  * Order-creation logic extracted from the Sanctum API OrderController so
@@ -29,7 +25,7 @@ class OrderService
     public function __construct(
         private readonly VehicleService $vehicleService,
         private readonly TransitionOrderStatus $transitionOrderStatus,
-        private readonly VehicleScopeService $vehicleScope,
+        private readonly OrderMailer $orderMailer,
     ) {}
 
     /**
@@ -102,7 +98,7 @@ class OrderService
                 return $order;
             });
 
-            $this->notifyOrderCreated($order, $vehicle, 'tuvsud');
+            $this->orderMailer->orderCreated($order, $vehicle);
 
             return $order;
         }
@@ -136,7 +132,7 @@ class OrderService
             return $order;
         });
 
-        $this->notifyOrderCreated($order, $vehicle, 'tuvsud');
+        $this->orderMailer->orderCreated($order, $vehicle);
 
         return $order;
     }
@@ -183,7 +179,7 @@ class OrderService
             return $order;
         });
 
-        $this->notifyOrderCreated($order, $vehicle, $validated['provider']);
+        $this->orderMailer->orderCreated($order, $vehicle);
 
         return $order;
     }
@@ -257,58 +253,6 @@ class OrderService
             'new_values' => $new,
             'changed_by_user_id' => $userId,
         ]);
-    }
-
-    /**
-     * Two separate, best-effort (never breaks order creation) emails: an
-     * internal ops notification (config-driven recipient, never a
-     * hardcoded personal address — the exact flaw
-     * docs/B2C_ADMIN_MIGRATION_AUDIT.md §4.7 flags in the reference
-     * system) and a customer-facing notification to the real vehicle
-     * owner, resolved via VehicleScopeService::resolveOwnerContact()
-     * rather than any fallback/placeholder address.
-     */
-    private function notifyOrderCreated(LeasybackOrder $order, Vehicle $vehicle, string $provider): void
-    {
-        $opsEmail = config('services.notifications.ops_email');
-        if ($opsEmail) {
-            try {
-                $station = $order->request_payload['besichtigungsort'] ?? [];
-                Mail::to($opsEmail)->queue(new OrderCreatedNotification(
-                    auftragsnummer: $order->auftragsnummer,
-                    provider: $provider,
-                    licensePlate: $vehicle->license_plate,
-                    vin: $vehicle->vin,
-                    make: $vehicle->make,
-                    model: $vehicle->model,
-                    stationName: $station['name'] ?? '',
-                    stationAddress: trim(($station['strasse'] ?? '').', '.($station['plz'] ?? '').' '.($station['ort'] ?? ''), ', '),
-                    termin: $station['termin'] ?? '',
-                    remarks: $order->request_payload['auftrag']['bemerkung'] ?? null,
-                ));
-            } catch (\Throwable $e) {
-                Log::error('Order-created ops notification failed', ['auftragsnummer' => $order->auftragsnummer, 'error' => $e->getMessage()]);
-            }
-        } else {
-            Log::warning('services.notifications.ops_email is not configured — skipping order-created ops notification', ['auftragsnummer' => $order->auftragsnummer]);
-        }
-
-        $owner = $this->vehicleScope->resolveOwnerContact($vehicle);
-        if ($owner === null) {
-            Log::warning('Could not resolve a vehicle owner contact — skipping order-created customer notification', ['vehicle_id' => $vehicle->vehicle_id]);
-
-            return;
-        }
-
-        try {
-            Mail::to($owner['email'])->queue(new StatusChangeNotification(
-                firstName: $owner['name'],
-                licensePlate: $vehicle->license_plate,
-                actionUrl: rtrim((string) config('app.frontend_url'), '/').'/dashboard',
-            ));
-        } catch (\Throwable $e) {
-            Log::error('Order-created customer notification failed', ['auftragsnummer' => $order->auftragsnummer, 'error' => $e->getMessage()]);
-        }
     }
 
     private function fail(int $status, string $message): never

@@ -4,8 +4,11 @@ namespace Tests\Feature\Order;
 
 use App\Enums\OrderStatus;
 use App\Enums\UserType;
-use App\Mail\OrderCreatedNotification;
-use App\Mail\StatusChangeNotification;
+use App\Mail\Orders\AppointmentRequestedMail;
+use App\Mail\Orders\InitialInspectionCompletedMail;
+use App\Mail\Orders\OrderCreatedAdminMail;
+use App\Mail\Orders\OrderCreatedCustomerMail;
+use App\Mail\Orders\OrderStatusUpdatedMail;
 use App\Models\User;
 use App\Modules\UserProfile\B2B\Models\B2B;
 use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
@@ -38,7 +41,7 @@ class OrderAuditAndNotificationTest extends TestCase
     public function test_creating_a_privatkunde_order_writes_a_create_order_audit_entry_and_notifies_the_owner(): void
     {
         Mail::fake();
-        config(['services.notifications.ops_email' => 'ops@leasyback.test']);
+        config(['mail_notifications.admin_recipients' => ['ops@leasyback.test']]);
         Http::fake(['*' => Http::response(['ok' => true], 200)]);
         $owner = User::factory()->create(['user_type' => UserType::Privatkunde, 'email' => 'owner@example.com']);
         $vehicle = Vehicle::factory()->create(['b2c_user_id' => $owner->id]);
@@ -56,8 +59,8 @@ class OrderAuditAndNotificationTest extends TestCase
             'action' => 'CREATE_ORDER',
         ]);
 
-        Mail::assertQueued(OrderCreatedNotification::class, fn ($mail) => $mail->hasTo('ops@leasyback.test'));
-        Mail::assertQueued(StatusChangeNotification::class, fn ($mail) => $mail->hasTo('owner@example.com'));
+        Mail::assertQueued(OrderCreatedAdminMail::class, fn ($mail) => $mail->hasTo('ops@leasyback.test'));
+        Mail::assertQueued(OrderCreatedCustomerMail::class, fn ($mail) => $mail->hasTo('owner@example.com'));
     }
 
     public function test_creating_a_firmenkunde_order_writes_a_request_order_audit_entry(): void
@@ -92,7 +95,7 @@ class OrderAuditAndNotificationTest extends TestCase
             'action' => 'REQUEST_ORDER',
         ]);
 
-        Mail::assertQueued(StatusChangeNotification::class, fn ($mail) => $mail->hasTo('fleet@acme.example'));
+        Mail::assertQueued(AppointmentRequestedMail::class, fn ($mail) => $mail->hasTo('fleet@acme.example'));
     }
 
     public function test_approving_an_order_writes_an_approve_order_audit_entry(): void
@@ -116,7 +119,7 @@ class OrderAuditAndNotificationTest extends TestCase
         // TransitionOrderStatus already sent the customer-facing
         // notification for this transition — approveOrder() must not
         // send a second one.
-        Mail::assertQueued(StatusChangeNotification::class, 1);
+        Mail::assertQueued(OrderStatusUpdatedMail::class, 1);
     }
 
     public function test_a_real_status_transition_sends_exactly_one_customer_notification(): void
@@ -128,8 +131,8 @@ class OrderAuditAndNotificationTest extends TestCase
 
         app(TransitionOrderStatus::class)->__invoke($order, 'inspected', 'admin', 'Tester', null);
 
-        Mail::assertQueued(StatusChangeNotification::class, fn ($mail) => $mail->hasTo('owner2@example.com'));
-        Mail::assertQueued(StatusChangeNotification::class, 1);
+        Mail::assertQueued(InitialInspectionCompletedMail::class, fn ($mail) => $mail->hasTo('owner2@example.com'));
+        Mail::assertQueued(InitialInspectionCompletedMail::class, 1);
     }
 
     /**

@@ -21,4 +21,8 @@ require __DIR__.'/notifications.php';
 require __DIR__.'/settings.php';
 require __DIR__.'/auth.php';
 
+if (app()->environment('local')) {
+    require __DIR__.'/dev.php';
+}
+
 load_module_routes();

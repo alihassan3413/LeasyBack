@@ -22,7 +22,7 @@
       .container { width: 100% !important; }
       .content { padding: 28px 22px !important; }
       .hero { padding: 36px 22px !important; }
-      .logo { width: 310px !important; }
+      .logo { width: 190px !important; }
       .mobile-small { font-size: 24px !important; }
     }
     @media (prefers-color-scheme: dark) {
@@ -46,8 +46,9 @@
           <!-- Header -->
           <tr>
             <td class="hero" align="center" style="background:#0b4f49;padding:46px 28px 40px 28px;">
-              <img class="logo" src="https://d1sge3z4c43rq6.cloudfront.net/logo_leasyback.png"
-                width="360" alt="LeasyBack" style="display:block;width:360px;max-width:100%;height:auto;">
+              <img class="logo"
+                src="{{ config('mail_notifications.branding.logo_url') ?: asset(config('mail_notifications.branding.logo_asset')) }}"
+                width="230" alt="{{ config('mail.from.name') }}" style="display:block;width:230px;max-width:100%;height:auto;">
             </td>
           </tr>
 
