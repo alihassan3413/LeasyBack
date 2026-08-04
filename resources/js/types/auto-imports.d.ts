@@ -85,6 +85,7 @@ declare global {
   const readonly: typeof import('vue').readonly
   const ref: typeof import('vue').ref
   const resolveComponent: typeof import('vue').resolveComponent
+  const resolveErrorCopy: typeof import('../lib/errorPages').resolveErrorCopy
   const router: typeof import('@inertiajs/vue3').router
   const sanitizePlateNumber: typeof import('../lib/licensePlate').sanitizePlateNumber
   const shallowReactive: typeof import('vue').shallowReactive
@@ -164,6 +165,9 @@ declare global {
   // @ts-ignore
   export type { CustomerOrderStage, CustomerOrderFlowStep, CustomerOrderStatusHistoryEntry, CustomerOrderBesichtigungsort, CustomerOrderReportDocument, CustomerOrderOffer, CustomerOrderFlowInput } from '../lib/customerOrderFlow'
   import('../lib/customerOrderFlow')
+  // @ts-ignore
+  export type { ErrorPageCopy } from '../lib/errorPages'
+  import('../lib/errorPages')
   // @ts-ignore
   export type { OrderFlowStep } from '../lib/orderFlow'
   import('../lib/orderFlow')
@@ -259,6 +263,7 @@ declare module 'vue' {
     readonly readonly: UnwrapRef<typeof import('vue')['readonly']>
     readonly ref: UnwrapRef<typeof import('vue')['ref']>
     readonly resolveComponent: UnwrapRef<typeof import('vue')['resolveComponent']>
+    readonly resolveErrorCopy: UnwrapRef<typeof import('../lib/errorPages')['resolveErrorCopy']>
     readonly router: UnwrapRef<typeof import('@inertiajs/vue3')['router']>
     readonly sanitizePlateNumber: UnwrapRef<typeof import('../lib/licensePlate')['sanitizePlateNumber']>
     readonly shallowReactive: UnwrapRef<typeof import('vue')['shallowReactive']>

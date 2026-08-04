@@ -25,4 +25,10 @@ if (app()->environment('local')) {
     require __DIR__.'/dev.php';
 }
 
+if (app()->environment('local')) {
+    Route::get('/test-error/{code}', function (int $code) {
+        abort($code);
+    })->whereNumber('code');
+}
+
 load_module_routes();

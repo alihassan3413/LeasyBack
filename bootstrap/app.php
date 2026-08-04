@@ -1,5 +1,6 @@
 <?php
 
+use App\Exceptions\ErrorPageRenderer;
 use App\Http\Middleware\EnsureB2bPermission;
 use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Middleware\EnsureUserIsAdmin;
@@ -88,4 +89,10 @@ return Application::configure(basePath: dirname(__DIR__))
                 ], 500),
             };
         });
+
+        // Everything else that ends as a 4xx/5xx HTML response gets the
+        // branded Inertia error page. Runs on the finished response, so
+        // Laravel has already normalized exceptions to status codes
+        // (TokenMismatch -> 419, ModelNotFound -> 404, maintenance -> 503).
+        $exceptions->respond(new ErrorPageRenderer);
     })->create();
