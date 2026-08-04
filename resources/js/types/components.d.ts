@@ -103,6 +103,7 @@ declare module 'vue' {
     DropdownMenuSubTrigger: typeof import('./../components/ui/dropdown-menu/DropdownMenuSubTrigger.vue')['default']
     DropdownMenuTrigger: typeof import('./../components/ui/dropdown-menu/DropdownMenuTrigger.vue')['default']
     ErrorAction: typeof import('./../components/errors/ErrorAction.vue')['default']
+    ErrorIllustration: typeof import('./../components/errors/ErrorIllustration.vue')['default']
     ErrorPanel: typeof import('./../components/errors/ErrorPanel.vue')['default']
     ErrorShell: typeof import('./../components/errors/ErrorShell.vue')['default']
     FaqSection: typeof import('./../components/landing/FaqSection.vue')['default']

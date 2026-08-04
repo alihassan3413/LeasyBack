@@ -1,8 +1,21 @@
+export type ErrorIllustrationVariant =
+    | 'not-found'
+    | 'locked'
+    | 'timeout'
+    | 'expired'
+    | 'input'
+    | 'blocked'
+    | 'throttle'
+    | 'server'
+    | 'maintenance'
+    | 'generic';
+
 export interface ErrorPageCopy {
     /** Short label above the status code. */
     eyebrow: string;
     title: string;
     description: string;
+    illustration: ErrorIllustrationVariant;
     /** Offers a "try again" action — only where repeating the request can plausibly help. */
     retryable: boolean;
     /** Offers a sign-in action instead of the dashboard link as the primary call to action. */
@@ -16,6 +29,7 @@ const FALLBACK: ErrorPageCopy = {
     eyebrow: 'Fehler',
     title: 'Etwas ist schiefgelaufen',
     description: 'Die Seite konnte nicht geladen werden. Bitte versuchen Sie es erneut oder kehren Sie zur Übersicht zurück.',
+    illustration: 'generic',
     retryable: true,
     requiresSignIn: false,
     offerSupport: true,
@@ -26,6 +40,7 @@ const PAGES: Record<number, ErrorPageCopy> = {
         eyebrow: 'Ungültige Anfrage',
         title: 'Diese Anfrage konnten wir nicht lesen',
         description: 'Die Anfrage war unvollständig oder fehlerhaft. Bitte prüfen Sie Ihre Eingaben und versuchen Sie es noch einmal.',
+        illustration: 'input',
         retryable: true,
         requiresSignIn: false,
         offerSupport: false,
@@ -34,6 +49,7 @@ const PAGES: Record<number, ErrorPageCopy> = {
         eyebrow: 'Anmeldung erforderlich',
         title: 'Bitte melden Sie sich an',
         description: 'Für diesen Bereich benötigen Sie ein angemeldetes LeasyBack-Konto.',
+        illustration: 'locked',
         retryable: false,
         requiresSignIn: true,
         offerSupport: false,
@@ -43,6 +59,7 @@ const PAGES: Record<number, ErrorPageCopy> = {
         title: 'Dieser Bereich ist für Sie gesperrt',
         description:
             'Ihr Konto hat keine Berechtigung für diese Seite. Wenden Sie sich an Ihre Administratorin oder Ihren Administrator, wenn Sie Zugriff benötigen.',
+        illustration: 'locked',
         retryable: false,
         requiresSignIn: false,
         offerSupport: false,
@@ -51,6 +68,7 @@ const PAGES: Record<number, ErrorPageCopy> = {
         eyebrow: 'Nicht gefunden',
         title: 'Diese Seite gibt es nicht',
         description: 'Die Adresse ist falsch geschrieben, veraltet oder der Inhalt wurde verschoben.',
+        illustration: 'not-found',
         retryable: false,
         requiresSignIn: false,
         offerSupport: false,
@@ -59,6 +77,7 @@ const PAGES: Record<number, ErrorPageCopy> = {
         eyebrow: 'Nicht erlaubt',
         title: 'Diese Aktion ist hier nicht möglich',
         description: 'Der Aufruf passt nicht zu dieser Adresse. Bitte starten Sie den Vorgang noch einmal von vorn.',
+        illustration: 'blocked',
         retryable: false,
         requiresSignIn: false,
         offerSupport: false,
@@ -68,6 +87,7 @@ const PAGES: Record<number, ErrorPageCopy> = {
         title: 'Die Anfrage hat zu lange gedauert',
         description:
             'Die Verbindung wurde unterbrochen, bevor wir antworten konnten. Prüfen Sie Ihre Internetverbindung und versuchen Sie es erneut.',
+        illustration: 'timeout',
         retryable: true,
         requiresSignIn: false,
         offerSupport: false,
@@ -77,6 +97,7 @@ const PAGES: Record<number, ErrorPageCopy> = {
         title: 'Ihre Sitzung ist abgelaufen',
         description:
             'Aus Sicherheitsgründen wurde Ihre Sitzung beendet. Laden Sie die Seite neu oder melden Sie sich erneut an — Ihre Daten sind gespeichert.',
+        illustration: 'expired',
         retryable: true,
         requiresSignIn: true,
         offerSupport: false,
@@ -86,6 +107,7 @@ const PAGES: Record<number, ErrorPageCopy> = {
         eyebrow: 'Eingabe fehlerhaft',
         title: 'Diese Angaben konnten wir nicht verarbeiten',
         description: 'Einzelne Felder waren unvollständig oder ungültig. Bitte füllen Sie das Formular erneut aus.',
+        illustration: 'input',
         retryable: true,
         requiresSignIn: false,
         offerSupport: false,
@@ -94,6 +116,7 @@ const PAGES: Record<number, ErrorPageCopy> = {
         eyebrow: 'Zu viele Anfragen',
         title: 'Einen Moment bitte',
         description: 'Es kamen zu viele Anfragen in kurzer Zeit. Warten Sie einen Augenblick und versuchen Sie es dann noch einmal.',
+        illustration: 'throttle',
         retryable: true,
         requiresSignIn: false,
         offerSupport: false,
@@ -102,6 +125,7 @@ const PAGES: Record<number, ErrorPageCopy> = {
         eyebrow: 'Serverfehler',
         title: 'Bei uns ist etwas schiefgelaufen',
         description: 'Der Fehler liegt auf unserer Seite und wurde automatisch protokolliert. Bitte versuchen Sie es in Kürze noch einmal.',
+        illustration: 'server',
         retryable: true,
         requiresSignIn: false,
         offerSupport: true,
@@ -110,6 +134,7 @@ const PAGES: Record<number, ErrorPageCopy> = {
         eyebrow: 'Ungültige Antwort',
         title: 'Ein Dienst hat nicht korrekt geantwortet',
         description: 'Eine beteiligte Komponente ist gerade nicht erreichbar. Der Fehler ist meist nach wenigen Minuten behoben.',
+        illustration: 'server',
         retryable: true,
         requiresSignIn: false,
         offerSupport: true,
@@ -118,6 +143,7 @@ const PAGES: Record<number, ErrorPageCopy> = {
         eyebrow: 'Wartungsarbeiten',
         title: 'LeasyBack ist kurz nicht erreichbar',
         description: 'Wir arbeiten gerade an der Plattform. Bitte versuchen Sie es in wenigen Minuten noch einmal.',
+        illustration: 'maintenance',
         retryable: true,
         requiresSignIn: false,
         offerSupport: true,
@@ -126,6 +152,7 @@ const PAGES: Record<number, ErrorPageCopy> = {
         eyebrow: 'Zeitüberschreitung',
         title: 'Die Antwort hat zu lange gedauert',
         description: 'Ein beteiligter Dienst hat nicht rechtzeitig geantwortet. Bitte versuchen Sie es gleich noch einmal.',
+        illustration: 'timeout',
         retryable: true,
         requiresSignIn: false,
         offerSupport: true,

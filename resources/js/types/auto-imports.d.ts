@@ -166,7 +166,7 @@ declare global {
   export type { CustomerOrderStage, CustomerOrderFlowStep, CustomerOrderStatusHistoryEntry, CustomerOrderBesichtigungsort, CustomerOrderReportDocument, CustomerOrderOffer, CustomerOrderFlowInput } from '../lib/customerOrderFlow'
   import('../lib/customerOrderFlow')
   // @ts-ignore
-  export type { ErrorPageCopy } from '../lib/errorPages'
+  export type { ErrorIllustrationVariant, ErrorPageCopy } from '../lib/errorPages'
   import('../lib/errorPages')
   // @ts-ignore
   export type { OrderFlowStep } from '../lib/orderFlow'

@@ -17,7 +17,7 @@ const currentYear = new Date().getFullYear();
             src="/path-green.svg"
             alt=""
             aria-hidden="true"
-            class="pointer-events-none absolute -top-40 -right-32 hidden w-[560px] max-w-none opacity-[0.14] sm:block"
+            class="pointer-events-none absolute -bottom-32 -left-40 hidden w-[620px] max-w-none opacity-[0.1] lg:block"
         />
 
         <header class="relative z-10 px-6 pt-8 sm:px-10 sm:pt-10">
@@ -30,13 +30,13 @@ const currentYear = new Date().getFullYear();
         </header>
 
         <main class="relative z-10 flex flex-1 items-center px-6 py-14 sm:px-10 sm:py-20">
-            <div class="mx-auto w-full max-w-2xl">
+            <div class="mx-auto w-full max-w-5xl">
                 <slot />
             </div>
         </main>
 
         <footer class="relative z-10 px-6 pb-8 sm:px-10 sm:pb-10">
-            <p class="text-brand-black/50 mx-auto max-w-2xl text-xs">© {{ currentYear }} LeasyBack. Alle Rechte vorbehalten.</p>
+            <p class="text-brand-black/50 mx-auto max-w-5xl text-xs">© {{ currentYear }} LeasyBack. Alle Rechte vorbehalten.</p>
         </footer>
     </div>
 </template>

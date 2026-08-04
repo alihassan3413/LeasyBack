@@ -67,8 +67,10 @@ class ErrorPageRenderer
             return false;
         }
 
-        // Local debugging keeps Laravel's own detailed error pages.
-        if (config('app.debug')) {
+        // Local debugging keeps Laravel's stack-trace page for actual faults.
+        // A client error carries no trace worth reading, so those show the
+        // branded page in development too — same as production.
+        if (config('app.debug') && $status >= 500) {
             return false;
         }
 
