@@ -15,6 +15,12 @@ const ORDER_STATUS_DISPLAY: Record<string, VehicleStatusDisplay> = {
     reinspection: { label: 'Nachbegutachtung', variant: 'warning' },
     reworkshop: { label: 'Erneut in der Werkstatt', variant: 'warning' },
     delivered: { label: 'Abgeschlossen', variant: 'success' },
+    vehicle_collected: { label: 'Fahrzeug abgeholt', variant: 'default' },
+    workshop_commissioned: { label: 'Werkstatt beauftragt', variant: 'warning' },
+    repair_completed: { label: 'Reparatur abgeschlossen', variant: 'warning' },
+    vehicle_returned: { label: 'Fahrzeug zurückgegeben', variant: 'default' },
+    invoice_processed: { label: 'Rechnung verarbeitet', variant: 'default' },
+    completed: { label: 'Abgeschlossen', variant: 'success' },
     discarded: { label: 'Verworfen', variant: 'outline' },
     cancelled: { label: 'Storniert', variant: 'outline' },
 };
@@ -31,7 +37,7 @@ export function getVehicleStatusDisplay(latestOrderStatus: string | null | undef
 }
 
 export function isVehicleCompleted(latestOrderStatus: string | null | undefined): boolean {
-    return latestOrderStatus === 'delivered';
+    return latestOrderStatus === 'delivered' || latestOrderStatus === 'completed';
 }
 
 /** German order-status wording used across the dashboard, matching leasyback_web's lib/status.ts. */
@@ -44,6 +50,11 @@ const ORDER_STATUS_LABELS: Record<string, string> = {
     reinspection: 'Nachprüfung',
     reworkshop: 'Erneut in Werkstatt',
     delivered: 'Geliefert',
+    vehicle_collected: 'Fahrzeug abgeholt',
+    workshop_commissioned: 'Werkstatt beauftragt',
+    repair_completed: 'Reparatur abgeschlossen',
+    vehicle_returned: 'Fahrzeug zurückgegeben',
+    invoice_processed: 'Rechnung verarbeitet',
     completed: 'Abgeschlossen',
     discarded: 'Verworfen',
     cancelled: 'Storniert',

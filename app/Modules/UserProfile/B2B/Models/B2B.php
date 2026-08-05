@@ -10,12 +10,16 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Str;
 
 class B2B extends Model
 {
     protected $table = 'b2b';
+
     protected $primaryKey = 'b2b_id';
+
     public $incrementing = false;
+
     protected $keyType = 'string';
 
     protected $fillable = [
@@ -28,17 +32,21 @@ class B2B extends Model
         'logo_path',
         'contact_email',
         'is_active',
+        'service_fee_amount',
+        'service_fee_effective_from',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
+        'service_fee_amount' => 'decimal:2',
+        'service_fee_effective_from' => 'date',
     ];
 
     protected static function booted(): void
     {
         static::creating(function (self $model) {
             if (empty($model->b2b_id)) {
-                $model->b2b_id = (string) \Illuminate\Support\Str::uuid();
+                $model->b2b_id = (string) Str::uuid();
             }
         });
     }

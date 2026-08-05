@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\HandlesServiceValidationErrors;
 use App\Models\InspectionStation;
+use App\Modules\UserProfile\Order\Services\OrderCollectionService;
 use App\Modules\UserProfile\Order\Services\OrderService;
 use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
 use Illuminate\Http\RedirectResponse;
@@ -35,10 +36,20 @@ class OrderController extends Controller
             abort(404);
         }
 
+        if ($vehicle->vehicle_belongs === 'B2B') {
+            $validated = $request->validate(OrderCollectionService::b2bOrderRules());
+
+            return $this->withServiceErrorHandling(
+                'order',
+                fn () => $this->orderService->createB2bCollectionOrder($vehicle, $user, $validated)
+            ) ?? back()->with('success', 'Abholung wurde angefragt.');
+        }
+
         $validated = $request->validate([
             'station_id' => 'required|uuid|exists:inspection_stations,station_id',
             'termin' => 'required|date',
             'remarks' => 'nullable|string',
+            ...OrderCollectionService::customerRules(false),
         ]);
 
         $station = InspectionStation::find($validated['station_id']);

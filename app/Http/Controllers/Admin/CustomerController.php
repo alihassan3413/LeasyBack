@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\B2B;
 use App\Modules\UserProfile\Admin\Services\AdminQueryService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -86,5 +87,21 @@ class CustomerController extends Controller
         abort_unless($updated !== null, 404);
 
         return back()->with('success', 'Status wurde aktualisiert.');
+    }
+
+    public function updateServiceFee(Request $request, string $id): RedirectResponse
+    {
+        $company = B2B::find($id);
+
+        abort_unless($company !== null, 404);
+
+        $validated = $request->validate([
+            'service_fee_amount' => ['required', 'numeric', 'min:0', 'max:99999999.99'],
+            'service_fee_effective_from' => ['required', 'date_format:Y-m-d'],
+        ]);
+
+        $company->update($validated);
+
+        return back()->with('success', 'Servicepauschale wurde aktualisiert.');
     }
 }

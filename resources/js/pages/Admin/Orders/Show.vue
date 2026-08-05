@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import AdminAppraisalPositionsCard from '@/components/admin/AdminAppraisalPositionsCard.vue';
+import AdminCollectionCard from '@/components/admin/AdminCollectionCard.vue';
 import AdminOffersCard from '@/components/admin/AdminOffersCard.vue';
 import AdminOrderActionsMenu from '@/components/admin/AdminOrderActionsMenu.vue';
+import AdminOrderTasksCard from '@/components/admin/AdminOrderTasksCard.vue';
 import OrderMessages from '@/components/shared/OrderMessages.vue';
 import OrderStatusTimeline from '@/components/shared/OrderStatusTimeline.vue';
 import AdminLayout from '@/layouts/AdminLayout.vue';
@@ -50,8 +53,11 @@ const customerFlowSteps = computed(() =>
             document_title: document.document_title,
             created_at: document.created_at,
             url: document.signed_url,
+            published: document.published,
         })),
         offers: props.order.offers,
+        collection: props.order.collection,
+        channel: props.order.vehicle_belongs,
     }),
 );
 
@@ -227,7 +233,7 @@ function formatDateTime(value: string | null): string {
                 </section>
 
                 <section class="grid grid-cols-[1fr_1.15fr] gap-4 max-[1180px]:grid-cols-1">
-                    <div class="content-card overflow-hidden p-0">
+                    <div id="order-section-status" class="content-card overflow-hidden p-0">
                         <OrderStatusTimeline :entries="timelineEntries" :header-label="timelineHeaderLabel">
                             <template #actions="{ entry }">
                                 <a
@@ -255,15 +261,26 @@ function formatDateTime(value: string | null): string {
                     </div>
 
                     <div class="flex flex-col gap-4">
+                        <AdminOrderTasksCard v-if="order.tasks" :tasks="order.tasks" />
+
                         <OrderMessages
                             :order-id="order.id"
                             :auftragsnummer="order.auftragsnummer"
                             container-class="content-card overflow-hidden p-0"
                         />
 
-                        <AdminOffersCard :order-id="order.id" :offers="order.offers" />
+                        <AdminCollectionCard
+                            v-if="order.vehicle_belongs === 'B2B'"
+                            id="order-section-abholung"
+                            :order-id="order.id"
+                            :collection="order.collection"
+                        />
 
-                        <div class="content-card">
+                        <div id="order-section-angebote">
+                            <AdminOffersCard :order-id="order.id" :offers="order.offers" />
+                        </div>
+
+                        <div id="order-section-dokumente" class="content-card">
                             <div class="mb-4">
                                 <h2 class="text-[17px] font-extrabold tracking-[-0.3px] text-[#10393b]">Gutachten &amp; Rechnungen</h2>
                                 <p class="mt-0.5 text-[12px] font-medium text-[#9bb0af]">{{ order.report_documents.length }} Dokumente</p>
@@ -310,6 +327,14 @@ function formatDateTime(value: string | null): string {
                                 </div>
                             </div>
                         </div>
+
+                        <AdminAppraisalPositionsCard
+                            v-if="order.vehicle_belongs === 'B2B' && order.appraisal_positions"
+                            :order-id="order.id"
+                            :positions="order.appraisal_positions"
+                            :totals="order.appraisal_totals"
+                            :report-documents="order.report_documents"
+                        />
                     </div>
                 </section>
 

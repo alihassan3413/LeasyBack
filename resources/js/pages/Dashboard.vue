@@ -121,10 +121,10 @@ function handleToggle(vehicle: VehicleData) {
 const addVehicleOpen = ref(false);
 
 const orderModalOpen = ref(false);
-const orderVehicleId = ref<string | null>(null);
+const orderVehicle = ref<VehicleData | null>(null);
 
 function startProcess(vehicle: VehicleData) {
-    orderVehicleId.value = vehicle.vehicle_id;
+    orderVehicle.value = vehicle;
     orderModalOpen.value = true;
 }
 
@@ -379,7 +379,13 @@ onMounted(() => {
         </button>
 
         <AddVehicleModal v-model:open="addVehicleOpen" :vehicle="null" />
-        <OrderCreationModal v-if="orderVehicleId" v-model:open="orderModalOpen" :vehicle-id="orderVehicleId" :stations="stations" />
+        <OrderCreationModal
+            v-if="orderVehicle"
+            v-model:open="orderModalOpen"
+            :vehicle-id="orderVehicle.vehicle_id"
+            :stations="stations"
+            :vehicle="orderVehicle"
+        />
         <OnboardingModal
             :open="onboardingOpen"
             :video-url="ONBOARDING_VIDEO_URL"

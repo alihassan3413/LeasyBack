@@ -34,6 +34,8 @@ export interface B2bCompanyData {
     logo_path: string | null;
     contact_email: string | null;
     vat_id: string | null;
+    service_fee_amount: string | null;
+    service_fee_effective_from: string | null;
     created_at: string;
     updated_at: string;
     contact: B2bCompanyContact | null;

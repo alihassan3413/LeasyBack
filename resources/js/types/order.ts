@@ -1,3 +1,21 @@
+export interface OrderCollectionAddress {
+    street: string | null;
+    number: string | null;
+    additional_address: string | null;
+    zip_code: string | null;
+    city: string | null;
+    country: string | null;
+}
+
+/** Matches OrderCollectionService::forOrders(). B2B orders only; `internal_note` is Admin-only. */
+export interface OrderCollectionData {
+    requested_collection_date: string | null;
+    confirmed_collection_date: string | null;
+    collection_address: OrderCollectionAddress | null;
+    collection_note: string | null;
+    internal_note?: string | null;
+}
+
 export interface StationData {
     station_id: string;
     provider: string;

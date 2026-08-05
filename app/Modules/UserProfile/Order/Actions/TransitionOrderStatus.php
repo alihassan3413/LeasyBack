@@ -3,6 +3,8 @@
 namespace App\Modules\UserProfile\Order\Actions;
 
 use App\Enums\NotificationType;
+use App\Enums\OrderStatus;
+use App\Models\Vehicle;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Order\Models\OrderStatusUpdate;
 use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
@@ -62,6 +64,31 @@ class TransitionOrderStatus
     ];
 
     /**
+     * The B2B return process. `confirmed` is where the two channels fork —
+     * a B2C order goes straight to `inspected` at the station, a B2B vehicle
+     * is collected first — which is why the graph cannot be a single map
+     * keyed by from-status alone.
+     *
+     * @var array<string, list<string>>
+     */
+    private const B2B_ALLOWED_TRANSITIONS = [
+        'order_requested' => ['order_placed', 'discarded', 'cancelled'],
+        'order_placed' => ['confirmed', 'cancelled'],
+        'confirmed' => ['vehicle_collected', 'cancelled'],
+        'vehicle_collected' => ['inspected', 'cancelled'],
+        'inspected' => ['workshop_commissioned', 'cancelled'],
+        'workshop_commissioned' => ['workshop', 'cancelled'],
+        'workshop' => ['repair_completed', 'cancelled'],
+        'repair_completed' => ['reinspection', 'cancelled'],
+        'reinspection' => ['vehicle_returned', 'cancelled'],
+        'vehicle_returned' => ['invoice_processed', 'cancelled'],
+        'invoice_processed' => ['completed'],
+        'completed' => [],
+        'cancelled' => [],
+        'discarded' => [],
+    ];
+
+    /**
      * @param  array<string, mixed>  $additionalAttributes  Extra columns to persist on the order in the same update (e.g. sent_at, response_status).
      */
     public function __invoke(
@@ -80,6 +107,9 @@ class TransitionOrderStatus
             /** @var LeasybackOrder $locked */
             $locked = LeasybackOrder::whereKey($order->getKey())->lockForUpdate()->firstOrFail();
             $fromStatus = $locked->order_status;
+            $isB2b = self::isB2bOrder($locked);
+
+            $this->guardChannel($toStatus, $isB2b);
 
             if ($fromStatus === $toStatus) {
                 if ($additionalAttributes !== []) {
@@ -89,7 +119,7 @@ class TransitionOrderStatus
                 return $locked->fresh();
             }
 
-            $allowed = self::ALLOWED_TRANSITIONS[$fromStatus] ?? [];
+            $allowed = self::transitionsFor($isB2b)[$fromStatus] ?? [];
             if (! in_array($toStatus, $allowed, true)) {
                 throw ValidationException::withMessages([
                     'order_status' => "Cannot transition order from '{$fromStatus}' to '{$toStatus}'.",
@@ -148,10 +178,43 @@ class TransitionOrderStatus
     }
 
     /**
+     * The channel is read from the persisted order's own vehicle inside the
+     * locked transaction, never from a caller-supplied flag, so no request
+     * payload can talk a B2C order onto the B2B graph.
+     */
+    public static function isB2bOrder(LeasybackOrder $order): bool
+    {
+        return Vehicle::where('vehicle_id', $order->vehicle_id)->value('vehicle_belongs') === 'B2B';
+    }
+
+    private function guardChannel(string $toStatus, bool $isB2b): void
+    {
+        $forbidden = $isB2b ? OrderStatus::b2cOnlyValues() : OrderStatus::b2bOnlyValues();
+
+        if (in_array($toStatus, $forbidden, true)) {
+            throw ValidationException::withMessages([
+                'order_status' => sprintf(
+                    "Status '%s' is not available for %s orders.",
+                    $toStatus,
+                    $isB2b ? 'B2B' : 'B2C',
+                ),
+            ]);
+        }
+    }
+
+    /**
+     * @return array<string, list<string>>
+     */
+    private static function transitionsFor(bool $isB2b): array
+    {
+        return $isB2b ? self::B2B_ALLOWED_TRANSITIONS : self::ALLOWED_TRANSITIONS;
+    }
+
+    /**
      * @return list<string>
      */
-    public static function allowedNextStatuses(string $fromStatus): array
+    public static function allowedNextStatuses(string $fromStatus, bool $isB2b = false): array
     {
-        return self::ALLOWED_TRANSITIONS[$fromStatus] ?? [];
+        return self::transitionsFor($isB2b)[$fromStatus] ?? [];
     }
 }

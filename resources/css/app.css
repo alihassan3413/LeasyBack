@@ -241,6 +241,11 @@
         padding: 24px;
         box-shadow: 0 6px 22px rgba(16, 57, 59, 0.04);
     }
+
+    .task-target {
+        box-shadow: 0 0 0 2px #ef8450;
+        transition: box-shadow 0.35s ease;
+    }
 }
 
 :root {

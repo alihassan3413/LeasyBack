@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\AppraisalPositionController;
 use App\Http\Controllers\Admin\CustomerController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\ImpersonationController;
@@ -20,6 +21,7 @@ Route::middleware(['auth', 'active', 'verified', 'admin'])->prefix('admin')->nam
         Route::get('/', [CustomerController::class, 'index'])->name('index');
         Route::get('{type}/{id}', [CustomerController::class, 'show'])->where('type', 'b2c|b2b')->name('show');
         Route::patch('{type}/{id}/status', [CustomerController::class, 'updateStatus'])->where('type', 'b2c|b2b')->name('status');
+        Route::patch('b2b/{id}/service-fee', [CustomerController::class, 'updateServiceFee'])->whereUuid('id')->name('service-fee');
     });
 
     Route::prefix('vehicles')->name('vehicles.')->group(function () {
@@ -45,6 +47,8 @@ Route::middleware(['auth', 'active', 'verified', 'admin'])->prefix('admin')->nam
         Route::get('{orderId}', [OrderController::class, 'show'])->whereUuid('orderId')->name('show');
         Route::post('{orderId}/approve', [OrderController::class, 'approve'])->whereUuid('orderId')->name('approve');
         Route::patch('{orderId}/status', [OrderController::class, 'updateStatus'])->whereUuid('orderId')->name('status');
+        Route::patch('{orderId}/collection', [OrderController::class, 'updateCollection'])->whereUuid('orderId')->name('collection');
+        Route::put('{orderId}/appraisal-positions', [AppraisalPositionController::class, 'update'])->whereUuid('orderId')->name('appraisal-positions');
 
         Route::post('{orderId}/offers', [OfferController::class, 'store'])->whereUuid('orderId')->name('offers.store');
         Route::patch('offers/{offerId}/publish', [OfferController::class, 'publish'])->whereUuid('offerId')->name('offers.publish');

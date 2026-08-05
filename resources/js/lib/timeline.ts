@@ -7,11 +7,16 @@ const STATUS_CORE_INDEX: Record<string, number> = {
     order_requested: -1,
     order_placed: -1,
     confirmed: 0,
+    vehicle_collected: 0,
     inspected: 1,
+    workshop_commissioned: 1,
     workshop: 2,
+    repair_completed: 2,
     reinspection: 2,
     reworkshop: 2,
     delivered: 3,
+    vehicle_returned: 3,
+    invoice_processed: 3,
     completed: 4,
 };
 

@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\LeasybackOrder;
+use App\Models\Vehicle;
 use App\Modules\UserProfile\Admin\Services\AdminQueryService;
 use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
+use App\Modules\UserProfile\Order\Services\OrderCollectionService;
 use App\Modules\UserProfile\Order\Services\OrderService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -19,6 +21,7 @@ class OrderController extends Controller
         private readonly AdminQueryService $adminQueryService,
         private readonly OrderService $orderService,
         private readonly TransitionOrderStatus $transitionOrderStatus,
+        private readonly OrderCollectionService $orderCollectionService,
     ) {}
 
     public function index(Request $request): Response
@@ -53,7 +56,7 @@ class OrderController extends Controller
         $order = LeasybackOrder::find($orderId);
         abort_unless($order !== null, 404);
 
-        if (! in_array('order_placed', TransitionOrderStatus::allowedNextStatuses($order->order_status), true)) {
+        if (! in_array('order_placed', TransitionOrderStatus::allowedNextStatuses($order->order_status, TransitionOrderStatus::isB2bOrder($order)), true)) {
             return back()->withErrors(['status' => 'Nur angefragte Aufträge können freigegeben werden.'])
                 ->with('error', 'Nur angefragte Aufträge können freigegeben werden.');
         }
@@ -80,7 +83,7 @@ class OrderController extends Controller
         abort_unless($order !== null, 404);
 
         $allowed = array_values(array_diff(
-            TransitionOrderStatus::allowedNextStatuses($order->order_status),
+            TransitionOrderStatus::allowedNextStatuses($order->order_status, TransitionOrderStatus::isB2bOrder($order)),
             ['order_placed', 'discarded'],
         ));
 
@@ -104,5 +107,25 @@ class OrderController extends Controller
         }
 
         return back()->with('success', 'Status wurde aktualisiert.');
+    }
+
+    /**
+     * Confirms or overrides the customer's requested collection appointment.
+     * B2B only — a B2C order has no collection workflow, so the route 404s
+     * on the vehicle type rather than relying on the page not offering it.
+     */
+    public function updateCollection(Request $request, string $orderId): RedirectResponse
+    {
+        $order = LeasybackOrder::find($orderId);
+        abort_unless($order !== null, 404);
+
+        $vehicle = Vehicle::where('vehicle_id', $order->vehicle_id)->first();
+        abort_unless($vehicle !== null && $vehicle->vehicle_belongs === 'B2B', 404);
+
+        $validated = $request->validate(OrderCollectionService::adminRules());
+
+        $this->orderCollectionService->updateByAdmin($order, $vehicle, $request->user(), $validated);
+
+        return back()->with('success', 'Abholtermin wurde aktualisiert.');
     }
 }

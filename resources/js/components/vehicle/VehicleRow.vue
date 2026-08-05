@@ -115,5 +115,5 @@ function startProcess() {
 
     <VehicleExpandedPanel v-if="isExpanded && !completed" :vehicle="vehicle" />
 
-    <OrderCreationModal v-model:open="orderModalOpen" :vehicle-id="vehicle.vehicle_id" :stations="stations" />
+    <OrderCreationModal v-model:open="orderModalOpen" :vehicle-id="vehicle.vehicle_id" :stations="stations" :vehicle="vehicle" />
 </template>

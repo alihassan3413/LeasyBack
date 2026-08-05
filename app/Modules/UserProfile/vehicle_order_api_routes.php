@@ -45,6 +45,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Orders
     Route::prefix('order')->group(function () {
         Route::post('tuvsud/create/{vehicleId}', [OrderController::class, 'createTuvsud'])->whereUuid('vehicleId');
+        Route::post('b2b/create/{vehicleId}', [OrderController::class, 'createB2bCollection'])->whereUuid('vehicleId');
         Route::get('stations/{provider}', [OrderController::class, 'stationsByProvider']);
         Route::get('stations', [OrderController::class, 'allStations']);
         Route::post('stations/create', [OrderController::class, 'createStation']);

@@ -1,4 +1,4 @@
-import type { OfferData } from './order';
+import type { OfferData, OrderCollectionData } from './order';
 
 export interface VehicleDocumentData {
     document_id: string;
@@ -65,6 +65,16 @@ export interface VehicleOrderData {
     order_confirmations: OrderConfirmationData[];
     report_documents: OrderReportDocumentData[];
     offers: OfferData[];
+    collection?: OrderCollectionData | null;
+}
+
+export interface VehicleCollectionAddress {
+    street: string | null;
+    number: string | null;
+    additional_address: string | null;
+    zip_code: string | null;
+    city: string | null;
+    country: string | null;
 }
 
 /** Matches VehicleService::listVehiclesWithOrders()'s per-vehicle response shape. */
@@ -82,4 +92,10 @@ export interface VehicleData {
     updated_at: string;
     orders: VehicleOrderData[];
     documents: VehicleDocumentData[];
+    mileage?: number | null;
+    contract_number?: string | null;
+    cost_centre?: string | null;
+    driver_name?: string | null;
+    driver_contact?: string | null;
+    collection_address?: VehicleCollectionAddress | null;
 }

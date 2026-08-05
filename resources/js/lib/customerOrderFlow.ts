@@ -23,8 +23,43 @@ const PAYMENT_GATED_STAGE: CustomerOrderStage = 'vehicle_ready';
 
 export const CUSTOMER_PAYMENT_FEATURE_ENABLED = false;
 
+export type B2bOrderStage =
+    | 'order_received'
+    | 'collection_requested'
+    | 'collection_scheduled'
+    | 'vehicle_collected'
+    | 'initial_appraisal'
+    | 'quotations_preparing'
+    | 'approval_required'
+    | 'repair_approved'
+    | 'workshop_commissioned'
+    | 'vehicle_in_repair'
+    | 'repair_completed'
+    | 'final_appraisal'
+    | 'vehicle_returned'
+    | 'billing_completed'
+    | 'order_completed';
+
+export const B2B_ORDER_STAGE_SEQUENCE: readonly B2bOrderStage[] = [
+    'order_received',
+    'collection_requested',
+    'collection_scheduled',
+    'vehicle_collected',
+    'initial_appraisal',
+    'quotations_preparing',
+    'approval_required',
+    'repair_approved',
+    'workshop_commissioned',
+    'vehicle_in_repair',
+    'repair_completed',
+    'final_appraisal',
+    'vehicle_returned',
+    'billing_completed',
+    'order_completed',
+];
+
 export interface CustomerOrderFlowStep {
-    stage: CustomerOrderStage;
+    stage: CustomerOrderStage | B2bOrderStage;
     label: string;
     shortLabel: string;
     subtitle: string;
@@ -62,6 +97,8 @@ export interface CustomerOrderReportDocument {
     document_title?: string | null;
     created_at?: string;
     url?: string | null;
+    /** Absent in the customer payload, which already contains published documents only. */
+    published?: boolean;
 }
 
 export interface CustomerOrderOffer {
@@ -79,6 +116,29 @@ export interface CustomerOrderFlowInput {
     besichtigungsort?: CustomerOrderBesichtigungsort | null;
     reportDocuments?: ReadonlyArray<CustomerOrderReportDocument>;
     offers?: ReadonlyArray<CustomerOrderOffer>;
+    /**
+     * B2B collection appointment. Absent for B2C, where the appointment
+     * stages keep reading `besichtigungsort` exactly as before — the stage
+     * list itself is identical either way, only the two appointment
+     * labels/subtitles change when a collection is supplied.
+     */
+    collection?: CustomerOrderCollection | null;
+    /** Resolved from the persisted vehicle/order, never from user input. Absent means B2C. */
+    channel?: 'B2B' | 'B2C' | null;
+}
+
+export interface CustomerOrderCollection {
+    requested_collection_date?: string | null;
+    confirmed_collection_date?: string | null;
+    collection_address?: {
+        street?: string | null;
+        number?: string | null;
+        additional_address?: string | null;
+        zip_code?: string | null;
+        city?: string | null;
+        country?: string | null;
+    } | null;
+    collection_note?: string | null;
 }
 
 export function formatGermanDateTime(iso: string): string {
@@ -163,6 +223,33 @@ function appointmentDateLabel(prefix: string, termin: string | undefined): strin
     return datePart ? `${prefix} ${datePart}` : prefix;
 }
 
+function formatGermanDate(value: string): string {
+    const date = new Date(value);
+
+    return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+function collectionDateLabel(prefix: string, date: string | null | undefined): string {
+    const datePart = date ? formatGermanDate(date) : '';
+
+    return datePart ? `${prefix} ${datePart}` : prefix;
+}
+
+function collectionAddressSubtitle(collection: CustomerOrderCollection): string {
+    const address = collection.collection_address;
+
+    if (!address) {
+        return '';
+    }
+
+    return [
+        [address.street, address.number].filter(Boolean).join(' '),
+        [address.zip_code, address.city].filter(Boolean).join(' '),
+    ]
+        .filter(Boolean)
+        .join('\n');
+}
+
 function appointmentDetailsSubtitle(place: CustomerOrderBesichtigungsort | null | undefined): string {
     if (!place) {
         return '';
@@ -206,17 +293,157 @@ const STAGE_TOOLTIP: Record<CustomerOrderStage, string> = {
     vehicle_ready: 'Ihr Fahrzeug ist zur Abholung bereit, sobald die Zahlung bestätigt wurde.',
 };
 
+const B2B_STAGE_SHORT_LABEL: Record<B2bOrderStage, string> = {
+    order_received: 'Auftrag eingegangen',
+    collection_requested: 'Abholtermin angefragt',
+    collection_scheduled: 'Abholung terminiert',
+    vehicle_collected: 'Fahrzeug abgeholt',
+    initial_appraisal: 'Erstgutachten verfügbar',
+    quotations_preparing: 'Werkstattangebote in Vorbereitung',
+    approval_required: 'Freigabe erforderlich',
+    repair_approved: 'Reparatur freigegeben',
+    workshop_commissioned: 'Werkstatt beauftragt',
+    vehicle_in_repair: 'Fahrzeug in Reparatur',
+    repair_completed: 'Reparatur abgeschlossen',
+    final_appraisal: 'Nachgutachten abgeschlossen',
+    vehicle_returned: 'Fahrzeug an Leasinggeber übergeben',
+    billing_completed: 'Abrechnung abgeschlossen',
+    order_completed: 'Auftrag abgeschlossen',
+};
+
+const B2B_STAGE_TOOLTIP: Record<B2bOrderStage, string> = {
+    order_received: 'Ihre Rückgabeanfrage ist bei Leasyback eingegangen.',
+    collection_requested: 'Sie haben einen Wunschtermin für die Abholung angefragt.',
+    collection_scheduled: 'Leasyback hat den Abholtermin bestätigt.',
+    vehicle_collected: 'Das Fahrzeug wurde bei Ihnen abgeholt.',
+    initial_appraisal: 'Die Erstbegutachtung wurde durchgeführt und das Gutachten steht bereit.',
+    quotations_preparing: 'Auf Basis des Gutachtens werden Werkstattangebote eingeholt.',
+    approval_required: 'Ein oder mehrere Angebote liegen vor und warten auf Ihre Freigabe.',
+    repair_approved: 'Sie haben ein Angebot freigegeben. Die Reparatur wird beauftragt.',
+    workshop_commissioned: 'Die Werkstatt wurde mit der Reparatur beauftragt.',
+    vehicle_in_repair: 'Das Fahrzeug befindet sich aktuell in der Reparatur.',
+    repair_completed: 'Die Reparatur wurde abgeschlossen.',
+    final_appraisal: 'Die Nachbegutachtung wurde abgeschlossen und das Nachgutachten steht bereit.',
+    vehicle_returned: 'Das Fahrzeug wurde an den Leasinggeber übergeben.',
+    billing_completed: 'Die Abrechnung zu diesem Auftrag wurde erstellt.',
+    order_completed: 'Der Rückgabeprozess ist abgeschlossen.',
+};
+
+const B2B_STATUS_STAGE_INDEX: Record<string, number> = {
+    order_requested: 1,
+    order_placed: 1,
+    confirmed: 2,
+    vehicle_collected: 3,
+    workshop_commissioned: 8,
+    workshop: 9,
+    repair_completed: 10,
+    reinspection: 11,
+    vehicle_returned: 12,
+    invoice_processed: 13,
+    completed: 14,
+};
+
+function resolveB2bProgressIndex(status: string, relevantOffer: CustomerOrderOffer | null): number | null {
+    if (status === 'inspected') {
+        if (relevantOffer?.offer_status === 'selected') return 7;
+        if (relevantOffer?.offer_status === 'published') return 6;
+
+        return 5;
+    }
+
+    return B2B_STATUS_STAGE_INDEX[status] ?? null;
+}
+
+function b2bStageDate(
+    stage: B2bOrderStage,
+    ctx: CustomerOrderFlowInput,
+    relevantOffer: CustomerOrderOffer | null,
+    gutachtenDoc: CustomerOrderReportDocument | null,
+    nachgutachtenDoc: CustomerOrderReportDocument | null,
+): string {
+    const history = ctx.statusHistory;
+
+    switch (stage) {
+        case 'order_received':
+        case 'collection_requested':
+            return ctx.orderCreatedAt ?? '';
+        case 'collection_scheduled':
+            return findHistoryDate(history, new Set(['confirmed']));
+        case 'vehicle_collected':
+            return findHistoryDate(history, new Set(['vehicle_collected']));
+        case 'initial_appraisal':
+            return gutachtenDoc?.created_at ?? findHistoryDate(history, new Set(['inspected']));
+        case 'quotations_preparing':
+            return findHistoryDate(history, new Set(['inspected']));
+        case 'approval_required':
+            return relevantOffer?.published_at ?? '';
+        case 'repair_approved':
+            return relevantOffer?.selected_at ?? '';
+        case 'workshop_commissioned':
+            return findHistoryDate(history, new Set(['workshop_commissioned']));
+        case 'vehicle_in_repair':
+            return findHistoryDate(history, new Set(['workshop']));
+        case 'repair_completed':
+            return findHistoryDate(history, new Set(['repair_completed']));
+        case 'final_appraisal':
+            return nachgutachtenDoc?.created_at ?? findHistoryDate(history, new Set(['reinspection']));
+        case 'vehicle_returned':
+            return findHistoryDate(history, new Set(['vehicle_returned']));
+        case 'billing_completed':
+            return findHistoryDate(history, new Set(['invoice_processed']));
+        case 'order_completed':
+            return findHistoryDate(history, new Set(['completed']));
+    }
+}
+
+function b2bStageSubtitle(
+    stage: B2bOrderStage,
+    ctx: CustomerOrderFlowInput,
+    relevantOffer: CustomerOrderOffer | null,
+    isCurrent: boolean,
+): string {
+    const collection = ctx.collection ?? null;
+
+    switch (stage) {
+        case 'collection_requested': {
+            const requested = collection?.requested_collection_date;
+            const note = collection?.collection_note?.trim();
+            const lines = [requested ? `Wunschtermin: ${formatGermanDate(requested)}` : '', note ? `Hinweis: ${note}` : ''];
+
+            return lines.filter(Boolean).join('\n');
+        }
+        case 'collection_scheduled': {
+            const confirmed = collection?.confirmed_collection_date;
+            const address = collection ? collectionAddressSubtitle(collection) : '';
+            const lines = [confirmed ? `Bestätigter Abholtermin: ${formatGermanDate(confirmed)}` : '', address];
+
+            return lines.filter(Boolean).join('\n');
+        }
+        case 'approval_required':
+            return isCurrent ? 'Bitte geben Sie ein Angebot Ihrer Wahl frei.' : '';
+        case 'repair_approved':
+            return relevantOffer ? offerApprovedSubtitle(relevantOffer) : '';
+        case 'quotations_preparing':
+            return isCurrent ? 'Leasyback holt auf Basis des Gutachtens Werkstattangebote ein.' : '';
+        default:
+            return '';
+    }
+}
+
 const KNOWN_EARLY_STATUSES = new Set(['order_requested', 'order_placed']);
-const REPAIR_PHASE_STATUSES = new Set(['workshop', 'reinspection', 'reworkshop']);
+const REPAIR_PHASE_STATUSES = new Set(['workshop', 'reinspection', 'reworkshop', 'workshop_commissioned', 'repair_completed']);
+const CLOSING_STATUSES = new Set(['vehicle_returned', 'invoice_processed']);
 const TERMINAL_STATUSES = new Set(['cancelled']);
 
 function resolveProgressIndex(status: string, relevantOffer: CustomerOrderOffer | null, hasFollowupReport: boolean): number | null {
+    if (status === 'completed') return 7;
+    if (CLOSING_STATUSES.has(status)) return 6;
     if (hasFollowupReport) return 6;
     if (REPAIR_PHASE_STATUSES.has(status)) return 5;
     if (relevantOffer?.offer_status === 'selected') return 4;
     if (relevantOffer?.offer_status === 'published') return 3;
     if (status === 'inspected') return 2;
-    if (status === 'confirmed') return 1;
+    if (status === 'confirmed' || status === 'vehicle_collected') return 1;
     if (KNOWN_EARLY_STATUSES.has(status)) return 0;
 
     return null;
@@ -245,7 +472,7 @@ function getStageDate(
         case 'in_repair':
             return findHistoryDate(ctx.statusHistory, REPAIR_PHASE_STATUSES, status);
         case 'followup_completed':
-            return nachgutachtenDoc?.created_at ?? findHistoryDate(ctx.statusHistory, new Set(['delivered', 'completed']), status);
+            return nachgutachtenDoc?.created_at ?? findHistoryDate(ctx.statusHistory, new Set(['delivered', 'completed', ...CLOSING_STATUSES]), status);
         case 'vehicle_ready':
             return '';
     }
@@ -286,12 +513,17 @@ function buildStep(
 
     switch (stage) {
         case 'requested':
-            label = appointmentDateLabel('Wunschtermin', termin) + ' angefragt';
+            label = ctx.collection?.requested_collection_date
+                ? collectionDateLabel('Wunschtermin Abholung', ctx.collection.requested_collection_date) + ' angefragt'
+                : appointmentDateLabel('Wunschtermin', termin) + ' angefragt';
             subtitle = 'Ihr Termin zur Erstbegutachtung wird innerhalb von 72 Stunden bestätigt';
             break;
         case 'appointment_confirmed':
             if (state.isRejected) {
                 label = appointmentDateLabel('Wunschtermin', termin) + ' abgelehnt';
+            } else if (ctx.collection?.confirmed_collection_date) {
+                label = collectionDateLabel('Abholung', ctx.collection.confirmed_collection_date) + ' bestätigt';
+                subtitle = collectionAddressSubtitle(ctx.collection);
             } else {
                 label = appointmentDateLabel('Wunschtermin', termin) + ' bestätigt';
                 subtitle = appointmentDetailsSubtitle(ctx.besichtigungsort);
@@ -359,9 +591,135 @@ function buildStep(
     return step;
 }
 
+function buildB2bStep(
+    stage: B2bOrderStage,
+    ctx: CustomerOrderFlowInput,
+    relevantOffer: CustomerOrderOffer | null,
+    gutachtenDoc: CustomerOrderReportDocument | null,
+    nachgutachtenDoc: CustomerOrderReportDocument | null,
+    rechnungDoc: CustomerOrderReportDocument | null,
+    state: {
+        datetime: string;
+        completed: boolean;
+        isCurrent: boolean;
+        isNext: boolean;
+        isCancelled: boolean;
+        cancelledBy?: string | null;
+    },
+): CustomerOrderFlowStep {
+    let label = B2B_STAGE_SHORT_LABEL[stage];
+    let subtitle = b2bStageSubtitle(stage, ctx, relevantOffer, state.isCurrent);
+
+    if (state.isCancelled) {
+        const actor = cancellationActor(state.cancelledBy);
+
+        label = `Auftrag storniert${actor ? ` durch ${actor}` : ''}`;
+        subtitle = `Der Auftrag wurde bei „${B2B_STAGE_SHORT_LABEL[stage]}" beendet. Bei Fragen wenden Sie sich bitte an Ihren Ansprechpartner.`;
+    }
+
+    const step: CustomerOrderFlowStep = {
+        stage,
+        label,
+        shortLabel: state.isCancelled ? 'Auftrag storniert' : B2B_STAGE_SHORT_LABEL[stage],
+        subtitle,
+        tooltipDescription: state.isCancelled
+            ? 'Dieser Auftrag wurde storniert und wird nicht weiter bearbeitet.'
+            : B2B_STAGE_TOOLTIP[stage],
+        datetime: state.datetime,
+        completed: state.completed,
+        isCurrent: state.isCurrent,
+        isNext: state.isNext,
+        isCancelled: state.isCancelled,
+        isRejected: false,
+    };
+
+    if (stage === 'initial_appraisal' && gutachtenDoc) {
+        step.reportDocUrl = resolveDocUrl(gutachtenDoc);
+    }
+
+    if (stage === 'final_appraisal' && nachgutachtenDoc) {
+        step.reportDocUrl = resolveDocUrl(nachgutachtenDoc);
+    }
+
+    if (stage === 'billing_completed' && rechnungDoc) {
+        step.invoiceDocUrl = resolveDocUrl(rechnungDoc);
+    }
+
+    return step;
+}
+
+function getB2bOrderFlowSteps(ctx: CustomerOrderFlowInput): CustomerOrderFlowStep[] | null {
+    const status = (ctx.orderStatus ?? '').trim();
+    const offers = ctx.offers ?? [];
+    const publishedDocs = (ctx.reportDocuments ?? []).filter((doc) => doc.published !== false);
+    const relevantOffer = pickRelevantOffer(offers);
+    const gutachtenDoc = findLatestDoc(publishedDocs, 'gutachten');
+    const nachgutachtenDoc = findLatestDoc(publishedDocs, 'nachgutachten');
+    const rechnungDoc = findLatestDoc(publishedDocs, 'rechnung');
+
+    if (TERMINAL_STATUSES.has(status)) {
+        const terminalEntry = ctx.statusHistory.find((entry) => entry.new_status === status);
+        const priorStatus = (terminalEntry?.old_status ?? '').trim();
+        const priorIndex = Math.min(
+            resolveB2bProgressIndex(priorStatus, relevantOffer) ?? 0,
+            B2B_ORDER_STAGE_SEQUENCE.length - 1,
+        );
+        const terminalDate = terminalEntry?.created_at ?? '';
+        const priorCtx: CustomerOrderFlowInput = { ...ctx, orderStatus: priorStatus };
+
+        return B2B_ORDER_STAGE_SEQUENCE.map((stage, index) => {
+            const isTerminalHere = index === priorIndex;
+            const completed = index < priorIndex;
+
+            return buildB2bStep(stage, ctx, relevantOffer, gutachtenDoc, nachgutachtenDoc, rechnungDoc, {
+                datetime: completed
+                    ? b2bStageDate(stage, priorCtx, relevantOffer, gutachtenDoc, nachgutachtenDoc)
+                    : isTerminalHere
+                      ? terminalDate
+                      : '',
+                completed,
+                isCurrent: false,
+                isNext: false,
+                isCancelled: isTerminalHere,
+                cancelledBy: terminalEntry?.auth_source,
+            });
+        });
+    }
+
+    const progressIndex = resolveB2bProgressIndex(status, relevantOffer);
+
+    if (progressIndex === null) {
+        return null;
+    }
+
+    let nextAssigned = false;
+
+    return B2B_ORDER_STAGE_SEQUENCE.map((stage, index) => {
+        const completed = index < progressIndex;
+        const isCurrent = index === progressIndex;
+        const isNext = index > progressIndex && !nextAssigned;
+
+        if (isNext) {
+            nextAssigned = true;
+        }
+
+        return buildB2bStep(stage, ctx, relevantOffer, gutachtenDoc, nachgutachtenDoc, rechnungDoc, {
+            datetime: completed || isCurrent ? b2bStageDate(stage, ctx, relevantOffer, gutachtenDoc, nachgutachtenDoc) : '',
+            completed,
+            isCurrent,
+            isNext,
+            isCancelled: false,
+        });
+    });
+}
+
 export function getCustomerOrderFlowSteps(ctx: CustomerOrderFlowInput): CustomerOrderFlowStep[] | null {
     if (!ctx.orderCreatedAt) {
         return null;
+    }
+
+    if (ctx.channel === 'B2B') {
+        return getB2bOrderFlowSteps(ctx);
     }
 
     const status = (ctx.orderStatus ?? '').trim();
@@ -440,7 +798,7 @@ export function getCustomerOrderFlowSteps(ctx: CustomerOrderFlowInput): Customer
  * VehicleService::hasUnfinishedOrder(), which the create-order endpoint
  * enforces.
  */
-const FINISHED_ORDER_STATUSES = new Set(['delivered', 'cancelled', 'discarded']);
+const FINISHED_ORDER_STATUSES = new Set(['delivered', 'completed', 'cancelled', 'discarded']);
 
 /**
  * Whether the customer may start a new process for this vehicle.

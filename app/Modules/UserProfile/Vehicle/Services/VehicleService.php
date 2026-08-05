@@ -2,15 +2,19 @@
 
 namespace App\Modules\UserProfile\Vehicle\Services;
 
+use App\Enums\OrderStatus;
 use App\Enums\UserType;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleAuditLog;
 use App\Models\VehicleDocument;
 use App\Modules\UserProfile\B2B\Services\B2bContext;
+use App\Modules\UserProfile\Order\Models\LogisticsAddressProfile;
+use App\Modules\UserProfile\Order\Services\OrderCollectionService;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -18,7 +22,10 @@ use Illuminate\Support\Str;
 
 class VehicleService
 {
-    public function __construct(private readonly B2bContext $b2bContext) {}
+    public function __construct(
+        private readonly B2bContext $b2bContext,
+        private readonly OrderCollectionService $orderCollectionService,
+    ) {}
 
     /**
      * Resolve the b2b_id of the company a user is currently acting as.
@@ -45,6 +52,7 @@ class VehicleService
 
         return DB::transaction(function () use ($validated, $belongs, $b2bId, $b2cUserId, $user) {
             $vehicle = Vehicle::create([
+                ...$this->b2bFleetAttributes($validated, $belongs, $b2bId, $user),
                 'license_plate' => $validated['license_plate'],
                 'first_registration_date' => $validated['first_registration_date'] ?? null,
                 'leasing_end_date' => $validated['leasing_end_date'] ?? null,
@@ -82,7 +90,11 @@ class VehicleService
     {
         return DB::transaction(function () use ($vehicle, $validated, $user) {
             $old = $vehicle->toArray();
-            $vehicle->update(array_filter($validated, fn ($value) => $value !== null));
+
+            $fleet = $this->b2bFleetAttributes($validated, $vehicle->vehicle_belongs, $vehicle->b2b_id, $user);
+            $plain = Arr::except($validated, [...Vehicle::B2B_ONLY_ATTRIBUTES, 'collection_address']);
+
+            $vehicle->update([...array_filter($plain, fn ($value) => $value !== null), ...$fleet]);
 
             VehicleAuditLog::create([
                 'vehicle_id' => $vehicle->vehicle_id,
@@ -127,6 +139,77 @@ class VehicleService
     {
         Storage::disk('documents')->delete($document->path);
         $document->delete();
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     * @return array<string, mixed>
+     */
+    private function b2bFleetAttributes(array $validated, ?string $belongs, ?string $b2bId, User $user): array
+    {
+        if ($belongs !== 'B2B' || $b2bId === null) {
+            return [];
+        }
+
+        $attributes = [];
+
+        foreach (['mileage', 'contract_number', 'cost_centre', 'driver_name', 'driver_contact'] as $field) {
+            if (array_key_exists($field, $validated)) {
+                $value = $validated[$field];
+                $attributes[$field] = is_string($value) && trim($value) === '' ? null : $value;
+            }
+        }
+
+        if (array_key_exists('collection_address', $validated)) {
+            $attributes['collection_address_profile_id'] = $this->resolveCollectionAddressProfileId(
+                $validated['collection_address'],
+                $b2bId,
+                $user,
+            );
+        }
+
+        return $attributes;
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $address
+     */
+    private function resolveCollectionAddressProfileId(?array $address, string $b2bId, User $user): ?string
+    {
+        $details = [];
+
+        foreach (['street', 'number', 'additional_address', 'zip_code', 'city', 'country'] as $field) {
+            $value = trim((string) ($address[$field] ?? ''));
+            $details[$field] = $value === '' ? null : $value;
+        }
+
+        if (collect($details)->filter()->isEmpty()) {
+            return null;
+        }
+
+        $existing = LogisticsAddressProfile::where('owner_type', 'B2B')
+            ->where('b2b_id', $b2bId)
+            ->get()
+            ->first(fn (LogisticsAddressProfile $profile) => $profile->details === $details);
+
+        if ($existing !== null) {
+            return $existing->id;
+        }
+
+        $label = trim(implode(', ', array_filter([
+            trim(implode(' ', array_filter([$details['street'], $details['number']]))),
+            trim(implode(' ', array_filter([$details['zip_code'], $details['city']]))),
+        ])));
+
+        return LogisticsAddressProfile::create([
+            'owner_type' => 'B2B',
+            'b2b_id' => $b2bId,
+            'profile_name' => $label !== '' ? $label : 'Abholadresse',
+            'details' => $details,
+            'is_default' => false,
+            'created_by_user_id' => $user->id,
+            'updated_by_user_id' => $user->id,
+        ])->id;
     }
 
     /**
@@ -222,7 +305,7 @@ class VehicleService
     {
         return DB::table('leasyback_orders')
             ->where('vehicle_id', $vehicleId)
-            ->whereNotIn('order_status', ['delivered', 'cancelled', 'discarded'])
+            ->whereNotIn('order_status', OrderStatus::closedValues())
             ->exists();
     }
 
@@ -446,6 +529,15 @@ class VehicleService
             ->get()
             ->groupBy('vehicle_id');
 
+        $orderCollections = $vehicles->contains(fn ($vehicle) => $vehicle->vehicle_belongs === 'B2B')
+            ? $this->orderCollectionService->forOrders($auftragsnummern)
+            : [];
+
+        $collectionAddresses = LogisticsAddressProfile::whereIn(
+            'id',
+            $vehicles->where('vehicle_belongs', 'B2B')->pluck('collection_address_profile_id')->filter()->unique()->all(),
+        )->get()->mapWithKeys(fn (LogisticsAddressProfile $profile) => [$profile->id => $profile->details]);
+
         $result = [];
         foreach ($vehicles as $vehicle) {
             $ordersArr = [];
@@ -513,6 +605,9 @@ class VehicleService
                     ->toArray();
 
                 $ordersArr[] = [
+                    ...($vehicle->vehicle_belongs === 'B2B'
+                        ? ['collection' => $orderCollections[$order->auftragsnummer] ?? null]
+                        : []),
                     'id' => $order->id,
                     'auftragsnummer' => $order->auftragsnummer,
                     'leasyback_partner' => $order->leasyback_partner,
@@ -542,6 +637,14 @@ class VehicleService
                 ->toArray();
 
             $result[] = [
+                ...($vehicle->vehicle_belongs === 'B2B' ? [
+                    'mileage' => $vehicle->mileage,
+                    'contract_number' => $vehicle->contract_number,
+                    'cost_centre' => $vehicle->cost_centre,
+                    'driver_name' => $vehicle->driver_name,
+                    'driver_contact' => $vehicle->driver_contact,
+                    'collection_address' => $collectionAddresses[$vehicle->collection_address_profile_id] ?? null,
+                ] : []),
                 'vehicle_id' => $vehicle->vehicle_id,
                 'license_plate' => $vehicle->license_plate,
                 'first_registration_date' => $vehicle->first_registration_date,

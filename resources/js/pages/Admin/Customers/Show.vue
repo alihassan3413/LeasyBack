@@ -3,7 +3,7 @@ import CreateVehicleModal from '@/components/admin/CreateVehicleModal.vue';
 import AdminLayout from '@/layouts/AdminLayout.vue';
 import { getAdminDashboardStatus as getStatus } from '@/lib/adminStatus';
 import type { AdminCustomerDetail, AdminCustomerOrder, AdminCustomerType, AdminCustomerVehicle } from '@/types/admin';
-import { Head, Link, router } from '@inertiajs/vue3';
+import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 
 const props = defineProps<{
@@ -80,6 +80,38 @@ function formatGermanDate(value: string | null): string {
 }
 
 const createVehicleOpen = ref(false);
+
+const serviceFeeEditing = ref(false);
+
+const serviceFeeForm = useForm({
+    service_fee_amount: props.customer.service_fee_amount ?? '295.00',
+    service_fee_effective_from: props.customer.service_fee_effective_from ?? '2026-01-01',
+});
+
+const serviceFeeDisplay = computed(() => {
+    const amount = Number(props.customer.service_fee_amount);
+
+    return Number.isFinite(amount) ? amount.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' }) : '—';
+});
+
+function startServiceFeeEditing() {
+    serviceFeeForm.clearErrors();
+    serviceFeeForm.service_fee_amount = props.customer.service_fee_amount ?? '295.00';
+    serviceFeeForm.service_fee_effective_from = props.customer.service_fee_effective_from ?? '2026-01-01';
+    serviceFeeEditing.value = true;
+}
+
+function cancelServiceFeeEditing() {
+    serviceFeeForm.clearErrors();
+    serviceFeeEditing.value = false;
+}
+
+function submitServiceFee() {
+    serviceFeeForm.patch(route('admin.customers.service-fee', identifier.value), {
+        preserveScroll: true,
+        onSuccess: () => (serviceFeeEditing.value = false),
+    });
+}
 </script>
 
 <template>
@@ -228,6 +260,97 @@ const createVehicleOpen = ref(false);
                             Fahrzeug anlegen
                         </button>
                     </div>
+                </section>
+
+                <section v-if="type === 'b2b'" class="content-card">
+                    <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div class="flex items-center gap-2.5">
+                            <span class="flex h-9 w-9 items-center justify-center rounded-[11px] bg-[#6366f1]/10 text-[#6366f1]">
+                                <IconMdiCurrencyEur class="size-[17px]" />
+                            </span>
+                            <div>
+                                <h2 class="text-[15px] font-extrabold tracking-[-0.3px] text-[#10393b]">Kaufmännische Einstellungen</h2>
+                                <p class="mt-0.5 text-[12px] font-medium text-[#9bb0af]">Jährliche Servicepauschale dieses Unternehmens</p>
+                            </div>
+                        </div>
+
+                        <div class="flex shrink-0">
+                            <button
+                                v-if="!serviceFeeEditing"
+                                type="button"
+                                class="flex items-center gap-1.5 rounded-[13px] border border-[#e9efee] bg-white px-4 py-2 text-[12.5px] font-bold text-[#10393b] transition-all hover:border-[#01B990] hover:bg-[#f0fbf8] hover:text-[#00856a]"
+                                @click="startServiceFeeEditing"
+                            >
+                                <IconMdiPencilOutline class="size-4" />
+                                Bearbeiten
+                            </button>
+                            <button
+                                v-else
+                                type="button"
+                                class="flex items-center gap-1.5 rounded-[13px] px-4 py-2 text-[12.5px] font-bold text-[#6f8585] transition-colors hover:text-[#10393b]"
+                                @click="cancelServiceFeeEditing"
+                            >
+                                <IconMdiClose class="size-4" />
+                                Abbrechen
+                            </button>
+                        </div>
+                    </div>
+
+                    <div v-if="!serviceFeeEditing" class="grid grid-cols-2 gap-3 max-[720px]:grid-cols-1">
+                        <div class="rounded-[13px] bg-[#f4f7f6] px-4 py-3.5">
+                            <p class="text-[10px] font-bold tracking-[0.05em] text-[#9bb0af] uppercase">Servicepauschale</p>
+                            <p class="mt-1 text-[20px] leading-none font-extrabold text-[#10393b]">{{ serviceFeeDisplay }}</p>
+                        </div>
+
+                        <div class="rounded-[13px] bg-[#f4f7f6] px-4 py-3.5">
+                            <p class="text-[10px] font-bold tracking-[0.05em] text-[#9bb0af] uppercase">Gültig ab</p>
+                            <p class="mt-1 text-[20px] leading-none font-extrabold text-[#10393b]">
+                                {{ formatGermanDate(customer.service_fee_effective_from ?? null) }}
+                            </p>
+                        </div>
+                    </div>
+
+                    <form v-else class="flex flex-col gap-4" @submit.prevent="submitServiceFee">
+                        <div class="grid grid-cols-2 gap-3 max-[720px]:grid-cols-1">
+                            <div>
+                                <label for="service_fee_amount" class="text-[12.5px] font-bold text-[#10393b]">Servicepauschale (EUR, netto)</label>
+                                <input
+                                    id="service_fee_amount"
+                                    v-model="serviceFeeForm.service_fee_amount"
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    class="mt-1 w-full rounded-[13px] border border-[#e9efee] bg-white px-3.5 py-2.5 text-[13.5px] font-semibold text-[#10393b] outline-none focus:border-[#01B990]"
+                                />
+                                <p v-if="serviceFeeForm.errors.service_fee_amount" class="mt-1 text-[11.5px] text-[#ef8450]">
+                                    {{ serviceFeeForm.errors.service_fee_amount }}
+                                </p>
+                            </div>
+
+                            <div>
+                                <label for="service_fee_effective_from" class="text-[12.5px] font-bold text-[#10393b]">Gültig ab</label>
+                                <input
+                                    id="service_fee_effective_from"
+                                    v-model="serviceFeeForm.service_fee_effective_from"
+                                    type="date"
+                                    class="mt-1 w-full rounded-[13px] border border-[#e9efee] bg-white px-3.5 py-2.5 text-[13.5px] font-semibold text-[#10393b] outline-none focus:border-[#01B990]"
+                                />
+                                <p v-if="serviceFeeForm.errors.service_fee_effective_from" class="mt-1 text-[11.5px] text-[#ef8450]">
+                                    {{ serviceFeeForm.errors.service_fee_effective_from }}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="flex justify-end">
+                            <button
+                                type="submit"
+                                class="rounded-[13px] bg-[#10393b] px-6 py-2.5 text-[13px] font-bold text-white transition-all hover:-translate-y-px disabled:opacity-50"
+                                :disabled="serviceFeeForm.processing"
+                            >
+                                {{ serviceFeeForm.processing ? 'Wird gespeichert…' : 'Speichern' }}
+                            </button>
+                        </div>
+                    </form>
                 </section>
 
                 <section v-if="type === 'b2b' && customer.members?.length" class="content-card">

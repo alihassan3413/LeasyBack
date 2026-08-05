@@ -10,7 +10,7 @@ import { CUSTOMER_PAYMENT_FEATURE_ENABLED, formatGermanDateTime, getCustomerOrde
 import { toOrderTimelineEntries, type OrderTimelineEntry } from '@/lib/timeline';
 import { getOrderStatusLabel } from '@/lib/vehicleStatus';
 import type { OfferData } from '@/types/order';
-import type { VehicleData } from '@/types/vehicle';
+import type { VehicleCollectionAddress, VehicleData } from '@/types/vehicle';
 import { router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 
@@ -227,6 +227,8 @@ const customerFlowSteps = computed(() => {
         besichtigungsort: order.request_payload?.besichtigungsort,
         reportDocuments: allReportDocuments.value,
         offers: rawOffers.value,
+        collection: orderCollection.value,
+        channel: props.vehicle.vehicle_belongs,
     });
 });
 
@@ -424,6 +426,47 @@ function formatDate(value: string | null): string {
     const date = new Date(value);
 
     return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('de-DE');
+}
+
+const isB2bVehicle = computed(() => props.vehicle.vehicle_belongs === 'B2B');
+
+const fleetRows = computed(() => [
+    { label: 'Kilometerstand', value: props.vehicle.mileage != null ? `${props.vehicle.mileage.toLocaleString('de-DE')} km` : '' },
+    { label: 'Vertragsnummer', value: props.vehicle.contract_number ?? '' },
+    { label: 'Kostenstelle', value: props.vehicle.cost_centre ?? '' },
+    { label: 'Fahrer', value: props.vehicle.driver_name ?? '' },
+    { label: 'Kontakt', value: props.vehicle.driver_contact ?? '' },
+    { label: 'Abholadresse', value: formatAddress(props.vehicle.collection_address ?? null) },
+]);
+
+const orderCollection = computed(() => (isB2bVehicle.value ? (firstOrder.value?.collection ?? null) : null));
+
+const hasCollectionData = computed(() => {
+    const collection = orderCollection.value;
+
+    return !!collection && (!!collection.requested_collection_date || !!collection.confirmed_collection_date || !!collection.collection_address);
+});
+
+const collectionRows = computed(() => [
+    { label: 'Wunschtermin', value: formatDate(orderCollection.value?.requested_collection_date ?? null) },
+    { label: 'Bestätigter Termin', value: formatDate(orderCollection.value?.confirmed_collection_date ?? null) },
+    { label: 'Abholadresse', value: formatAddress(orderCollection.value?.collection_address ?? null) },
+    { label: 'Hinweis', value: orderCollection.value?.collection_note ?? '' },
+]);
+
+function formatAddress(address: VehicleCollectionAddress | null): string {
+    if (!address) {
+        return '';
+    }
+
+    return [
+        [address.street, address.number].filter(Boolean).join(' '),
+        address.additional_address,
+        [address.zip_code, address.city].filter(Boolean).join(' '),
+        address.country,
+    ]
+        .filter(Boolean)
+        .join(', ');
 }
 </script>
 
@@ -734,6 +777,36 @@ function formatDate(value: string | null): string {
                         <span class="text-[16px] font-normal" style="color: #64748b">Rückgabetermin</span>
                         <span class="text-[16px] font-semibold" style="color: #000">{{ formatDate(vehicle.leasing_end_date) }}</span>
                     </div>
+
+                    <template v-if="isB2bVehicle">
+                        <template v-for="row in fleetRows" :key="row.label">
+                            <div class="h-px bg-gray-200"></div>
+                            <div class="flex items-start justify-between gap-4 py-4">
+                                <span class="shrink-0 text-[16px] font-normal" style="color: #64748b">{{ row.label }}</span>
+                                <span class="text-right text-[16px] font-semibold" style="color: #000">{{ row.value || 'Nicht verfügbar' }}</span>
+                            </div>
+                        </template>
+                    </template>
+                </div>
+            </div>
+
+            <div
+                v-if="hasCollectionData"
+                class="relative flex w-full flex-col overflow-hidden rounded-3xl border bg-white"
+                style="border-color: #ececec"
+            >
+                <div class="px-6 pt-6">
+                    <p class="text-[16px] font-bold uppercase" style="color: #000">ABHOLUNG</p>
+                </div>
+
+                <div class="flex flex-col gap-0 px-6 pt-4 pb-6">
+                    <template v-for="(row, index) in collectionRows" :key="row.label">
+                        <div v-if="index > 0" class="h-px bg-gray-200"></div>
+                        <div class="flex items-start justify-between gap-4 py-4">
+                            <span class="shrink-0 text-[16px] font-normal" style="color: #64748b">{{ row.label }}</span>
+                            <span class="text-right text-[16px] font-semibold" style="color: #000">{{ row.value || 'Nicht verfügbar' }}</span>
+                        </div>
+                    </template>
                 </div>
             </div>
         </div>
@@ -1019,6 +1092,32 @@ function formatDate(value: string | null): string {
                     <span class="text-[14px] font-normal" style="color: #64748b">Rückgabetermin</span>
                     <span class="text-[14px] font-semibold" style="color: #000">{{ formatDate(vehicle.leasing_end_date) }}</span>
                 </div>
+
+                <template v-if="isB2bVehicle">
+                    <template v-for="row in fleetRows" :key="row.label">
+                        <div class="h-px bg-gray-200"></div>
+                        <div class="flex items-start justify-between gap-3 py-3">
+                            <span class="shrink-0 text-[14px] font-normal" style="color: #64748b">{{ row.label }}</span>
+                            <span class="text-right text-[14px] font-semibold" style="color: #000">{{ row.value || 'Nicht verfügbar' }}</span>
+                        </div>
+                    </template>
+                </template>
+            </div>
+        </div>
+
+        <div v-if="hasCollectionData" class="flex flex-col overflow-hidden rounded-3xl border bg-white" style="border-color: #ececec">
+            <div class="px-4 pt-4">
+                <p class="text-[16px] font-bold uppercase" style="color: #000">ABHOLUNG</p>
+            </div>
+
+            <div class="flex flex-col gap-0 px-4 pt-3 pb-4">
+                <template v-for="(row, index) in collectionRows" :key="row.label">
+                    <div v-if="index > 0" class="h-px bg-gray-200"></div>
+                    <div class="flex items-start justify-between gap-3 py-3">
+                        <span class="shrink-0 text-[14px] font-normal" style="color: #64748b">{{ row.label }}</span>
+                        <span class="text-right text-[14px] font-semibold" style="color: #000">{{ row.value || 'Nicht verfügbar' }}</span>
+                    </div>
+                </template>
             </div>
         </div>
     </div>

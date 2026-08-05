@@ -22,11 +22,60 @@ use Illuminate\Support\Facades\Http;
  */
 class OrderService
 {
+    public const B2B_PARTNER = 'leasyback';
+
+    public const B2B_ORDER_TYPE = 'b2b_collection';
+
     public function __construct(
         private readonly VehicleService $vehicleService,
         private readonly TransitionOrderStatus $transitionOrderStatus,
         private readonly OrderMailer $orderMailer,
+        private readonly OrderCollectionService $orderCollectionService,
     ) {}
+
+    /**
+     * B2B return orders: the vehicle is collected at the customer's site, so
+     * there is no inspection station, no TÜV SÜD appointment and no external
+     * booking call. The order still lives in leasyback_orders with the same
+     * statuses; the collection details are written to
+     * leasyback_order_logistics by OrderCollectionService.
+     *
+     * request_payload is NOT NULL on the table, so a minimal marker is
+     * stored rather than a fabricated TÜV SÜD request — nothing downstream
+     * may mistake this for one.
+     */
+    public function createB2bCollectionOrder(Vehicle $vehicle, User $user, array $validated): LeasybackOrder
+    {
+        if ($vehicle->vehicle_belongs !== 'B2B') {
+            $this->fail(422, 'collection orders are only available for B2B vehicles');
+        }
+
+        if ($this->vehicleService->hasUnfinishedOrder($vehicle->vehicle_id)) {
+            $this->fail(409, 'vehicle previous order not completed yet');
+        }
+
+        $auftragsnummer = $this->vehicleService->generateAuftragsnummer($vehicle->license_plate);
+
+        $order = DB::transaction(function () use ($vehicle, $auftragsnummer, $user, $validated) {
+            $order = LeasybackOrder::create([
+                'vehicle_id' => $vehicle->vehicle_id,
+                'auftragsnummer' => $auftragsnummer,
+                'leasyback_partner' => self::B2B_PARTNER,
+                'order_status' => 'order_requested',
+                'request_payload' => ['order_type' => self::B2B_ORDER_TYPE],
+                'created_by_user_id' => $user->id,
+            ]);
+
+            $this->orderCollectionService->recordCustomerRequest($order, $vehicle, $user, $validated);
+            $this->auditOrder($order, 'REQUEST_ORDER', null, ['order_status' => 'order_requested'], $user->id);
+
+            return $order;
+        });
+
+        $this->orderMailer->orderCreated($order, $vehicle);
+
+        return $order;
+    }
 
     /**
      * Book a TÜV SÜD inspection appointment. Firmenkunde bookings are
@@ -36,6 +85,10 @@ class OrderService
      */
     public function createTuvsudOrder(Vehicle $vehicle, User $user, array $validated): LeasybackOrder
     {
+        if ($vehicle->vehicle_belongs === 'B2B') {
+            $this->fail(422, 'B2B vehicles use the collection order flow');
+        }
+
         if ($this->vehicleService->hasUnfinishedOrder($vehicle->vehicle_id)) {
             $this->fail(409, 'vehicle previous order not completed yet');
         }
@@ -83,7 +136,7 @@ class OrderService
         ];
 
         if ($user->user_type->value === 'Firmenkunde') {
-            $order = DB::transaction(function () use ($vehicle, $auftragsnummer, $requestPayload, $user) {
+            $order = DB::transaction(function () use ($vehicle, $auftragsnummer, $requestPayload, $user, $validated) {
                 $order = LeasybackOrder::create([
                     'vehicle_id' => $vehicle->vehicle_id,
                     'auftragsnummer' => $auftragsnummer,
@@ -93,6 +146,7 @@ class OrderService
                     'created_by_user_id' => $user->id,
                 ]);
 
+                $this->orderCollectionService->recordCustomerRequest($order, $vehicle, $user, $validated);
                 $this->auditOrder($order, 'REQUEST_ORDER', null, ['order_status' => 'order_requested'], $user->id);
 
                 return $order;
@@ -114,7 +168,7 @@ class OrderService
         $status = $response->status();
         $respJson = $response->json() ?? ['ok' => false, 'status' => $status];
 
-        $order = DB::transaction(function () use ($vehicle, $auftragsnummer, $requestPayload, $status, $respJson, $user) {
+        $order = DB::transaction(function () use ($vehicle, $auftragsnummer, $requestPayload, $status, $respJson, $user, $validated) {
             $order = LeasybackOrder::create([
                 'vehicle_id' => $vehicle->vehicle_id,
                 'auftragsnummer' => $auftragsnummer,
@@ -127,6 +181,7 @@ class OrderService
                 'sent_at' => now(),
             ]);
 
+            $this->orderCollectionService->recordCustomerRequest($order, $vehicle, $user, $validated);
             $this->auditOrder($order, 'CREATE_ORDER', null, ['order_status' => 'order_placed'], $user->id);
 
             return $order;
@@ -144,6 +199,10 @@ class OrderService
      */
     public function createOtherOrder(Vehicle $vehicle, User $user, array $validated): LeasybackOrder
     {
+        if ($vehicle->vehicle_belongs === 'B2B') {
+            $this->fail(422, 'B2B vehicles use the collection order flow');
+        }
+
         $auftragsnummer = $this->vehicleService->generateAuftragsnummer($vehicle->license_plate);
         $station = InspectionStation::find($validated['station_id']);
 
@@ -174,6 +233,7 @@ class OrderService
                 'sent_at' => now(),
             ]);
 
+            $this->orderCollectionService->recordCustomerRequest($order, $vehicle, $user, $validated);
             $this->auditOrder($order, 'CREATE_ORDER', null, ['order_status' => 'order_placed'], $user->id);
 
             return $order;
@@ -196,6 +256,10 @@ class OrderService
      */
     public function approveOrder(LeasybackOrder $order, User $user, ?string $callerIp): LeasybackOrder
     {
+        if ($this->isB2bCollectionOrder($order)) {
+            return $this->approveB2bCollectionOrder($order, $user, $callerIp);
+        }
+
         $requestBody = $order->request_payload;
         $requestBody['authentifizierung'] = [
             'benutzername' => config('services.tuvsud.username'),
@@ -231,6 +295,45 @@ class OrderService
         $this->auditOrder($order, 'APPROVE_ORDER', ['order_status' => 'order_requested'], ['order_status' => 'order_placed'], $user->id);
 
         return $order;
+    }
+
+    /**
+     * The B2B counterpart of approveOrder(): the same order_requested →
+     * order_placed transition and the same APPROVE_ORDER audit entry, with
+     * no external booking call, because no appointment was ever requested
+     * from TÜV SÜD. TransitionOrderStatus still sends the single
+     * customer-facing status notification it always does.
+     */
+    private function approveB2bCollectionOrder(LeasybackOrder $order, User $user, ?string $callerIp): LeasybackOrder
+    {
+        $order = $this->transitionOrderStatus->__invoke(
+            $order,
+            'order_placed',
+            'admin',
+            $user->name ?? $user->email,
+            $user->id,
+            $callerIp,
+        );
+
+        $this->auditOrder($order, 'APPROVE_ORDER', ['order_status' => 'order_requested'], ['order_status' => 'order_placed'], $user->id);
+
+        return $order;
+    }
+
+    /**
+     * Resolved from the order's own record rather than the caller: whichever
+     * entry point approves an order, a collection order must never reach the
+     * TÜV SÜD call. The vehicle type is authoritative; the stored marker
+     * covers orders whose vehicle row has since changed hands.
+     */
+    private function isB2bCollectionOrder(LeasybackOrder $order): bool
+    {
+        if (data_get($order->request_payload, 'order_type') === self::B2B_ORDER_TYPE) {
+            return true;
+        }
+
+        return Vehicle::where('vehicle_id', $order->vehicle_id)->value('vehicle_belongs') === 'B2B'
+            && $order->leasyback_partner === self::B2B_PARTNER;
     }
 
     /**

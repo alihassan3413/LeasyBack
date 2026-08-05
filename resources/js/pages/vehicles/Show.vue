@@ -46,6 +46,8 @@ const steps = computed(() => {
         besichtigungsort: order.request_payload?.besichtigungsort ?? null,
         reportDocuments: order.report_documents,
         offers: order.offers,
+        collection: order.collection,
+        channel: props.vehicle.vehicle_belongs,
     });
 });
 
@@ -356,7 +358,7 @@ function formatDateTime(value: string | undefined): string {
         </div>
 
         <AddVehicleModal v-model:open="editOpen" :vehicle="vehicle" />
-        <OrderCreationModal v-model:open="orderOpen" :vehicle-id="vehicle.vehicle_id" :stations="stations" />
+        <OrderCreationModal v-model:open="orderOpen" :vehicle-id="vehicle.vehicle_id" :stations="stations" :vehicle="vehicle" />
         <UploadDocumentModal v-model:open="uploadOpen" :vehicle-id="vehicle.vehicle_id" :documents="vehicle.documents" />
     </AppLayout>
 </template>

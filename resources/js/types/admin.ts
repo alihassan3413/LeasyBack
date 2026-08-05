@@ -1,3 +1,4 @@
+import type { OrderCollectionData } from './order';
 import type { OrderRequestPayload } from './vehicle';
 
 /** Matches AdminQueryService::summary()'s response shape. */
@@ -59,6 +60,8 @@ export interface AdminCustomerDetail {
     company_name?: string;
     vat_id?: string | null;
     contact_email?: string | null;
+    service_fee_amount?: string | null;
+    service_fee_effective_from?: string | null;
     members?: { user_id: number; user_email: string; role: string }[];
 }
 
@@ -237,12 +240,80 @@ export interface AdminOrderStatusUpdate {
     created_at: string;
 }
 
+/** Matches one OrderTaskResolver action — the endpoint the task can fire directly. */
+export interface AdminOrderTaskAction {
+    method: 'post' | 'patch';
+    url: string;
+    payload: Record<string, string>;
+    label: string;
+}
+
+/** The single emphasised open action OrderTaskResolver derives for a B2B order. */
+export interface AdminOrderTask {
+    key: string;
+    title: string;
+    description: string;
+    state: 'open' | 'waiting';
+    date: string | null;
+    date_label: string;
+    section: string;
+    action: AdminOrderTaskAction | null;
+}
+
+/** A step OrderTaskResolver already considers satisfied — compact by design. */
+export interface AdminOrderTaskHistoryEntry {
+    key: string;
+    title: string;
+    date: string | null;
+    section: string;
+    state: 'done';
+}
+
+/** Matches OrderTaskResolver::forOrderDetail(); null for every B2C order. */
+export interface AdminOrderTasks {
+    next: AdminOrderTask | null;
+    history: AdminOrderTaskHistoryEntry[];
+    is_closed: boolean;
+    closed_status: string | null;
+}
+
 /** Matches AdminQueryService::orderDetail()'s response shape. */
 export interface AdminOrderDetail extends AdminOrderRow {
     offers: AdminOfferRow[];
     status_updates: AdminOrderStatusUpdate[];
     /** Never includes `order_placed` (approve()'s job) or `discarded` (reject — not yet a confirmed feature). */
     available_transitions: string[];
+    vehicle_belongs: 'B2B' | 'B2C';
+    collection: OrderCollectionData | null;
+    tasks: AdminOrderTasks | null;
+    /** B2B only — null on a B2C order, which has no appraisal-position workflow. */
+    appraisal_positions: AdminAppraisalPosition[] | null;
+    appraisal_totals: AdminAppraisalTotals | null;
+}
+
+/**
+ * One repair position of the initial appraisal. All amounts are net strings as
+ * they come off a `decimal:2` cast — never render them as gross (b2b.txt §9).
+ */
+export interface AdminAppraisalPosition {
+    id: string;
+    sort_order: number;
+    component: string;
+    damage_description: string | null;
+    original_amount_net: string;
+    chargeable_amount_net: string | null;
+    /** `chargeable_amount_net` when set, otherwise `original_amount_net`. */
+    effective_amount_net: string;
+    repair_method: string | null;
+    /** `manual` for hand-entered rows; `extracted` is reserved for a future PDF extractor. */
+    source: 'manual' | 'extracted';
+    damage_image_document_ids: string[];
+}
+
+export interface AdminAppraisalTotals {
+    count: number;
+    original_total_net: string;
+    chargeable_total_net: string;
 }
 
 /** Matches AdminQueryService::vehicles()'s response envelope. */

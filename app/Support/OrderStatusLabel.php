@@ -16,6 +16,12 @@ class OrderStatusLabel
         'reinspection' => 'Nachprüfung',
         'reworkshop' => 'Erneut in Werkstatt',
         'delivered' => 'Abgeschlossen',
+        'vehicle_collected' => 'Fahrzeug abgeholt',
+        'workshop_commissioned' => 'Werkstatt beauftragt',
+        'repair_completed' => 'Reparatur abgeschlossen',
+        'vehicle_returned' => 'Fahrzeug zurückgegeben',
+        'invoice_processed' => 'Rechnung verarbeitet',
+        'completed' => 'Abgeschlossen',
         'discarded' => 'Verworfen',
         'cancelled' => 'Storniert',
     ];

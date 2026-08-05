@@ -7,6 +7,7 @@
 export {}
 declare global {
   const ADMIN_ORDER_STATUS_FILTERS: typeof import('../lib/adminStatus').ADMIN_ORDER_STATUS_FILTERS
+  const B2B_ORDER_STAGE_SEQUENCE: typeof import('../lib/customerOrderFlow').B2B_ORDER_STAGE_SEQUENCE
   const CUSTOMER_ORDER_STAGE_SEQUENCE: typeof import('../lib/customerOrderFlow').CUSTOMER_ORDER_STAGE_SEQUENCE
   const CUSTOMER_PAYMENT_FEATURE_ENABLED: typeof import('../lib/customerOrderFlow').CUSTOMER_PAYMENT_FEATURE_ENABLED
   const DOCUMENT_TYPE_LABELS: typeof import('../lib/documentTypes').DOCUMENT_TYPE_LABELS
@@ -163,7 +164,7 @@ declare global {
   export type { StatusPillStyle } from '../lib/adminStatus'
   import('../lib/adminStatus')
   // @ts-ignore
-  export type { CustomerOrderStage, CustomerOrderFlowStep, CustomerOrderStatusHistoryEntry, CustomerOrderBesichtigungsort, CustomerOrderReportDocument, CustomerOrderOffer, CustomerOrderFlowInput } from '../lib/customerOrderFlow'
+  export type { CustomerOrderStage, B2bOrderStage, CustomerOrderFlowStep, CustomerOrderStatusHistoryEntry, CustomerOrderBesichtigungsort, CustomerOrderReportDocument, CustomerOrderOffer, CustomerOrderFlowInput, CustomerOrderCollection } from '../lib/customerOrderFlow'
   import('../lib/customerOrderFlow')
   // @ts-ignore
   export type { ErrorIllustrationVariant, ErrorPageCopy } from '../lib/errorPages'
@@ -185,6 +186,7 @@ declare module 'vue' {
   interface GlobalComponents {}
   interface ComponentCustomProperties {
     readonly ADMIN_ORDER_STATUS_FILTERS: UnwrapRef<typeof import('../lib/adminStatus')['ADMIN_ORDER_STATUS_FILTERS']>
+    readonly B2B_ORDER_STAGE_SEQUENCE: UnwrapRef<typeof import('../lib/customerOrderFlow')['B2B_ORDER_STAGE_SEQUENCE']>
     readonly CUSTOMER_ORDER_STAGE_SEQUENCE: UnwrapRef<typeof import('../lib/customerOrderFlow')['CUSTOMER_ORDER_STAGE_SEQUENCE']>
     readonly CUSTOMER_PAYMENT_FEATURE_ENABLED: UnwrapRef<typeof import('../lib/customerOrderFlow')['CUSTOMER_PAYMENT_FEATURE_ENABLED']>
     readonly DOCUMENT_TYPE_LABELS: UnwrapRef<typeof import('../lib/documentTypes')['DOCUMENT_TYPE_LABELS']>

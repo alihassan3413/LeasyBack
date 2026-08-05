@@ -81,12 +81,10 @@ class OrderAuditAndNotificationTest extends TestCase
             'created_at' => now(),
             'updated_at' => now(),
         ]);
-        $station = InspectionStation::factory()->create(['provider' => 'tuvsud']);
-
         $this->withHeaders($this->bearer($b2bUser))
-            ->postJson("/order/tuvsud/create/{$vehicle->vehicle_id}", [
-                'station_id' => $station->station_id,
-                'termin' => '2026-09-01T10:00:00+02:00',
+            ->postJson("/order/b2b/create/{$vehicle->vehicle_id}", [
+                'requested_collection_date' => now()->addWeek()->toDateString(),
+                'collection_address' => ['street' => 'Werkstr', 'zip_code' => '80331', 'city' => 'München'],
             ])
             ->assertOk();
 

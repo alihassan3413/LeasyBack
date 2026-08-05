@@ -296,9 +296,8 @@ class VehicleControllerTest extends TestCase
     /**
      * Guards lib/adminStatus.ts's ADMIN_ORDER_STATUS_FILTERS against drifting
      * away from the enum again: every chip it offers has to be a status the
-     * list endpoint will actually accept. It previously offered `completed`,
-     * which is not an OrderStatus, so that chip 302'd the page back with a
-     * validation error instead of filtering.
+     * list endpoint will actually accept, and anything outside the enum still
+     * has to be rejected rather than silently ignored.
      */
     public function test_every_admin_status_filter_is_accepted_by_the_list_endpoints(): void
     {
@@ -315,7 +314,7 @@ class VehicleControllerTest extends TestCase
         }
 
         $this->actingAs($admin)
-            ->get(route('admin.vehicles.index', ['status' => 'completed']))
+            ->get(route('admin.vehicles.index', ['status' => 'not_a_status']))
             ->assertRedirect();
     }
 

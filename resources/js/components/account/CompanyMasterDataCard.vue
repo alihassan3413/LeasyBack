@@ -42,6 +42,22 @@ const logoModel = computed({
 
 const labelClass = 'text-sm font-bold text-black';
 const dtClass = 'text-[10px] sm:text-[10.5px] font-bold uppercase tracking-[0.16em] text-[#9CB3B4]';
+
+const serviceFee = computed(() => {
+    const amount = Number(props.company.service_fee_amount);
+
+    return Number.isFinite(amount) ? amount.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' }) : '—';
+});
+
+const serviceFeeEffectiveFrom = computed(() => {
+    if (!props.company.service_fee_effective_from) {
+        return '—';
+    }
+
+    const date = new Date(props.company.service_fee_effective_from);
+
+    return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+});
 </script>
 
 <template>
@@ -94,6 +110,17 @@ const dtClass = 'text-[10px] sm:text-[10.5px] font-bold uppercase tracking-[0.16
                         <dd class="mt-1.5 text-[14px] font-semibold break-all text-[#10393B] sm:text-[15px]">
                             {{ company.contact_email || '—' }}
                         </dd>
+                    </div>
+
+                    <div class="min-w-0">
+                        <dt :class="dtClass">Servicepauschale (jährlich)</dt>
+                        <dd class="mt-1.5 text-[14px] font-semibold text-[#10393B] sm:text-[15px]">{{ serviceFee }}</dd>
+                        <p class="mt-1 text-[11px] text-[#9CB3B4]">Wird von LeasyBack verwaltet</p>
+                    </div>
+
+                    <div class="min-w-0">
+                        <dt :class="dtClass">Gültig ab</dt>
+                        <dd class="mt-1.5 text-[14px] font-semibold text-[#10393B] sm:text-[15px]">{{ serviceFeeEffectiveFrom }}</dd>
                     </div>
                 </dl>
 

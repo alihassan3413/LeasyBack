@@ -1,0 +1,355 @@
+LeasyBack B2B Leasing Return Portal – Developer Specification
+1. Project objective
+Build a B2B fleet-management portal that manages the complete operational process of returning leased company vehicles.
+LeasyBack coordinates the entire process on behalf of its corporate customers:
+The customer creates a leasing-return order.
+LeasyBack confirms and organizes vehicle collection.
+LeasyBack collects the vehicle.
+An initial vehicle appraisal is uploaded.
+Repair quotations are requested from workshops.
+A selected repair offer is presented to the customer.
+The customer approves or rejects the offer.
+LeasyBack commissions the selected workshop.
+The vehicle is repaired.
+The vehicle is returned to the leasing company.
+The final appraisal and invoice are processed.
+The order is completed.
+This B2B process must remain completely separate from the B2C process. B2B customers do not drive the vehicle to the inspection station, workshop or leasing company themselves.
+2. Core principle
+The system must use one central order as the source of truth.
+Every status change, appointment, document, quotation, approval and administrative action must belong to that order.
+The customer and the administrator must see the same customer-facing timeline. Administrators may additionally see internal tasks, operational information and internal notes.
+Do not create duplicate status systems, parallel task systems or separate copies of the same order data.
+3. User roles
+LeasyBack main administrator
+Has unrestricted platform access and may:
+Create and manage corporate customers.
+Invite company users.
+View and edit all orders.
+Change order statuses.
+Upload and delete documents.
+Request and evaluate workshop quotations.
+Present offers to customers.
+Manage appointments.
+Create invoice drafts.
+Manage internal platform administrators.
+Deactivate users.
+View audit logs.
+The main administrator account is the only role allowed to manage other internal LeasyBack administrators.
+Company user – Full access
+May:
+View all vehicles and orders belonging to the company.
+Create orders.
+Add individual vehicles or import vehicle lists.
+Approve or reject customer offers.
+Invite and manage company employees.
+Assign company roles.
+View statistics and export data.
+Add customer-visible messages.
+At least one active full-access user must always remain assigned to each company.
+Company user – Read only
+May:
+View all company vehicles and orders.
+View documents, timelines, offers and statistics.
+Export permitted data.
+This role must not modify, approve, delete or create orders.
+Company user – Create orders
+May:
+Add individual vehicles.
+Import vehicles.
+Start orders for existing vehicles.
+Create new leasing-return orders.
+View all company orders.
+This role must not delete vehicles, approve offers or manage company users.
+4. Company and user management
+“Customers” and “Users” should be organized under a common company structure.
+Recommended hierarchy:
+Company
+├── Company master data
+├── Commercial settings
+├── Vehicles
+├── Orders
+├── Users and roles
+├── Service fee agreement
+├── Statistics
+└── Audit history
+The first user invited to a company receives full access by default.
+Every full-access company user may invite additional employees. Invitations should be sent by email and use a secure, single-use token with a limited validity period.
+Administrators must be able to:
+See all users assigned to a company.
+Send new invitations.
+Resend expired invitations.
+Change roles.
+Deactivate users.
+Add an optional telephone number.
+Review invitation and login status.
+Company users must only be able to access data belonging to their own company.
+5. Vehicle creation and import
+Vehicles may be created:
+Manually.
+Through an Excel import.
+From an existing vehicle record when starting an order.
+Recommended vehicle fields:
+Registration number.
+VIN.
+Manufacturer.
+Model.
+First registration date.
+Current mileage.
+Leasing company.
+Contract number.
+Leasing end date, if available.
+Cost centre.
+Driver or contact person.
+Collection address.
+The import must validate required fields and show errors per row without discarding valid rows.
+6. B2B order workflow
+The labels below are conceptual. Existing project status names and identifiers should be preserved where already implemented.
+Phase	Customer view	Required admin action
+Order submitted	Order received	Review the order and requested collection date
+Collection planning	Collection date requested	Confirm or reschedule collection
+Collection scheduled	Collection scheduled	Organize vehicle collection
+Vehicle collected	Vehicle collected	Upload the initial appraisal
+Appraisal received	Appraisal available	Review damage items and request workshop quotations
+Quotations requested	Offer preparation	Collect and compare workshop offers
+Customer offer available	Approval required	Present the selected offer and original appraisal
+Offer accepted	Repair approved	Commission the selected workshop
+Workshop commissioned	Repair planning	Enter the confirmed workshop appointment
+Repair active	In repair	Monitor the repair
+Repair completed	Repair completed	Organize return to the leasing company
+Vehicle returned	Returned to leasing company	Upload final documents and prepare invoice
+Invoice processed	Billing completed	Verify all mandatory completion requirements
+Completed	Order completed	No further operational action
+
+
+A cancellation path must be available where permitted. Cancellation must close all open tasks and prevent outdated reminders.
+7. Collection appointment
+When creating the order, the customer must enter a preferred collection date.
+The administrator can:
+Confirm the requested date.
+Select a different date.
+Add an operational note.
+After confirmation:
+The status changes to “Collection scheduled”.
+The customer timeline shows the confirmed collection date.
+The open confirmation task disappears.
+No duplicate appointment task may remain.
+The timeline entry should display:
+Date on which the order or status was created.
+Requested collection date.
+Confirmed collection date, once available.
+8. Appraisal handling
+After collection, the administrator uploads the initial appraisal.
+The system should:
+Store the original PDF securely.
+Extract relevant repair positions.
+Display the original appraisal amount per position.
+Use the reduced or chargeable amount where applicable.
+Associate damage images with the corresponding repair positions.
+Allow the administrator to verify and correct extracted values.
+Uploading the appraisal triggers the next operational task: request workshop quotations.
+The original appraisal must later be presented to the customer together with the selected repair offer.
+9. Workshop quotation process
+The administrator creates secure workshop links from the order.
+A workshop does not need a portal account. It receives a time-limited link and can submit:
+Company name.
+Contact person.
+Email address.
+Telephone number.
+Earliest repair start.
+Estimated total processing time in working days.
+Repair method per position.
+A clear net amount in euros for every repair position.
+A total net quotation amount.
+An indication that the repair cannot be completed for the requested amount.
+Because this is a B2B portal, do not present prices as gross prices.
+The administrator must be able to expand each submitted quotation and compare:
+Component or damage position.
+Original appraisal amount.
+Workshop amount.
+Difference or saving.
+Repair method.
+Total quotation amount.
+Estimated repair duration.
+Submitted quotations must remain visible to the administrator, including after one quotation has been presented to or accepted by the customer.
+10. Customer offer presentation
+The administrator selects the workshop quotation that should be presented to the customer.
+The customer must receive a clear offer view containing:
+Vehicle identification.
+Original appraisal.
+Relevant damage positions.
+Original appraisal amount.
+Proposed repair amount.
+Expected saving.
+Selected workshop offer.
+Original appraisal PDF and damage images.
+Offer validity, if configured.
+Customer-visible notes.
+The customer must be able to:
+Accept the offer.
+Reject the offer.
+Submit a comment or question.
+Acceptance is legally and operationally treated as repair authorization.
+When the offer is published:
+The customer timeline displays “Approval required”.
+The relevant offer section becomes prominent.
+The customer receives an email.
+A reminder may be sent every 24 hours while customer action is required.
+Reminders stop immediately after acceptance, rejection, cancellation or expiry.
+The administrator must always be able to see exactly what was presented to the customer.
+11. Workshop commissioning and repair
+After customer approval, the administrator commissions the selected workshop.
+The next required action is entering the confirmed repair appointment.
+When the appointment is saved:
+The status changes to “In repair” at the appropriate point.
+The confirmed appointment appears in the customer timeline.
+The appointment task is completed automatically.
+No duplicate “Enter repair appointment” task may remain.
+The customer should receive a notification when the vehicle enters the repair phase.
+12. Final return and documents
+After repair, LeasyBack coordinates delivery to the leasing company.
+The order may contain:
+Initial appraisal.
+Workshop quotations.
+Customer approval.
+Repair documents.
+Final appraisal.
+Leasing-return confirmation.
+Invoice references.
+Additional transport documentation.
+The final appraisal may be uploaded and made available to the customer, but it must not currently be included in the customer’s saving statistics.
+13. Billing and Lexware integration
+An order must not be marked as completed before its mandatory billing step has been processed.
+The Lexware invoice draft should contain:
+Accepted repair positions.
+Vehicle registration number.
+VIN.
+Order or contract reference.
+Agreed annual service fee.
+Optional transport or additional service positions.
+Customer billing data.
+The service fee:
+Is agreed individually per company for one year.
+Has a default value of EUR 295 for existing and newly created companies until changed.
+Is stored in the company master data.
+Has an effective-from date.
+Uses 1 January 2026 for existing customers.
+Must not be displayed in the repair offer before final billing.
+Is added during invoice preparation.
+All invoice positions must remain editable and removable in Lexware. The Lexware document should remain a draft until reviewed by accounting.
+Completion must be blocked or produce a mandatory warning if the required invoice has not been created or transmitted.
+14. Admin task presentation
+Do not change the underlying task logic without explicit approval.
+The user interface should always emphasize only the next required action.
+Examples:
+Confirm collection request.
+Upload appraisal.
+Request workshop quotations.
+Prepare customer offer.
+Commission workshop.
+Enter repair appointment.
+Prepare invoice.
+Completed tasks should collapse into a compact history.
+Clicking an admin task must navigate directly to its relevant section. It must not merely scroll to the bottom of the page or open an unrelated task list.
+No task may be displayed twice.
+15. Timeline
+The customer-facing timeline is the authoritative representation of order progress.
+Requirements:
+The administrator sees the same timeline as the customer.
+The administrator may additionally see internal operational information.
+Every status change contains a timestamp.
+Relevant business dates are displayed separately from the status-change date.
+Changes must be stored as historical events and not overwrite the audit history.
+Customer-visible and internal statuses must not be confused.
+The timeline must update immediately after a confirmed action.
+16. Notes and communication
+Two separate note types are required:
+Internal notes
+Visible only to LeasyBack administrators.
+Associated with the order.
+Must never appear in customer APIs, emails or exports.
+Customer-visible notes
+Visible to the company’s authorized users.
+May be included with status updates or documents.
+Must be clearly marked as customer-visible before saving.
+17. Statistics and export
+B2B customers should receive a company-level statistics section.
+Recommended statistics:
+Number of active and completed orders.
+Total initial appraisal amount.
+Total accepted repair amount.
+Total savings.
+Average saving per vehicle.
+Saving percentage.
+Processing time.
+Status distribution.
+Monthly order volume.
+Saving calculation:
+Saving = original chargeable appraisal amount - accepted repair amount
+The final appraisal must not currently be included in this calculation.
+Users with sufficient permissions should be able to export the underlying data as an Excel file.
+18. Notifications
+Default user notification settings should include:
+Invitation emails.
+Password reset emails.
+Important status changes.
+Customer action required.
+Offer available.
+Appointment confirmed.
+Repair started.
+Order completed.
+Optional leasing alerts may be activated for individual vehicles. They warn users before the leasing end date according to a configurable lead time.
+Notification processing must be asynchronous and must not block the underlying order transaction.
+Failed emails must be retried safely and must not cause duplicate business actions.
+19. Security requirements
+The implementation must include:
+Secure password hashing.
+Secure password-reset tokens with expiration and single use.
+Time-limited, single-use invitation tokens.
+Role-based authorization on every server endpoint.
+Strict company-level data isolation.
+Audit logs for status changes and approvals.
+File type, file signature and malware validation.
+Private document storage with signed download URLs.
+Rate limiting for login and public endpoints.
+CSRF protection where cookie-based authentication is used.
+Secure cookies and HTTPS only.
+No secrets or credentials in frontend code.
+Generic public error messages without internal stack traces.
+Revocable public workshop links.
+GDPR-compliant retention and deletion workflows.
+Hosting and data storage in AWS Frankfurt where configured.
+Frontend permissions alone are not sufficient. Every permission must be enforced by the backend.
+20. Technical acceptance criteria
+The implementation is accepted only when:
+A company can contain multiple users with different roles.
+Users can access only their own company’s information.
+A customer can create a complete B2B leasing-return order.
+The preferred collection date can be confirmed or rescheduled.
+The customer and administrator see a synchronized timeline.
+An appraisal can be uploaded and reviewed.
+Workshop links can collect itemized net quotations.
+The administrator can compare appraisal and workshop prices.
+The selected offer can be presented to the customer.
+The customer can accept or reject it.
+Approval triggers the correct next admin task.
+Workshop commissioning and repair appointments work without duplicate tasks.
+Mandatory billing prevents premature completion.
+Lexware receives an editable invoice draft.
+Internal notes never appear to customers.
+Statistics and Excel exports use company-scoped data.
+All critical actions are recorded in the audit history.
+Existing B2C behavior remains completely unchanged.
+Regression, authorization and cross-company isolation tests pass.
+21. Strict non-goals
+The developer must not:
+Merge the B2B and B2C workflows.
+Change existing B2C statuses.
+Reuse B2C responsibility rules for B2B.
+Introduce a second task or timeline system.
+Remove existing workflow steps without approval.
+Expose internal notes to customers.
+mark an order complete before mandatory billing.
+Show gross prices in the B2B quotation process.
+Perform material workflow changes based only on UI assumptions.
+Before implementation, the developer should first document the current code paths, database entities, status transitions, permissions and affected APIs. Any discrepancy between this specification and the existing application must be reported before changing business logic.

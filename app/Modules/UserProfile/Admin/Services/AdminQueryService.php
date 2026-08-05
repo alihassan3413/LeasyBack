@@ -4,6 +4,9 @@ namespace App\Modules\UserProfile\Admin\Services;
 
 use App\Enums\OrderStatus;
 use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
+use App\Modules\UserProfile\Order\Services\AppraisalPositionService;
+use App\Modules\UserProfile\Order\Services\OrderCollectionService;
+use App\Modules\UserProfile\Order\Services\OrderTaskResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\Request;
@@ -14,25 +17,48 @@ use Illuminate\Validation\ValidationException;
 
 class AdminQueryService
 {
+    public function __construct(
+        private readonly OrderCollectionService $orderCollectionService,
+        private readonly OrderTaskResolver $orderTaskResolver,
+        private readonly AppraisalPositionService $appraisalPositionService,
+    ) {}
+
     /**
      * Cross-domain dashboard counts — moved here from the Sanctum API's
-     * AdminController::summary() (unchanged query, unchanged response
-     * shape) so the new session-authenticated web Admin dashboard can reuse
-     * it without duplicating the raw SQL.
+     * AdminController::summary() (unchanged response shape) so the new
+     * session-authenticated web Admin dashboard can reuse it without
+     * duplicating the raw SQL.
+     *
+     * The active and completed status lists are derived from OrderStatus
+     * rather than repeated inline, so a new B2B status cannot fall out of
+     * both buckets the way the six added in phase 5 did. `pending_inspections`
+     * keeps its own literal pair: it is the B2C "awaiting inspection" stat,
+     * not an active/closed partition.
      */
     public function summary(): object
     {
-        return DB::selectOne("
+        $active = OrderStatus::activeValues();
+        $completed = OrderStatus::completedValues();
+
+        return DB::selectOne(sprintf("
             SELECT
                 (SELECT COUNT(*) FROM users WHERE user_type = 'Privatkunde') AS total_b2c_customers,
                 (SELECT COUNT(*) FROM users WHERE user_type = 'Firmenkunde') AS total_b2b_users,
                 (SELECT COUNT(*) FROM b2b) AS total_b2b_companies,
                 (SELECT COUNT(*) FROM vehicles) AS total_vehicles,
                 (SELECT COUNT(*) FROM leasyback_orders) AS total_orders,
-                (SELECT COUNT(*) FROM leasyback_orders WHERE order_status IN ('order_placed','confirmed','inspected','workshop','reinspection','reworkshop','order_requested')) AS active_orders,
-                (SELECT COUNT(*) FROM leasyback_orders WHERE order_status = 'delivered') AS delivered_orders,
+                (SELECT COUNT(*) FROM leasyback_orders WHERE order_status IN (%s)) AS active_orders,
+                (SELECT COUNT(*) FROM leasyback_orders WHERE order_status IN (%s)) AS delivered_orders,
                 (SELECT COUNT(*) FROM leasyback_orders WHERE order_status IN ('order_placed','confirmed')) AS pending_inspections
-        ");
+        ", $this->bindingPlaceholders($active), $this->bindingPlaceholders($completed)), [...$active, ...$completed]);
+    }
+
+    /**
+     * @param  array<int, string>  $values
+     */
+    private function bindingPlaceholders(array $values): string
+    {
+        return implode(',', array_fill(0, count($values), '?'));
     }
 
     /**
@@ -229,6 +255,7 @@ class AdminQueryService
             ->select([
                 'b.b2b_id', 'b.company_name', 'b.vat_id', 'b.logo_url', 'b.contact_email',
                 'b.is_active', 'b.created_at',
+                'b.service_fee_amount', 'b.service_fee_effective_from',
                 'c.contact_id', 'c.salutation', 'c.first_name', 'c.last_name',
                 'a.address_id', 'a.street', 'a.number', 'a.additional_address',
                 'a.zip_code', 'a.city', 'a.country',
@@ -413,7 +440,7 @@ class AdminQueryService
                 'o.id', 'o.vehicle_id', 'o.auftragsnummer', 'o.leasyback_partner',
                 'o.order_status', 'o.sent_at', 'o.created_at', 'o.response_status', 'o.response_body',
                 'v.license_plate', 'v.vin', 'v.make', 'v.model',
-                'v.b2c_user_id', 'v.b2b_id',
+                'v.b2c_user_id', 'v.b2b_id', 'v.vehicle_belongs',
             ])
             ->first();
 
@@ -439,9 +466,20 @@ class AdminQueryService
             ->all();
 
         $order['available_transitions'] = array_values(array_diff(
-            TransitionOrderStatus::allowedNextStatuses($row->order_status),
+            TransitionOrderStatus::allowedNextStatuses($row->order_status, $row->vehicle_belongs === 'B2B'),
             ['order_placed', 'discarded'],
         ));
+
+        $order['vehicle_belongs'] = $row->vehicle_belongs;
+        $order['collection'] = $row->vehicle_belongs !== 'B2B'
+            ? null
+            : ($this->orderCollectionService->forOrders([$row->auftragsnummer], true)[$row->auftragsnummer] ?? null);
+
+        $positions = $row->vehicle_belongs !== 'B2B' ? [] : $this->appraisalPositionService->forOrder($orderId);
+        $order['appraisal_positions'] = $row->vehicle_belongs !== 'B2B' ? null : $positions;
+        $order['appraisal_totals'] = $row->vehicle_belongs !== 'B2B' ? null : $this->appraisalPositionService->totals($positions);
+
+        $order['tasks'] = $this->orderTaskResolver->forOrderDetail($order);
 
         return $order;
     }
@@ -453,7 +491,7 @@ class AdminQueryService
             'total_active' => (clone $base)->whereIn('o.order_status', OrderStatus::activeValues())->distinct()->count('o.id'),
             'total_confirmed' => (clone $base)->where('o.order_status', 'confirmed')->distinct()->count('o.id'),
             'total_inspected' => (clone $base)->where('o.order_status', 'inspected')->distinct()->count('o.id'),
-            'total_delivered' => (clone $base)->where('o.order_status', 'delivered')->distinct()->count('o.id'),
+            'total_delivered' => (clone $base)->whereIn('o.order_status', OrderStatus::completedValues())->distinct()->count('o.id'),
         ];
     }
 
@@ -692,12 +730,14 @@ class AdminQueryService
             ->get()
             ->groupBy('order_id');
 
-        $vehicle['order_history'] = array_map(function (array $order) use ($payloads, $statusUpdates, $offers) {
+        $isB2b = ($vehicle['vehicle_belongs'] ?? null) === 'B2B';
+
+        $vehicle['order_history'] = array_map(function (array $order) use ($payloads, $statusUpdates, $offers, $isB2b) {
             $order['request_payload'] = json_decode((string) ($payloads[$order['id']] ?? ''), false) ?: null;
             $order['status_updates'] = $statusUpdates->get($order['auftragsnummer'], collect())->values()->all();
             $order['offers'] = $offers->get($order['id'], collect())->values()->all();
             $order['available_transitions'] = array_values(array_diff(
-                TransitionOrderStatus::allowedNextStatuses($order['order_status']),
+                TransitionOrderStatus::allowedNextStatuses($order['order_status'], $isB2b),
                 ['order_placed', 'discarded'],
             ));
 
@@ -718,10 +758,10 @@ class AdminQueryService
         return [
             'total' => (clone $base)->distinct()->count('v.vehicle_id'),
             'total_active' => (clone $base)->whereIn('o.order_status', OrderStatus::activeValues())->distinct()->count('v.vehicle_id'),
-            'total_completed' => (clone $base)->where('o.order_status', 'delivered')->distinct()->count('v.vehicle_id'),
+            'total_completed' => (clone $base)->whereIn('o.order_status', OrderStatus::completedValues())->distinct()->count('v.vehicle_id'),
             'total_confirmed' => (clone $base)->where('o.order_status', 'confirmed')->distinct()->count('v.vehicle_id'),
             'total_inspected' => (clone $base)->where('o.order_status', 'inspected')->distinct()->count('v.vehicle_id'),
-            'total_delivered' => (clone $base)->where('o.order_status', 'delivered')->distinct()->count('v.vehicle_id'),
+            'total_delivered' => (clone $base)->whereIn('o.order_status', OrderStatus::completedValues())->distinct()->count('v.vehicle_id'),
         ];
     }
 
@@ -805,7 +845,7 @@ class AdminQueryService
                 // free to compute for every row. Same exclusions as
                 // orderDetail()'s available_transitions.
                 'current_order_transitions' => $row->current_order_status === null ? [] : array_values(array_diff(
-                    TransitionOrderStatus::allowedNextStatuses($row->current_order_status),
+                    TransitionOrderStatus::allowedNextStatuses($row->current_order_status, $row->vehicle_belongs === 'B2B'),
                     ['order_placed', 'discarded'],
                 )),
                 // Drives the row menu's "Auftrag erstellen" / "Dokumente
@@ -813,7 +853,7 @@ class AdminQueryService
                 // VehicleService::hasUnfinishedOrder(), the rule
                 // OrderService actually enforces on create.
                 'has_open_order' => collect($history[$row->vehicle_id] ?? [])->contains(
-                    fn (array $order) => ! in_array($order['order_status'], ['delivered', 'cancelled', 'discarded'], true)
+                    fn (array $order) => ! in_array($order['order_status'], OrderStatus::closedValues(), true)
                 ),
                 'can_pull_documents' => (bool) ($canPull[$row->vehicle_id] ?? false),
                 'order_history' => $history[$row->vehicle_id] ?? [],

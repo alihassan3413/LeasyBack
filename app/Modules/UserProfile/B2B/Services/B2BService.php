@@ -64,6 +64,7 @@ class B2BService
             return $this->creationResponse($b2bId);
         });
     }
+
     /**
      * The company this user is currently acting as.
      *
@@ -86,7 +87,8 @@ class B2BService
             ->leftJoin('addresses as a', 'a.address_id', '=', 'b.address_id')
             ->where('b.b2b_id', $b2bId)
             ->select(['b.b2b_id', 'b.company_name', 'b.logo_url', 'b.logo_path', 'b.contact_email',
-                'b.vat_id', 'b.created_at', 'b.updated_at', 'c.contact_id',
+                'b.vat_id', 'b.service_fee_amount', 'b.service_fee_effective_from',
+                'b.created_at', 'b.updated_at', 'c.contact_id',
                 'c.salutation', 'c.first_name', 'c.last_name', 'a.address_id',
                 'a.street', 'a.number', 'a.additional_address', 'a.zip_code',
                 'a.city', 'a.country'])
@@ -112,6 +114,10 @@ class B2BService
             'logo_path' => $row->logo_path,
             'contact_email' => $row->contact_email,
             'vat_id' => $row->vat_id,
+            'service_fee_amount' => $row->service_fee_amount,
+            'service_fee_effective_from' => $row->service_fee_effective_from === null
+                ? null
+                : Carbon::parse($row->service_fee_effective_from)->toDateString(),
             'created_at' => Carbon::parse($row->created_at)->toISOString(),
             'updated_at' => Carbon::parse($row->updated_at)->toISOString(),
             'contact' => $row->contact_id === null ? null : [
@@ -124,6 +130,7 @@ class B2BService
             'address' => $this->addressResponse($row),
         ];
     }
+
     public function update(User $user, string $b2bId, array $data): array
     {
         return DB::transaction(function () use ($user, $b2bId, $data) {
@@ -186,6 +193,7 @@ class B2BService
             return ['message' => 'B2B updated successfully', 'b2b_id' => $b2bId];
         });
     }
+
     private function insertAddress(array $address): string
     {
         $id = (string) Str::uuid();
@@ -237,6 +245,7 @@ class B2BService
             ]);
         }
     }
+
     private function addressValues(array $address): array
     {
         return [

@@ -7,6 +7,7 @@ use App\Models\InspectionStation;
 use App\Models\LeasybackOrder;
 use App\Models\OrderConfirmation;
 use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
+use App\Modules\UserProfile\Order\Services\OrderCollectionService;
 use App\Modules\UserProfile\Order\Services\OrderService;
 use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
 use Carbon\Carbon;
@@ -41,6 +42,7 @@ class OrderController extends Controller
             'station_id' => 'required|uuid',
             'termin' => 'required|string',
             'remarks' => 'nullable|string',
+            ...OrderCollectionService::customerRules(false),
         ]);
 
         try {
@@ -61,6 +63,35 @@ class OrderController extends Controller
             'auftragsnummer' => $order->auftragsnummer,
             'status' => $order->response_status,
             'response' => $order->response_body,
+        ]);
+    }
+
+    /**
+     * POST /order/b2b/create/{vehicleId} — B2B collection order. No station,
+     * no appointment, no external call; staged as order_requested for Admin.
+     */
+    public function createB2bCollection(Request $request, string $vehicleId): JsonResponse
+    {
+        $user = $request->user();
+        $vehicle = $this->scope->findVehicleWithAccess($vehicleId, $user);
+
+        if (! $vehicle) {
+            return response()->json(['error' => 'Vehicle not found or access denied'], 404);
+        }
+
+        $validated = $request->validate(OrderCollectionService::b2bOrderRules());
+
+        try {
+            $order = $this->orderService->createB2bCollectionOrder($vehicle, $user, $validated);
+        } catch (HttpResponseException $e) {
+            return $e->getResponse();
+        }
+
+        return response()->json([
+            'message' => 'Collection order request created successfully',
+            'auftragsnummer' => $order->auftragsnummer,
+            'order_id' => $order->id,
+            'order_status' => $order->order_status,
         ]);
     }
 
@@ -177,7 +208,7 @@ class OrderController extends Controller
             return response()->json(['error' => 'Order request not found'], 404);
         }
 
-        if (! in_array('order_placed', TransitionOrderStatus::allowedNextStatuses($order->order_status), true)) {
+        if (! in_array('order_placed', TransitionOrderStatus::allowedNextStatuses($order->order_status, TransitionOrderStatus::isB2bOrder($order)), true)) {
             return response()->json([
                 'error' => 'Only order_requested orders can be approved',
                 'current_status' => $order->order_status,
@@ -278,6 +309,7 @@ class OrderController extends Controller
             'station_id' => 'required|uuid',
             'termin' => 'required|string',
             'remarks' => 'nullable|string',
+            ...OrderCollectionService::customerRules(false),
         ]);
 
         $order = $this->orderService->createOtherOrder($vehicle, $user, $validated);

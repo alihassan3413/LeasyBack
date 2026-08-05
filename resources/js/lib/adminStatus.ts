@@ -16,6 +16,11 @@ const ADMIN_DASHBOARD_STATUS_STYLES: Record<string, StatusPillStyle> = {
     reinspection: { label: 'Nachprüfung', background: 'rgba(124, 58, 237, 0.12)', color: '#6d28d9' },
     reworkshop: { label: 'Erneut in Werkstatt', background: 'rgba(234, 88, 12, 0.12)', color: '#c2410c' },
     delivered: { label: 'Geliefert', background: 'rgba(16, 57, 59, 0.09)', color: '#10393b' },
+    vehicle_collected: { label: 'Fahrzeug abgeholt', background: 'rgba(99, 102, 241, 0.12)', color: '#4f46e5' },
+    workshop_commissioned: { label: 'Werkstatt beauftragt', background: 'rgba(245, 158, 11, 0.12)', color: '#b45309' },
+    repair_completed: { label: 'Reparatur abgeschlossen', background: 'rgba(234, 88, 12, 0.12)', color: '#c2410c' },
+    vehicle_returned: { label: 'Fahrzeug zurückgegeben', background: 'rgba(124, 58, 237, 0.12)', color: '#6d28d9' },
+    invoice_processed: { label: 'Rechnung verarbeitet', background: 'rgba(16, 57, 59, 0.09)', color: '#10393b' },
     completed: { label: 'Abgeschlossen', background: 'rgba(1, 185, 144, 0.12)', color: '#00856a' },
     discarded: { label: 'Verworfen', background: 'rgba(107, 114, 128, 0.12)', color: '#374151' },
     cancelled: { label: 'Storniert', background: 'rgba(220, 38, 38, 0.10)', color: '#991b1b' },
@@ -33,19 +38,25 @@ export function getAdminDashboardStatus(status: string | null | undefined): Stat
  * Only real `App\Enums\OrderStatus` values belong here — AdminQueryService's
  * filters() rejects anything else with a validation error, so a chip for a
  * status that isn't in the enum doesn't filter, it 302s the page back.
- * `completed` used to be listed and did exactly that; `delivered` is the
- * terminal status these lists actually store.
+ * `delivered` is the B2C terminal, `completed` the B2B one; both are real
+ * enum cases and both are offered.
  */
 export const ADMIN_ORDER_STATUS_FILTERS: { value: string; label: string }[] = [
     { value: '', label: 'Alle' },
     { value: 'order_requested', label: 'Anfrage gesendet' },
     { value: 'order_placed', label: 'Bestellt' },
     { value: 'confirmed', label: 'Bestätigt' },
+    { value: 'vehicle_collected', label: 'Fahrzeug abgeholt' },
     { value: 'inspected', label: 'Geprüft' },
+    { value: 'workshop_commissioned', label: 'Werkstatt beauftragt' },
     { value: 'workshop', label: 'In Werkstatt' },
+    { value: 'repair_completed', label: 'Reparatur abgeschlossen' },
     { value: 'reinspection', label: 'Nachprüfung' },
     { value: 'reworkshop', label: 'Erneut in Werkstatt' },
+    { value: 'vehicle_returned', label: 'Fahrzeug zurückgegeben' },
+    { value: 'invoice_processed', label: 'Rechnung verarbeitet' },
     { value: 'delivered', label: 'Geliefert' },
+    { value: 'completed', label: 'Abgeschlossen' },
     { value: 'discarded', label: 'Verworfen' },
     { value: 'cancelled', label: 'Storniert' },
 ];
