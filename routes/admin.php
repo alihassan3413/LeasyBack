@@ -7,6 +7,7 @@ use App\Http\Controllers\Admin\ImpersonationController;
 use App\Http\Controllers\Admin\OfferController;
 use App\Http\Controllers\Admin\OrderBillingController;
 use App\Http\Controllers\Admin\OrderController;
+use App\Http\Controllers\Admin\OrderNoteController;
 use App\Http\Controllers\Admin\VehicleController;
 use App\Http\Controllers\Admin\VehicleReportController;
 use App\Http\Controllers\Admin\WorkshopQuotationController;
@@ -55,6 +56,16 @@ Route::middleware(['auth', 'active', 'verified', 'admin'])->prefix('admin')->nam
         Route::patch('{orderId}/billing', [OrderBillingController::class, 'update'])
             ->whereUuid('orderId')->name('billing');
         Route::put('{orderId}/appraisal-positions', [AppraisalPositionController::class, 'update'])->whereUuid('orderId')->name('appraisal-positions');
+
+        /*
+         * Order notes (§16). Admin-authored only: §16 gives company users the
+         * right to see customer-visible notes, not to write them, and the
+         * customer's own writing surface is the order_messages thread.
+         */
+        Route::post('{orderId}/notes', [OrderNoteController::class, 'store'])
+            ->whereUuid('orderId')->name('notes.store');
+        Route::delete('{orderId}/notes/{noteId}', [OrderNoteController::class, 'destroy'])
+            ->whereUuid('orderId')->whereUuid('noteId')->name('notes.destroy');
 
         Route::post('{orderId}/workshop-quotations', [WorkshopQuotationController::class, 'store'])
             ->whereUuid('orderId')->name('workshop-quotations.store');

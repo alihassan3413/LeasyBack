@@ -295,6 +295,8 @@ export interface AdminOrderDetail extends AdminOrderRow {
     workshop_quotations: AdminWorkshopQuotation[] | null;
     /** B2B only — null on a B2C order, which has no internal billing record. */
     billing: AdminOrderBilling | null;
+    /** Both audiences. null for a B2C order, which has no note surface. */
+    notes: AdminOrderNote[] | null;
 }
 
 /**
@@ -308,6 +310,22 @@ export interface AdminOrderBilling {
     invoice_document_id: string | null;
     processed_at: string | null;
     is_processed: boolean;
+}
+
+/**
+ * One order note (§16). Admin-authored, with an explicit audience.
+ *
+ * `visibility` is present only on the Admin payload — the customer's copy of a
+ * note omits the field entirely, since they can only ever receive the
+ * customer-visible ones.
+ */
+export interface AdminOrderNote {
+    id: string;
+    visibility: 'internal' | 'customer';
+    body: string;
+    /** Snapshot taken at write time; survives the author's account deletion. */
+    author_name: string;
+    created_at: string | null;
 }
 
 /** One row of the appraisal-vs-workshop comparison. All amounts net. */

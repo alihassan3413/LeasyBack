@@ -2,6 +2,7 @@
 import OnboardingModal from '@/components/dashboard/OnboardingModal.vue';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import AddVehicleModal from '@/components/vehicle/AddVehicleModal.vue';
+import ImportVehiclesModal from '@/components/vehicle/ImportVehiclesModal.vue';
 import OrderCreationModal from '@/components/vehicle/OrderCreationModal.vue';
 import SortableTableHead from '@/components/vehicle/SortableTableHead.vue';
 import VehicleExpandedPanel from '@/components/vehicle/VehicleExpandedPanel.vue';
@@ -93,7 +94,7 @@ function resetFilters() {
 
 const hasQuery = computed(() => search.value !== '' || status.value !== '' || createdBy.value !== '');
 
-const { can, seesOwnVehiclesOnly } = useB2bPermissions();
+const { can, seesOwnVehiclesOnly, isCompanyUser } = useB2bPermissions();
 
 function latestOrderStatus(vehicle: VehicleData): string | undefined {
     return vehicle.orders[0]?.order_status;
@@ -119,6 +120,7 @@ function handleToggle(vehicle: VehicleData) {
 }
 
 const addVehicleOpen = ref(false);
+const importVehiclesOpen = ref(false);
 
 const orderModalOpen = ref(false);
 const orderVehicle = ref<VehicleData | null>(null);
@@ -201,7 +203,21 @@ onMounted(() => {
                         </p>
                     </div>
 
-                    <div class="flex w-full flex-col items-stretch gap-3 md:w-auto md:items-end">
+                    <div class="flex w-full flex-col items-stretch gap-3 md:w-auto md:flex-row md:items-center">
+                        <!--
+                            Import is a company feature only. `can()` returns true for
+                            non-Firmenkunde accounts by design, so isCompanyUser is
+                            what keeps this off a Privatkunde dashboard — matching the
+                            controller, which refuses them with 403.
+                        -->
+                        <button
+                            v-if="isCompanyUser && can('vehicles.create')"
+                            class="flex w-full items-center justify-center gap-2 rounded-full border border-[#ef8450] px-4 py-2 font-medium text-[#ef8450] transition-colors hover:bg-[#fff4ee] md:w-auto"
+                            @click="importVehiclesOpen = true"
+                        >
+                            <span>Fahrzeuge importieren</span>
+                        </button>
+
                         <button
                             v-if="can('vehicles.create')"
                             class="flex w-full items-center justify-center gap-2 rounded-full px-4 py-2 font-medium text-white md:w-auto"
@@ -379,6 +395,7 @@ onMounted(() => {
         </button>
 
         <AddVehicleModal v-model:open="addVehicleOpen" :vehicle="null" />
+        <ImportVehiclesModal v-model:open="importVehiclesOpen" />
         <OrderCreationModal
             v-if="orderVehicle"
             v-model:open="orderModalOpen"

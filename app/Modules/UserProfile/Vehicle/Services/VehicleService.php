@@ -11,6 +11,7 @@ use App\Models\VehicleDocument;
 use App\Modules\UserProfile\B2B\Services\B2bContext;
 use App\Modules\UserProfile\Order\Models\LogisticsAddressProfile;
 use App\Modules\UserProfile\Order\Services\B2bOfferService;
+use App\Modules\UserProfile\Order\Services\B2bOrderNoteService;
 use App\Modules\UserProfile\Order\Services\OrderCollectionService;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -23,10 +24,18 @@ use Illuminate\Support\Str;
 
 class VehicleService
 {
+    /**
+     * Memoised per company, see companyAddressProfiles().
+     *
+     * @var array<string, Collection<int, LogisticsAddressProfile>>
+     */
+    private array $addressProfileCache = [];
+
     public function __construct(
         private readonly B2bContext $b2bContext,
         private readonly OrderCollectionService $orderCollectionService,
         private readonly B2bOfferService $b2bOfferService,
+        private readonly B2bOrderNoteService $b2bOrderNoteService,
     ) {}
 
     /**
@@ -189,10 +198,9 @@ class VehicleService
             return null;
         }
 
-        $existing = LogisticsAddressProfile::where('owner_type', 'B2B')
-            ->where('b2b_id', $b2bId)
-            ->get()
-            ->first(fn (LogisticsAddressProfile $profile) => $profile->details === $details);
+        $profiles = $this->companyAddressProfiles($b2bId);
+
+        $existing = $profiles->first(fn (LogisticsAddressProfile $profile) => $profile->details === $details);
 
         if ($existing !== null) {
             return $existing->id;
@@ -203,7 +211,7 @@ class VehicleService
             trim(implode(' ', array_filter([$details['zip_code'], $details['city']]))),
         ])));
 
-        return LogisticsAddressProfile::create([
+        $profile = LogisticsAddressProfile::create([
             'owner_type' => 'B2B',
             'b2b_id' => $b2bId,
             'profile_name' => $label !== '' ? $label : 'Abholadresse',
@@ -211,7 +219,33 @@ class VehicleService
             'is_default' => false,
             'created_by_user_id' => $user->id,
             'updated_by_user_id' => $user->id,
-        ])->id;
+        ]);
+
+        $profiles->push($profile);
+
+        return $profile->id;
+    }
+
+    /**
+     * The company's address profiles, read once per request.
+     *
+     * The dedupe comparison is unchanged — still an exact match on the whole
+     * `details` array, in PHP — but it no longer re-reads every profile from
+     * the database for each vehicle. That was invisible when creating one
+     * vehicle at a time and quadratic on a bulk import, where a fleet list
+     * typically repeats the same depot address on every row.
+     *
+     * Profiles created during the request are pushed onto the same collection,
+     * so a later row still matches an address an earlier row just created and
+     * no duplicate profile is written.
+     *
+     * @return Collection<int, LogisticsAddressProfile>
+     */
+    private function companyAddressProfiles(string $b2bId): Collection
+    {
+        return $this->addressProfileCache[$b2bId] ??= LogisticsAddressProfile::where('owner_type', 'B2B')
+            ->where('b2b_id', $b2bId)
+            ->get();
     }
 
     /**
@@ -538,8 +572,17 @@ class VehicleService
             ->get()
             ->groupBy('vehicle_id');
 
-        $orderCollections = $vehicles->contains(fn ($vehicle) => $vehicle->vehicle_belongs === 'B2B')
+        $hasB2bVehicle = $vehicles->contains(fn ($vehicle) => $vehicle->vehicle_belongs === 'B2B');
+
+        $orderCollections = $hasB2bVehicle
             ? $this->orderCollectionService->forOrders($auftragsnummern)
+            : [];
+
+        // Customer-visible notes only (§16). `forCustomerOrders()` applies the
+        // visibility scope internally and takes no flag that could widen it,
+        // so an internal note has no path into this payload.
+        $orderNotes = $hasB2bVehicle
+            ? $this->b2bOrderNoteService->forCustomerOrders($auftragsnummern)
             : [];
 
         $collectionAddresses = LogisticsAddressProfile::whereIn(
@@ -622,7 +665,10 @@ class VehicleService
 
                 $ordersArr[] = [
                     ...($vehicle->vehicle_belongs === 'B2B'
-                        ? ['collection' => $orderCollections[$order->auftragsnummer] ?? null]
+                        ? [
+                            'collection' => $orderCollections[$order->auftragsnummer] ?? null,
+                            'notes' => $orderNotes[$order->auftragsnummer] ?? [],
+                        ]
                         : []),
                     'id' => $order->id,
                     'auftragsnummer' => $order->auftragsnummer,

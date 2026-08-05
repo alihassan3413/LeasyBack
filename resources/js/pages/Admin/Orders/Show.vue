@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import AdminAppraisalPositionsCard from '@/components/admin/AdminAppraisalPositionsCard.vue';
 import AdminBillingCard from '@/components/admin/AdminBillingCard.vue';
+import AdminOrderNotesCard from '@/components/admin/AdminOrderNotesCard.vue';
 import AdminCollectionCard from '@/components/admin/AdminCollectionCard.vue';
 import AdminOffersCard from '@/components/admin/AdminOffersCard.vue';
 import AdminOrderActionsMenu from '@/components/admin/AdminOrderActionsMenu.vue';
@@ -302,6 +303,13 @@ function formatDateTime(value: string | null): string {
                             id="order-section-abholung"
                             :order-id="order.id"
                             :collection="order.collection"
+                        />
+
+                        <AdminOrderNotesCard
+                            v-if="order.vehicle_belongs === 'B2B' && order.notes"
+                            id="order-section-notizen"
+                            :order-id="order.id"
+                            :notes="order.notes"
                         />
 
                         <AdminBillingCard

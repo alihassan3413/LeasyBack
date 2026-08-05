@@ -3,13 +3,11 @@
 namespace App\Modules\UserProfile\Vehicle\Http\Requests;
 
 use App\Models\Vehicle;
-use App\Modules\UserProfile\Vehicle\Http\Requests\Concerns\ValidatesB2bVehicleFields;
+use App\Modules\UserProfile\Vehicle\Support\VehicleRules;
 use Illuminate\Foundation\Http\FormRequest;
 
 class UpdateVehicleRequest extends FormRequest
 {
-    use ValidatesB2bVehicleFields;
-
     public function authorize(): bool
     {
         return $this->user() !== null;
@@ -28,14 +26,6 @@ class UpdateVehicleRequest extends FormRequest
 
     public function rules(): array
     {
-        return [
-            ...$this->b2bFieldRules($this->isB2bContext()),
-            'first_registration_date' => ['nullable', 'date'],
-            'leasing_end_date' => ['nullable', 'date'],
-            'leasinggeber' => ['nullable', 'string'],
-            'vin' => ['nullable', 'string', 'size:17'],
-            'make' => ['nullable', 'string'],
-            'model' => ['nullable', 'string'],
-        ];
+        return VehicleRules::forUpdate($this->isB2bContext());
     }
 }

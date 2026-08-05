@@ -490,6 +490,9 @@ const fleetRows = computed(() => [
 
 const orderCollection = computed(() => (isB2bVehicle.value ? (firstOrder.value?.collection ?? null) : null));
 
+/** Customer-visible notes (§16). Always empty for a B2C vehicle. */
+const orderNotes = computed(() => (isB2bVehicle.value ? (firstOrder.value?.notes ?? []) : []));
+
 const hasCollectionData = computed(() => {
     const collection = orderCollection.value;
 
@@ -987,6 +990,32 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                         <div class="flex items-start justify-between gap-4 py-4">
                             <span class="shrink-0 text-[16px] font-normal" style="color: #64748b">{{ row.label }}</span>
                             <span class="text-right text-[16px] font-semibold" style="color: #000">{{ row.value || 'Nicht verfügbar' }}</span>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!--
+                Customer-visible notes only (§16). The payload never carries an
+                internal note, so there is nothing to filter here.
+            -->
+            <div
+                v-if="orderNotes.length"
+                class="relative flex w-full flex-col overflow-hidden rounded-3xl border bg-white"
+                style="border-color: #ececec"
+            >
+                <div class="px-6 pt-6">
+                    <p class="text-[16px] font-bold uppercase" style="color: #000">HINWEISE VON LEASYBACK</p>
+                </div>
+
+                <div class="flex flex-col gap-0 px-6 pt-4 pb-6">
+                    <template v-for="(note, index) in orderNotes" :key="note.id">
+                        <div v-if="index > 0" class="h-px bg-gray-200"></div>
+                        <div class="py-4">
+                            <p class="text-[16px] whitespace-pre-line" style="color: #000">{{ note.body }}</p>
+                            <p class="mt-2 text-[14px]" style="color: #64748b">
+                                {{ note.author_name }} · {{ formatDate(note.created_at) }}
+                            </p>
                         </div>
                     </template>
                 </div>

@@ -66,6 +66,24 @@ export interface VehicleOrderData {
     report_documents: OrderReportDocumentData[];
     offers: OfferData[];
     collection?: OrderCollectionData | null;
+    /**
+     * Customer-visible notes only (§16). B2B orders only; internal notes have
+     * no path into this payload — B2bOrderNoteService::forCustomerOrders()
+     * applies the visibility scope and takes no flag that could widen it.
+     */
+    notes?: CustomerOrderNote[];
+}
+
+/**
+ * One customer-visible order note. Deliberately has no `visibility` field: the
+ * customer can only ever receive customer-visible notes, so the discriminator
+ * is meaningless to them and is omitted server-side.
+ */
+export interface CustomerOrderNote {
+    id: string;
+    body: string;
+    author_name: string;
+    created_at: string | null;
 }
 
 export interface VehicleCollectionAddress {
@@ -98,4 +116,24 @@ export interface VehicleData {
     driver_name?: string | null;
     driver_contact?: string | null;
     collection_address?: VehicleCollectionAddress | null;
+}
+
+/** One rejected row from a bulk import, as returned by VehicleImportService. */
+export interface VehicleImportRowError {
+    /** 1-based row number in the uploaded file, so the user can find it. */
+    row: number;
+    license_plate: string | null;
+    messages: string[];
+}
+
+/** Matches VehicleImportService::import()'s return shape. */
+export interface VehicleImportResult {
+    total: number;
+    imported: number;
+    rejected: number;
+    /** True when the file held more rows than the importer processes. */
+    truncated: boolean;
+    /** Headings that matched no known field and were skipped. */
+    ignored_columns: string[];
+    errors: VehicleImportRowError[];
 }

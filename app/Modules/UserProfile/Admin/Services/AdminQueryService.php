@@ -7,6 +7,7 @@ use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
 use App\Modules\UserProfile\Order\Services\AppraisalPositionService;
 use App\Modules\UserProfile\Order\Services\B2bBillingService;
 use App\Modules\UserProfile\Order\Services\B2bOfferService;
+use App\Modules\UserProfile\Order\Services\B2bOrderNoteService;
 use App\Modules\UserProfile\Order\Services\OrderCollectionService;
 use App\Modules\UserProfile\Order\Services\OrderTaskResolver;
 use App\Modules\UserProfile\Order\Services\WorkshopQuotationService;
@@ -27,6 +28,7 @@ class AdminQueryService
         private readonly WorkshopQuotationService $workshopQuotationService,
         private readonly B2bOfferService $b2bOfferService,
         private readonly B2bBillingService $b2bBillingService,
+        private readonly B2bOrderNoteService $b2bOrderNoteService,
     ) {}
 
     /**
@@ -490,6 +492,12 @@ class AdminQueryService
         $order['billing'] = $row->vehicle_belongs !== 'B2B'
             ? null
             : $this->b2bBillingService->forOrder($orderId);
+
+        // Admin sees both audiences; each row carries its own `visibility` so
+        // the card can label an internal note as internal (§16).
+        $order['notes'] = $row->vehicle_belongs !== 'B2B'
+            ? null
+            : $this->b2bOrderNoteService->forOrder($orderId);
 
         if ($row->vehicle_belongs === 'B2B') {
             $presentations = $this->b2bOfferService->forOffers(array_column($order['offers'], 'offer_id'));

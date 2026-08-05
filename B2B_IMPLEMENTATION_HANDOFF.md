@@ -3,7 +3,14 @@
 Working document for continuing the LeasyBack B2B leasing-return portal.
 Branch: `feat/b2b-flow` *(renamed from `feat/admin-chat` during phase 14 — verify with
 `git rev-parse --abbrev-ref HEAD` rather than trusting this line)*.
-Stack: Laravel 12 / PHP 8.4 / Inertia v2 / Vue 3 / Tailwind 3.
+Stack: Laravel 12 / PHP 8.4 / Inertia v2 / Vue 3 / **Tailwind 4**.
+
+⚠ *(Corrected 2026-08-06: this line and `CLAUDE.md` both say Tailwind 3. The repository
+actually runs **Tailwind v4** — `package.json` has `tailwindcss ^4.2.4` with
+`@tailwindcss/vite`, not the v3 PostCSS setup. Trust `package.json`, not either document,
+when writing styles. `CLAUDE.md` was deliberately left unchanged: it is generated
+Laravel Boost guidance covering the whole project, not a B2B artefact, and correcting it
+is a separate call — see unresolved item 39.)*
 
 **Requirement source: `b2b.txt`** (repo root, 355 lines). It is the authoritative
 specification — section numbers below (§n) refer to it. Where it conflicts with
@@ -13,9 +20,17 @@ existing code, the code path must be reported before business logic changes (§2
 
 ## 1. Completed phases
 
-Phases 9–14 are implemented, verified and **uncommitted**; phases 1–8 are in commit
-`d79a473` (see §6a). Each was delivered under the standing constraints in §7 of this
-document.
+Phases 1–17 are implemented and verified — **all planned phases are done**. Phases 1–8 are
+in commit `d79a473` and phases 9–14 in `d792020`; **phases 15, 16 and 17 are uncommitted**
+(see §6a). Each was delivered under the standing constraints in §7 of this document.
+
+⚠ **Done does not mean §20 is fully satisfied.** Phase 17's audit found one criterion
+structurally unmet (Lexware, dropped by product decision), seven proven only by probe, one
+medium-severity defect and three unmet §19 security requirements. See the phase 17 section
+and §10 items 44–49 before treating this as shippable.
+
+*(Corrected 2026-08-06: revisions before phase 15 said phases 9–14 were uncommitted, with
+a file-by-file list. That was already wrong by the start of phase 15 — see §6a.)*
 
 ### Phase 1 — Company master data & service fee (§4, §13)
 
@@ -32,7 +47,7 @@ Default EUR 295, effective 2026-01-01 for existing companies.
 
 | File | Change |
 |---|---|
-| `database/migrations/2026_08_05_000002_add_b2b_fleet_fields_to_vehicles_table.php` | `mileage`, `contract_number`, `cost_centre`, `driver_name`, `driver_contact`, `collection_address_profile_id` |
+| `database/migrations/2026_08_05_000002_add_b2b_fleet_fields_to_vehicles_table.php` | `mileage`, `contract_number`, `cost_centre`, `driver_name`, `driver_contact`, `collection_address_profile_id` — **six columns, and only these six** |
 | `app/Modules/UserProfile/Vehicle/Models/Vehicle.php` | `B2B_ONLY_ATTRIBUTES` + `toArray()` strip |
 | `Vehicle/Http/Requests/{Store,Update}VehicleRequest.php`, `Requests/Concerns/` | shared B2B rules |
 | `Vehicle/Services/VehicleService.php` | persistence |
@@ -40,6 +55,13 @@ Default EUR 295, effective 2026-01-01 for existing companies.
 
 B2B-only fields are stripped at **serialization** level, so a B2C payload can never
 carry them even if a row somehow has values.
+
+⚠ **`leasing_end_date` is not a phase 2 column.** It predates this phase and is a shared
+B2C/B2B column, sitting on `vehicles` alongside `license_plate`, `vin`, `make` and `model`.
+*(Corrected 2026-08-06: §9's phase 15 prompt listed it among "the phase 2 B2B fleet
+columns". Confirmed against the migration, which adds the six columns above and not this
+one. It is validated by `VehicleRules::commonFields()`, not `b2bFields()` — so unlike the
+six, it is **not** `prohibited` on a B2C payload.)*
 
 ### Phase 3 — Collection appointment (§7)
 
@@ -837,6 +859,21 @@ which the enum's docblock always promised but had no page to point at.
    controller and gets **403**.
 4. The nav entries are permission-filtered and `can()` is true for non-company accounts —
    but the entries live in the `Firmenkunde` list only, so no other role sees them.
+10. `VehicleRules` (phase 15) is the single rule set for both channels. Its
+    `b2bFields(false)` branch — the six `prohibited` rules that keep a B2C payload from
+    carrying a fleet field — is byte-unchanged from the trait it replaced. The four
+    vehicle test files pass unmodified, which is the evidence. `VehicleRules::messages()`
+    is applied by the **import only**, so B2C and Admin validation messages are untouched.
+    `VehicleImportController` refuses every non-`Firmenkunde` with 403, and the
+    dashboard's import button is gated on `isCompanyUser && can('vehicles.create')` —
+    `can()` alone returns true for a Privatkunde.
+11. `B2bOrderNoteService::forCustomerOrders()` (phase 16) applies `customerVisible()`
+    internally and takes no flag that could widen it, so an internal note cannot reach a
+    customer payload. Nothing in `app/Mail` or `B2bStatisticsService` reads
+    `b2b_order_notes` at all, so emails and the export are covered structurally. The
+    customer payload attaches `notes` only inside the existing `vehicle_belongs === 'B2B'`
+    branch, so a B2C order has no `notes` key. `order_messages` and its routes are
+    untouched.
 
 **Verified** with a rolled-back probe (see §6 for the table). Two companies, a B2C order
 and an own-scope member in one dataset; the arithmetic itself proves the isolation —
@@ -845,6 +882,422 @@ company B's 5 000 € order would have moved every total.
 **Not done in this phase:** no date-range or per-vehicle filtering of the statistics (§17
 does not ask for it); no scheduled/emailed report; no Admin-side cross-company statistics;
 no CSV alternative (the xlsx is a real one, so there is nothing to fall back to).
+
+---
+
+### Phase 15 — Excel/CSV vehicle import (§5)
+
+Lexware remains **blocked and untouched**. Statistics, notifications, billing and Stripe
+were not touched.
+
+| File | Change |
+|---|---|
+| `composer.json` / `composer.lock` | **`openspout/openspout` ^4** added — approved dependency exception, see below |
+| `app/Modules/UserProfile/Vehicle/Support/VehicleRules.php` | **new** — the single definition of a valid vehicle payload |
+| `app/Support/SpreadsheetReader.php` | **new** — xlsx/csv → headings + numbered rows |
+| `app/Modules/UserProfile/Vehicle/Services/VehicleImportService.php` | **new** — the only importer |
+| `app/Http/Controllers/B2b/VehicleImportController.php` | **new** — `store()` + `template()`, 403s on non-Firmenkunde |
+| `Vehicle/Http/Requests/StoreVehicleRequest.php`, `UpdateVehicleRequest.php` | rules now delegate to `VehicleRules` |
+| `Vehicle/Http/Requests/Concerns/ValidatesB2bVehicleFields.php` | **deleted** — its rules moved to `VehicleRules`; the directory is now empty |
+| `Vehicle/Services/VehicleService.php` | address-profile lookup memoised per company |
+| `routes/vehicles.php` | `vehicles.import`, `vehicles.import.template` |
+| `app/Http/Middleware/HandleInertiaRequests.php` | one new flash key, `vehicle_import` |
+| `resources/js/components/vehicle/ImportVehiclesModal.vue` | **new** — upload + per-row result report |
+| `resources/js/pages/Dashboard.vue` | "Fahrzeuge importieren" button + modal |
+| `resources/js/types/vehicle.ts` | `VehicleImportResult`, `VehicleImportRowError` |
+| `resources/js/types/index.ts` | `FlashBag` gains `vehicle_import` (and `workshop_link`, missing since phase 9) |
+
+**No migration.** Every §5 field already exists on `vehicles` — the six phase-2 fleet
+columns plus `license_plate`, `vin`, `make`, `model`, `first_registration_date`,
+`leasing_end_date` and `leasinggeber`. Importing is a second way to call
+`VehicleService::createVehicle()`, not a new entity.
+
+**Dependency exception (approved 2026-08-06, user).** §7 says "do not add dependencies".
+`openspout/openspout` ^4 is an explicit, recorded exception to that rule, for one reason:
+`App\Support\XlsxWriter` writes xlsx but cannot read it, and reading is materially harder
+— the shared-string table, date serial numbers and cell-format resolution. Writing a
+reader by hand was rejected: distinguishing a date cell from a number requires resolving a
+style-format id through `styles.xml`, and getting that heuristic subtly wrong corrupts
+first-registration and leasing-end dates **silently**.
+
+- MIT, no transitive Composer dependencies. Needs `ext-zip`, `ext-xmlreader`, `ext-dom`,
+  `ext-fileinfo`, `ext-filter`, `ext-libxml` — all confirmed present. `ext-zip` was
+  already a de-facto requirement because phase 14's `XlsxWriter` uses `ZipArchive`.
+- Streams row by row, so a large fleet file does not load into memory.
+- **`XlsxWriter` was not extended and must not be.** It still writes; openspout reads.
+  The import template download (`vehicles.import.template`) deliberately uses the existing
+  `XlsxWriter`, because writing was already solved.
+- ⚠ **Platform caveat:** openspout v4.32 requires PHP `~8.3 || ~8.4 || ~8.5`, but
+  `composer.json` still declares `"php": "^8.2"`. Composer resolved against the local 8.4,
+  so `composer install` would **fail on a PHP 8.2 host**. `CLAUDE.md` states the project is
+  8.4. Either tighten the `php` constraint or confirm no 8.2 environment exists —
+  see unresolved item 34.
+
+**How partial success is guaranteed (§5's one hard rule).** There is deliberately **no**
+transaction around the loop.
+
+1. `VehicleService::createVehicle()` already opens its own `DB::transaction()` for the
+   vehicle plus its audit row, so each row is atomic on its own. `VehicleImportService`
+   adds no outer transaction — one would turn those into savepoint-nested transactions and
+   let a late failure unwind rows already committed.
+2. Validation is done with `Validator::make()` per row, **not** a FormRequest. A
+   FormRequest aborts the whole request with a 422 on the first invalid payload, which is
+   precisely the discard-everything behaviour §5 forbids.
+3. Rows are validated **and written sequentially**, not validated in bulk then written.
+   `license_plate` carries `unique:vehicles`; validating the whole file up front would let
+   two identical plates inside one file both pass, because nothing is committed between
+   the two checks. Row by row, the second sees the first one's insert.
+4. Every per-row failure mode is contained in `persist()`, which catches
+   `ValidationException` (via `$validator->fails()`) and `QueryException`. A row that
+   fails is recorded with its **file row number** and the loop continues.
+
+**Rule reuse.** `VehicleRules` is now the single definition. `StoreVehicleRequest::rules()`
+is `VehicleRules::forCreation(...) + VehicleRules::ownership(...)`;
+`UpdateVehicleRequest::rules()` is `VehicleRules::forUpdate(...)`; the import calls
+`VehicleRules::forCreation(true)`. A manually created vehicle and an imported one cannot
+diverge, because there is only one rule set. The old `ValidatesB2bVehicleFields` trait was
+deleted rather than left delegating — after the extraction it had no callers and was pure
+indirection.
+
+German messages (`VehicleRules::messages()`) are wired into the **import only**. The app
+locale is `en` and the existing forms rely on the default messages, so applying them to
+`StoreVehicleRequest` would have changed what a B2C or Admin caller sees.
+
+**Duplicate handling — decision recorded (approved 2026-08-06, user).** A row whose
+registration number already exists is **rejected**. Never skipped silently, never used to
+update the existing vehicle.
+
+The deciding factor is that `vehicles_license_plate_unique` is a **global** index, not
+per-company: a collision may involve another company's vehicle or a B2C one. "Update the
+existing" would therefore be a potential cross-company write, and "skip silently" would
+hide that from the user. The message is the generic
+`Dieses Kennzeichen ist bereits vergeben.` — it does **not** disclose whether the
+conflicting vehicle belongs to another company or a B2C customer (§19).
+
+**Duplicate VIN is permitted**, matching manual creation: there is no unique index on
+`vin`, so inventing an import-only constraint would have made imported and hand-entered
+vehicles diverge. See unresolved item 35.
+
+**Ownership comes from the caller, never the file.**
+`VehicleService::resolveOwnership()` → `resolveFirmenkundeOwnership()` →
+`B2bContext::activeCompanyIdForUserId()`. On top of that, `vehicle_belongs`, `b2b_id`,
+`b2c_user_id`, `created_by_user_id`, `assigned_profile_id` and `vehicle_id` are in
+`OWNERSHIP_KEYS`: they are never mapped from a heading **and** are re-stripped from every
+row before validation. A file carrying those columns has them reported as ignored, not
+honoured. Verified with a hostile file naming another company's `b2b_id` and
+`vehicle_belongs=B2C`: the vehicle was stored as B2B under the *importer's* company.
+
+**Column mapping.** Headings are matched case- and umlaut-insensitively
+(`Straße`/`strasse`, `FIN`/`vin`). Ambiguous headings are deliberately **not** aliased:
+"Telefon" and "E-Mail" both plausibly mean `driver_contact`, so neither is mapped — an
+unmapped column is reported back to the user, whereas guessing would silently drop one of
+two. Two headings claiming the same field is a **file-level** rejection, not a silent
+first-wins.
+
+**Value normalisation — format only, never the rule.** The rules are untouched; only the
+accepted input *format* is widened before they run.
+
+| Field | Accepts |
+|---|---|
+| `license_plate` | Uppercased, whitespace collapsed — exactly what `normalizePlate()` does in `LicensePlateInput` before the manual form submits, so an imported and a hand-typed plate are byte-identical and the unique index catches a case-only duplicate |
+| dates | A real xlsx date cell, `15.03.2022`, `2022-03-15`, `d/m/Y`, `d-m-Y`, or a raw Excel serial. Round-tripped through the format so `32.01.2022` is rejected rather than rolled into February |
+| `mileage` | `12345`, `12.345`, `12 345 km`, or a numeric cell. A non-numeric value is handed to the `integer` rule unchanged, so the row is rejected instead of silently importing `0` |
+
+**CSV handling.** Delimiter is sniffed from the first line, counting candidates outside
+quotes so a comma inside `"Musterstraße 1, Halle B"` cannot outvote a real `;`. Encoding
+is sniffed from a **larger sample than the delimiter** — a heading row is very often pure
+ASCII, which is valid UTF-8, so testing only the first line cleared a Windows-1252 file
+whose umlauts all lived in the data rows. *(This was a real bug caught by the probe, not a
+hypothetical: the first CSV run crashed on `Malformed UTF-8 characters`.)*
+
+**Collection-address optimisation.** `resolveCollectionAddressProfileId()` used to load
+**every** profile for the company and compare in PHP, once per vehicle — invisible at one
+vehicle at a time, quadratic on a 200-row file where every row repeats the same depot
+address. The collection is now memoised per company for the request, and newly created
+profiles are pushed onto it so a later row still matches an address an earlier row just
+created. **The dedupe comparison is unchanged** — still an exact match on the whole
+`details` array. Verified: 3 addressed vehicles across 2 distinct addresses produced
+exactly 2 profiles, with rows 2 and 5 sharing one.
+
+**Upload validation (§19: "file type, file signature and malware validation").** The
+upload is checked three ways: `max:5120` (5 MB), `extensions:xlsx,csv` (the claimed
+extension) and `mimetypes:…` (the **detected** content type, via `finfo`). The last is the
+signature half — verified directly: a PHP web shell saved as `evil.csv` is detected as
+`text/x-php`, which is not in the allowlist, and is rejected even though its extension is
+legitimate. Real `.csv` (`text/plain`) and `.xlsx`
+(`application/…spreadsheetml.sheet`) files pass.
+
+⚠ **Malware scanning is *not* implemented** — §19's third clause is unmet here, as it is
+everywhere else in the app that accepts a file. Nothing in this phase makes it worse: the
+upload is parsed by openspout and discarded, never stored, never served and never
+executed. Flagged rather than quietly treated as covered.
+
+**Reporting.** `import()` returns `total`, `imported`, `rejected`, `truncated`,
+`ignored_columns` and `errors[]` (each with the file row number, the plate and every
+message). The modal renders the counts and a per-row error table; a partial import is
+shown as a partial import and flashes `warning` rather than `success` when nothing
+imported. `MAX_ROWS = 2000` and anything beyond it is reported as `truncated` rather than
+silently cut.
+
+**B2C protections.**
+1. The controller refuses any non-`Firmenkunde` with **403**, and refuses a Firmenkunde
+   with no active membership. This is the real boundary: `EnsureB2bPermission` waves
+   Privatkunde, Werkstatt and Admin **through** by design, exactly as phase 14's
+   `StatisticsController` documents. Verified: Privatkunde 403, Admin 403,
+   company-less Firmenkunde 403, view-only member blocked 403 by the middleware.
+2. There is no Admin import surface, so `resolveOwnership()` can only take the
+   Firmenkunde branch and `VehicleRules::ownership()` is never applied to an imported row.
+3. The import always validates with `forCreation(true)` — the B2B rule set — because the
+   caller is always a company user. The B2C `prohibited` branch is byte-unchanged.
+4. The dashboard button is gated on `isCompanyUser && can('vehicles.create')`, not on
+   `can()` alone: `can()` returns **true** for non-Firmenkunde accounts by design, so
+   `can()` on its own would have shown the button to a Privatkunde.
+5. `StoreVehicleRequest`/`UpdateVehicleRequest` behaviour is unchanged — the rules moved,
+   they did not change. Proven by the four vehicle test files passing unmodified.
+
+**Verified** with rolled-back probes. An 8-row xlsx (valid / missing plate / case-only
+duplicate / shared address / short VIN / foreign-company plate / valid / non-numeric
+mileage) gave **3 imported, 5 rejected**, each rejection carrying its file row number and
+a German message; the duplicate row did not overwrite row 2, which kept its own
+`contract_number`; `12.345 km` stored as `12345` and `15.03.2022` as `2022-03-15`; every
+created vehicle was `B2B` under the importer's company with `created_by_user_id` set to
+the importer. A German semicolon-delimited Windows-1252 CSV imported 2 of 3 rows with
+`Käfer` and `Grünstraße` intact and a blank line skipped. The foreign company's single
+vehicle was untouched throughout.
+
+**Not done in this phase:** no dry-run/preview before committing rows; no undo of an
+import; no column-mapping UI (headings must match the template's names); no update-existing
+mode; no background/queued import for very large files — 2000 rows run synchronously
+inside the request.
+
+---
+
+### Phase 16 — Order notes: internal vs customer-visible (§16)
+
+Lexware remains **blocked and untouched**. No new dependency; the openspout exception
+(§7) is for the vehicle import only and was not extended.
+
+| File | Change |
+|---|---|
+| `database/migrations/2026_08_06_000001_create_b2b_order_notes_table.php` | **new** |
+| `app/Modules/UserProfile/Order/Models/B2bOrderNote.php` | **new** (+ `app/Models` re-export) |
+| `app/Modules/UserProfile/Order/Services/B2bOrderNoteService.php` | **new** — the only reader/writer |
+| `app/Http/Controllers/Admin/OrderNoteController.php` | **new** — store/destroy, 404s on non-B2B |
+| `routes/admin.php` | `admin.orders.notes.store` / `.destroy` |
+| `app/Modules/UserProfile/Admin/Services/AdminQueryService.php` | `notes` on `orderDetail()`; new constructor dep |
+| `app/Modules/UserProfile/Vehicle/Services/VehicleService.php` | customer-visible `notes` on the B2B order payload; new constructor dep |
+| `resources/js/components/admin/AdminOrderNotesCard.vue` | **new** — write + list, audience required |
+| `resources/js/components/vehicle/VehicleExpandedPanel.vue` | customer "Hinweise von Leasyback" block |
+| `resources/js/pages/Admin/Orders/Show.vue` | card + `#order-section-notizen` anchor |
+| `resources/js/types/admin.ts`, `types/vehicle.ts` | `AdminOrderNote`, `CustomerOrderNote` |
+
+**Storage decision — a new table, not a discriminator on `order_messages`.**
+
+```
+b2b_order_notes
+  id uuid pk | order_id uuid → leasyback_orders.id (cascade) | auftragsnummer text idx
+  visibility varchar(16) default 'internal'   ('internal' | 'customer')
+  body text | author_user_id → users.id (nullOnDelete) | author_name | timestampsTz
+  index (order_id, visibility)
+```
+
+The three candidates and why this one:
+
+- **`order_messages` + a `visibility` column — rejected.** It is a two-way customer↔Admin
+  thread with read state, unread counts, a broadcast event and a notification path that
+  emails the *other side*. An "internal message" would be an invisible turn inside a
+  conversation: `unreadCount()` would have to learn to skip it, `notifyRecipients()` would
+  otherwise mail the internal note straight to the customer, and every future reader of
+  that table would inherit the trap. A note is one-way and has no reply.
+- **Generalising `leasyback_order_logistics.internal_note` — rejected.** It is one column
+  about the *collection appointment*, not attributable, not timestamped, and cannot hold
+  more than one note. It is left exactly as it is.
+- **A new table — chosen.** Nothing existing can hold an attributable, timestamped,
+  audience-scoped list of order annotations. Same bar phase 8 cleared for
+  `b2b_appraisal_positions`.
+
+**§21 compliance — this is not a second messaging system.** Notes have no read state, no
+unread count, no reply path and no notification, deliberately. `OrderMessage`,
+`OrderMessageService`, `OrderMessageController` and `routes/orders.php` were **not
+touched**. Notes are Admin-authored annotations; the thread remains the two-way channel.
+
+**Authorship survives account deletion.** `author_name` is a snapshot taken at write time
+and `author_user_id` is `nullOnDelete` — the same pattern `order_messages.sender_name`
+already uses, rather than a second approach to the same problem.
+
+**How isolation is enforced — separate methods, not a flag.** `B2bOrderNoteService` gives
+the two audiences different entry points:
+
+| Reader | Method | Guarantee |
+|---|---|---|
+| Admin API | `forOrder()` | both audiences; each row carries `visibility` |
+| Customer API | `forCustomerOrders()` | `scopeCustomerVisible()` applied **inside**; no parameter exists that could widen it, and the presented row omits `visibility` entirely |
+| Emails | — | nothing in `app/Mail` or `OrderMailer` reads this table |
+| Excel export | — | `B2bStatisticsService::exportRows()` does not read this table |
+
+This is deliberately *not* the `$includeInternal` boolean that
+`OrderCollectionService::forOrders()` uses. A boolean defaults, gets forwarded and is
+eventually passed wrong; there is no argument to `forCustomerOrders()` that returns an
+internal note. Emails and the export are covered **structurally** — a new table nothing
+else reads — rather than by a filter that could be forgotten.
+
+**Default visibility: none.** `visibility` is `required` in
+`B2bOrderNoteService::rules()`, so a payload that omits it is **rejected**, and the form's
+submit button stays disabled until an audience is picked. §16's "must be clearly marked as
+customer-visible before saving" is therefore enforced server-side, not just in the UI. The
+column's own `default('internal')` exists only as a database-level backstop: the
+recoverable failure is a note the customer cannot see, never an internal remark that
+leaks.
+
+**Who may write.** Admin only. §16 gives company users the right to *see* customer-visible
+notes, not to author them, and their own writing surface is the existing `order_messages`
+thread. No new `B2bPermission` was introduced.
+
+**B2C protections.**
+1. `OrderNoteController` resolves the order's **persisted** vehicle and 404s unless it is
+   B2B, on both routes — matching `AppraisalPositionController`.
+2. `B2bOrderNoteService::create()` returns null for a non-B2B vehicle, so even a direct
+   service call writes nothing. Verified: **0 rows** written for a B2C order.
+3. `orderDetail()` sets `notes` to `null` for B2C, so the Admin card cannot render.
+4. The customer payload attaches `notes` only inside the existing
+   `vehicle_belongs === 'B2B'` branch, so a B2C order has no `notes` key at all.
+5. `delete()` is scoped by `order_id` **and** `id`, so a note id from another order is not
+   deletable. Verified.
+
+**Verified** with a rolled-back probe planting `GEHEIM-INTERN-XYZZY` in an internal note:
+the Admin payload contains it and lists both notes with their visibilities; the **customer
+payload does not contain it** while still carrying the customer-visible note, whose keys
+are exactly `id, body, author_name, created_at` — **no `visibility`**; the Excel export
+contains neither the sentinel nor a `notes` key; **6 rendered mails** contained no
+sentinel; a B2C order wrote 0 rows, resolved `notes` to null and carried no `notes` key;
+validation rejected a missing visibility, a bogus `public` visibility and an empty body,
+and accepted both legal values; deleting a note id against the wrong order returned false.
+
+**Not done in this phase:** notes cannot be edited after saving (delete and rewrite);
+changing a note's visibility after the fact is not offered, so an internal note cannot be
+"promoted" to customer-visible; no notification when a customer-visible note is added (§18
+lists no such trigger); notes do not appear on the timeline or in the task queue; the
+customer sees notes on the vehicle panel only, not per timeline stage.
+
+---
+
+### Phase 17 — Acceptance audit (§19, §20)
+
+The final gate. Unlike phases 1–16 this one **adds almost no behaviour** — its deliverable
+is automated coverage plus an honest report of what is still unproven or unmet. **No
+business logic was changed.** Two defects were found and are reported, not silently fixed.
+
+| File | Change |
+|---|---|
+| `tests/Feature/B2b/Concerns/BuildsB2bCompanies.php` | **new** — company/member/vehicle/order scaffolding |
+| `tests/Feature/B2b/CrossCompanyIsolationTest.php` | **new** — 7 tests (1 skipped, see finding 1) |
+| `tests/Feature/B2b/B2bPermissionMatrixTest.php` | **new** — 7 tests |
+| `tests/Feature/B2b/B2bCompletionGateTest.php` | **new** — 5 tests |
+| `tests/Feature/B2b/B2bChannelSeparationTest.php` | **new** — 7 tests |
+| `tests/Feature/B2b/B2bNoteIsolationTest.php` | **new** — 9 tests |
+| `tests/Feature/B2b/B2bVehicleImportTest.php` | **new** — 8 tests |
+| `tests/Feature/B2b/B2bAuditTrailTest.php` | **new** — 5 tests |
+
+**No migration, no dependency, no application file touched.**
+
+Suite went from **406 passed / 4 skipped / 2 failed / 1603 assertions** to
+**453 passed / 5 skipped / 2 failed / 1745 assertions**. The two failures are the
+documented baseline ones (§6); the fifth skip is finding 1 below.
+
+#### §20 acceptance criteria — coverage
+
+`T` = automated test (this phase). `P` = phase probe only, proven once, not regression-protected.
+
+| # | Criterion | State |
+|---|---|---|
+| 1 | A company can contain multiple users with different roles | **T** `B2bPermissionMatrixTest` |
+| 2 | Users can access only their own company's information | **T** `CrossCompanyIsolationTest` — but see **finding 1** |
+| 3 | A customer can create a complete B2B leasing-return order | **P** (phase 4) |
+| 4 | The preferred collection date can be confirmed or rescheduled | **P** (phases 3, 11) |
+| 5 | Customer and administrator see a synchronized timeline | **not covered** — the shared implementation is `customerOrderFlow.ts`; there is no frontend test harness in this repo |
+| 6 | An appraisal can be uploaded and reviewed | **P** (phase 8) |
+| 7 | Workshop links can collect itemized net quotations | **P** (phase 9) |
+| 8 | Administrator can compare appraisal and workshop prices | **P** (phase 9) |
+| 9 | The selected offer can be presented to the customer | **P** (phase 10) |
+| 10 | The customer can accept or reject it | **P** (phases 10, 10.1) |
+| 11 | Approval triggers the correct next admin task | **P** (phases 7, 9.1) |
+| 12 | Workshop commissioning and repair appointments without duplicate tasks | **P** (phase 11) |
+| 13 | Mandatory billing prevents premature completion | **T** `B2bCompletionGateTest` |
+| 14 | **Lexware receives an editable invoice draft** | ❌ **NOT SATISFIED** — Lexware was dropped by product decision (phase 12). Deliberate and approved, but §20 is not met as written |
+| 15 | Internal notes never appear to customers | **T** `B2bNoteIsolationTest` (both note stores) |
+| 16 | Statistics and Excel exports use company-scoped data | **T** `CrossCompanyIsolationTest`, `B2bNoteIsolationTest` |
+| 17 | All critical actions recorded in the audit history | **T** `B2bAuditTrailTest` — status changes and vehicle creation. **Offer approval/rejection auditing is `P` only** (`OfferService::auditOffer`) |
+| 18 | Existing B2C behavior remains completely unchanged | **T** `B2bChannelSeparationTest`, plus all 406 pre-existing tests still green |
+| 19 | Regression, authorization and cross-company isolation tests pass | **T** — genuinely true for the first time |
+
+Seven criteria (3, 4, 6–12) remain probe-only. They are the multi-step workflow ones,
+each needing a long fixture chain; they were left for a follow-up rather than rushed.
+
+#### Findings — defects (reported, NOT fixed)
+
+**Finding 1 — `vehicle_scope = 'own'` is not enforced on the vehicle listing.** Severity:
+**medium**, data disclosure inside a company.
+
+`VehicleScopeService::scopeQuery()`, `findVehicleWithAccess()` and `VehiclePolicy` all
+narrow correctly to the member's own vehicles. `VehicleService::scopedVehicleQuery()` —
+which backs `paginateVehiclesWithOrders()` (the dashboard) and `listVehiclesWithOrders()`
+— filters on `b2b_id` **alone** and never consults the membership. An own-scope member is
+therefore listed every vehicle in the company, with plate, VIN, make, model, orders,
+offers and documents, while `Dashboard.vue` tells them *"Sie sehen nur die Fahrzeuge, die
+Sie selbst angelegt haben."* Opening a colleague's vehicle is still correctly refused, so
+this is a **listing** leak, not a detail-access one. Cross-company isolation is unaffected.
+
+Verified by probe: `scopeQuery` → `A-MINE 1`; `findVehicleWithAccess` on a colleague's
+vehicle → null; `VehiclePolicy::view` → false; **dashboard list → `A-MINE 1, A-THEIRS 2`**.
+
+`CrossCompanyIsolationTest::test_an_own_scope_member_sees_only_the_vehicles_they_registered`
+carries the correct expectation and is **skipped** with a reference to this finding. Fixing
+it means teaching `scopedVehicleQuery()` about the membership — which needs a decision,
+because it currently takes an `$ownerId` string and has no access to the acting user.
+Related: unresolved item 32, which flagged the same inconsistency in the opposite
+direction for `B2bAnalyticsService`.
+
+**Finding 2 — canonical/shim model hints are inconsistent, and it is a latent TypeError.**
+Severity: **low**, code health.
+
+`B2bBillingService::update()`, `OrderCollectionService::updateByAdmin()` and
+`VehiclePolicy::view()` type-hint `App\Models\Vehicle` (the shim). `$order->vehicle`,
+every factory and every relation return `App\Modules\...\Vehicle` (the canonical). The
+shim **extends** the canonical, so canonical does **not** satisfy a shim hint: passing
+`$order->vehicle` to any of those throws a `TypeError`. Today's controllers happen to load
+the shim directly, so nothing is broken in production — but this bit three separate times
+while writing phase 16 and 17, and the next caller that reaches for `$order->vehicle` will
+hit it. `VehicleScopeService::resolveOwnerUsers()` already documents the correct pattern
+(hint the canonical, which accepts both). Recommend standardising on that.
+
+#### §19 security requirements — audit
+
+| Requirement | State |
+|---|---|
+| Secure password hashing | ✅ `'password' => 'hashed'` cast on `User` |
+| Secure password-reset tokens, expiring + single use | ✅ Laravel's broker, `expire 60`, `throttle 60` |
+| Time-limited, single-use invitation tokens | ✅ `Str::random(64)`, only `hash('sha256', …)` stored, `expires_at`, `accepted_at` guard |
+| Role-based authorization on every endpoint | ✅ now tested (`B2bPermissionMatrixTest`) |
+| Strict company-level data isolation | ⚠️ cross-company ✅ tested; **intra-company own-scope broken — finding 1** |
+| Audit logs for status changes and approvals | ✅ status changes tested; offer approvals audited but untested |
+| File type, file signature and malware validation | ⚠️ type ✅ and signature ✅ (a PHP shell renamed `.csv` is detected as `text/x-php` and rejected). **Malware scanning is NOT implemented** anywhere in the app |
+| Private document storage with signed download URLs | ✅ `documents` disk is `visibility: private`; `temporaryUrl(…, 3h)` |
+| Rate limiting for login and public endpoints | ✅ `LoginRequest::ensureIsNotRateLimited()`; workshop `30,1`/`10,1`; invitations `30,1`/`10,1`; api `5,1`/`10,1` |
+| CSRF protection | ✅ Laravel `web` middleware group |
+| Secure cookies and HTTPS only | ⚠️ `session.secure` resolves to **null** (not enforced). `ValidateProductionConfig` warns, so it is caught at deploy time rather than by default |
+| No secrets or credentials in frontend code | ⚠️ **`VITE_GOOGLE_PLACES_API_KEY` is a real-looking Google key committed in `.env`.** `VITE_*` vars are compiled into the client bundle by design, so it is public by construction — it must be restricted by HTTP referrer on the Google console, and it should not be in a committed file. Nothing else was found |
+| Generic public error messages, no stack traces | ⚠️ branded error pages exist (commits `0822a22`, `844ca59`); `APP_DEBUG=true` in the local `.env`, flagged **critical** by `ValidateProductionConfig` |
+| Revocable public workshop links | ✅ `revoked_at` + `findOpenByToken()` returns null for revoked/expired/submitted alike |
+| GDPR-compliant retention and deletion workflows | ❌ **NOT IMPLEMENTED** — no retention policy, no purge, no anonymisation anywhere in `app/` |
+| Hosting/data storage in AWS Frankfurt "where configured" | ⚠️ **`AWS_DEFAULT_REGION=us-east-1`** in both `.env` and `.env.example`. Wherever S3 is switched on, it currently points at N. Virginia, not `eu-central-1` |
+
+**Three §19 items are unmet and need a product/infra decision, not a code change here:**
+malware scanning, GDPR retention/deletion, and the AWS region default. The Google Maps key
+and `session.secure` are configuration hygiene.
+
+**Not done in this phase:** the seven probe-only §20 criteria were not converted to tests;
+no frontend/TS test harness was introduced (criterion 5 stays uncovered); neither finding
+was fixed; no §19 gap was implemented.
 
 ---
 
@@ -1201,79 +1654,112 @@ Untested by automation, same caveat as phases 8–13. If tests are ever allowed,
 highest-value cases are: company B's order never appears in company A's totals or export;
 an own-scope member's export is empty while the owner's is not; a Privatkunde gets 403.
 
-## 6a. Current working-tree state (after phase 14, 2026-08-05)
+### Verification results — phase 15
+
+| Check | Result |
+|---|---|
+| `php artisan test --compact` | 406 passed, 4 skipped, **2 failed** (the two baseline ones), 1603 assertions — identical to the phase 14 baseline, no third failure |
+| `php artisan test --compact` (4 vehicle files) | 54 passed (439 assertions) — `Api/VehicleControllerTest`, `Admin/VehicleControllerTest`, `VehicleDashboardControllerTest`, `OnboardingControllerTest` |
+| `php artisan migrate` | not run — **phase 15 adds no migration** |
+| `vendor/bin/pint --dirty --format agent` | `passed` |
+| `npm run build` | `✓ built in 50.15s`, exit 0 |
+| `npx eslint` (4 changed frontend files) | exit 0, no output |
+| `php artisan route:list --path=vehicles/import` | both routes registered |
+
+The four vehicle test files are the ones that exercise `StoreVehicleRequest`/
+`UpdateVehicleRequest`/`createVehicle` — the existing behaviour the rule extraction could
+have broken. They passed **unmodified**, which is the evidence that moving the rules
+changed nothing for B2C or Admin. No test was added or changed, per the standing brief.
+
+**`HandleInertiaRequests.php` was modified this phase, and one of the two baseline
+failures lives in `HandleInertiaRequestsTest`** — so it was re-verified rather than
+assumed, exactly as in phase 9. With that single file stashed
+(`git stash push -- app/Http/Middleware/HandleInertiaRequests.php`) the test still fails
+identically with *Not a valid Inertia response* at `AssertableInertia.php:84`. The added
+flash key is not the cause.
+
+Untested by automation for the import itself, same caveat as phases 8–14. If tests are
+ever allowed, the three highest-value cases are: a file with one invalid row still commits
+the valid ones; a Privatkunde gets 403 while a company owner does not; a file naming
+another company's `b2b_id` still stores the vehicle under the caller's company.
+
+### Verification results — phase 16
+
+| Check | Result |
+|---|---|
+| `php artisan test --compact` | 406 passed, 4 skipped, **2 failed** (the two baseline ones), 1603 assertions — no third failure |
+| `php artisan test --compact` (5 focused files) | 57 passed (476 assertions) — `Admin/OrderControllerTest`, `Admin/VehicleControllerTest`, `Api/Admin/AdminControllerTest`, `Api/Admin/AdminOrdersTest`, `VehicleDashboardControllerTest` |
+| `php artisan migrate` | `2026_08_06_000001_create_b2b_order_notes_table` DONE (batch 17) |
+| `vendor/bin/pint --dirty --format agent` | `passed` |
+| `npm run build` | `✓ built in 48.05s`, exit 0 |
+| `npx eslint` (5 changed frontend files) | exit 0, no output |
+| `php artisan route:list --path=notes` | both routes registered |
+
+The five focused files are the ones exercising `AdminQueryService::orderDetail()` and
+`VehicleService::listVehiclesWithOrders()` — the two payload builders this phase adds a
+key to, and the two whose constructors gained a dependency. They passed unmodified.
+
+Untested by automation, same caveat as phases 8–15. If tests are ever allowed, the three
+highest-value cases are: an internal note is absent from the customer payload; the store
+route 404s on a B2C order; a note saved without `visibility` is rejected.
+
+### Verification results — phase 17
+
+| Check | Result |
+|---|---|
+| `php artisan test --compact` | **453 passed, 5 skipped, 2 failed**, 1745 assertions — was 406/4/2/1603 before this phase. The 2 failures are the documented baseline ones; the 5th skip is finding 1 |
+| `php artisan test --compact tests/Feature/B2b` | 47 passed, 1 skipped (142 assertions) |
+| `php artisan migrate` | not run — **phase 17 adds no migration** |
+| `vendor/bin/pint --dirty --format agent` | `passed` (after one auto-fix pass on import ordering) |
+| `npm run build` / `npx eslint` | not run — **phase 17 changes no frontend file** |
+
+**The "untested by automation" caveat carried since phase 8 is now partially discharged.**
+47 tests cover cross-company isolation, the permission matrix, the completion gate,
+channel separation, note isolation, the vehicle import and the audit trail. Seven §20
+criteria remain probe-only (see the table above) — that is the honest remaining gap.
+
+## 6a. Current working-tree state (after phase 17, 2026-08-06)
 
 Branch **`feat/b2b-flow`**. *(Corrected 2026-08-05: every earlier revision of this section
 said `feat/admin-chat`. The branch was renamed/switched during phase 14 — check
 `git rev-parse --abbrev-ref HEAD` rather than trusting a branch name written here.)*
 
-All nine migrations are applied locally (`migrate:status` batches 8–16). **Phase 14 adds
-no migration**, so the count is unchanged.
+All ten B2B migrations are applied locally (`migrate:status` batches 8–17). Phases 14 and
+15 add none; **phase 16 adds one**, `b2b_order_notes` (batch 17).
 
-**Phases 1–8 are committed.** Commit `d79a473` (57 files, +4584/−84) contains *all* of
-phases 1 through 8 plus the 7.1 correction. Its message —
-`feat: add service fee fields to b2b table and update existing records` — describes only
-phase 1, so do **not** go looking for phases 2–8 in later commits; they are all in that
-one. *(Corrected 2026-08-05: an earlier revision of this section said nothing had been
-committed. That was true when written and is now wrong.)*
+**Phases 15, 16 and 17 are uncommitted.** Everything through phase 14 is committed
+(below); the working tree holds phase 15's vehicle import, phase 16's order notes, phase
+17's test suite, and this document. The per-phase file tables in §1 are the list of what
+each touched — check `git status --porcelain` rather than trusting a file list written
+here, which is the mistake every earlier revision of this section made.
 
-**Phases 9 through 14 are uncommitted.** `git status --porcelain` → **29 modified,
-31 untracked**, nothing staged.
+**Phases 1–8 are in `d79a473`** (57 files, +4584/−84), together with the 7.1 correction.
+Its message — `feat: add service fee fields to b2b table and update existing records` —
+describes only phase 1.
 
-Untracked (phases 9–11) — additionally
-`database/migrations/2026_08_05_000007_add_repair_appointment_to_order_logistics_table.php`
-and `resources/js/components/admin/AdminRepairAppointmentCard.vue`:
+**Phases 9–14 are in `d792020`** (61 files, +5591/−143), together with the 9.1 and 10.1
+corrections. Its message — `feat: add workshop quotations functionality` — describes only
+phase 9.
 
-```
-app/Http/Controllers/Admin/WorkshopQuotationController.php
-app/Http/Controllers/Workshop/QuotationSubmissionController.php
-app/Models/{WorkshopQuotation,WorkshopQuotationItem,B2bOfferPresentation}.php
-app/Modules/UserProfile/Order/Models/{WorkshopQuotation,WorkshopQuotationItem,B2bOfferPresentation}.php
-app/Modules/UserProfile/Order/Services/{WorkshopQuotationService,B2bOfferService}.php
-database/migrations/2026_08_05_000005_create_b2b_workshop_quotation_tables.php
-database/migrations/2026_08_05_000006_create_b2b_offer_presentations_table.php
-resources/js/components/admin/AdminWorkshopQuotationsCard.vue
-resources/js/pages/Workshop/{Quotation.vue,QuotationThanks.vue}
-routes/workshop.php
-```
+⚠ **Both commit messages name only their first phase.** Do not go looking for phases 2–8
+or 10–14 in later commits; they are inside those two. If you are bisecting or reviewing,
+read the diffs, not the subjects.
 
-Modified: this handoff, `HandleInertiaRequests.php`, `AdminQueryService.php`,
-`OrderTaskResolver.php`, `OfferService.php`, `OfferController.php`, `OfferPolicy.php`,
-`VehicleService.php`, `Admin/Orders/Show.vue`, `VehicleExpandedPanel.vue`,
-`customerOrderFlow.ts`, `types/admin.ts`, `types/order.ts`, `types/components.d.ts`
-(generated), `routes/admin.php`, `routes/web.php`, `routes/orders.php`.
-
-Phase 10.1 added no files; it edited `B2bOfferPresentation.php`, `B2bOfferService.php`
-and `OfferService.php`, all already listed above.
-
-Phase 11 additionally modified `OrderLogistics.php`, `OrderCollectionService.php`,
-`OrderTaskResolver.php`, `Admin/OrderController.php` and `types/order.ts`.
-
-Phase 13 added `2026_08_05_000009_add_reminder_tracking_to_b2b_offer_presentations_table.php`,
-`app/Console/Commands/SendB2bOfferReminders.php`,
-`app/Mail/Orders/{OfferApprovalReminderMail,OrderCompletedMail}.php`; and modified
-`B2bOfferPresentation.php`, `B2bOfferService.php`, `OrderMailer.php`,
-`NotificationType.php` and `routes/console.php`.
-
-Phase 14 added `app/Modules/UserProfile/B2B/Services/B2bStatisticsService.php`,
-`app/Support/XlsxWriter.php`, `app/Http/Controllers/B2b/StatisticsController.php`,
-`resources/js/pages/b2b/Statistics.vue`; and modified `routes/b2b.php`,
-`app/Enums/B2bPermission.php`, `resources/js/types/b2b.ts`,
-`resources/js/components/AppSidebar.vue` and
-`resources/js/layouts/app/AppSidebarLayout.vue`. No migration.
-
-Phase 12 added `2026_08_05_000008_create_b2b_order_billing_table.php`,
-`{app/Models,app/Modules/UserProfile/Order/Models}/OrderBilling.php`,
-`B2bBillingService.php`, `Admin/OrderBillingController.php`, `AdminBillingCard.vue`;
-and modified `TransitionOrderStatus.php`, `OrderTaskResolver.php`,
-`AdminQueryService.php`, `routes/admin.php`, `Admin/Orders/Show.vue`, `types/admin.ts`.
+*(Corrected 2026-08-06: every revision of this section before now claimed phases 9–14 were
+uncommitted, with a file-by-file list of 29 modified and 31 untracked paths. That was true
+when written and was already wrong by the start of phase 15 — the work had been committed
+in `d792020` in the meantime. The stale list has been removed rather than left to mislead;
+the per-phase file tables in §1 are the authoritative record of what each phase touched.)*
 
 Phase 10 is the first phase to modify files B2C depends on at runtime
 (`OfferService::publishOffer`, `VehicleService`'s customer payload, `OfferPolicy`), so
-review those three with more care than the additive B2B-only files.
+review those three with more care than the additive B2B-only files. Phase 15 is the
+second: it rewrites `StoreVehicleRequest`/`UpdateVehicleRequest`'s rule sources, which
+both channels use. Phase 16 touches `VehicleService`'s customer payload again, but only
+inside its existing `vehicle_belongs === 'B2B'` branch.
 
-Note `b2b.txt` and this handoff are now tracked, so spec/handoff edits show as
-modifications rather than untracked files.
+Note `b2b.txt` and this handoff are tracked, so spec/handoff edits show as modifications
+rather than untracked files.
 
 ---
 
@@ -1303,6 +1789,14 @@ modifications rather than untracked files.
   + `VehicleScopeService::scopeQuery()`. Every permission enforced server-side.
 - Do not add dependencies, do not modify unrelated files, do not add tests unless
   existing expectations directly conflict with an approved change.
+  **One approved exception exists: `openspout/openspout` ^4** (phase 15, approved by the
+  user 2026-08-06) — the only way to *read* an xlsx, since `App\Support\XlsxWriter` only
+  writes and must not be extended into a reader. This exception is for that package and
+  that purpose; it is not a general relaxation of the rule.
+- **One vehicle rule set: `VehicleRules`** (phase 15). `StoreVehicleRequest`,
+  `UpdateVehicleRequest` and `VehicleImportService` all derive their rules from it, so a
+  manually created and an imported vehicle cannot diverge. Add a vehicle field there, not
+  in a request class.
 - Follow `CLAUDE.md`: Pint on every PHP change, PHPDoc over inline comments,
   `php artisan make:` for new files, named routes.
 - **Updating this document is part of every phase, not a follow-up.** A phase may not be
@@ -1322,99 +1816,87 @@ generated `auto-imports.d.ts`. Cleanup candidate, out of scope so far.
 
 ## 8. Remaining phases, recommended order
 
-Phases 1–14 plus the 7.1, 9.1 and 10.1 correction passes are done. All three
-`OrderTaskResolver` placeholders are resolved, the B2B workflow runs end to end, and the
-company statistics surface plus its Excel export exist.
-**Phase 15 has not been started** — vehicles can only be created one at a time.
+**No planned phases remain.** Phases 1–17 plus the 7.1, 9.1 and 10.1 correction passes are
+done: the B2B workflow runs end to end, statistics and the Excel export exist, vehicles
+can be created manually or imported in bulk, orders carry both note types, and 47
+automated tests cover the isolation, permission and gate boundaries.
 
-| # | Phase | Spec | Why here |
-|---|---|---|---|
-| 15 | **Excel vehicle import** — per-row validation, keep valid rows | §5 | Independent. `App\Support\XlsxWriter` (phase 14) writes but does not **read** — see the prompt below |
-| 16 | **Notes** — internal vs customer-visible note types, explicit marking before save | §16 | Independent |
-| 17 | **Acceptance audit** — role matrix, cross-company isolation, audit-log coverage against §20 | §19, §20 | Final gate |
+What remains is **remediation, not new features** — everything below came out of phase
+17's audit and each needs a decision before this is shippable:
+
+| Priority | Item | Source |
+|---|---|---|
+| 1 | `vehicle_scope = 'own'` not enforced on the vehicle listing | finding 1 / item 44 |
+| 2 | GDPR retention and deletion workflows — not implemented at all | §19 / item 47 |
+| 3 | `AWS_DEFAULT_REGION=us-east-1`, not Frankfurt | §19 / item 48 |
+| 4 | Malware scanning on uploads — not implemented | §19 / item 46 |
+| 5 | Google Places API key committed in `.env` and shipped in the bundle | §19 / item 49 |
+| 6 | Seven §20 criteria still probe-only | phase 17 coverage table |
+| 7 | Lexware (§20 #14) structurally unmet — confirm the product decision stands | item 25 |
 
 ---
 
 ## 9. Exact next phase
 
-**Phase 15 — Excel vehicle import (§5).** §5's one hard rule is the whole phase: *"The
-import must validate required fields and show errors per row without discarding valid
-rows."* That is a partial-success contract, and it is the thing most likely to be got
-wrong — a single `DB::transaction()` around the whole file would satisfy every other
-sentence in §5 and violate this one.
+**None. All planned phases (1–17) are complete.**
 
-**Read this before starting: `App\Support\XlsxWriter` (phase 14) only WRITES.** Reading an
-xlsx is a materially harder problem than writing one — shared-string tables, cell-format
-resolution, date serial numbers, streaming large sheets — and the phase-14 writer offers
-none of it. Do **not** extend it into a reader; decide honestly between a real dependency
-(needs approval) and a CSV-only import, and say which and why *before* building.
+There is no phase 18. What is left is the remediation list in §8, which is a set of
+decisions rather than a build. Take them one at a time; none depends on another.
 
-Ready-to-use prompt:
+The single highest-value next action is **finding 1** — `vehicle_scope = 'own'` is not
+enforced on the vehicle listing, so a member restricted to their own vehicles is shown the
+whole company fleet while the UI tells them otherwise. It has a skipped test
+(`CrossCompanyIsolationTest::test_an_own_scope_member_sees_only_the_vehicles_they_registered`)
+already carrying the correct expectation, so the fix is verifiable the moment it lands.
+
+Ready-to-use prompt for that fix:
 
 ```
-Proceed with the next B2B-only implementation phase: Excel vehicle import (b2b.txt §5).
+Fix phase 17 finding 1: vehicle_scope = 'own' is not enforced on the vehicle listing.
 
-Read B2B_IMPLEMENTATION_HANDOFF.md first — especially §7's architectural rules and the
-phase 14 section's note on App\Support\XlsxWriter — then inspect:
-StoreVehicleRequest (the existing per-vehicle validation rules, and its documented
-Admin-only `vehicle_belongs` exception), VehicleService::createVehicle(),
-VehicleScopeService, B2bContext, B2bPermission::CreateVehicles, and the phase 2 B2B
-fleet columns on `vehicles` (contract_number, cost_centre, driver_name, driver_contact,
-collection_address_profile_id, leasing_end_date, mileage).
+Read B2B_IMPLEMENTATION_HANDOFF.md's phase 17 section first (finding 1), then inspect:
+VehicleService::scopedVehicleQuery(), paginateVehiclesWithOrders(),
+listVehiclesWithOrders(), VehicleScopeService::scopeQuery() (which already does this
+correctly), B2bContext::activeMembership(), and B2bMembership::seesOwnVehiclesOnly().
+
+The defect: scopedVehicleQuery() filters on b2b_id alone. VehicleScopeService::scopeQuery()
+additionally narrows to created_by_user_id when the membership's vehicle_scope is 'own'.
+The dashboard and listVehiclesWithOrders() therefore list every company vehicle to an
+own-scope member, while Dashboard.vue tells them they only see their own.
+
+The design problem to solve first, and to report before coding: scopedVehicleQuery()
+takes an $ownerId string and has no access to the acting User, so it cannot ask
+B2bContext anything. Decide and justify:
+  (a) thread the acting User (or a resolved scope object) through
+      paginateVehiclesWithOrders/listVehiclesWithOrders into scopedVehicleQuery, or
+  (b) have the callers pass an explicit created_by filter, or
+  (c) route these reads through VehicleScopeService::scopeQuery() instead, so there is
+      one narrowing implementation rather than two.
+(c) is the most likely right answer — two implementations of the same rule is what
+caused this — but it is an Eloquent-vs-query-builder change, so check the cost first.
 
 Requirements:
-- Company users with `vehicles.create` may import vehicles from a file.
-- §5's fields: registration number, VIN, manufacturer, model, first registration date,
-  current mileage, leasing company, contract number, leasing end date (optional), cost
-  centre, driver/contact person, collection address.
-- CRITICAL — partial success: validate per row and report errors PER ROW, keeping every
-  valid row. Do NOT wrap the whole import in one transaction that rolls back valid rows
-  because of an invalid one. State explicitly how a row that fails mid-file is isolated.
-- Reuse StoreVehicleRequest's rules rather than restating them, so a manually created
-  vehicle and an imported one can never diverge. If reuse is impossible, say why.
-- Every imported vehicle belongs to the caller's OWN company, taken from B2bContext.
-  A b2b_id, vehicle_belongs or owner column in the uploaded file must be ignored, not
-  trusted — the channel comes from the caller, never the file.
-- Duplicate handling: decide and state what happens when an imported VIN or registration
-  number already exists in the company (skip / error / update). This is a product
-  decision — record it as a resolved decision in the handoff.
-- Keep B2C completely unchanged: no import surface exists for Privatkunde and none
-  should appear.
-- Report the result back to the user: rows imported, rows rejected, and the reason per
-  rejected row. A silent partial import is a failure of this phase.
-- Do not touch statistics, notifications, billing or Stripe. Lexware stays blocked.
-- Do not add comments. Do not add tests; update existing tests only when old
-  expectations directly conflict.
-- Do not modify unrelated files.
+- Un-skip CrossCompanyIsolationTest::test_an_own_scope_member_sees_only_the_vehicles_they_registered
+  and make it pass. Do not weaken the assertion.
+- An 'all'-scope member and the owner must still see the whole company fleet — add a test
+  for that too if one does not exist, so the fix cannot over-narrow.
+- B2C is unaffected: a Privatkunde's own filter is b2c_user_id and must not change.
+- Admin ('ALL') must still see everything.
+- Check whether the same gap exists in the vehicle count/analytics surfaces
+  (B2bAnalyticsService — see unresolved item 32) and REPORT it; do not fix it in the same
+  change without saying so.
+- Do not change unrelated files. Do not add dependencies.
 
-DEPENDENCY DECISION — report before building, do not assume:
-App\Support\XlsxWriter writes xlsx but cannot read it, and must not be extended into a
-reader. Report which you propose and why:
-  (a) a real spreadsheet dependency (needs explicit approval — name it, say what it costs)
-  (b) CSV-only import (no dependency; say plainly what the user loses versus §5's
-      "Excel import", and how they would produce the CSV from Excel)
-Do NOT add any dependency without approval.
+Report before implementing: your choice of (a)/(b)/(c) with the reason, and whether
+item 32's FleetOverview inconsistency should be resolved in the same direction.
+Report after: files changed, the test now passing, and what you found about item 32.
 
-Before implementation, report:
-1. Your dependency recommendation, (a) or (b), with the trade-off
-2. How per-row validation isolates a failing row while keeping valid ones
-3. How you reuse the existing vehicle validation rules
-4. Your duplicate-handling decision
-5. How company ownership is forced from B2bContext rather than read from the file
-
-After implementation, report: Files changed; the import flow; how partial success is
-guaranteed; duplicate handling; how B2C was protected; how to verify.
-
-Update B2B_IMPLEMENTATION_HANDOFF.md as part of this task, before declaring the phase
-complete: add phase 15 to section 1 with its files, migrations and schema decisions,
-business-flow changes, B2C protections, placeholders and unresolved decisions; re-point
-sections 8 and 9 to phase 16; record test, build, Pint and ESLint results; refresh the
-working-tree state in 6a; and correct in place, with a dated note, any statement in the
-document you find to be inaccurate.
+Update B2B_IMPLEMENTATION_HANDOFF.md: mark finding 1 resolved with a dated note in the
+phase 17 section and in §10 item 44, refresh §8's remediation table, and record test,
+build, Pint and ESLint results.
 ```
 
 ---
-
 ## 10. Unresolved product decisions
 
 1. ~~**Offer rejection.**~~ **Resolved 2026-08-05 (phase 10)** — `rejected` added to
@@ -1588,6 +2070,105 @@ Opened by phase 14:
     forever and will eventually stop being a useful headline. No filter UI, no
     year-to-date, no comparison to a previous period.
 
+Opened by phase 15:
+
+34. **`composer.json` still declares `"php": "^8.2"`, but openspout v4.32 requires
+    `~8.3 || ~8.4 || ~8.5`.** Composer resolved against the local PHP 8.4 and installed
+    happily, so this is invisible until someone runs `composer install` on an 8.2 host,
+    where it will **fail to resolve**. `CLAUDE.md` states the project is PHP 8.4, so the
+    declared constraint is probably just stale. Decide whether to tighten it to `^8.3`
+    (accurate, and makes the failure a clear message instead of a surprise) or to confirm
+    no 8.2 environment exists. Left alone here because `composer.json`'s `php` constraint
+    governs the whole project, not this phase.
+35. **Duplicate VIN is permitted, and nothing warns.** There is no unique index on
+    `vehicles.vin`, so manual creation has always allowed two vehicles to share a VIN, and
+    the import matches that deliberately — inventing an import-only constraint would make
+    imported and hand-entered vehicles diverge. But a VIN is physically unique to a
+    vehicle, so a duplicate almost always means a data-entry error. Decide whether VIN
+    should become unique (a migration plus a decision about existing duplicates), or
+    whether the import should merely *warn* on a VIN that already exists in the company
+    while still importing the row.
+36. **A rejected row cannot be corrected in place.** The result panel reports the row
+    number and the reason, but the user must fix the source file and re-upload it — and
+    re-uploading the whole file re-rejects every already-imported row as a duplicate
+    plate, which is noisy even though it is harmless and correct. An "import only the rows
+    that failed" affordance, or a downloadable error file containing just the rejected
+    rows, would close this. Not built because §5 asks for per-row errors, not a repair
+    workflow.
+37. **The import is synchronous and capped at 2000 rows.** A file at the cap runs entirely
+    inside the request, which is fine at a few hundred rows but will eventually meet a PHP
+    execution timeout. `MAX_ROWS` is reported as `truncated` rather than silently applied,
+    so nothing is hidden, but a genuinely large fleet needs a queued import with a progress
+    surface. Decide whether that is wanted before someone raises the cap.
+38. **Column headings must match the template.** There is no mapping UI: an unrecognised
+    heading is reported as ignored and its data is dropped. Ambiguous headings ("Telefon",
+    "E-Mail") are deliberately unmapped for that reason. If customers routinely send
+    leasing-company exports with their own column names, a per-company saved mapping is the
+    natural next step.
+39. **`CLAUDE.md` states Tailwind v3; the repo runs v4.** `package.json` has
+    `tailwindcss ^4.2.4` and `@tailwindcss/vite`. `CLAUDE.md` is Laravel Boost's generated
+    project-wide guidance, so correcting it is outside any B2B phase's scope, but it will
+    keep misleading anyone writing styles — v3 and v4 differ in config format and several
+    utility names. Decide whether to regenerate or hand-correct that line. Not a phase 15
+    finding as such — noticed while inspecting the repo for it.
+
+Opened by phase 16:
+
+40. **A note cannot be edited, and its audience cannot be changed.** The only correction
+    path is delete-and-rewrite, which loses the original timestamp and author. That is
+    deliberate for the audience — silently promoting an internal note to customer-visible
+    would disclose something written under the assumption it was private — but editing a
+    typo in a customer note is a reasonable thing to want. Decide whether an edit window
+    (with the audience locked) is wanted.
+41. **Deleting a note leaves no trace.** `delete()` is a hard delete with no audit row, so
+    "there used to be a note here" is unanswerable. §15 says changes should be stored as
+    historical events; that rule is about status changes, but a customer-visible note the
+    customer has already read and that then vanishes is arguably the same class of
+    problem. Consider a soft delete.
+42. **Nobody is notified about a customer-visible note.** §18's notification list names no
+    such trigger, so none was invented — but a note the customer never opens the portal to
+    see does nothing. The `order_messages` thread *does* notify. Decide whether adding a
+    customer-visible note should behave like a message in that respect, and note that
+    doing so starts to blur the two entities this phase deliberately kept apart.
+43. **Two surfaces now carry Admin→customer text.** A customer-visible note and an Admin
+    message in the thread look very similar to a customer, and nothing guides an admin on
+    which to use. The distinction is real (a note annotates the order record; a message is
+    conversation) but it is not explained anywhere in the UI. Worth a one-line hint in
+    both cards, or an explicit product decision to merge them.
+
+Opened by phase 17 (audit findings — see the phase 17 section for detail):
+
+44. **`vehicle_scope = 'own'` is not enforced on the vehicle listing.** *(Finding 1,
+    medium severity.)* `VehicleService::scopedVehicleQuery()` filters on `b2b_id` alone, so
+    an own-scope member is listed the whole company fleet on the dashboard and through
+    `listVehiclesWithOrders()`, while the UI states the opposite. Detail access is still
+    correctly refused and cross-company isolation is unaffected. A skipped test carries the
+    correct expectation. **Not fixed in phase 17 by design** — the audit reports, it does
+    not change behaviour. Closely related to item 32.
+45. **Canonical/shim model type hints are inconsistent.** *(Finding 2, low severity.)*
+    Several services hint `App\Models\Vehicle` while every relation and factory returns the
+    canonical class, so `$order->vehicle` cannot be passed to them without a `TypeError`.
+    Harmless today because controllers load the shim directly; it cost time three times
+    during phases 16–17. Standardise on hinting the canonical class, as
+    `VehicleScopeService::resolveOwnerUsers()` already documents.
+46. **Malware scanning is not implemented.** §19 requires "file type, file signature and
+    malware validation". Type and signature are done and tested; scanning is absent
+    everywhere in the app, not just in B2B. Needs an infra decision (ClamAV sidecar, an
+    S3-side scanner, or an accepted risk).
+47. **GDPR retention and deletion workflows do not exist.** §19 requires them. There is no
+    retention policy, no purge job and no anonymisation path anywhere in `app/`. This is
+    the largest outright gap in §19 and needs a legal/product decision on retention periods
+    before anything is built.
+48. **`AWS_DEFAULT_REGION` is `us-east-1`, not Frankfurt.** §19 requires AWS Frankfurt
+    "where configured". Both `.env` and `.env.example` default to N. Virginia, so any S3
+    switch-on would store documents outside the EU. Change to `eu-central-1` and confirm
+    the bucket's actual region.
+49. **The Google Places API key is committed and shipped to the browser.**
+    `VITE_GOOGLE_PLACES_API_KEY` is in `.env` and, being a `VITE_*` var, is compiled into
+    the client bundle by design — so it is public by construction and must be restricted by
+    HTTP referrer on the Google console. It should also not live in a committed file.
+    Rotate it, restrict it, and move it out of version control.
+
 ---
 
 ## 11. Commands
@@ -1612,8 +2193,12 @@ php artisan test --compact tests/Feature/Admin/VehicleControllerTest.php
 
 # inspection
 php artisan route:list --path=admin/orders
+php artisan route:list --path=vehicles/import
 php artisan config:show database.default
 ```
+
+Note `npm run build` runs **Tailwind v4**, not v3 — see the corrected stack line at the
+top of this document.
 
 Verification technique used throughout: rolled-back
 `DB::beginTransaction()` / `DB::rollBack()` tinker scripts with `Http::fake()` /

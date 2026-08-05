@@ -1,6 +1,7 @@
 import type { LucideIcon } from 'lucide-vue-next';
 import type { UserType } from './auth';
 import type { B2bSharedState } from './b2b';
+import type { VehicleImportResult } from './vehicle';
 
 export interface Auth {
     user: User;
@@ -28,6 +29,10 @@ export interface FlashBag {
     error?: string | null;
     info?: string | null;
     warning?: string | null;
+    /** Shown once after issuing a workshop quotation link (phase 9). */
+    workshop_link?: string | null;
+    /** Per-row outcome of a bulk vehicle import (phase 15). */
+    vehicle_import?: VehicleImportResult | null;
 }
 
 export interface SharedData {

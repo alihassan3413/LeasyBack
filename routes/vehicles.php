@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\B2b\VehicleImportController;
 use App\Http\Controllers\VehicleController;
 use App\Http\Controllers\VehicleDocumentController;
 use Illuminate\Support\Facades\Route;
@@ -16,6 +17,18 @@ Route::middleware(['auth', 'active', 'verified'])->group(function () {
 
     Route::post('vehicles', [VehicleController::class, 'store'])
         ->middleware('b2b.can:vehicles.create')->name('vehicles.store');
+
+    /*
+     * Bulk import (§5). Same permission as creating one vehicle by hand —
+     * importing is not a distinct capability, it is the same one applied to a
+     * file. Both actions re-check the caller is a Firmenkunde in the
+     * controller, because `b2b.can:*` waves other account types through.
+     */
+    Route::post('vehicles/import', [VehicleImportController::class, 'store'])
+        ->middleware('b2b.can:vehicles.create')->name('vehicles.import');
+
+    Route::get('vehicles/import/template', [VehicleImportController::class, 'template'])
+        ->middleware('b2b.can:vehicles.create')->name('vehicles.import.template');
 
     Route::get('vehicles/{vehicleId}', [VehicleController::class, 'show'])
         ->middleware('b2b.can:vehicles.view')->name('vehicles.show');
