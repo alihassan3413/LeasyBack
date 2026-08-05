@@ -4,6 +4,7 @@ use App\Http\Controllers\B2b\CompanyContextController;
 use App\Http\Controllers\B2b\InvitationAcceptController;
 use App\Http\Controllers\B2b\InvitationController;
 use App\Http\Controllers\B2b\MemberController;
+use App\Http\Controllers\B2b\StatisticsController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -17,6 +18,17 @@ Route::middleware(['auth', 'active'])->prefix('company')->name('b2b.')->group(fu
     Route::get('members', [MemberController::class, 'index'])
         ->middleware('b2b.can:members.view')
         ->name('members.index');
+
+    /*
+     * Company statistics and their export (§17). Both sit behind the same
+     * `analytics.view` permission that already governs every other
+     * company-level figure, and neither takes a company id — the company comes
+     * from the caller's active membership.
+     */
+    Route::middleware('b2b.can:analytics.view')->group(function () {
+        Route::get('statistics', [StatisticsController::class, 'index'])->name('statistics.index');
+        Route::get('statistics/export', [StatisticsController::class, 'export'])->name('statistics.export');
+    });
 
     Route::middleware('b2b.can:members.manage')->group(function () {
         Route::patch('members/{userId}', [MemberController::class, 'update'])

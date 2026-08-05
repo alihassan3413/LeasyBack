@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import AdminAppraisalPositionsCard from '@/components/admin/AdminAppraisalPositionsCard.vue';
+import AdminBillingCard from '@/components/admin/AdminBillingCard.vue';
 import AdminCollectionCard from '@/components/admin/AdminCollectionCard.vue';
 import AdminOffersCard from '@/components/admin/AdminOffersCard.vue';
 import AdminOrderActionsMenu from '@/components/admin/AdminOrderActionsMenu.vue';
 import AdminOrderTasksCard from '@/components/admin/AdminOrderTasksCard.vue';
+import AdminRepairAppointmentCard from '@/components/admin/AdminRepairAppointmentCard.vue';
+import AdminWorkshopQuotationsCard from '@/components/admin/AdminWorkshopQuotationsCard.vue';
 import OrderMessages from '@/components/shared/OrderMessages.vue';
 import OrderStatusTimeline from '@/components/shared/OrderStatusTimeline.vue';
 import AdminLayout from '@/layouts/AdminLayout.vue';
@@ -62,6 +65,31 @@ const customerFlowSteps = computed(() =>
 );
 
 const customerHeadline = computed(() => getCustomerOrderHeadline(customerFlowSteps.value));
+
+/**
+ * The repair appointment only becomes relevant once the workshop is
+ * commissioned, and stays visible afterwards so it can be rescheduled.
+ */
+const REPAIR_APPOINTMENT_STATUSES = new Set(['workshop_commissioned', 'workshop', 'repair_completed']);
+
+const showRepairAppointment = computed(
+    () => REPAIR_APPOINTMENT_STATUSES.has(props.order.order_status) || !!props.order.collection?.confirmed_repair_start_date,
+);
+
+/**
+ * Billing becomes relevant once the vehicle is back with the leasing company,
+ * and stays visible afterwards as the record the completion gate reads.
+ */
+const BILLING_STATUSES = new Set(['vehicle_returned', 'invoice_processed', 'completed']);
+
+const showBilling = computed(() => BILLING_STATUSES.has(props.order.order_status) || !!props.order.billing?.is_processed);
+
+/** The quotation the presented offer was built from — seeds the appointment form. */
+const offerSourceQuotation = computed(() => {
+    const quotationId = props.order.offers.find((offer) => offer.presentation)?.presentation?.workshop_quotation_id;
+
+    return (quotationId && props.order.workshop_quotations?.find((quotation) => quotation.id === quotationId)) || null;
+});
 
 const timelineHeaderLabel = computed(
     () => `STATUS: ${(customerHeadline.value?.label ?? getOrderStatusLabel(props.order.order_status)).toUpperCase()}`,
@@ -276,7 +304,31 @@ function formatDateTime(value: string | null): string {
                             :collection="order.collection"
                         />
 
-                        <div id="order-section-angebote">
+                        <AdminBillingCard
+                            v-if="order.vehicle_belongs === 'B2B' && order.billing && showBilling"
+                            id="order-section-abrechnung"
+                            :order-id="order.id"
+                            :billing="order.billing"
+                            :report-documents="order.report_documents"
+                        />
+
+                        <AdminRepairAppointmentCard
+                            v-if="order.vehicle_belongs === 'B2B' && showRepairAppointment"
+                            id="order-section-reparatur"
+                            :order-id="order.id"
+                            :order-status="order.order_status"
+                            :collection="order.collection"
+                            :source-quotation="offerSourceQuotation"
+                        />
+
+                        <div id="order-section-angebote" class="flex flex-col gap-4">
+                            <AdminWorkshopQuotationsCard
+                                v-if="order.vehicle_belongs === 'B2B' && order.workshop_quotations"
+                                :order-id="order.id"
+                                :quotations="order.workshop_quotations"
+                                :has-positions="!!order.appraisal_positions?.length"
+                            />
+
                             <AdminOffersCard :order-id="order.id" :offers="order.offers" />
                         </div>
 

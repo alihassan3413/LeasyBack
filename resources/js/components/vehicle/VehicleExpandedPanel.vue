@@ -9,7 +9,7 @@ import VehiclePanelShell from '@/components/vehicle/VehiclePanelShell.vue';
 import { CUSTOMER_PAYMENT_FEATURE_ENABLED, formatGermanDateTime, getCustomerOrderFlowSteps, getCustomerOrderHeadline } from '@/lib/customerOrderFlow';
 import { toOrderTimelineEntries, type OrderTimelineEntry } from '@/lib/timeline';
 import { getOrderStatusLabel } from '@/lib/vehicleStatus';
-import type { OfferData } from '@/types/order';
+import type { B2bOfferPresentationData, OfferData } from '@/types/order';
 import type { VehicleCollectionAddress, VehicleData } from '@/types/vehicle';
 import { router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
@@ -30,6 +30,7 @@ interface PanelOffer {
     note: string;
     accepted: boolean;
     status: string;
+    presentation?: B2bOfferPresentationData | null;
 }
 
 const props = withDefaults(
@@ -259,12 +260,58 @@ const offersData = computed<PanelOffer[]>(() =>
         id: offer.offer_sequence.toString().padStart(2, '0'),
         offerId: offer.offer_id,
         name: `Angebot ${offer.offer_sequence}`,
-        cost: Number(offer.final_total_gross ?? 0),
+        // B2B never renders gross (b2b.txt §9) — the payload does not even
+        // carry the gross keys — so the net repair total is what is shown.
+        cost: Number(
+            (isB2bVehicle.value ? (offer.presentation?.repair_total_net ?? offer.final_total_net) : offer.final_total_gross) ?? 0,
+        ),
         note: offer.additional_notes ?? '',
         accepted: offer.offer_status === 'selected',
         status: offer.offer_status,
+        presentation: offer.presentation ?? null,
     })),
 );
+
+/**
+ * The published B2B offer awaiting the customer's decision — the one §10's
+ * accept/reject pair applies to.
+ */
+const b2bPendingOffer = computed(() =>
+    isB2bVehicle.value ? (offersData.value.find((offer) => offer.status === 'published') ?? null) : null,
+);
+
+const b2bDecidedOffer = computed(() =>
+    isB2bVehicle.value
+        ? (offersData.value.find((offer) => offer.status === 'selected' || offer.status === 'rejected') ?? null)
+        : null,
+);
+
+const rejectOpen = ref(false);
+const rejectComment = ref('');
+const rejectingOfferId = ref<string | null>(null);
+
+function submitReject(offerId: string) {
+    rejectingOfferId.value = offerId;
+
+    router.post(
+        route('offers.reject', offerId),
+        { customer_comment: rejectComment.value },
+        {
+            preserveScroll: true,
+            onFinish: () => {
+                rejectingOfferId.value = null;
+                rejectOpen.value = false;
+                rejectComment.value = '';
+            },
+        },
+    );
+}
+
+function formatEuroNet(value: string | number | null | undefined): string {
+    const amount = typeof value === 'string' ? Number.parseFloat(value) : (value ?? 0);
+
+    return Number.isFinite(amount) ? new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(amount as number) : '—';
+}
 
 const hasRealOffers = computed(() => offersData.value.length > 0);
 
@@ -322,6 +369,7 @@ const OFFER_STATUS_LABELS: Record<string, string> = {
     selected: 'Angenommen',
     closed: 'Geschlossen',
     cancelled: 'Storniert',
+    rejected: 'Abgelehnt',
 };
 
 const OFFER_STATUS_PILLS: Record<string, string> = {
@@ -330,6 +378,7 @@ const OFFER_STATUS_PILLS: Record<string, string> = {
     selected: 'background: rgba(239, 132, 80, 0.14); color: #c0622e',
     closed: 'background: #f4f7f6; color: #9bb0af',
     cancelled: 'background: rgba(220, 38, 38, 0.1); color: #991b1b',
+    rejected: 'background: rgba(220, 38, 38, 0.1); color: #991b1b',
 };
 
 function offerStatusLabel(status: string): string {
@@ -557,6 +606,139 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
 
                         <div v-if="!admin && documents.length === 0" class="text-[14px] text-[#b7c2c2]">Keine Dokumente gefunden</div>
                     </div>
+                </div>
+            </div>
+
+            <div v-if="isB2bVehicle && (b2bPendingOffer?.presentation || b2bDecidedOffer?.presentation)" class="relative w-full">
+                <div class="flex flex-col rounded-[16px] border bg-white" style="border-color: #ececec">
+                    <div class="px-6 pt-6">
+                        <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">Reparaturangebot</p>
+                        <p class="mt-1 text-[13px]" style="color: #64748b">
+                            Alle Beträge netto. Gegenüberstellung von Erstgutachten und freigegebener Reparatur.
+                        </p>
+                    </div>
+
+                    <template v-for="offer in [b2bPendingOffer ?? b2bDecidedOffer]" :key="offer?.offerId">
+                        <div v-if="offer?.presentation" class="flex flex-col px-6 pt-4 pb-6">
+                            <div class="grid grid-cols-3 gap-3 max-[560px]:grid-cols-1">
+                                <div class="rounded-[13px] bg-[#f6f9f8] px-4 py-3">
+                                    <p class="text-[12px]" style="color: #64748b">Gutachten netto</p>
+                                    <p class="mt-1 text-[16px] font-bold" style="color: #000">
+                                        {{ formatEuroNet(offer.presentation.appraisal_total_net) }}
+                                    </p>
+                                </div>
+                                <div class="rounded-[13px] bg-[#f6f9f8] px-4 py-3">
+                                    <p class="text-[12px]" style="color: #64748b">Reparatur netto</p>
+                                    <p class="mt-1 text-[16px] font-bold" style="color: #000">
+                                        {{ formatEuroNet(offer.presentation.repair_total_net) }}
+                                    </p>
+                                </div>
+                                <div class="rounded-[13px] px-4 py-3" style="background: rgba(1, 185, 144, 0.1)">
+                                    <p class="text-[12px]" style="color: #00856a">Ihre Ersparnis</p>
+                                    <p class="mt-1 text-[16px] font-bold" style="color: #00856a">
+                                        {{ formatEuroNet(offer.presentation.saving_net) }}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <p v-if="offer.presentation.customer_note" class="mt-4 rounded-[13px] bg-[#f9fbfa] px-4 py-3 text-[13px]" style="color: #2e3e3f">
+                                {{ offer.presentation.customer_note }}
+                            </p>
+
+                            <p v-if="offer.presentation.valid_until" class="mt-3 text-[12.5px]" style="color: #64748b">
+                                Gültig bis {{ formatDate(offer.presentation.valid_until) }}
+                                <span v-if="offer.presentation.is_expired" class="font-bold" style="color: #991b1b"> · abgelaufen</span>
+                            </p>
+
+                            <div class="mt-4 overflow-x-auto">
+                                <table class="w-full min-w-[420px] border-collapse text-left">
+                                    <thead>
+                                        <tr class="border-b" style="border-color: #ececec">
+                                            <th class="py-2 pr-2 text-[12px] font-bold" style="color: #64748b">Position</th>
+                                            <th class="py-2 pr-2 text-right text-[12px] font-bold" style="color: #64748b">Gutachten</th>
+                                            <th class="py-2 pr-2 text-right text-[12px] font-bold" style="color: #64748b">Reparatur</th>
+                                            <th class="py-2 text-right text-[12px] font-bold" style="color: #64748b">Ersparnis</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr
+                                            v-for="line in offer.presentation.lines"
+                                            :key="line.appraisal_position_id"
+                                            class="border-b"
+                                            style="border-color: #f6f9f8"
+                                        >
+                                            <td class="py-2 pr-2 text-[13px]" style="color: #000">
+                                                {{ line.component }}
+                                                <span v-if="line.not_repairable" class="text-[11.5px] font-bold" style="color: #991b1b">
+                                                    · nicht instandsetzbar
+                                                </span>
+                                                <span v-if="line.repair_method" class="block text-[11.5px]" style="color: #9bb0af">
+                                                    {{ line.repair_method }}
+                                                </span>
+                                            </td>
+                                            <td class="py-2 pr-2 text-right text-[13px]" style="color: #64748b">
+                                                {{ formatEuroNet(line.appraisal_amount_net) }}
+                                            </td>
+                                            <td class="py-2 pr-2 text-right text-[13px] font-bold" style="color: #000">
+                                                {{ formatEuroNet(line.repair_amount_net) }}
+                                            </td>
+                                            <td class="py-2 text-right text-[13px] font-bold" style="color: #00856a">
+                                                {{ formatEuroNet(line.saving_net) }}
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div v-if="!admin && offer.status === 'published'" class="mt-5 flex flex-wrap items-center gap-2">
+                                <button
+                                    type="button"
+                                    class="rounded-[13px] px-5 py-2.5 text-[13px] font-bold text-white transition-all hover:opacity-90"
+                                    style="background: #01b990"
+                                    @click.stop="requestSelect(offer.offerId)"
+                                >
+                                    Reparatur freigeben
+                                </button>
+
+                                <button
+                                    type="button"
+                                    class="rounded-[13px] border px-5 py-2.5 text-[13px] font-bold transition-all hover:opacity-80"
+                                    style="border-color: #ececec; color: #991b1b"
+                                    @click.stop="rejectOpen = !rejectOpen"
+                                >
+                                    Angebot ablehnen
+                                </button>
+                            </div>
+
+                            <div v-if="rejectOpen && !admin && offer.status === 'published'" class="mt-3 flex flex-col gap-2">
+                                <textarea
+                                    v-model="rejectComment"
+                                    rows="3"
+                                    class="w-full resize-none rounded-[13px] border px-3 py-2 text-[13px] outline-none focus:border-[#01b990]"
+                                    style="border-color: #ececec"
+                                    placeholder="Optionale Anmerkung oder Rückfrage..."
+                                />
+                                <button
+                                    type="button"
+                                    :disabled="rejectingOfferId === offer.offerId"
+                                    class="self-start rounded-[13px] px-5 py-2.5 text-[13px] font-bold text-white transition-all hover:opacity-90 disabled:opacity-50"
+                                    style="background: #991b1b"
+                                    @click.stop="submitReject(offer.offerId)"
+                                >
+                                    {{ rejectingOfferId === offer.offerId ? 'Wird gesendet...' : 'Ablehnung bestätigen' }}
+                                </button>
+                            </div>
+
+                            <p
+                                v-if="offer.presentation.rejected_at"
+                                class="mt-4 rounded-[13px] px-4 py-3 text-[13px]"
+                                style="background: rgba(220, 38, 38, 0.06); color: #991b1b"
+                            >
+                                Sie haben dieses Angebot abgelehnt.
+                                <span v-if="offer.presentation.customer_comment">„{{ offer.presentation.customer_comment }}"</span>
+                            </p>
+                        </div>
+                    </template>
                 </div>
             </div>
 

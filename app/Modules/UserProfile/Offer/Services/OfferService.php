@@ -8,6 +8,7 @@ use App\Models\LeasybackOrder;
 use App\Models\OfferAuditLog;
 use App\Models\OrderAuditLog;
 use App\Models\User;
+use App\Modules\UserProfile\Order\Services\B2bOfferService;
 use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
 use App\Notifications\NotificationPayload;
 use App\Services\Mail\OrderMailer;
@@ -21,6 +22,7 @@ class OfferService
         private readonly VehicleScopeService $vehicleScope,
         private readonly Notifier $notifier,
         private readonly OrderMailer $orderMailer,
+        private readonly B2bOfferService $b2bOfferService,
     ) {}
 
     /**
@@ -62,6 +64,10 @@ class OfferService
                 'published_at' => now(),
                 'published_by_user_id' => $user->id,
             ]);
+
+            // Freezes what a B2B customer is about to see (§10). No-op for
+            // B2C, which has no b2b_offer_presentations row.
+            $this->b2bOfferService->snapshotOnPublish($offer);
 
             $this->auditOffer($offer, 'published', ['offer_status' => 'draft'], ['offer_status' => 'published'], $user->id);
 
@@ -115,6 +121,20 @@ class OfferService
     {
         if ($offer->offer_status !== 'published') {
             $this->fail(400, 'This offer is no longer available');
+        }
+
+        // B2B offers may carry a validity date (§10). Enforced here rather
+        // than in the controller so the customer route and Admin's
+        // accept-on-behalf route are both covered by the one rule. A B2C
+        // offer has no presentation row, so expiredOn() is always null for it
+        // and this guard cannot change B2C behaviour.
+        $expiredOn = $this->b2bOfferService->expiredOn($offer);
+
+        if ($expiredOn !== null) {
+            $this->fail(422, sprintf(
+                'Dieses Angebot war bis zum %s gültig und kann nicht mehr freigegeben werden. Bitte fordern Sie ein neues Angebot an.',
+                $expiredOn->format('d.m.Y'),
+            ));
         }
 
         $alreadySelected = LeasybackOffer::where('order_id', $offer->order_id)

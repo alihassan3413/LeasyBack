@@ -128,4 +128,25 @@ class OrderController extends Controller
 
         return back()->with('success', 'Abholtermin wurde aktualisiert.');
     }
+
+    /**
+     * Confirms or reschedules the workshop repair appointment. B2B only, same
+     * 404-on-vehicle-type rule as updateCollection(). Saving from
+     * `workshop_commissioned` also starts the repair phase — see
+     * OrderCollectionService::updateRepairAppointment().
+     */
+    public function updateRepairAppointment(Request $request, string $orderId): RedirectResponse
+    {
+        $order = LeasybackOrder::find($orderId);
+        abort_unless($order !== null, 404);
+
+        $vehicle = Vehicle::where('vehicle_id', $order->vehicle_id)->first();
+        abort_unless($vehicle !== null && $vehicle->vehicle_belongs === 'B2B', 404);
+
+        $validated = $request->validate(OrderCollectionService::repairAppointmentRules());
+
+        $this->orderCollectionService->updateRepairAppointment($order, $vehicle, $request->user(), $validated);
+
+        return back()->with('success', 'Reparaturtermin wurde gespeichert.');
+    }
 }

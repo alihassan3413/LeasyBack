@@ -101,6 +101,7 @@ class HandleInertiaRequests extends Middleware
                 'error' => $request->session()->get('error'),
                 'info' => $request->session()->get('info'),
                 'warning' => $request->session()->get('warning'),
+                'workshop_link' => $request->session()->get('workshop_link'),
             ],
         ]);
     }

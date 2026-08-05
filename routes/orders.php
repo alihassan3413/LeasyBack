@@ -12,6 +12,9 @@ Route::middleware(['auth', 'active', 'verified'])->group(function () {
     Route::post('offers/{offerId}/select', [OfferController::class, 'select'])
         ->middleware('b2b.can:offers.select')->name('offers.select');
 
+    Route::post('offers/{offerId}/reject', [OfferController::class, 'reject'])
+        ->middleware('b2b.can:offers.select')->name('offers.reject');
+
     /*
      * Shared by the customer's vehicle page and Admin's order page — no
      * admin/ counterpart, since OrderPolicy already answers "may this user

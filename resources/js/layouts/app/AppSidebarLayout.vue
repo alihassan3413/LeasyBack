@@ -11,6 +11,7 @@ import { router, usePage } from '@inertiajs/vue3';
 import { computed, type Component } from 'vue';
 import MdiAccountGroupOutline from '~icons/mdi/account-group-outline';
 import MdiAccountOutline from '~icons/mdi/account-outline';
+import MdiChartBoxOutline from '~icons/mdi/chart-box-outline';
 import MdiLogout from '~icons/mdi/logout';
 import MdiViewDashboardOutline from '~icons/mdi/view-dashboard-outline';
 
@@ -42,6 +43,7 @@ const navByRole: Record<UserType, NavItem[]> = {
     Firmenkunde: [
         { label: 'Mein Dashboard', icon: MdiViewDashboardOutline, name: 'dashboard', permission: 'vehicles.view' },
         { label: 'Team', icon: MdiAccountGroupOutline, name: 'b2b.members.index', permission: 'members.view' },
+        { label: 'Statistik', icon: MdiChartBoxOutline, name: 'b2b.statistics.index', permission: 'analytics.view' },
         // Company master data is a section of this page — see AppSidebar.
         { label: 'Mein Konto', icon: MdiAccountOutline, name: 'profile.edit' },
     ],

@@ -5,8 +5,11 @@ namespace App\Modules\UserProfile\Admin\Services;
 use App\Enums\OrderStatus;
 use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
 use App\Modules\UserProfile\Order\Services\AppraisalPositionService;
+use App\Modules\UserProfile\Order\Services\B2bBillingService;
+use App\Modules\UserProfile\Order\Services\B2bOfferService;
 use App\Modules\UserProfile\Order\Services\OrderCollectionService;
 use App\Modules\UserProfile\Order\Services\OrderTaskResolver;
+use App\Modules\UserProfile\Order\Services\WorkshopQuotationService;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\Request;
@@ -21,6 +24,9 @@ class AdminQueryService
         private readonly OrderCollectionService $orderCollectionService,
         private readonly OrderTaskResolver $orderTaskResolver,
         private readonly AppraisalPositionService $appraisalPositionService,
+        private readonly WorkshopQuotationService $workshopQuotationService,
+        private readonly B2bOfferService $b2bOfferService,
+        private readonly B2bBillingService $b2bBillingService,
     ) {}
 
     /**
@@ -478,6 +484,22 @@ class AdminQueryService
         $positions = $row->vehicle_belongs !== 'B2B' ? [] : $this->appraisalPositionService->forOrder($orderId);
         $order['appraisal_positions'] = $row->vehicle_belongs !== 'B2B' ? null : $positions;
         $order['appraisal_totals'] = $row->vehicle_belongs !== 'B2B' ? null : $this->appraisalPositionService->totals($positions);
+        $order['workshop_quotations'] = $row->vehicle_belongs !== 'B2B'
+            ? null
+            : $this->workshopQuotationService->forOrder($orderId);
+        $order['billing'] = $row->vehicle_belongs !== 'B2B'
+            ? null
+            : $this->b2bBillingService->forOrder($orderId);
+
+        if ($row->vehicle_belongs === 'B2B') {
+            $presentations = $this->b2bOfferService->forOffers(array_column($order['offers'], 'offer_id'));
+
+            $order['offers'] = array_map(function (object $offer) use ($presentations) {
+                $offer->presentation = $presentations[$offer->offer_id] ?? null;
+
+                return $offer;
+            }, $order['offers']);
+        }
 
         $order['tasks'] = $this->orderTaskResolver->forOrderDetail($order);
 

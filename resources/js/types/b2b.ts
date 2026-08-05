@@ -202,6 +202,57 @@ export interface B2bAnalytics {
     members: B2bMemberAnalyticsRow[];
 }
 
+/**
+ * Company return statistics (§17), as B2bStatisticsService::summary() builds
+ * them. Money arrives as decimal *strings* so no amount is ever rounded by a
+ * JavaScript float on the way to the screen; only the derived percentage and
+ * the day average, which are already approximations, come through as numbers.
+ */
+export interface B2bStatisticsOrderTotals {
+    active: number;
+    completed: number;
+    cancelled: number;
+    total: number;
+}
+
+export interface B2bStatisticsSavings {
+    /** Orders with a customer-accepted offer — the only ones a saving is defined for. */
+    orders_counted: number;
+    vehicles_counted: number;
+    appraisal_total_net: string;
+    repair_total_net: string;
+    saving_total_net: string;
+    /** Null when nothing has been accepted yet, so the UI shows a dash rather than 0. */
+    average_saving_per_vehicle_net: string | null;
+    saving_percentage: string | null;
+}
+
+export interface B2bStatusDistributionEntry {
+    status: string;
+    label: string;
+    count: number;
+}
+
+export interface B2bMonthlyVolumeEntry {
+    /** `YYYY-MM`, for keying. `label` is the display form. */
+    month: string;
+    label: string;
+    count: number;
+}
+
+export interface B2bStatistics {
+    orders: B2bStatisticsOrderTotals;
+    savings: B2bStatisticsSavings;
+    processing_time: {
+        average_days: number | null;
+        measured_orders: number;
+    };
+    status_distribution: B2bStatusDistributionEntry[];
+    monthly_volume: B2bMonthlyVolumeEntry[];
+    /** False for a member limited to their own vehicles — the figures are theirs, not the company's. */
+    scope: { company_wide: boolean };
+}
+
 /** Shape both the invite form and the member editor submit. */
 export interface B2bMemberAccessFormData {
     role: B2bRoleValue;

@@ -9,6 +9,7 @@ import { router, usePage } from '@inertiajs/vue3';
 import { computed, ref, type Component } from 'vue';
 import MdiAccountGroupOutline from '~icons/mdi/account-group-outline';
 import MdiAccountOutline from '~icons/mdi/account-outline';
+import MdiChartBoxOutline from '~icons/mdi/chart-box-outline';
 import MdiViewDashboardOutline from '~icons/mdi/view-dashboard-outline';
 
 const collapsed = ref(false);
@@ -32,6 +33,7 @@ const navByRole: Record<UserType, NavItem[]> = {
     Firmenkunde: [
         { label: 'Mein Dashboard', icon: MdiViewDashboardOutline, name: 'dashboard', permission: 'vehicles.view' },
         { label: 'Team', icon: MdiAccountGroupOutline, name: 'b2b.members.index', permission: 'members.view' },
+        { label: 'Statistik', icon: MdiChartBoxOutline, name: 'b2b.statistics.index', permission: 'analytics.view' },
         // The company's own data is a section of this page — a company that
         // used "Jetzt überspringen" during onboarding completes it here.
         { label: 'Mein Konto', icon: MdiAccountOutline, name: 'profile.edit' },

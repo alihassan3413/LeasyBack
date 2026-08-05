@@ -130,6 +130,9 @@ export interface CustomerOrderFlowInput {
 export interface CustomerOrderCollection {
     requested_collection_date?: string | null;
     confirmed_collection_date?: string | null;
+    /** Confirmed workshop repair appointment (§11) — customer-visible. */
+    confirmed_repair_start_date?: string | null;
+    estimated_processing_days?: number | null;
     collection_address?: {
         street?: string | null;
         number?: string | null;
@@ -348,6 +351,9 @@ function resolveB2bProgressIndex(status: string, relevantOffer: CustomerOrderOff
         if (relevantOffer?.offer_status === 'selected') return 7;
         if (relevantOffer?.offer_status === 'published') return 6;
 
+        // A rejected offer sends the order back to the offer-preparation
+        // stage: Leasyback has to source a new quotation. `pickRelevantOffer`
+        // already ignores rejected offers, so this is the natural fallback.
         return 5;
     }
 
@@ -419,12 +425,35 @@ function b2bStageSubtitle(
 
             return lines.filter(Boolean).join('\n');
         }
+        case 'workshop_commissioned':
+        case 'vehicle_in_repair': {
+            // Business information, rendered as its own labelled line and kept
+            // apart from the stage's status-change timestamp (§15).
+            const start = collection?.confirmed_repair_start_date;
+            const days = collection?.estimated_processing_days;
+
+            return [
+                start ? `Bestätigter Reparaturbeginn: ${formatGermanDate(start)}` : '',
+                days != null ? `Voraussichtliche Dauer: ${days} Arbeitstage` : '',
+            ]
+                .filter(Boolean)
+                .join('\n');
+        }
         case 'approval_required':
             return isCurrent ? 'Bitte geben Sie ein Angebot Ihrer Wahl frei.' : '';
         case 'repair_approved':
             return relevantOffer ? offerApprovedSubtitle(relevantOffer) : '';
-        case 'quotations_preparing':
-            return isCurrent ? 'Leasyback holt auf Basis des Gutachtens Werkstattangebote ein.' : '';
+        case 'quotations_preparing': {
+            if (!isCurrent) {
+                return '';
+            }
+
+            const rejected = (ctx.offers ?? []).some((offer) => offer.offer_status === 'rejected');
+
+            return rejected
+                ? 'Sie haben das letzte Angebot abgelehnt. Leasyback holt ein neues Werkstattangebot ein.'
+                : 'Leasyback holt auf Basis des Gutachtens Werkstattangebote ein.';
+        }
         default:
             return '';
     }

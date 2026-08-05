@@ -30,6 +30,10 @@ class OrderTaskResolver
 
     public const SECTION_STATUS = 'status';
 
+    public const SECTION_REPAIR = 'reparatur';
+
+    public const SECTION_BILLING = 'abrechnung';
+
     /**
      * The B2B status graph as a linear rank, so "has the order already moved
      * past this phase" is a single comparison. Mirrors
@@ -124,7 +128,13 @@ class OrderTaskResolver
             'created_at' => $order['created_at'] ?? null,
             'requested_date' => $order['collection']['requested_collection_date'] ?? null,
             'confirmed_date' => $order['collection']['confirmed_collection_date'] ?? null,
+            'repair_start_date' => $order['collection']['confirmed_repair_start_date'] ?? null,
+            'processing_days' => $order['collection']['estimated_processing_days'] ?? null,
+            'billing_processed' => (bool) ($order['billing']['is_processed'] ?? false),
+            'billing_processed_at' => $order['billing']['processed_at'] ?? null,
             'has_offer' => $offers->isNotEmpty(),
+            'has_submitted_quotation' => $this->rows($order['workshop_quotations'] ?? [])
+                ->contains(fn (array $quotation) => ($quotation['status'] ?? null) === 'submitted'),
             'published_offer' => $offers->first(fn (array $offer) => ($offer['offer_status'] ?? null) === 'published'),
             'selected_offer' => $offers->first(fn (array $offer) => in_array($offer['offer_status'] ?? null, ['selected', 'closed'], true)),
             'draft_offer' => $offers->first(fn (array $offer) => ($offer['offer_status'] ?? null) === 'draft'),
@@ -213,11 +223,11 @@ class OrderTaskResolver
             ),
             $this->definition(
                 key: 'request_workshop_quotations',
-                title: 'Werkstattangebote einholen',
-                description: 'Das Erstgutachten ist abgeschlossen. Holen Sie die Werkstattangebote ein und erfassen Sie sie als Angebotsentwurf.',
+                title: 'Werkstattangebote anfordern',
+                description: 'Das Erstgutachten ist abgeschlossen. Erstellen Sie Werkstattlinks und warten Sie auf mindestens ein eingegangenes Angebot.',
                 section: self::SECTION_OFFERS,
-                done: $context['has_offer'] || $rank >= 5,
-                open: $rank === 4 && ! $context['has_offer'],
+                done: $context['has_submitted_quotation'] || $rank >= 5,
+                open: $rank === 4 && ! $context['has_submitted_quotation'],
                 date: $context['gutachten']['created_at'] ?? $dates['inspected'] ?? null,
                 dateLabel: 'Begutachtung abgeschlossen',
                 action: null,
@@ -258,14 +268,19 @@ class OrderTaskResolver
             ),
             $this->definition(
                 key: 'enter_repair_appointment',
-                title: 'Reparaturbeginn erfassen',
-                description: 'Die Werkstatt ist beauftragt. Erfassen Sie den Reparaturbeginn, sobald das Fahrzeug in der Werkstatt ist.',
-                section: self::SECTION_STATUS,
-                done: $rank >= 6,
-                open: $rank === 5,
-                date: $dates['workshop'] ?? $dates['workshop_commissioned'] ?? null,
-                dateLabel: 'Beauftragt am',
-                action: $this->statusAction($orderId, 'workshop', 'Reparatur gestartet'),
+                title: 'Reparaturtermin erfassen',
+                description: 'Die Werkstatt ist beauftragt. Tragen Sie den bestätigten Reparaturbeginn und die voraussichtliche Dauer ein — damit startet die Reparaturphase.',
+                section: self::SECTION_REPAIR,
+                // Completed by the saved appointment itself (§11), not only by
+                // the status move, so the task closes on the data that answers
+                // it. Saving the appointment performs the transition anyway;
+                // the rank check keeps history readable for orders that moved
+                // on before this field existed.
+                done: $context['repair_start_date'] !== null || $rank >= 6,
+                open: $rank === 5 && $context['repair_start_date'] === null,
+                date: $context['repair_start_date'] ?? $dates['workshop_commissioned'] ?? null,
+                dateLabel: $context['repair_start_date'] !== null ? 'Bestätigter Reparaturbeginn' : 'Beauftragt am',
+                action: $this->action('patch', 'admin.orders.repair-appointment', $orderId, label: 'Reparaturtermin öffnen'),
             ),
             $this->definition(
                 key: 'monitor_repair',
@@ -274,7 +289,7 @@ class OrderTaskResolver
                 section: self::SECTION_STATUS,
                 done: $rank >= 7,
                 open: $rank === 6,
-                date: $dates['workshop'] ?? null,
+                date: $context['repair_start_date'] ?? $dates['workshop'] ?? null,
                 dateLabel: 'In Reparatur seit',
                 state: 'waiting',
                 action: $this->statusAction($orderId, 'repair_completed', 'Reparatur abgeschlossen'),
@@ -312,26 +327,32 @@ class OrderTaskResolver
                 dateLabel: 'Nachbegutachtung abgeschlossen am',
                 action: $this->statusAction($orderId, 'vehicle_returned', 'Rückgabe bestätigen'),
             ),
+            // Driven by the billing record rather than by the presence of a
+            // `rechnung` document: §21 gates completion on billing actually
+            // being processed, and an uploaded PDF is not that fact. `open`
+            // uses `rank >= 9` so an order that somehow reached
+            // invoice_processed without billing still surfaces this task
+            // instead of dead-ending at a completion it cannot perform.
             $this->definition(
                 key: 'prepare_invoice',
-                title: 'Rechnung erstellen',
-                description: 'Das Fahrzeug ist zurückgegeben. Laden Sie die Rechnung hoch und veröffentlichen Sie sie für den Kunden.',
-                section: self::SECTION_DOCUMENTS,
-                done: $context['rechnung'] !== null || $rank >= 10,
-                open: $rank === 9 && $context['rechnung'] === null,
+                title: 'Abrechnung vorbereiten',
+                description: 'Das Fahrzeug ist zurückgegeben. Erfassen Sie Rechnungsnummer und Rechnungsdokument und markieren Sie die Abrechnung als verarbeitet.',
+                section: self::SECTION_BILLING,
+                done: $context['billing_processed'] || $rank >= 11,
+                open: $rank >= 9 && ! $context['billing_processed'],
                 date: $context['rechnung']['created_at'] ?? $dates['vehicle_returned'] ?? null,
                 dateLabel: 'Zurückgegeben am',
-                action: null,
+                action: $this->action('patch', 'admin.orders.billing', $orderId, label: 'Abrechnung öffnen'),
             ),
             $this->definition(
                 key: 'mark_invoice_processed',
-                title: 'Abrechnung abschließen',
-                description: 'Die Rechnung liegt vor. Schließen Sie die Abrechnung ab.',
+                title: 'Abrechnung im Auftragsstatus erfassen',
+                description: 'Die Abrechnung ist verarbeitet. Setzen Sie den Auftrag auf „Rechnung verarbeitet".',
                 section: self::SECTION_STATUS,
                 done: $rank >= 10,
-                open: $rank === 9 && $context['rechnung'] !== null,
-                date: $dates['invoice_processed'] ?? $context['rechnung']['created_at'] ?? null,
-                dateLabel: 'Rechnung vom',
+                open: $rank === 9 && $context['billing_processed'],
+                date: $dates['invoice_processed'] ?? $context['billing_processed_at'] ?? null,
+                dateLabel: 'Abrechnung verarbeitet am',
                 action: $this->statusAction($orderId, 'invoice_processed', 'Abrechnung abschließen'),
             ),
             $this->definition(
@@ -340,7 +361,7 @@ class OrderTaskResolver
                 description: 'Die Abrechnung ist verarbeitet. Schließen Sie den Auftrag ab.',
                 section: self::SECTION_STATUS,
                 done: $rank >= 11,
-                open: $rank === 10,
+                open: $rank === 10 && $context['billing_processed'],
                 date: $dates['completed'] ?? $dates['invoice_processed'] ?? null,
                 dateLabel: 'Abrechnung abgeschlossen am',
                 action: $this->statusAction($orderId, 'completed', 'Auftrag abschließen'),

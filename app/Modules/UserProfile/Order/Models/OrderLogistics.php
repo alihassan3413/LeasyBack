@@ -26,6 +26,8 @@ class OrderLogistics extends Model
         'delivery_same_as_pickup',
         'requested_collection_date',
         'confirmed_collection_date',
+        'confirmed_repair_start_date',
+        'estimated_processing_days',
         'pickup_notes',
         'delivery_notes',
         'internal_note',
@@ -39,6 +41,8 @@ class OrderLogistics extends Model
         'delivery_same_as_pickup' => 'boolean',
         'requested_collection_date' => 'date',
         'confirmed_collection_date' => 'date',
+        'confirmed_repair_start_date' => 'date',
+        'estimated_processing_days' => 'integer',
     ];
 
     protected static function booted(): void

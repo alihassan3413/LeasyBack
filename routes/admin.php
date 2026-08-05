@@ -5,9 +5,11 @@ use App\Http\Controllers\Admin\CustomerController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\ImpersonationController;
 use App\Http\Controllers\Admin\OfferController;
+use App\Http\Controllers\Admin\OrderBillingController;
 use App\Http\Controllers\Admin\OrderController;
 use App\Http\Controllers\Admin\VehicleController;
 use App\Http\Controllers\Admin\VehicleReportController;
+use App\Http\Controllers\Admin\WorkshopQuotationController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(['auth', 'active', 'verified', 'admin'])->prefix('admin')->name('admin.')->group(function () {
@@ -48,7 +50,18 @@ Route::middleware(['auth', 'active', 'verified', 'admin'])->prefix('admin')->nam
         Route::post('{orderId}/approve', [OrderController::class, 'approve'])->whereUuid('orderId')->name('approve');
         Route::patch('{orderId}/status', [OrderController::class, 'updateStatus'])->whereUuid('orderId')->name('status');
         Route::patch('{orderId}/collection', [OrderController::class, 'updateCollection'])->whereUuid('orderId')->name('collection');
+        Route::patch('{orderId}/repair-appointment', [OrderController::class, 'updateRepairAppointment'])
+            ->whereUuid('orderId')->name('repair-appointment');
+        Route::patch('{orderId}/billing', [OrderBillingController::class, 'update'])
+            ->whereUuid('orderId')->name('billing');
         Route::put('{orderId}/appraisal-positions', [AppraisalPositionController::class, 'update'])->whereUuid('orderId')->name('appraisal-positions');
+
+        Route::post('{orderId}/workshop-quotations', [WorkshopQuotationController::class, 'store'])
+            ->whereUuid('orderId')->name('workshop-quotations.store');
+        Route::delete('workshop-quotations/{quotationId}', [WorkshopQuotationController::class, 'destroy'])
+            ->whereUuid('quotationId')->name('workshop-quotations.revoke');
+        Route::post('{orderId}/b2b-offer', [WorkshopQuotationController::class, 'createOffer'])
+            ->whereUuid('orderId')->name('b2b-offer.store');
 
         Route::post('{orderId}/offers', [OfferController::class, 'store'])->whereUuid('orderId')->name('offers.store');
         Route::patch('offers/{offerId}/publish', [OfferController::class, 'publish'])->whereUuid('offerId')->name('offers.publish');

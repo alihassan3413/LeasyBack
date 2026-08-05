@@ -4,6 +4,7 @@ namespace App\Modules\UserProfile\Order\Services;
 
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Order\Models\LogisticsAddressProfile;
 use App\Modules\UserProfile\Order\Models\OrderLogistics;
@@ -22,6 +23,8 @@ use Illuminate\Support\Collection;
 class OrderCollectionService
 {
     public const ADDRESS_FIELDS = ['street', 'number', 'additional_address', 'zip_code', 'city', 'country'];
+
+    public function __construct(private readonly TransitionOrderStatus $transitionOrderStatus) {}
 
     /**
      * @return array<string, array<int, string>>
@@ -76,6 +79,57 @@ class OrderCollectionService
             'internal_note' => ['nullable', 'string', 'max:2000'],
             ...self::addressRules(),
         ];
+    }
+
+    /**
+     * @return array<string, array<int, string>>
+     */
+    public static function repairAppointmentRules(): array
+    {
+        return [
+            'confirmed_repair_start_date' => ['required', 'date_format:Y-m-d'],
+            'estimated_processing_days' => ['nullable', 'integer', 'min:0', 'max:365'],
+        ];
+    }
+
+    /**
+     * Records the confirmed workshop appointment and, when the order is still
+     * waiting on it, moves it into repair.
+     *
+     * The transition lives here rather than in the controller so the §11 rule
+     * "when the appointment is saved the status changes to In repair" cannot
+     * be bypassed by a different caller. It only fires from
+     * `workshop_commissioned`, so rescheduling an order that is already in
+     * repair updates the dates and leaves the status alone —
+     * TransitionOrderStatus would reject the edge anyway.
+     *
+     * @param  array<string, mixed>  $validated
+     */
+    public function updateRepairAppointment(LeasybackOrder $order, Vehicle $vehicle, User $user, array $validated): void
+    {
+        if ($vehicle->vehicle_belongs !== 'B2B') {
+            return;
+        }
+
+        OrderLogistics::updateOrCreate(
+            ['auftragsnummer' => $order->auftragsnummer],
+            [
+                'confirmed_repair_start_date' => $this->trimToNull($validated['confirmed_repair_start_date'] ?? null),
+                'estimated_processing_days' => $validated['estimated_processing_days'] ?? null,
+                'updated_by_user_id' => $user->id,
+            ],
+        );
+
+        if ($order->order_status === 'workshop_commissioned') {
+            $this->transitionOrderStatus->__invoke(
+                $order,
+                'workshop',
+                'admin',
+                $user->name ?? $user->email,
+                $user->id,
+                request()?->ip(),
+            );
+        }
     }
 
     /**
@@ -176,6 +230,10 @@ class OrderCollectionService
             $row->auftragsnummer => [
                 'requested_collection_date' => $row->requested_collection_date?->toDateString(),
                 'confirmed_collection_date' => $row->confirmed_collection_date?->toDateString(),
+                // Customer-visible business dates (§11/§15), unlike
+                // `internal_note` below which stays gated on $includeInternal.
+                'confirmed_repair_start_date' => $row->confirmed_repair_start_date?->toDateString(),
+                'estimated_processing_days' => $row->estimated_processing_days,
                 'collection_address' => $row->pickup_details
                     ?? ($row->pickup_profile_id === null ? null : ($profiles[$row->pickup_profile_id] ?? null)),
                 'collection_note' => $row->pickup_notes,

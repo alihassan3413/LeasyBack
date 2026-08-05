@@ -1,4 +1,4 @@
-import type { OrderCollectionData } from './order';
+import type { B2bOfferPresentationData, OrderCollectionData } from './order';
 import type { OrderRequestPayload } from './vehicle';
 
 /** Matches AdminQueryService::summary()'s response shape. */
@@ -210,7 +210,9 @@ export interface AdminOfferRow {
     order_id: string;
     auftragsnummer: string;
     offer_sequence: number;
-    offer_status: 'draft' | 'published' | 'selected' | 'closed' | 'cancelled';
+    offer_status: 'draft' | 'published' | 'selected' | 'closed' | 'cancelled' | 'rejected';
+    /** B2B only — the frozen record of what was presented, absent on a B2C offer. */
+    presentation?: B2bOfferPresentationData | null;
     repair_cost_net: string | number;
     repair_cost_gross: string | number;
     depreciation_value_net: string | number;
@@ -289,6 +291,62 @@ export interface AdminOrderDetail extends AdminOrderRow {
     /** B2B only — null on a B2C order, which has no appraisal-position workflow. */
     appraisal_positions: AdminAppraisalPosition[] | null;
     appraisal_totals: AdminAppraisalTotals | null;
+    /** B2B only — null on a B2C order, which has no workshop quotation workflow. */
+    workshop_quotations: AdminWorkshopQuotation[] | null;
+    /** B2B only — null on a B2C order, which has no internal billing record. */
+    billing: AdminOrderBilling | null;
+}
+
+/**
+ * Internal billing state. No accounting or payment integration stands behind
+ * this — `is_processed` is the fact the §21 completion gate reads. A future
+ * Stripe phase will add payment fields and further `billing_status` values.
+ */
+export interface AdminOrderBilling {
+    billing_status: string;
+    invoice_reference: string | null;
+    invoice_document_id: string | null;
+    processed_at: string | null;
+    is_processed: boolean;
+}
+
+/** One row of the appraisal-vs-workshop comparison. All amounts net. */
+export interface AdminWorkshopComparisonRow {
+    appraisal_position_id: string;
+    component: string;
+    appraisal_amount_net: string;
+    /** null until the workshop has submitted, or when the position is not repairable. */
+    workshop_amount_net: string | null;
+    /** appraisal − workshop; positive means the workshop is cheaper. */
+    difference_net: string | null;
+    repair_method: string | null;
+    not_repairable: boolean;
+}
+
+/**
+ * A workshop's invitation to quote and its submission. `status` is derived
+ * server-side from the timestamps, never stored as a column.
+ */
+export interface AdminWorkshopQuotation {
+    id: string;
+    workshop_label: string;
+    invited_email: string | null;
+    status: 'invited' | 'submitted' | 'expired' | 'revoked';
+    shows_appraisal_amounts: boolean;
+    expires_at: string | null;
+    submitted_at: string | null;
+    revoked_at: string | null;
+    company_name: string | null;
+    contact_person: string | null;
+    contact_email: string | null;
+    contact_phone: string | null;
+    earliest_repair_start: string | null;
+    processing_days: number | null;
+    total_net: string | null;
+    cannot_repair_for_amount: boolean;
+    cannot_repair_note: string | null;
+    appraisal_total_net: string;
+    comparison: AdminWorkshopComparisonRow[];
 }
 
 /**

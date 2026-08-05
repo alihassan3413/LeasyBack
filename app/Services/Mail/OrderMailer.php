@@ -6,6 +6,8 @@ use App\Mail\Orders\AppointmentConfirmedMail;
 use App\Mail\Orders\AppointmentRequestedMail;
 use App\Mail\Orders\FinalInspectionCompletedMail;
 use App\Mail\Orders\InitialInspectionCompletedMail;
+use App\Mail\Orders\OfferApprovalReminderMail;
+use App\Mail\Orders\OrderCompletedMail;
 use App\Mail\Orders\OrderCreatedAdminMail;
 use App\Mail\Orders\OrderCreatedCustomerMail;
 use App\Mail\Orders\OrderEventMail;
@@ -33,6 +35,9 @@ class OrderMailer
         'reworkshop' => VehicleInRepairMail::class,
         'reinspection' => FinalInspectionCompletedMail::class,
         'delivered' => VehicleReadyForPickupMail::class,
+        // B2B-only terminal (§18 "order completed"). `delivered` remains the
+        // B2C terminal above, so this entry cannot affect a B2C order.
+        'completed' => OrderCompletedMail::class,
     ];
 
     public function __construct(
@@ -73,6 +78,16 @@ class OrderMailer
     public function repairApprovalConfirmed(LeasybackOffer $offer): void
     {
         $this->sendOfferMail($offer, RepairApprovalConfirmedMail::class);
+    }
+
+    /**
+     * The §18 "customer action required" reminder. Only ever sent by
+     * SendB2bOfferReminders, which owns the 24 h spacing and the stop
+     * conditions — nothing else may call this, or the spacing is meaningless.
+     */
+    public function offerApprovalReminder(LeasybackOffer $offer): void
+    {
+        $this->sendOfferMail($offer, OfferApprovalReminderMail::class);
     }
 
     /**

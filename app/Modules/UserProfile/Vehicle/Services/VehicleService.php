@@ -10,6 +10,7 @@ use App\Models\VehicleAuditLog;
 use App\Models\VehicleDocument;
 use App\Modules\UserProfile\B2B\Services\B2bContext;
 use App\Modules\UserProfile\Order\Models\LogisticsAddressProfile;
+use App\Modules\UserProfile\Order\Services\B2bOfferService;
 use App\Modules\UserProfile\Order\Services\OrderCollectionService;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -25,6 +26,7 @@ class VehicleService
     public function __construct(
         private readonly B2bContext $b2bContext,
         private readonly OrderCollectionService $orderCollectionService,
+        private readonly B2bOfferService $b2bOfferService,
     ) {}
 
     /**
@@ -516,12 +518,19 @@ class VehicleService
 
         // Only published/selected offers — matches OfferController::customerList's
         // own filter, so the dashboard never shows a customer a draft/cancelled offer.
+        // `rejected` is included so a B2B customer keeps seeing the offer they
+        // turned down instead of it vanishing from the page. A B2C offer never
+        // reaches that status, so this list is unchanged for B2C.
         $offersByOrder = DB::table('leasyback_offers')
             ->whereIn('order_id', $orderIds)
-            ->whereIn('offer_status', ['published', 'selected'])
+            ->whereIn('offer_status', ['published', 'selected', B2bOfferService::STATUS_REJECTED])
             ->orderBy('offer_sequence')
             ->get()
             ->groupBy('order_id');
+
+        $offerPresentations = $this->b2bOfferService->forOffers(
+            $offersByOrder->flatten(1)->pluck('offer_id')->all(),
+        );
 
         $documentsByVehicle = DB::table('vehicle_documents')
             ->whereIn('vehicle_id', $vehicleIds)
@@ -582,21 +591,28 @@ class VehicleService
                     ->values()
                     ->toArray();
 
+                $isB2bOffer = $vehicle->vehicle_belongs === 'B2B';
+
                 $offers = $offersByOrder->get($order->id, collect())
                     ->map(fn ($offer) => [
                         'offer_id' => $offer->offer_id,
                         'offer_sequence' => $offer->offer_sequence,
                         'offer_status' => $offer->offer_status,
                         'repair_cost_net' => $offer->repair_cost_net,
-                        'repair_cost_gross' => $offer->repair_cost_gross,
                         'depreciation_value_net' => $offer->depreciation_value_net,
-                        'depreciation_value_gross' => $offer->depreciation_value_gross,
                         'workshop_repair_quote_net' => $offer->workshop_repair_quote_net,
-                        'workshop_repair_quote_gross' => $offer->workshop_repair_quote_gross,
                         'missing_parts_cost_net' => $offer->missing_parts_cost_net,
-                        'missing_parts_cost_gross' => $offer->missing_parts_cost_gross,
                         'final_total_net' => $offer->final_total_net,
-                        'final_total_gross' => $offer->final_total_gross,
+                        // §9 forbids gross anywhere in the B2B quotation
+                        // process, so a B2B payload simply has no gross keys.
+                        ...($isB2bOffer ? [] : [
+                            'repair_cost_gross' => $offer->repair_cost_gross,
+                            'depreciation_value_gross' => $offer->depreciation_value_gross,
+                            'workshop_repair_quote_gross' => $offer->workshop_repair_quote_gross,
+                            'missing_parts_cost_gross' => $offer->missing_parts_cost_gross,
+                            'final_total_gross' => $offer->final_total_gross,
+                        ]),
+                        ...($isB2bOffer ? ['presentation' => $offerPresentations[$offer->offer_id] ?? null] : []),
                         'additional_notes' => $offer->additional_notes,
                         'published_at' => $offer->published_at,
                         'selected_at' => $offer->selected_at,

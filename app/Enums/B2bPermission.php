@@ -134,6 +134,7 @@ enum B2bPermission: string
             // not a page this permission unlocks.
             self::ViewCompany => 'profile.edit',
             self::ViewMembers => 'b2b.members.index',
+            self::ViewAnalytics => 'b2b.statistics.index',
             default => null,
         };
     }

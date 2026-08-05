@@ -6,6 +6,7 @@ use App\Enums\NotificationType;
 use App\Enums\OrderStatus;
 use App\Models\Vehicle;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
+use App\Modules\UserProfile\Order\Models\OrderBilling;
 use App\Modules\UserProfile\Order\Models\OrderStatusUpdate;
 use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
 use App\Notifications\NotificationPayload;
@@ -110,6 +111,7 @@ class TransitionOrderStatus
             $isB2b = self::isB2bOrder($locked);
 
             $this->guardChannel($toStatus, $isB2b);
+            $this->guardBillingBeforeCompletion($locked, $toStatus, $isB2b);
 
             if ($fromStatus === $toStatus) {
                 if ($additionalAttributes !== []) {
@@ -185,6 +187,35 @@ class TransitionOrderStatus
     public static function isB2bOrder(LeasybackOrder $order): bool
     {
         return Vehicle::where('vehicle_id', $order->vehicle_id)->value('vehicle_belongs') === 'B2B';
+    }
+
+    /**
+     * b2b.txt §21: an order must not be marked complete before its mandatory
+     * billing step has been processed. Enforced here, inside the locked
+     * transaction, because this action is the only writer of order_status —
+     * so no controller, task action or future caller can route around it.
+     *
+     * Reads the billing record directly, matching how isB2bOrder() resolves
+     * the vehicle, rather than taking a constructor dependency.
+     *
+     * B2C is untouched: `completed` is a B2B-only status, so guardChannel()
+     * has already rejected it for a B2C order before this runs.
+     */
+    private function guardBillingBeforeCompletion(LeasybackOrder $order, string $toStatus, bool $isB2b): void
+    {
+        if (! $isB2b || $toStatus !== OrderStatus::Completed->value) {
+            return;
+        }
+
+        $billing = OrderBilling::where('order_id', $order->id)->first();
+
+        if ($billing?->isProcessed() === true) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'order_status' => 'Der Auftrag kann nicht abgeschlossen werden, solange die Abrechnung nicht als verarbeitet markiert ist.',
+        ]);
     }
 
     private function guardChannel(string $toStatus, bool $isB2b): void
