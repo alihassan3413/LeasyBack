@@ -2455,6 +2455,8 @@ Modified: `bootstrap/app.php` (route mount, 6 middleware aliases, renderer),
 `app/Providers/AppServiceProvider.php` (scoped `PartnerContext`), `config/scribe.php`
 (second route group), `.env.example` (6 documented knobs, no secrets).
 
+> Phase 2 adds 10 files and a 7th middleware alias — see **§12.12.2**.
+
 ### 12.3 Migrations
 
 All four applied locally (SQLite, batch 18); Postgres in production.
@@ -2512,6 +2514,8 @@ never charged — a suspended partner polling `/me` must keep learning *why*.
 GET /api/v1/partner/health   partner.v1.health   auth required, no scope
 GET /api/v1/partner/me       partner.v1.me       auth required, no scope
 ```
+
+> Phase 2 adds 8 feature routes — see **§12.12.3**.
 
 Registered from `routes/partner.php` rather than `routes/api.php` on purpose:
 `routes/api.php` is loaded **twice** (once at `/api/*`, once unprefixed as the
@@ -2580,6 +2584,11 @@ same middleware stack phase 2 will declare. Idempotency tests count **handler
 invocations**, not just response bodies — a replay that returned the right JSON but ran
 the handler twice would have created two orders in production.
 
+> Phase 2 adds 2 files and 32 tests — see **§12.12.6**. One phase-1 test was
+> **repointed**, not removed: `PartnerAuthenticationTest > an unknown partner endpoint
+> returns the partner error envelope` used `/vehicles` as its stand-in for an unknown
+> path, and phase 2 implemented it. It now targets `/no-such-endpoint`.
+
 ### 12.9 Verification
 
 | Check | Result |
@@ -2622,7 +2631,7 @@ the handler twice would have created two orders in production.
    modified. The four edited files are additive wiring, and the error renderer is
    path-scoped to `api/v1/partner/*`. The full suite shows no new failure.
 
-### 12.11 Next phase — ready-to-use prompt
+### 12.11 Phase 2 — the prompt that was used (historical)
 
 ```
 Implement Phase 2 of the LeasyBack Partner API: vehicles.
@@ -2668,4 +2677,263 @@ Verify: focused tests, full suite once, Pint, route:list, migrate:status.
 Update section 12 of B2B_IMPLEMENTATION_HANDOFF.md: add a 12.12 for phase 2, extend the
 files/routes/scopes/tests tables, record results, and re-point the next-phase prompt.
 Stop after Phase 2.
+```
+
+The delivered scope was **widened** on instruction to cover orders as well as vehicles,
+and narrowed to exclude nothing else: no timeline, documents, offers, webhooks or Scribe
+branding was touched.
+
+---
+
+## 12.12 Partner API — Phase 2: vehicles and orders (2026-08-06)
+
+Eight feature endpoints. **No new migration, no new table, no schema change** — phase 1
+built every storage primitive this needed, and phase 2 is the first phase that actually
+writes through them.
+
+### 12.12.1 The one rule everything follows
+
+Nothing in this phase decides who owns what, what a valid vehicle is, or what an order may
+do next. Every such question is delegated to the service the portal already asks:
+
+| Question | Answered by | Not by |
+|---|---|---|
+| Which company is this? | `PartnerContext`, from the token | any request field |
+| Which vehicles may I see? | `VehicleScopeService::scopeQuery()` | a `b2b_id` filter in a controller |
+| Is this vehicle payload valid? | `VehicleRules` | a partner-specific copy |
+| Who owns a new vehicle? | `VehicleService::createVehicle()` | this API |
+| May this vehicle be ordered? | `OrderService::createB2bCollectionOrder()` | this API |
+| What order payload is valid? | `OrderCollectionService::b2bOrderRules()` | a partner-specific copy |
+| What status may follow? | `TransitionOrderStatus` | **no partner endpoint at all** |
+
+The consequence worth stating plainly: a vehicle created by a partner is written by the
+same code path as one a member typed into the portal — same `VehicleAuditLog` INSERT row,
+same `created_by_user_id` attribution, same collection-address de-duplication — so it
+appears on the company's B2B dashboard with no dashboard-aware code in this module. There
+is a test that asserts exactly that by calling
+`VehicleService::paginateVehiclesWithOrders()` after a partner create.
+
+### 12.12.2 Files
+
+| File | Purpose |
+|---|---|
+| `app/Modules/PartnerApi/Http/Controllers/VehicleController.php` | list / show / create / update, + Scribe attributes |
+| `app/Modules/PartnerApi/Http/Controllers/OrderController.php` | list / show / per-vehicle list / create, + Scribe attributes |
+| `app/Modules/PartnerApi/Http/Controllers/Concerns/TranslatesServiceFailures.php` | `HttpResponseException` → partner envelope |
+| `app/Modules/PartnerApi/Http/Requests/StorePartnerVehicleRequest.php` | `VehicleRules::forCreation(true)` + `external_vehicle_id` |
+| `app/Modules/PartnerApi/Http/Requests/UpdatePartnerVehicleRequest.php` | `VehicleRules::forUpdate(true)`, plate/owner prohibited |
+| `app/Modules/PartnerApi/Http/Requests/StorePartnerOrderRequest.php` | `OrderCollectionService::b2bOrderRules()` + `external_order_id` |
+| `app/Modules/PartnerApi/Http/Resources/PartnerVehicleResource.php` | allow-listed vehicle shape, status + label |
+| `app/Modules/PartnerApi/Http/Resources/PartnerOrderResource.php` | allow-listed order shape, no TÜV SÜD payload |
+| `app/Modules/PartnerApi/Http/Middleware/EnsurePartnerCompanyPermission.php` | `partner.company-can:…`, the B2B-permission half of the gate |
+| `app/Modules/PartnerApi/Services/PartnerResourceLocator.php` | every scoped lookup + external-id conflict handling |
+| `app/Modules/PartnerApi/Support/PartnerPagination.php` | the one list-response pagination shape |
+| `tests/Feature/PartnerApi/PartnerVehicleEndpointTest.php` | 18 tests |
+| `tests/Feature/PartnerApi/PartnerOrderEndpointTest.php` | 14 tests |
+
+Modified: `routes/partner.php` (8 routes), `bootstrap/app.php` (7th alias,
+`partner.company-can`), `PartnerExternalReferenceRegistry` (**additive only** — one new
+`externalIdsFor()` batch reader; no existing method changed),
+`tests/…/Concerns/BuildsPartnerClients.php` (one helper), `PartnerAuthenticationTest`
+(one test repointed, see §12.8).
+
+### 12.12.3 Routes
+
+```
+GET    /api/v1/partner/vehicles                   vehicles.read  + vehicles.view
+POST   /api/v1/partner/vehicles                   vehicles.write + vehicles.create   [Idempotency-Key required]
+GET    /api/v1/partner/vehicles/{vehicle}         vehicles.read  + vehicles.view
+PATCH  /api/v1/partner/vehicles/{vehicle}         vehicles.write + vehicles.update   [Idempotency-Key optional]
+GET    /api/v1/partner/orders                     orders.read    + vehicles.view
+GET    /api/v1/partner/orders/{order}             orders.read    + vehicles.view
+GET    /api/v1/partner/vehicles/{vehicle}/orders  orders.read    + vehicles.view
+POST   /api/v1/partner/vehicles/{vehicle}/orders  orders.write   + orders.create     [Idempotency-Key required]
+```
+
+The first column of each pair is the **token ability**, the second the **integration
+account's B2B permission**. Both are required; neither is sufficient. Order matters —
+ability, then company permission, then idempotency — so a call that fails the scope gate
+never consumes an `Idempotency-Key`, which a test asserts.
+
+`route:list --path=api/v1/partner` shows 10 routes; `route:cache` succeeds.
+
+Ids are constrained with `whereUuid` and resolved through `PartnerResourceLocator`, **not**
+route model binding: binding fetches by primary key first and authorises second, so a
+mis-wired route would load another company's row before anything checked it.
+
+### 12.12.4 Design decisions worth not re-litigating
+
+1. **There is no status-update endpoint, and this is deliberate.** An order advances by
+   what happens to the vehicle, and every legal edge belongs to `TransitionOrderStatus`. A
+   partner-writable status would be a second, weaker copy of that graph, and the first
+   thing it would permit is skipping a stage. Partners read status; they do not write it.
+   `PATCH /orders/{order}` answers 405 `method_not_allowed`, asserted by a test.
+2. **404, never 403, for anything outside the token's company.** A 403 confirms the id
+   exists, which is the disclosure cross-company isolation exists to prevent. Applied to
+   vehicles *and* orders — but note `GET /vehicles/{unknown}/orders` is a 404 rather than
+   an empty list, because "no orders" and "not your vehicle" are different facts a partner
+   reconciling needs to tell apart.
+3. **`EnsurePartnerCompanyPermission` exists rather than reusing `b2b.can`.** That
+   middleware speaks to a browser: it *redirects* an account with no membership to the
+   onboarding page, and its `abort(403, '…')` reaches a partner as the renderer's
+   `request_failed` catch-all. The permission *decision* is not duplicated — both
+   middlewares ask the same `B2bPermissionSet`. Only the rendering differs.
+4. **New records and their external-id mapping are written in one transaction.** A
+   pre-check answers the common duplicate cleanly; the transaction covers the race the
+   pre-check cannot close, so a losing request leaves no vehicle or order the partner has
+   no id for. Asserted for both entities.
+5. **Duplicate VIN is accepted; duplicate plate is a 422.** That is the existing schema:
+   `vehicles.license_plate` is uniquely indexed, `vin` is not. Both behaviours are pinned
+   by tests so a future change to either is a deliberate one. The plate's uniqueness is
+   global, so a collision may involve a vehicle the token cannot see — a test asserts the
+   response never leaks anything about it.
+6. **`request_payload` / `response_body` are absent from the order resource.** They hold
+   the TÜV SÜD request and raw reply. Exposing them would make a third party's response
+   format our public contract by accident.
+
+### 12.12.5 New error codes
+
+| Situation | Status | `error.code` |
+|---|---|---|
+| Vehicle absent, or outside the token's company | 404 | `vehicle_not_found` |
+| Order absent, or outside the token's company | 404 | `order_not_found` |
+| Integration account lacks the B2B permission | 403 | `insufficient_company_permission` |
+| `external_*_id` already mapped elsewhere | 409 | `external_reference_conflict` |
+| Vehicle already has an order that has not closed | 409 | `order_already_open` |
+| Same-day repeat order (see risk 2) | 409 | `order_reference_conflict` |
+| Vehicle is not eligible for the collection flow | 422 | `vehicle_not_eligible` |
+
+These join the phase-1 table in §12.4. As there: **changing one is a breaking change**,
+and each is asserted by a test.
+
+### 12.12.6 Tests
+
+`tests/Feature/PartnerApi/` — **123 tests, 501 assertions, all passing** (91 from phase 1,
+32 new).
+
+| File | Tests | Covers |
+|---|---|---|
+| `PartnerVehicleEndpointTest` | 18 | create; dashboard visibility via `VehicleService`; ownership fields refused (400) and `vehicle_belongs` refused (422); duplicate plate (422, nothing leaked); duplicate VIN accepted; external-id uniqueness per integration and independence across integrations; idempotent retry and payload conflict; missing key; cross-company 404 on show and update; B2C vehicle invisible; list isolation, pagination, external-id filter incl. unmapped→empty; update incl. plate refused; read-only vs write-only scope; withdrawn company permission |
+| `PartnerOrderEndpointTest` | 14 | create incl. logistics row + audit row + no `sent_at`; another company's vehicle 404; B2C vehicle 404; open-order restriction 409; same-day repeat 409; later-day repeat succeeds; B2C inspection fields refused; external-order-id uniqueness with rollback; idempotent retry; list/show isolation; per-vehicle list; status and external-id filters; **no status-update endpoint** (405); scope and company permission both required |
+
+**B2C regression:** `OrderControllerTest` + `VehicleDashboardControllerTest` pass unchanged
+(13 tests), and two dedicated partner tests assert a B2C vehicle is neither readable nor
+orderable through this API.
+
+### 12.12.7 Verification
+
+| Check | Result |
+|---|---|
+| `php artisan test --compact tests/Feature/PartnerApi` | **123 passed** (501 assertions) |
+| `php artisan test --compact` (full suite) | **588 passed, 4 skipped, 2 failed** (2279 assertions) — the two documented §6 baseline failures, **no third** |
+| `php artisan test --compact tests/Feature/OrderControllerTest.php tests/Feature/VehicleDashboardControllerTest.php` | 13 passed (89 assertions) |
+| `vendor/bin/pint --dirty --format agent` | `fixed`, then clean |
+| `php artisan migrate:status` | all Ran, **none pending** — phase 2 added no migration |
+| `php artisan route:list --path=api/v1/partner` | 10 routes, correct middleware order; `route:cache` succeeds |
+| `php artisan scribe:generate` | **All done** — all 10 partner endpoints extracted into `.scribe/endpoints/01.yaml`. The Windows `rename()` failure recorded in §12.9 did **not** recur (`public/vendor/scribe/` now exists, which was the cause). Artefacts are gitignored. |
+| `npm run build` | not run — PHP-only phase, no frontend file touched |
+
+**Driver verification (§12.10 risk 1, discharged for SQLite).** The task required
+confirming `PartnerExternalReferenceRegistry`'s unique-violation check on the actual
+supported driver before relying on it for a write path. Probed directly:
+
+```
+driver=sqlite  code='23000'  sqlstate='23000'
+```
+
+`isUniqueViolation()` checks `['23000','23505']`, so it is correct on the configured
+driver (`DB_CONNECTION=sqlite`, `database.default=sqlite`). **Postgres remains
+unverified** — `23505` is handled and is the correct SQLSTATE, but no Postgres instance
+was available here. Re-run the probe on the deploy target before the first production
+partner write.
+
+### 12.12.8 Risks and open points
+
+1. **`external_*_id` filters cost one extra query each.** Resolved through the registry
+   before the main query. Fine at list scale; if a partner polls a filter every second it
+   is two queries where one would do.
+2. **A vehicle cannot be re-ordered on the same calendar day.** `auftragsnummer` is
+   `license_plate + ymd` and uniquely indexed application-wide, so a second order for one
+   vehicle on one day collides — reachable only once the first order has closed, since an
+   open one is refused earlier. **This is pre-existing and equally true in the portal**,
+   where it surfaces as an unhandled 500. The Partner API translates the collision into
+   409 `order_reference_conflict` so a partner is not handed an opaque server error, but
+   the underlying generator is untouched and remains the real fix. Both behaviours are
+   pinned by tests. **Recommend fixing the generator in a later phase** (a sequence suffix
+   is the obvious shape) — at which point the 409 translation can go.
+3. **The status filter is "has an order in this status", not "its current order is".**
+   Identical in practice, because a B2B vehicle may hold at most one non-closed order, and
+   documented as such in the endpoint description. It would diverge if that restriction
+   were ever lifted.
+4. **Idempotent replay still does not re-emit headers** (phase-1 risk 4, unchanged). The
+   creates return no `Location` header, so nothing is currently lost — do not add one
+   without fixing the replay path.
+5. **`PATCH` carries `partner.idempotent` (optional), not `:required`.** An update is
+   naturally idempotent in its effect; a partner that wants replay protection can still
+   send a key.
+6. **No usage/audit log for partner reads** (phase-1 risk 6, unchanged). Writes are
+   traceable — they land in `vehicle_audit_log` / `leasyback_order_audit_log` attributed to
+   the integration account — but reads leave only `last_used_at`.
+7. **B2B/B2C unchanged.** No existing controller, service, policy, model or migration was
+   modified. `PartnerExternalReferenceRegistry` gained one new method and lost none.
+   `bootstrap/app.php` and `routes/partner.php` are additive. The full suite shows no third
+   failure.
+
+### 12.13 Next phase — ready-to-use prompt
+
+```
+Implement Phase 3 of the LeasyBack Partner API: order timeline and documents.
+
+Read section 12 of B2B_IMPLEMENTATION_HANDOFF.md first — especially 12.12, which is the
+phase 2 record and establishes the patterns you must follow. Then inspect only what you
+need: app/Modules/PartnerApi/** (foundation + phase 2), and on the portal side
+OrderTaskResolver, TransitionOrderStatus, OrderStatusUpdate, VehicleDocument,
+VehicleDocumentController and VehicleReportDocument. Section 3 of this document maps the
+15-stage timeline; section 4 documents OrderTaskResolver.
+
+Build, under /api/v1/partner:
+- GET  /orders/{order}/timeline          the 15-stage timeline for one order
+- GET  /orders/{order}/documents         documents attached to an order
+- GET  /vehicles/{vehicle}/documents     documents attached to a vehicle
+- GET  /documents/{document}/download    a time-limited signed URL, not the bytes
+- POST /vehicles/{vehicle}/documents     upload   (Idempotency-Key required)
+Gate each on the right PartnerAbility (timeline.read / documents.read / documents.write)
+AND the right B2B permission via partner.company-can, exactly as phase 2's routes do.
+
+Reuse, do not reimplement:
+- PartnerResourceLocator for every lookup — extend it for documents rather than querying
+  from a controller. Anything outside the token's company is 404, never 403.
+- VehicleService::uploadDocument() and generateSignedUrl() for the write and the URL.
+  The storage path is always server-derived; a partner never supplies or sees one.
+- OrderTaskResolver / the existing timeline construction for stage data. Do not build a
+  second timeline.
+- PartnerApiResponse, PartnerApiException, PartnerPagination and the Resource pattern
+  from phase 2 (explicit allow-list, never $model->toArray()).
+- PartnerExternalReferenceRegistry if documents need external ids (add a TYPE_DOCUMENT).
+
+Constraints:
+- Only customer-visible documents and only published report documents. Admin-only
+  document types and internal notes must not be reachable — check VehicleDocument's
+  category/type rules and B2bOrderNoteService's visibility scope before exposing anything.
+- Signed URLs must be short-lived (the portal uses 1800s) and must never be cached in the
+  idempotency store.
+- Do NOT touch offers, webhooks, OAuth, GDPR or Lexware.
+- Do NOT change any B2C path or any existing portal behaviour.
+- Do NOT add a status-write endpoint. See 12.12.4 decision 1.
+
+Tests required:
+- ability AND company-permission enforcement per endpoint (both halves, independently)
+- cross-company isolation: another company's order/document is 404
+- an internal note or unpublished report document is never returned
+- upload + retry with the same Idempotency-Key stores exactly one document
+- a signed URL is returned, is time-limited, and contains no raw storage path
+- timeline stages match what the portal renders for the same order
+- existing B2B and B2C document/timeline tests still pass
+
+Verify: focused tests, full suite once, Pint, route:list, migrate:status, scribe:generate.
+Before relying on any new unique constraint in a write path, probe the actual driver as
+12.12.7 does — do not assume.
+Update section 12: add 12.14 for phase 3, extend the tables in 12.12.2/12.12.3/12.12.5/
+12.12.6, record results, and re-point the next-phase prompt.
+Stop after Phase 3.
 ```

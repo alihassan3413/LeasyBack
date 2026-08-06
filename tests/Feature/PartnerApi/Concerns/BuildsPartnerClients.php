@@ -91,6 +91,26 @@ trait BuildsPartnerClients
     }
 
     /**
+     * Take one B2B permission away from a client's integration account,
+     * leaving its token scopes untouched.
+     *
+     * The two halves of the Partner API's authorization are independent by
+     * design, and the only way to prove it is to break one and keep the other.
+     */
+    protected function revokeCompanyPermission(PartnerIntegrationClient $client, string $permission): void
+    {
+        $remaining = array_values(array_diff(
+            PartnerClientProvisioner::INTEGRATION_USER_PERMISSIONS,
+            [$permission],
+        ));
+
+        DB::table('user_b2b')
+            ->where('user_id', $client->user_id)
+            ->where('b2b_id', $client->b2b_id)
+            ->update(['permissions' => json_encode($remaining)]);
+    }
+
+    /**
      * @return array<string, string>
      */
     protected function bearer(string $token): array

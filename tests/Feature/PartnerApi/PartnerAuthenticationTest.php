@@ -191,7 +191,10 @@ class PartnerAuthenticationTest extends TestCase
     {
         [, $token] = $this->makeAuthenticatedPartner();
 
-        $this->getJson('/api/v1/partner/vehicles', $this->bearer($token))
+        // Deliberately a path no phase will ever claim. This used to point at
+        // /vehicles, which phase 2 implemented — an unimplemented endpoint is
+        // not a stable stand-in for an unknown one.
+        $this->getJson('/api/v1/partner/no-such-endpoint', $this->bearer($token))
             ->assertStatus(404)
             ->assertJsonPath('error.type', 'not_found')
             ->assertJsonPath('error.code', 'resource_not_found');

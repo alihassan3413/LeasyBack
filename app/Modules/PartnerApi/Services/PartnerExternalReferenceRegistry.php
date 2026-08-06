@@ -48,6 +48,29 @@ class PartnerExternalReferenceRegistry
     }
 
     /**
+     * The partner's ids for a page of our records, keyed by our id.
+     *
+     * The batch counterpart of externalId(). A list endpoint that called the
+     * single-row method per item would issue one query per row — the reason
+     * this exists at all is that every Partner API list response carries an
+     * `external_id` alongside every internal one.
+     *
+     * @param  list<string>  $internalIds
+     * @return array<string, string>
+     */
+    public function externalIdsFor(PartnerIntegrationClient $client, string $type, array $internalIds): array
+    {
+        if ($internalIds === []) {
+            return [];
+        }
+
+        return $this->query($client, $type)
+            ->whereIn('internal_id', $internalIds)
+            ->pluck('external_id', 'internal_id')
+            ->all();
+    }
+
+    /**
      * Record a mapping.
      *
      * Uniqueness is enforced by the database in both directions, so a

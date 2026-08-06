@@ -12,6 +12,7 @@ use App\Modules\PartnerApi\Http\Middleware\AssignPartnerRequestId;
 use App\Modules\PartnerApi\Http\Middleware\AuthenticatePartner;
 use App\Modules\PartnerApi\Http\Middleware\EnforcePartnerIdempotency;
 use App\Modules\PartnerApi\Http\Middleware\EnsurePartnerAbility;
+use App\Modules\PartnerApi\Http\Middleware\EnsurePartnerCompanyPermission;
 use App\Modules\PartnerApi\Http\Middleware\RejectOwnershipInput;
 use App\Modules\PartnerApi\Http\Middleware\ThrottlePartnerRequests;
 use Illuminate\Auth\AuthenticationException;
@@ -65,6 +66,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'partner.auth' => AuthenticatePartner::class,
             'partner.throttle' => ThrottlePartnerRequests::class,
             'partner.ability' => EnsurePartnerAbility::class,
+            'partner.company-can' => EnsurePartnerCompanyPermission::class,
             'partner.no-ownership' => RejectOwnershipInput::class,
             'partner.idempotent' => EnforcePartnerIdempotency::class,
         ]);
