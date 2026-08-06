@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleAuditLog;
 use App\Models\VehicleDocument;
+use App\Modules\PartnerApi\Services\PartnerWebhookEvents;
 use App\Modules\UserProfile\B2B\Services\B2bContext;
 use App\Modules\UserProfile\Order\Models\LogisticsAddressProfile;
 use App\Modules\UserProfile\Order\Services\B2bOfferService;
@@ -37,6 +38,7 @@ class VehicleService
         private readonly B2bOfferService $b2bOfferService,
         private readonly B2bOrderNoteService $b2bOrderNoteService,
         private readonly VehicleScopeService $vehicleScopeService,
+        private readonly PartnerWebhookEvents $webhooks,
     ) {}
 
     /**
@@ -89,6 +91,11 @@ class VehicleService
                 'changed_by_user_id' => $user->id,
             ]);
 
+            // In the transaction: a vehicle that rolls back must not be
+            // announced. A B2C vehicle emits nothing — PartnerWebhookEvents
+            // resolves no company for one, so there is no channel filter here.
+            $this->webhooks->vehicleCreated($vehicle);
+
             return $vehicle;
         });
     }
@@ -116,7 +123,11 @@ class VehicleService
                 'changed_by_user_id' => $user->id,
             ]);
 
-            return $vehicle->fresh();
+            $updated = $vehicle->fresh();
+
+            $this->webhooks->vehicleUpdated($updated);
+
+            return $updated;
         });
     }
 
@@ -344,16 +355,6 @@ class VehicleService
             ->where('vehicle_id', $vehicleId)
             ->whereNotIn('order_status', OrderStatus::closedValues())
             ->exists();
-    }
-
-    /**
-     * Generate auftragsnummer from license plate + local date.
-     */
-    public function generateAuftragsnummer(string $licensePlate): string
-    {
-        $cleaned = str_replace([' ', '-'], '', $licensePlate);
-
-        return $cleaned.now()->format('ymd');
     }
 
     /**

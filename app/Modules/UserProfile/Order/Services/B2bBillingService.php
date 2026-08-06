@@ -4,6 +4,7 @@ namespace App\Modules\UserProfile\Order\Services;
 
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Modules\PartnerApi\Services\PartnerWebhookEvents;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Order\Models\OrderBilling;
 use Illuminate\Support\Facades\DB;
@@ -25,6 +26,8 @@ use Illuminate\Validation\Rule;
  */
 class B2bBillingService
 {
+    public function __construct(private readonly PartnerWebhookEvents $webhooks) {}
+
     /**
      * @param  array<int, string>  $allowedDocumentIds
      * @return array<string, mixed>
@@ -89,11 +92,18 @@ class B2bBillingService
                 'created_by_user_id' => $user->id,
                 ...$attributes,
             ]);
-
-            return;
+        } else {
+            $billing->update($attributes);
         }
 
-        $billing->update($attributes);
+        // Only on the transition into processed, and only once — `update()`
+        // refuses to unmark, so this can never fire twice for one order. The
+        // event carries the state, not the figures: no partner endpoint serves
+        // billing amounts, and a webhook must not be a side door into data no
+        // endpoint serves.
+        if ($markProcessed && ! $alreadyProcessed) {
+            $this->webhooks->billingCompleted($order->fresh() ?? $order, $vehicle);
+        }
     }
 
     /**

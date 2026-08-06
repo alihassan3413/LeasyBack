@@ -37,6 +37,7 @@ class B2bOfferPresentation extends Model
         'customer_note',
         'presented_at',
         'last_reminder_sent_at',
+        'expired_notified_at',
         'reminder_count',
         'rejected_at',
         'rejected_by_user_id',
@@ -54,6 +55,7 @@ class B2bOfferPresentation extends Model
             'valid_until' => 'date',
             'presented_at' => 'datetime',
             'last_reminder_sent_at' => 'datetime',
+            'expired_notified_at' => 'datetime',
             'reminder_count' => 'integer',
             'rejected_at' => 'datetime',
         ];

@@ -131,28 +131,31 @@ class PartnerOrderEndpointTest extends TestCase
         $this->assertSame(1, LeasybackOrder::count());
     }
 
-    public function test_a_second_order_on_the_same_day_conflicts_rather_than_erroring(): void
+    public function test_a_second_order_on_the_same_day_is_created_with_a_suffixed_reference(): void
     {
         [$client, $token] = $this->makeAuthenticatedPartner();
         $vehicle = Vehicle::factory()->forB2b($client->b2b_id)->create();
 
-        $this->withHeaders($this->withKey($token, 'order-1'))
+        $first = $this->withHeaders($this->withKey($token, 'order-1'))
             ->postJson(route('partner.v1.vehicles.orders.store', $vehicle->vehicle_id), $this->validPayload())
             ->assertCreated();
 
-        // Closing the first order clears the open-order restriction, but
-        // `auftragsnummer` is plate + date and unique application-wide, so a
-        // same-day re-order still collides in the shared generator. That is
-        // pre-existing and equally true in the portal; what must not happen is
-        // a partner receiving an opaque 500 for it.
+        // Closing the first order clears the open-order restriction. This used
+        // to answer `order_reference_conflict`, because the reference was plate
+        // + date and unique application-wide; OrderNumberGenerator now takes
+        // the next sequence instead, so a legitimate same-day re-order is a
+        // create, not a conflict.
         LeasybackOrder::query()->update(['order_status' => 'completed']);
 
-        $this->withHeaders($this->withKey($token, 'order-2'))
+        $second = $this->withHeaders($this->withKey($token, 'order-2'))
             ->postJson(route('partner.v1.vehicles.orders.store', $vehicle->vehicle_id), $this->validPayload())
-            ->assertStatus(409)
-            ->assertJsonPath('error.code', 'order_reference_conflict');
+            ->assertCreated();
 
-        $this->assertSame(1, LeasybackOrder::count());
+        $base = $first->json('data.order.reference');
+
+        $this->assertSame(2, LeasybackOrder::count());
+        $this->assertStringNotContainsString('-', $base);
+        $this->assertSame($base.'-02', $second->json('data.order.reference'));
     }
 
     public function test_a_closed_order_frees_the_vehicle_for_a_new_one_on_a_later_day(): void

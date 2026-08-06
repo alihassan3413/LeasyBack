@@ -71,7 +71,14 @@ class OfferService
 
             $this->auditOffer($offer, 'published', ['offer_status' => 'draft'], ['offer_status' => 'published'], $user->id);
 
-            return $offer->fresh();
+            $published = $offer->fresh();
+
+            // After the snapshot, so the event carries the frozen lines rather
+            // than the pre-publish draft. B2C emits nothing: no presentation
+            // row, no event.
+            $this->b2bOfferService->announceOffer('published', $published);
+
+            return $published;
         });
 
         // A published offer is the moment the customer has something
@@ -97,7 +104,18 @@ class OfferService
 
             $this->auditOffer($offer, 'cancelled', ['offer_status' => $oldStatus], ['offer_status' => 'cancelled'], $user->id);
 
-            return $offer->fresh();
+            $cancelled = $offer->fresh();
+
+            // `offer.updated` and not a withdrawal event of its own: what
+            // changed is the status of an offer the customer has already been
+            // shown, and there is no `offer.withdrawn` in the vocabulary
+            // because there is no separate state. An offer cancelled while
+            // still a draft was never presented and emits nothing.
+            if ($oldStatus === 'published') {
+                $this->b2bOfferService->announceOffer('updated', $cancelled);
+            }
+
+            return $cancelled;
         });
     }
 
@@ -185,6 +203,15 @@ class OfferService
                         'new_values' => ['offer_status' => 'closed'],
                         'changed_by_user_id' => $user->id,
                     ]);
+
+                    // A sibling the customer had been shown is no longer on
+                    // the table. Announced as `offer.updated` for the same
+                    // reason a withdrawal is: the offer changed, it was not
+                    // decided.
+                    $this->b2bOfferService->announceOffer(
+                        'updated',
+                        LeasybackOffer::where('offer_id', $siblingId)->first(),
+                    );
                 }
             }
 
@@ -204,6 +231,8 @@ class OfferService
                 'new_values' => ['offer_id' => $offer->offer_id],
                 'changed_by_user_id' => $user->id,
             ]);
+
+            $this->b2bOfferService->announceOffer('accepted', $offer->fresh());
         });
 
         $selected = $offer->fresh() ?? $offer;

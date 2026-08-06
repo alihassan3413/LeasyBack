@@ -5,6 +5,7 @@ namespace App\Modules\UserProfile\Order\Actions;
 use App\Enums\NotificationType;
 use App\Enums\OrderStatus;
 use App\Models\Vehicle;
+use App\Modules\PartnerApi\Services\PartnerWebhookEvents;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Order\Models\OrderBilling;
 use App\Modules\UserProfile\Order\Models\OrderStatusUpdate;
@@ -46,6 +47,7 @@ class TransitionOrderStatus
         private readonly VehicleScopeService $vehicleScope,
         private readonly Notifier $notifier,
         private readonly OrderMailer $orderMailer,
+        private readonly PartnerWebhookEvents $webhooks,
     ) {}
 
     /**
@@ -143,7 +145,18 @@ class TransitionOrderStatus
 
             $realTransition = true;
 
-            return $locked->fresh();
+            $updated = $locked->fresh();
+
+            // Inside the transaction, deliberately. The event row has to share
+            // the fate of the status change: a transition that rolls back —
+            // because the billing gate raised, or a caller further out failed —
+            // must not leave a partner told it happened. Only the *delivery* is
+            // deferred; PartnerWebhookEmitter dispatches after commit and
+            // swallows its own failures, so no partner endpoint and no bug in
+            // that module can hold this lock open or fail this transition.
+            $this->webhooks->orderStatusChanged($updated, $fromStatus);
+
+            return $updated;
         });
 
         if ($realTransition) {

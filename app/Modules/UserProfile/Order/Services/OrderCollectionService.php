@@ -4,10 +4,12 @@ namespace App\Modules\UserProfile\Order\Services;
 
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Modules\PartnerApi\Services\PartnerWebhookEvents;
 use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Order\Models\LogisticsAddressProfile;
 use App\Modules\UserProfile\Order\Models\OrderLogistics;
+use DateTimeInterface;
 use Illuminate\Support\Collection;
 
 /**
@@ -24,7 +26,10 @@ class OrderCollectionService
 {
     public const ADDRESS_FIELDS = ['street', 'number', 'additional_address', 'zip_code', 'city', 'country'];
 
-    public function __construct(private readonly TransitionOrderStatus $transitionOrderStatus) {}
+    public function __construct(
+        private readonly TransitionOrderStatus $transitionOrderStatus,
+        private readonly PartnerWebhookEvents $webhooks,
+    ) {}
 
     /**
      * @return array<string, array<int, string>>
@@ -192,10 +197,13 @@ class OrderCollectionService
             ? null
             : LogisticsAddressProfile::where('id', $profileId)->value('details');
 
+        $previousDate = $this->asDateString($logistics?->confirmed_collection_date);
+        $confirmedDate = $this->trimToNull($validated['confirmed_collection_date'] ?? null);
+
         OrderLogistics::updateOrCreate(
             ['auftragsnummer' => $order->auftragsnummer],
             [
-                'confirmed_collection_date' => $this->trimToNull($validated['confirmed_collection_date'] ?? null),
+                'confirmed_collection_date' => $confirmedDate,
                 'internal_note' => $this->trimToNull($validated['internal_note'] ?? null),
                 'updated_by_user_id' => $user->id,
                 ...($address === null && $logistics !== null
@@ -203,6 +211,47 @@ class OrderCollectionService
                     : $this->addressColumns($address, $profileId, $profileDetails)),
             ],
         );
+
+        $this->announceCollectionChange($order, $vehicle, $previousDate, $confirmedDate);
+    }
+
+    /**
+     * Confirmed for the first time, or moved.
+     *
+     * Two events rather than one because they mean different things to a
+     * partner: a confirmation is the appointment being set, a reschedule is one
+     * they may already have told a driver about. `internal_note` is not carried
+     * by either — it is the §16 internal side of this row and never leaves.
+     *
+     * Nothing is emitted when the date did not change, so an Admin saving the
+     * address or the note does not look like an appointment change.
+     */
+    private function announceCollectionChange(
+        LeasybackOrder $order,
+        Vehicle $vehicle,
+        ?string $previousDate,
+        ?string $confirmedDate,
+    ): void {
+        if ($confirmedDate === null || $confirmedDate === $previousDate) {
+            return;
+        }
+
+        if ($previousDate === null) {
+            $this->webhooks->collectionConfirmed($order, $confirmedDate, $vehicle);
+
+            return;
+        }
+
+        $this->webhooks->collectionRescheduled($order, $confirmedDate, $previousDate, $vehicle);
+    }
+
+    private function asDateString(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        return $value instanceof DateTimeInterface ? $value->format('Y-m-d') : (string) $value;
     }
 
     /**

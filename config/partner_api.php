@@ -92,4 +92,69 @@ return [
         'user_id',
     ],
 
+    /*
+    | Outbound webhooks.
+    */
+    'webhooks' => [
+
+        // Sent as `api_version` in every envelope, and pinned to the URL
+        // version of the read endpoints an event points a partner at. A
+        // breaking change to a payload is a new value here, not a silent edit.
+        'api_version' => 'v1',
+
+        // Queue the fan-out and delivery jobs run on. Separate from the default
+        // so a backlog of retries against one dead endpoint cannot starve the
+        // application's own queued work.
+        'queue' => env('PARTNER_API_WEBHOOK_QUEUE', 'webhooks'),
+
+        // Per-request budget for one delivery attempt.
+        'timeout_seconds' => (int) env('PARTNER_API_WEBHOOK_TIMEOUT', 10),
+        'connect_timeout_seconds' => (int) env('PARTNER_API_WEBHOOK_CONNECT_TIMEOUT', 5),
+
+        /*
+        | Retry schedule, in seconds after the *previous* attempt. Six attempts
+        | over roughly seven hours: fast enough that a thirty-second blip is
+        | invisible to the partner, slow enough that a deploy window or a
+        | certificate renewal does not exhaust the budget. Documented rather
+        | than computed so a partner can be told exactly when to expect the
+        | next call. Running off the end of this list exhausts the delivery.
+        */
+        'backoff_seconds' => [30, 120, 600, 3600, 21600],
+
+        // Consecutive failed *deliveries* before the subscription is suspended.
+        // Counts deliveries, not attempts, so one dead endpoint is measured in
+        // events missed rather than in how hard we retried.
+        'auto_disable_after_failures' => (int) env('PARTNER_API_WEBHOOK_AUTO_DISABLE_AFTER', 20),
+
+        // How long a rotated secret keeps signing alongside the new one, so a
+        // partner can deploy without a hard cutover. 0 cuts over immediately.
+        'secret_rotation_grace_minutes' => (int) env('PARTNER_API_WEBHOOK_ROTATION_GRACE_MINUTES', 60),
+
+        // How far out of date a request's timestamp may be before a partner
+        // should refuse it as a replay. Documented here because it is part of
+        // the published verification recipe, not because we enforce it.
+        'replay_tolerance_seconds' => (int) env('PARTNER_API_WEBHOOK_REPLAY_TOLERANCE', 300),
+
+        // Characters of a partner's response body kept per attempt.
+        'response_excerpt_bytes' => 512,
+
+        /*
+        | SSRF policy for partner-supplied target URLs.
+        |
+        | `allow_insecure` exists so a developer can point a subscription at a
+        | local http:// listener. It is refused outright when the application
+        | environment is production, regardless of this value — see
+        | PartnerWebhookUrlGuard.
+        */
+        'allow_insecure' => (bool) env('PARTNER_API_WEBHOOK_ALLOW_INSECURE', false),
+
+        // Loopback and private ranges are refused unconditionally in
+        // production. Off-production, this opens them for local testing.
+        'allow_private_networks' => (bool) env('PARTNER_API_WEBHOOK_ALLOW_PRIVATE', false),
+
+        // Ports a target may use. Anything else is a strong signal the URL is
+        // aimed at an internal service rather than a public HTTPS endpoint.
+        'allowed_ports' => [80, 443, 8443],
+    ],
+
 ];

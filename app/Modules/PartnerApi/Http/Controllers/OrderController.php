@@ -4,7 +4,6 @@ namespace App\Modules\PartnerApi\Http\Controllers;
 
 use App\Enums\OrderStatus;
 use App\Http\Controllers\Controller;
-use App\Modules\PartnerApi\Exceptions\PartnerApiException;
 use App\Modules\PartnerApi\Http\Controllers\Concerns\TranslatesServiceFailures;
 use App\Modules\PartnerApi\Http\Requests\StorePartnerOrderRequest;
 use App\Modules\PartnerApi\Http\Resources\PartnerOrderResource;
@@ -16,7 +15,6 @@ use App\Modules\PartnerApi\Support\PartnerPagination;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Order\Services\OrderService;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -229,46 +227,24 @@ class OrderController extends Controller
     }
 
     /**
-     * OrderService::createB2bCollectionOrder(), with one storage-level failure
-     * given a partner-facing answer.
+     * OrderService::createB2bCollectionOrder(), unchanged.
      *
-     * `auftragsnummer` is derived from the registration number and the date and
-     * is unique application-wide, so a *second* order for the same vehicle on
-     * the same calendar day collides at the index — reachable only once the
-     * first order has closed, since an open one is refused earlier with
-     * `order_already_open`. That is a pre-existing property of the shared
-     * generator and is out of this API's hands to fix; what is in its hands is
-     * not answering a legitimate request with an opaque 500. The partner gets a
-     * conflict they can act on instead.
+     * This used to wrap the call in a `order_reference_conflict` translation:
+     * `auftragsnummer` was registration-number + date and unique
+     * application-wide, so a second order for the same vehicle on the same
+     * calendar day hit the index and a legitimate request got a conflict it
+     * could do nothing about. OrderNumberGenerator now allocates `-02`, `-03`,
+     * … for exactly that case, so the collision no longer exists and the error
+     * code has been withdrawn (§12.16). A unique violation on that column would
+     * now be a real bug, and is left to surface as one.
      */
     private function createOrder(mixed $vehicle, StorePartnerOrderRequest $request): LeasybackOrder
     {
-        try {
-            return $this->orderService->createB2bCollectionOrder(
-                $vehicle,
-                $this->context->user(),
-                $request->orderAttributes(),
-            );
-        } catch (QueryException $e) {
-            if (! $this->isOrderReferenceCollision($e)) {
-                throw $e;
-            }
-
-            throw PartnerApiException::conflict(
-                'order_reference_conflict',
-                'An order reference already exists for this vehicle today. A vehicle can only '
-                .'start one return process per day; retry tomorrow, or contact Leasyback if this '
-                .'is unexpected.',
-            );
-        }
-    }
-
-    private function isOrderReferenceCollision(QueryException $e): bool
-    {
-        // 23000/23505 cover SQLite, MySQL and Postgres. The column is named so
-        // an unrelated unique violation is still surfaced as the bug it is.
-        return in_array((string) $e->getCode(), ['23000', '23505'], true)
-            && str_contains($e->getMessage(), 'auftragsnummer');
+        return $this->orderService->createB2bCollectionOrder(
+            $vehicle,
+            $this->context->user(),
+            $request->orderAttributes(),
+        );
     }
 
     /**

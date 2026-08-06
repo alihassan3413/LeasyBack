@@ -6,6 +6,7 @@ use App\Models\InspectionStation;
 use App\Models\OrderAuditLog;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Modules\PartnerApi\Services\PartnerWebhookEvents;
 use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Vehicle\Services\VehicleService;
@@ -31,6 +32,8 @@ class OrderService
         private readonly TransitionOrderStatus $transitionOrderStatus,
         private readonly OrderMailer $orderMailer,
         private readonly OrderCollectionService $orderCollectionService,
+        private readonly OrderNumberGenerator $orderNumbers,
+        private readonly PartnerWebhookEvents $webhooks,
     ) {}
 
     /**
@@ -54,7 +57,7 @@ class OrderService
             $this->fail(409, 'vehicle previous order not completed yet');
         }
 
-        $auftragsnummer = $this->vehicleService->generateAuftragsnummer($vehicle->license_plate);
+        $auftragsnummer = $this->reserveOrderNumber($vehicle, $user);
 
         $order = DB::transaction(function () use ($vehicle, $auftragsnummer, $user, $validated) {
             $order = LeasybackOrder::create([
@@ -68,6 +71,11 @@ class OrderService
 
             $this->orderCollectionService->recordCustomerRequest($order, $vehicle, $user, $validated);
             $this->auditOrder($order, 'REQUEST_ORDER', null, ['order_status' => 'order_requested'], $user->id);
+
+            // In the transaction, so an order that rolls back is never
+            // announced. Delivery is queued after commit — see
+            // PartnerWebhookEmitter.
+            $this->webhooks->orderCreated($order);
 
             return $order;
         });
@@ -102,7 +110,7 @@ class OrderService
             $this->fail(404, 'Inspection station not found');
         }
 
-        $auftragsnummer = $this->vehicleService->generateAuftragsnummer($vehicle->license_plate);
+        $auftragsnummer = $this->reserveOrderNumber($vehicle, $user);
 
         $requestPayload = [
             'auftrag' => [
@@ -203,7 +211,7 @@ class OrderService
             $this->fail(422, 'B2B vehicles use the collection order flow');
         }
 
-        $auftragsnummer = $this->vehicleService->generateAuftragsnummer($vehicle->license_plate);
+        $auftragsnummer = $this->reserveOrderNumber($vehicle, $user);
         $station = InspectionStation::find($validated['station_id']);
 
         $requestPayload = [
@@ -334,6 +342,24 @@ class OrderService
 
         return Vehicle::where('vehicle_id', $order->vehicle_id)->value('vehicle_belongs') === 'B2B'
             && $order->leasyback_partner === self::B2B_PARTNER;
+    }
+
+    /**
+     * Claim this order's reference before anything is written or sent.
+     *
+     * Every creation path goes through here, so B2C inspections, B2B
+     * collections and Partner API creations all draw from one sequence and
+     * cannot collide with each other. Deliberately outside the surrounding
+     * transaction: the reservation must survive a rolled-back creation, or two
+     * concurrent callers would both see the number as free.
+     */
+    private function reserveOrderNumber(Vehicle $vehicle, User $user): string
+    {
+        return $this->orderNumbers->reserve(
+            $vehicle->license_plate,
+            $vehicle->vehicle_id,
+            $user->id,
+        );
     }
 
     /**

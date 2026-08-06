@@ -7,6 +7,9 @@ use App\Models\AssessmentDocument;
 use App\Models\User;
 use App\Models\VehicleReportDocument;
 use App\Models\VehicleReportDocumentLog;
+use App\Modules\PartnerApi\Services\PartnerDocumentCatalog;
+use App\Modules\PartnerApi\Services\PartnerWebhookEvents;
+use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle as CanonicalVehicle;
 use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
 use App\Notifications\NotificationPayload;
@@ -34,6 +37,7 @@ class VehicleReportService
     public function __construct(
         private readonly VehicleScopeService $vehicleScope,
         private readonly Notifier $notifier,
+        private readonly PartnerWebhookEvents $webhooks,
     ) {}
 
     /**
@@ -78,6 +82,8 @@ class VehicleReportService
             ]);
 
             $this->auditDocument($doc, 'transferred', $user->id);
+
+            $this->announceDocument($doc, $published ? 'available' : null);
 
             return $doc;
         });
@@ -125,6 +131,8 @@ class VehicleReportService
 
             $this->auditDocument($doc, 'uploaded', $user->id);
 
+            $this->announceDocument($doc, $published ? 'available' : null);
+
             return $doc;
         });
 
@@ -153,7 +161,15 @@ class VehicleReportService
             $doc->update(['published' => $published, 'updated_by_user_id' => $user->id]);
             $this->auditDocument($doc, $published ? 'published' : 'unpublished', $user->id);
 
-            return $doc->fresh();
+            $fresh = $doc->fresh();
+
+            // Withdrawing publication is `document.replaced`, not a deletion
+            // event: from the partner's side the document they were told about
+            // is no longer the current one, which is exactly what that event
+            // means. The file itself still exists.
+            $this->announceDocument($fresh, $published ? 'available' : 'replaced', $published ? null : 'unpublished');
+
+            return $fresh;
         });
 
         if ($published) {
@@ -165,6 +181,38 @@ class VehicleReportService
             'action' => $published ? 'published' : 'unpublished',
             'document' => $doc,
         ];
+    }
+
+    /**
+     * Tell partners about a report document, in the same shape
+     * `GET /documents/{id}` returns.
+     *
+     * Metadata only — PartnerDocumentCatalog::fromReport() produces the value
+     * object whose `$path` PartnerDocumentResource never reads, so the storage
+     * key cannot reach a webhook body, and the bytes certainly cannot: a
+     * webhook says a document exists, and the partner fetches it over the
+     * authenticated download endpoint if they want it.
+     *
+     * @param  'available'|'replaced'|null  $what  null emits nothing, which is
+     *                                             how an unpublished document stays invisible
+     */
+    private function announceDocument(?VehicleReportDocument $doc, ?string $what, ?string $reason = null): void
+    {
+        if ($doc === null || $what === null) {
+            return;
+        }
+
+        $vehicle = CanonicalVehicle::find($doc->vehicle_id);
+        $order = LeasybackOrder::where('auftragsnummer', $doc->auftragsnummer)->first();
+        $document = PartnerDocumentCatalog::fromReport($doc, $order);
+
+        if ($what === 'available') {
+            $this->webhooks->documentAvailable($document, $order, $vehicle);
+
+            return;
+        }
+
+        $this->webhooks->documentReplaced($document, $order, $vehicle, $reason ?? 'replaced');
     }
 
     private function notifyDocumentPublished(VehicleReportDocument $doc): void
@@ -210,8 +258,19 @@ class VehicleReportService
             ]);
         }
 
-        DB::transaction(function () use ($doc, $user) {
+        $wasPublished = (bool) $doc->published;
+
+        DB::transaction(function () use ($doc, $user, $wasPublished) {
             $this->auditDocument($doc, 'deleted', $user->id);
+
+            // Announced before the row goes, so the payload can still describe
+            // what was withdrawn. Only for a document the customer could
+            // actually see — an unpublished one was never announced, so there
+            // is nothing to retract.
+            if ($wasPublished) {
+                $this->announceDocument($doc, 'replaced', 'deleted');
+            }
+
             $doc->delete();
         });
 

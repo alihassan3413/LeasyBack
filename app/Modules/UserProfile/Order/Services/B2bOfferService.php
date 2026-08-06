@@ -6,6 +6,7 @@ use App\Models\LeasybackOffer;
 use App\Models\OfferAuditLog;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Modules\PartnerApi\Services\PartnerWebhookEvents;
 use App\Modules\UserProfile\Order\Models\AppraisalPosition;
 use App\Modules\UserProfile\Order\Models\B2bOfferPresentation;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
@@ -31,6 +32,50 @@ use Illuminate\Support\Facades\DB;
 class B2bOfferService
 {
     public const STATUS_REJECTED = 'rejected';
+
+    public function __construct(private readonly PartnerWebhookEvents $webhooks) {}
+
+    /**
+     * Announce something that happened to a *presented* offer.
+     *
+     * Every offer webhook goes through here rather than being emitted at each
+     * call site, for one reason: an offer only exists for partners once it has
+     * a presentation row, and that check has to be in one place or a B2C offer
+     * — which never has one — would eventually leak through a new call site.
+     * No presentation, no event, no exception.
+     *
+     * The snapshot handed to the payload is the presentation's own frozen
+     * `lines`, which is why an accepted offer's webhook stays a record of what
+     * was accepted even after the underlying appraisal positions are edited.
+     *
+     * @param  'published'|'updated'|'accepted'|'rejected'|'expired'  $what
+     */
+    public function announceOffer(string $what, ?LeasybackOffer $offer): void
+    {
+        if ($offer === null) {
+            return;
+        }
+
+        $presentation = B2bOfferPresentation::where('offer_id', $offer->offer_id)->first();
+
+        if ($presentation === null) {
+            return;
+        }
+
+        $order = LeasybackOrder::where('id', $offer->order_id)->first();
+
+        if ($order === null) {
+            return;
+        }
+
+        match ($what) {
+            'published' => $this->webhooks->offerPublished($offer, $presentation, $order),
+            'updated' => $this->webhooks->offerUpdated($offer, $presentation, $order),
+            'accepted' => $this->webhooks->offerAccepted($offer, $presentation, $order),
+            'rejected' => $this->webhooks->offerRejected($offer, $presentation, $order),
+            'expired' => $this->webhooks->offerExpired($offer, $presentation, $order),
+        };
+    }
 
     /**
      * @return array<string, mixed>
@@ -168,6 +213,8 @@ class B2bOfferService
                 'rejected_by_user_id' => $user->id,
                 'customer_comment' => $this->trimToNull($validated['customer_comment'] ?? null),
             ]);
+
+            $this->announceOffer('rejected', $locked->fresh());
 
             OfferAuditLog::create([
                 'auftragsnummer' => $locked->auftragsnummer,

@@ -111,6 +111,25 @@ trait BuildsPartnerClients
     }
 
     /**
+     * Replace an integration account's B2B permissions outright.
+     *
+     * `revokeCompanyPermission()` above cannot express "no `vehicles.view`":
+     * B2bPermissionSet pulls a permission's prerequisites back in
+     * transitively, and `vehicles.view` is a prerequisite of nearly everything
+     * else the account holds. Taking the read permission away therefore means
+     * setting the whole list, not subtracting one entry.
+     *
+     * @param  list<string>  $permissions
+     */
+    protected function setCompanyPermissions(PartnerIntegrationClient $client, array $permissions): void
+    {
+        DB::table('user_b2b')
+            ->where('user_id', $client->user_id)
+            ->where('b2b_id', $client->b2b_id)
+            ->update(['permissions' => json_encode($permissions)]);
+    }
+
+    /**
      * @return array<string, string>
      */
     protected function bearer(string $token): array

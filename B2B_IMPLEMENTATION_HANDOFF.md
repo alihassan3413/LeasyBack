@@ -1542,6 +1542,11 @@ from the last non-terminal `old_status`) so its history stays readable.
 Confirmed failing on a clean stashed baseline (`git stash push -- app resources routes database`).
 **Do not treat these as regressions.** Any third failure is yours.
 
+> As of phase 4 the suite is **702 tests, 2 failed, 4 skipped (2662 assertions)** — the same
+> two tests. Note that `php artisan test` now exhausts the default 128 MB memory limit partway
+> through; use `php -d memory_limit=1024M vendor/bin/phpunit --no-progress` for a full run
+> (§12.16.14).
+
 Re-verified 2026-08-05 both before and after the phase 7.1 correction: identical
 counts (406/4/2, 1603 assertions), same two tests, no third failure.
 
@@ -2535,6 +2540,8 @@ The catch-all never leaks an exception message or trace regardless of `APP_DEBUG
 `vehicles.read`, `vehicles.write`, `orders.read`, `orders.write`, `timeline.read`,
 `documents.read`, `documents.write`, `offers.read`, `offers.accept`, `webhooks.read`,
 `webhooks.manage`, plus the `*` wildcard (expanded in `/me`, never shown as `*`).
+`webhooks.read`/`webhooks.manage` gate real endpoints as of phase 4 (§12.16.12); the rest of
+this list is unchanged.
 
 The integration user's B2B permission set
 (`PartnerClientProvisioner::INTEGRATION_USER_PERMISSIONS`) is `vehicles.view`,
@@ -2879,7 +2886,11 @@ partner write.
    `bootstrap/app.php` and `routes/partner.php` are additive. The full suite shows no third
    failure.
 
-### 12.13 Next phase — ready-to-use prompt
+### 12.13 Phase 3 — the prompt that was used (historical)
+
+> **Superseded by §12.14, which records what was actually built.** The prompt below is the
+> phase-2 author's proposal; the executed phase-3 brief narrowed documents to read-only and
+> added offers. Deltas are listed in §12.14.8.
 
 ```
 Implement Phase 3 of the LeasyBack Partner API: order timeline and documents.
@@ -2936,4 +2947,746 @@ Before relying on any new unique constraint in a write path, probe the actual dr
 Update section 12: add 12.14 for phase 3, extend the tables in 12.12.2/12.12.3/12.12.5/
 12.12.6, record results, and re-point the next-phase prompt.
 Stop after Phase 3.
+```
+
+---
+
+## 12.14 Partner API — Phase 3: timeline, documents and offers (2026-08-06)
+
+Eight read endpoints. **No new migration, no new table, no schema change, and no write path
+of any kind** — phase 3 is entirely a reader over state phases 1–17 already produce.
+
+### 12.14.1 The one rule everything follows
+
+Phase 2's rule was "delegate every decision to the service the portal already asks". Phase 3
+reads rather than writes, so the rule becomes its mirror image: **every filter that decides
+what a customer may see is applied where the portal applies it, and nowhere else.**
+
+| Question | Answered by | Not by |
+|---|---|---|
+| Which order is this? | `PartnerResourceLocator::orderQuery()` | an id lookup in a controller |
+| Which stage is it at? | `PartnerTimelineBuilder`, transcribed from `getB2bOrderFlowSteps()` | a second status→stage map |
+| Which report documents exist? | `published = true`, in the query | a filter after the fetch |
+| Which offers were presented? | `published`/`selected`/`rejected` **and** a presentation row | an `offer_status != 'draft'` check |
+| What did an accepted offer say? | `b2b_offer_presentations.lines` (the snapshot) | the live `AppraisalPosition` rows |
+| May these bytes be served? | `PartnerDocumentDownloadLink::verify()`, on every fetch | the signature alone |
+
+### 12.14.2 Files
+
+| File | Purpose |
+|---|---|
+| `app/Modules/PartnerApi/Services/PartnerTimelineBuilder.php` | the 15 stages, server-side; stage codes are the public contract |
+| `app/Modules/PartnerApi/Services/PartnerDocumentCatalog.php` | both document tables normalised into one shape + scoped lookup |
+| `app/Modules/PartnerApi/Services/PartnerDocumentDownloadLink.php` | mints and re-verifies the short-lived signed link |
+| `app/Modules/PartnerApi/Services/PartnerOfferCatalog.php` | customer-facing offers + the snapshot rule |
+| `app/Modules/PartnerApi/Data/PartnerDocument.php` | value object; holds the storage path off the response shape |
+| `app/Modules/PartnerApi/Http/Controllers/TimelineController.php` | status / timeline, + Scribe attributes |
+| `app/Modules/PartnerApi/Http/Controllers/DocumentController.php` | list / show / download / content, + Scribe attributes |
+| `app/Modules/PartnerApi/Http/Controllers/OfferController.php` | list / show, + Scribe attributes |
+| `app/Modules/PartnerApi/Http/Resources/PartnerDocumentResource.php` | allow-listed document shape, no path |
+| `app/Modules/PartnerApi/Http/Resources/PartnerOfferResource.php` | allow-listed offer shape, no workshop data, no gross |
+| `tests/Feature/PartnerApi/PartnerTimelineEndpointTest.php` | 13 tests |
+| `tests/Feature/PartnerApi/PartnerDocumentEndpointTest.php` | 14 tests |
+| `tests/Feature/PartnerApi/PartnerOfferEndpointTest.php` | 12 tests |
+| `tests/Feature/PartnerApi/Concerns/BuildsPartnerOrderHistory.php` | order state the readers report on |
+
+Modified — **two files, both additive**: `routes/partner.php` (8 routes plus one unauthenticated
+group) and `tests/…/Concerns/BuildsPartnerClients.php` (one helper, `setCompanyPermissions()`).
+No controller, service, policy, model, migration or `bootstrap/app.php` entry outside this
+module was touched; no new middleware alias was needed.
+
+### 12.14.3 Routes
+
+```
+GET /api/v1/partner/orders/{order}/status         timeline.read  + vehicles.view
+GET /api/v1/partner/orders/{order}/timeline       timeline.read  + vehicles.view
+GET /api/v1/partner/orders/{order}/documents      documents.read + vehicles.view
+GET /api/v1/partner/documents/{document}          documents.read + vehicles.view
+GET /api/v1/partner/documents/{document}/download documents.read + vehicles.view
+GET /api/v1/partner/orders/{order}/offers         offers.read    + vehicles.view
+GET /api/v1/partner/offers/{offer}                offers.read    + vehicles.view
+GET /api/v1/partner/documents/{document}/content  signature only — see 12.14.4 decision 7
+```
+
+`route:list --path=api/v1/partner` shows **18** routes; `route:cache` succeeds. Ids are
+`whereUuid`-constrained and resolved through the locator/catalogs, never route model binding.
+
+`timeline.read` rather than `orders.read` on the first two: a partner that only wants progress
+notifications should not have to be sold the order records themselves. All six bearer routes
+carry `vehicles.view` as the company half — reading is reading, whatever the token was sold.
+
+### 12.14.4 Design decisions worth not re-litigating
+
+1. **The timeline is transcribed, not invented — and it had to be transcribed.** §12.13 said
+   "do not build a second timeline". There is no PHP timeline to reuse: the portal's lives in
+   `resources/js/lib/customerOrderFlow.ts` and runs in the customer's browser. So
+   `PartnerTimelineBuilder` is a one-for-one transcription of `getB2bOrderFlowSteps()` — same
+   sequence, same `B2B_STATUS_STAGE_INDEX`, same `pickRelevantOffer` precedence, same
+   `b2bStageDate` rules, same `published !== false` document filter — with each PHP constant's
+   docblock naming the TS constant it mirrors. **This is a genuine duplication and is risk 1.**
+2. **Stage codes are the contract; German labels are not.** Partners branch on `code`;
+   `label`/`description` are the portal's prose, exposed for display and explicitly documented
+   as reworkable. A test pins the fifteen codes against §3.
+3. **The status trail is stripped to four keys.** `updated_by`, `updated_by_user_id`,
+   `caller_ip` and `auth_source` name the employee behind a transition and where the call came
+   from. The portal shows a customer a coarse `auth_source` so a cancellation can be attributed;
+   a machine client has nothing to do with that, so none of it is exposed. A test asserts the
+   exact key set and greps the raw body for the values.
+4. **Two document tables, one opaque id.** `vehicle_report_documents` (Leasyback's published
+   reports and invoices) and `vehicle_documents` (the company's own paperwork) are normalised
+   into `PartnerDocument` and distinguished by a `source` field, not by which URL you call.
+   Which table a file lives in is our storage detail; making a partner know it would freeze it
+   into the contract. Both are uuid PKs, so one lookup tries both.
+5. **`assessment_documents` is not filtered out — it is never queried.** It holds the raw
+   inspection material a report is built from, has no `published` flag and no customer exposure
+   anywhere in the portal. Absence by construction beats absence by filter.
+6. **The storage path lives on a typed property no resource reads.** `PartnerDocument::$path`
+   is needed to stream bytes and must never be serialised. It is a property on a hand-written
+   value object rather than a key in an array, so leaking it takes an explicit edit rather than
+   a forgotten `unset()`. A test greps three endpoint bodies for it.
+7. **Download is two steps, and the link is not `Storage::temporaryUrl()`.** The portal's
+   signed URLs are served by a framework route (local driver) or by S3 directly (production);
+   both stay valid for their full TTL regardless of what happens to the client. This link
+   points back into the API, carries the minting client id in its signed payload, and is
+   **re-authorised on every fetch** — client still active, document still on a B2B vehicle in
+   that company. A deactivated client's outstanding links stop working immediately, which a
+   test asserts. The two-step shape also means the link — not a bearer token that unlocks every
+   endpoint — is what gets handed to a browser or a document pipeline.
+8. **Offers are read-only, deliberately, and this is *not* the same call as phase 2's status
+   decision.** `offers.accept` exists as an ability but gates nothing yet. Acceptance
+   commissions a workshop and moves money, and the portal's path carries an expiry check
+   (§10.1) and an audit trail. The brief for this phase said not to add accept/reject unless
+   already explicitly approved; it is not. A `POST`/`PATCH` to an offer answers 405.
+9. **An offer needs a presentation row to be visible at all.** `b2b_offer_presentations` is
+   what makes a `leasyback_offers` row a B2B customer offer. Requiring it means a B2C-shaped
+   offer cannot surface here even if one were somehow attached to a B2B order — and it is
+   where the immutable snapshot lives, so the requirement and the guarantee are the same check.
+10. **An expired offer is returned, flagged, not hidden.** `is_expired` is a fact the partner
+    needs in order to understand why nothing is happening. Whole-day validity (§10.1) is the
+    model's own `isExpired()`, not a timestamp comparison here.
+
+### 12.14.5 New error codes
+
+| Situation | Status | `error.code` |
+|---|---|---|
+| Document absent, unpublished, or outside the token's company | 404 | `document_not_found` |
+| Offer absent, never presented, or outside the token's company | 404 | `offer_not_found` |
+| Download link signature missing or tampered with | 403 | `download_link_invalid` |
+| Download link past its 30-minute TTL | 403 | `download_link_expired` |
+
+These join §12.4 and §12.12.5. As there: **changing one is a breaking change**, and each is
+asserted by a test. A document row whose file is gone answers `document_not_found` rather than
+a 500 — also a test.
+
+### 12.14.6 Tests
+
+`tests/Feature/PartnerApi/` — **162 tests, 713 assertions, all passing** (123 from phases 1–2,
+39 new).
+
+| File | Tests | Covers |
+|---|---|---|
+| `PartnerTimelineEndpointTest` | 13 | the 15 stage codes pinned against §3; current stage + sequence; completed/current/upcoming states and real transition timestamps; history stripped of audit metadata (exact key set + raw-body grep for name, IP, `auth_source`); an internal `B2bOrderNote` never reaching either endpoint; published offer → `approval_required`, accepted offer → `repair_approved`; an unpublished report cannot date a stage; a cancelled order stops where it stopped; cross-company 404; a B2C order 404; both gates independently |
+| `PartnerDocumentEndpointTest` | 14 | published reports + vehicle documents listed and normalised; storage path absent from all three bodies; an unpublished draft neither listed, shown, nor linkable; `type`/`source` filters; cross-company 404 on both tables and on the order; a B2C document 404; signed link is short-lived, streams the bytes with no bearer token, and carries `no-store`; expired link → `download_link_expired`; repointed/unsigned link → `download_link_invalid`; a deactivated client kills outstanding links; a correctly re-signed link cannot reach another company's document; `../../etc/passwd` sanitised to `passwd`; missing file → 404 not 500; both gates independently |
+| `PartnerOfferEndpointTest` | 12 | published offer with positions and totals; raw-body grep proving no `workshop_quotation_id`, no workshop, no `gross`, no `appraisal_position_id`, no `damage_image_document_ids`; draft and cancelled offers invisible; accepted offer reports the frozen snapshot while the live `AppraisalPosition` is edited to 9999.00 underneath it; rejected offer keeps its comment; expired offer flagged not hidden; valid-through-today not expired; no presentation row → invisible; cross-company 404; `POST`/`PATCH` → 405; both gates independently |
+
+**B2C/B2B regression:** the full suite shows no third failure (§12.14.7). No portal test needed
+changing, because no portal code changed.
+
+One helper was added to `BuildsPartnerClients`: `setCompanyPermissions()`. The existing
+`revokeCompanyPermission()` cannot express "no `vehicles.view`" — `B2bPermissionSet` pulls a
+permission's prerequisites back in transitively and `vehicles.view` is a prerequisite of nearly
+everything the integration account holds, so removing it alone is a no-op. That is correct
+portal behaviour; the helper works around it by setting the whole list.
+
+### 12.14.7 Verification
+
+| Check | Result |
+|---|---|
+| `php artisan test --compact tests/Feature/PartnerApi` | **162 passed** (713 assertions) |
+| `php artisan test --compact` (full suite) | **627 passed, 4 skipped, 2 failed** (2491 assertions) — the two documented §6 baseline failures, **no third** |
+| `vendor/bin/pint --dirty --format agent` | `fixed`, then clean |
+| `php artisan migrate:status` | all Ran, **none pending** — phase 3 added no migration |
+| `php artisan route:list --path=api/v1/partner` | 18 routes, correct middleware order; `route:cache` succeeds |
+| `php artisan scribe:generate` | **All done** — all 8 new endpoints extracted, including the unauthenticated `/content` route |
+| `npm run build` | not run — PHP-only phase, no frontend file touched |
+| `git status` | 2 modified files (both additive), 14 new; nothing outside `app/Modules/PartnerApi`, `routes/partner.php` and `tests/Feature/PartnerApi` |
+
+**No driver probe was needed.** §12.12.7's probe existed because phase 2 relied on a unique
+violation in a write path. Phase 3 has no write path and adds no constraint.
+
+### 12.14.8 Deltas from the §12.13 proposal
+
+The executed brief differed from the phase-2 author's proposal. Both were followed where they
+agreed; where they did not, the executed brief won. Recorded so the difference is not read as
+an omission:
+
+| §12.13 proposed | Built | Why |
+|---|---|---|
+| `POST /vehicles/{vehicle}/documents` (upload) | **not built** | The executed brief scoped phase 3 to reads and listed no upload test. `documents.write` remains an ability that gates nothing. |
+| `GET /vehicles/{vehicle}/documents` | **not built** | Same. A vehicle's documents are reachable through its order's document list. |
+| `GET /documents/{document}/download` returns a URL | built, **plus** `GET /documents/{document}` and the `/content` streaming route | The executed brief asked for a document-show endpoint and left "authenticated stream or short-lived signed download" open; both halves are present. |
+| offers explicitly out of scope | **built** (read-only) | The executed brief added them. |
+| `PartnerExternalReferenceRegistry::TYPE_DOCUMENT` | **not added** | Nothing writes documents, so no partner can have assigned one an external id. Add it with the upload endpoint, not before. |
+
+### 12.14.9 Risks and open points
+
+1. **The timeline exists twice.** `PartnerTimelineBuilder` (PHP, partners) and
+   `getB2bOrderFlowSteps()` (TypeScript, portal) derive the same fifteen stages from the same
+   data. A change to one is not a compile error in the other. Mitigated by naming the mirrored
+   TS constant in each PHP constant's docblock and by a test pinning the sequence — **but only
+   the sequence is pinned, not the date rules or the `inspected` offer branch.** The real fix
+   is to move the derivation server-side and have the portal render what it is given; that is a
+   phase of its own and would touch B2B UI, which this phase may not.
+2. **`size_bytes` is null for report documents in a listing.** `vehicle_report_documents` has
+   no size column, and stat-ing every row would be one `HEAD` request per document once the
+   disk is S3. `GET /documents/{document}` resolves it for a single document. If partners need
+   sizes in bulk, the fix is a size column written at upload time, not a stat loop.
+3. **`/content` is unauthenticated by design and its correctness rests on one method.**
+   `PartnerDocumentDownloadLink::verify()` is the entire authorisation for that route —
+   signature, client liveness, and current ownership. Four tests cover it (expired, tampered,
+   deactivated client, foreign document re-signed correctly). It is the highest-value target in
+   this module; treat any change to it as a security change.
+4. **Signed links are not individually revocable.** Rotating `APP_KEY` or deactivating the
+   client invalidates all of that client's outstanding links; there is no per-link revocation,
+   and a link is not single-use. At a 30-minute TTL this is judged acceptable.
+5. **Still no usage/audit log for partner reads** (phase-1 risk 6, unchanged) — and phase 3 is
+   *entirely* reads. A download leaves only `last_used_at` on the token; the `/content` fetch
+   leaves nothing at all, since it carries no token. If "who downloaded which appraisal, when"
+   ever becomes a question worth answering, that is a new table, and `/content` is where it has
+   to be written.
+6. **Order documents include the vehicle's own documents.** `GET /orders/{order}/documents`
+   returns the order's published reports *and* the paperwork on its vehicle, because a vehicle
+   document has no order to hang off and there is no vehicle-documents endpoint. Two orders on
+   one vehicle therefore both list that vehicle's documents. `source=report` filters to
+   order-specific paperwork.
+7. ~~**The same-day order-number defect is untouched**, as instructed (§12.12.8 risk 2).~~
+   **Fixed in phase 4 — see §12.16.9.**
+8. **B2B/B2C unchanged.** Two additive file modifications, both inside the Partner API's own
+   surface. The full suite shows no third failure.
+
+### 12.15 Phase 4 — the prompt that was used (historical)
+
+```
+Implement Phase 4 of the LeasyBack Partner API: webhooks.
+
+Read section 12 of B2B_IMPLEMENTATION_HANDOFF.md first — 12.12 and 12.14 are the phase 2 and
+3 records and establish the patterns you must follow. Then inspect only what you need:
+app/Modules/PartnerApi/**, and on the portal side TransitionOrderStatus (the one place a
+status changes), B2bOfferService (publish/reject) and the §18 notification dispatch.
+
+Build, under /api/v1/partner:
+- POST   /webhooks                   create a subscription    (Idempotency-Key required)
+- GET    /webhooks                   list subscriptions
+- GET    /webhooks/{id}              retrieve one
+- PATCH  /webhooks/{id}              update url/events/active (Idempotency-Key optional)
+- DELETE /webhooks/{id}              delete
+- GET    /webhooks/{id}/deliveries   recent delivery attempts, paginated
+- POST   /webhooks/{id}/test         send a signed test event
+Gate reads on webhooks.read and writes on webhooks.manage, plus partner.company-can, exactly
+as phases 2 and 3 do. Both abilities already exist in PartnerAbility.
+
+Design constraints — decide these deliberately and record the decisions:
+- Events are emitted from the existing write paths, never polled. Start with the smallest
+  useful set: order.status_changed, offer.published, offer.expired, document.published. Each
+  payload carries ids and the same machine codes the phase-3 read endpoints use — a webhook is
+  a notification to go read, not a second copy of a resource shape.
+- Delivery is queued and retried with backoff; a failing endpoint must never block or slow a
+  status transition. Persist every attempt so /deliveries can answer "did you get it".
+- Sign each request (HMAC-SHA256 over timestamp + body, secret shown once at creation) and
+  document the verification recipe. Include a replay window.
+- Auto-disable a subscription after N consecutive failures and expose that state.
+- The target URL is partner-supplied and therefore an SSRF surface: require https, refuse
+  private/loopback/link-local ranges, and re-check on every delivery, not only at creation.
+- A subscription belongs to one integration client. Cross-company isolation is 404 as always.
+
+Reuse, do not reimplement: PartnerResourceLocator, PartnerApiResponse, PartnerApiException,
+PartnerPagination, EnforcePartnerIdempotency, and the explicit-allow-list Resource pattern.
+
+Do NOT touch OAuth, GDPR, Lexware, billing or statistics. Do NOT change any B2C path or any
+existing portal behaviour. Do NOT add an offer accept/reject endpoint (12.14.4 decision 8) or
+a status-write endpoint (12.12.4 decision 1). Do NOT fix the same-day order-number generator
+in this phase.
+
+Tests required:
+- ability AND company-permission enforcement per endpoint, both halves independently
+- cross-company isolation: another client's subscription is 404
+- an event fires exactly once per transition, and a failing endpoint does not fail the
+  transition
+- retry/backoff, and auto-disable after repeated failure
+- signature verification passes for the right secret and fails for a wrong one; a replay
+  outside the window is refused
+- an http:// or private-range target URL is refused at creation and at delivery
+- the secret is returned once at creation and never again
+- existing B2B, B2C and Partner API tests still pass
+
+Verify: focused tests, full suite once, Pint, route:list, migrate:status, scribe:generate.
+This phase does add a migration and likely a unique constraint — probe the actual driver as
+12.12.7 does before relying on it in a write path.
+Update section 12: add 12.16 for phase 4, extend the tables in 12.14.2/12.14.3/12.14.5/
+12.14.6, record results, and re-point the next-phase prompt.
+Stop after Phase 4.
+```
+
+> **Superseded by §12.16, which records what was actually built.** The executed brief was
+> wider than the prompt above: it added twelve more event types, an outbox, manual replay,
+> secret rotation, and the same-day order-number fix the prompt above deferred. Deltas are
+> listed in §12.16.10.
+
+---
+
+## 12.16 Partner API — Phase 4: webhooks and the order-number fix (2026-08-06)
+
+### 12.16.1 The one rule everything follows
+
+**A webhook is a notification to go read, not a second copy of a resource.** Payloads carry
+ids, references and the same machine codes the phase-3 read endpoints use, so a partner learns
+*what* changed and fetches the current truth over an authenticated endpoint. Two payloads earn
+an exception and both are stated in `PartnerWebhookEvents`' docblock: an offer carries its
+frozen snapshot (re-reading later gives a different answer for a superseded offer), and a
+document carries its metadata ("a file exists" without knowing which file is not actionable).
+
+The corollary, enforced by construction rather than by review: the offer payload is
+`PartnerOfferResource::toArray()` and the document payload is `PartnerDocumentResource`, the
+*same* allow-list classes the read endpoints use. A field those refuse to expose cannot reach a
+webhook body either — no workshop comparison, no gross amounts, no storage path.
+
+### 12.16.2 Architecture — the outbox
+
+Three properties, in the order they matter. All three live in `PartnerWebhookEmitter`.
+
+1. **A rolled-back change is never announced.** The event row is written on the caller's
+   connection, so it is inside whatever transaction the caller is in. Roll back the status
+   change and the event goes with it. This is why the row is written at the write site and not
+   by a job reading the change back afterwards.
+2. **A committed change is never lost.** Fan-out is dispatched `afterCommit()`, so the job can
+   never run against an uncommitted row. If the process dies between commit and dispatch, the
+   row survives with `dispatched_at` null and `partner:webhooks:dispatch-pending` finds it. The
+   queue is the fast path, not the only path.
+3. **A webhook problem never becomes a business problem.** Every emit is wrapped: a failure to
+   record or dispatch is logged at error level and swallowed. No partner endpoint, and no bug
+   in this module, can fail a status transition.
+
+Flow: `PartnerWebhookEvents` (domain vocabulary) → `PartnerWebhookEmitter` (outbox row) →
+`FanOutPartnerWebhookEvent` (one delivery row per interested subscription) →
+`DeliverPartnerWebhook` (one attempt) → `PartnerWebhookDeliverer` (sign, guard, send, record,
+reschedule).
+
+`FanOutPartnerWebhookEvent` is idempotent: `unique(event, subscription)` plus `firstOrCreate`
+means re-running it produces no second delivery, which is what lets the queue be at-least-once
+while the partner sees exactly-once per (event, subscription).
+
+There is a deliberate short-circuit at the top of `emit()`: if no active subscription in the
+company wants this type, nothing is written. Most companies have no integration at all, and an
+outbox row per status change in the system to serve nobody would make this the largest table in
+the database within a month. The race it accepts — a subscription created microseconds after an
+event — costs that subscription one event it was never going to be told about.
+
+### 12.16.3 Files
+
+| File | Purpose |
+|---|---|
+| `app/Modules/PartnerApi/Enums/PartnerWebhookEvent.php` | The 18 event types + `webhook.test`; the status→specific-event map |
+| `app/Modules/PartnerApi/Enums/PartnerWebhookDeliveryStatus.php` | pending / delivering / succeeded / failed / exhausted |
+| `app/Modules/PartnerApi/Models/PartnerWebhookSubscription.php` | Both secrets `encrypted`; `signingSecrets()` handles the rotation window |
+| `app/Modules/PartnerApi/Models/PartnerWebhookEventRecord.php` | The outbox row; `envelope()` builds the documented shape |
+| `app/Modules/PartnerApi/Models/PartnerWebhookDelivery.php` | One (event, subscription) pair; relation is `attemptLog()`, **not** `attempts()` — see below |
+| `app/Modules/PartnerApi/Models/PartnerWebhookDeliveryAttempt.php` | One HTTP call |
+| `app/Modules/PartnerApi/Services/PartnerWebhookEvents.php` | The vocabulary the rest of the app speaks; every payload shape decision |
+| `app/Modules/PartnerApi/Services/PartnerWebhookEmitter.php` | The outbox writer; the three properties above |
+| `app/Modules/PartnerApi/Services/PartnerWebhookSigner.php` | HMAC-SHA256, headers, event ids, the published verification recipe |
+| `app/Modules/PartnerApi/Services/PartnerWebhookUrlGuard.php` | SSRF: scheme, port, hostname, DNS, IPv4/IPv6 ranges |
+| `app/Modules/PartnerApi/Services/PartnerWebhookDeliverer.php` | One attempt and everything that follows from it |
+| `app/Modules/PartnerApi/Services/PartnerWebhookSubscriptionService.php` | CRUD, rotate, replay, test event; the client-scoped query |
+| `app/Modules/PartnerApi/Jobs/FanOutPartnerWebhookEvent.php` | Event → deliveries, idempotent |
+| `app/Modules/PartnerApi/Jobs/DeliverPartnerWebhook.php` | `tries = 1`; the schedule is ours, not the queue's |
+| `app/Modules/PartnerApi/Http/Controllers/WebhookController.php` | 10 endpoints |
+| `app/Modules/PartnerApi/Http/Requests/StorePartnerWebhookRequest.php`, `UpdatePartnerWebhookRequest.php` | Shape validation; the guard does the security half |
+| `app/Modules/PartnerApi/Http/Resources/PartnerWebhookResource.php` | Allow list; `secret` present only on create/rotate |
+| `app/Modules/PartnerApi/Http/Resources/PartnerWebhookDeliveryResource.php` | Delivery + attempt log + bounded excerpts |
+| `app/Console/Commands/Partner/DispatchPendingPartnerWebhooks.php` | The outbox sweeper |
+| `app/Console/Commands/Partner/EmitExpiredOfferEvents.php` | The writer `offer.expired` would otherwise not have |
+| `app/Modules/UserProfile/Order/Services/OrderNumberGenerator.php` | The shared `auftragsnummer` allocator (§12.16.9) |
+| `tests/Feature/PartnerApi/PartnerWebhook{Endpoint,Emission,Delivery,Sweeper}Test.php` | 58 tests |
+| `tests/Feature/PartnerApi/Concerns/BuildsPartnerWebhooks.php` | Subscription scaffolding |
+| `tests/Feature/Order/OrderNumberGeneratorTest.php` | 11 tests |
+
+**Modified:** `config/partner_api.php` (a `webhooks` block), `.env.example` (9 documented
+knobs, no secrets), `routes/partner.php` (10 routes), `routes/console.php` (2 scheduled
+commands), and seven write paths listed in §12.16.6. `PartnerApiOrderController` lost its
+`order_reference_conflict` translation; `VehicleService::generateAuftragsnummer()` was removed.
+
+**One naming trap worth knowing about.** `partner_webhook_deliveries.attempts` is an integer
+column (the count). An Eloquent relation of the same name is shadowed by the attribute and
+silently returns an int where the caller asked for a collection — which is exactly what
+happened during development. The relation is `attemptLog()`.
+
+### 12.16.4 Migrations
+
+All four applied locally (SQLite, batches 19–20); Postgres in production.
+
+| Migration | Table | Notes |
+|---|---|---|
+| `2026_08_06_000006` | `order_number_reservations` | `unique(reference)` — the index that decides a concurrent allocation |
+| `2026_08_06_000007` | `partner_webhook_subscriptions` | FK cascade on client delete; two encrypted secret columns |
+| `2026_08_06_000008` | `partner_webhook_events` | `unique(event_id)`; `(dispatched_at, occurred_at)` index for the sweeper |
+| `2026_08_06_000009` | `partner_webhook_deliveries` + `partner_webhook_delivery_attempts` | `unique(event, subscription)` — what makes a replay a retry rather than a second event |
+| `2026_08_06_000010` | `b2b_offer_presentations.expired_notified_at` | The once-only marker for `offer.expired` |
+
+### 12.16.5 Events
+
+18 types, each with a real emit point in the existing workflow. Nothing aspirational: an event
+with no writer is a promise partners build retries around and never receive.
+
+| Event | Emitted from |
+|---|---|
+| `vehicle.created`, `vehicle.updated` | `VehicleService::createVehicle()` / `updateVehicle()` |
+| `order.created` | `OrderService::createB2bCollectionOrder()` |
+| `order.status_changed` | `TransitionOrderStatus` — every real transition |
+| `order.appraisal_completed` | `TransitionOrderStatus` → `inspected` |
+| `order.repair_started` | `TransitionOrderStatus` → `workshop` |
+| `order.final_appraisal_completed` | `TransitionOrderStatus` → `reinspection` |
+| `order.completed` | `TransitionOrderStatus` → `completed` |
+| `order.collection_confirmed` | `OrderCollectionService::updateByAdmin()`, first confirmed date |
+| `order.collection_rescheduled` | Same, when a confirmed date moves |
+| `order.billing_completed` | `B2bBillingService::update()`, on the transition into processed |
+| `document.available` | `VehicleReportService` transfer/upload/publish, published only |
+| `document.replaced` | `VehicleReportService` unpublish and delete of a published document |
+| `offer.published` | `OfferService::publishOffer()`, after the snapshot is frozen |
+| `offer.accepted` | `OfferService::selectOffer()` |
+| `offer.rejected` | `B2bOfferService::reject()` |
+| `offer.updated` | A *presented* offer withdrawn (`cancelOffer`) or superseded by a sibling's acceptance |
+| `offer.expired` | `partner:webhooks:emit-expired-offers` (daily 07:30) |
+
+The four status-derived events fire **in addition to** `order.status_changed`, not instead of
+it: a partner building a state machine wants every edge, one who only cares that the appraisal
+is in wants a single subscription that fires once, and sending only one of the two forces
+somebody to filter.
+
+Three vocabulary decisions worth not re-litigating:
+
+1. **`offer.updated` covers withdrawal and supersession**, because neither is a *decision* and
+   there is no separate offer state for either. A draft cancelled before presentation emits
+   nothing — nobody was ever told about it.
+2. **`offer.expired` needed a column.** Every other offer outcome is somebody pressing a
+   button; expiry is a date passing. §10.1 decides expiry at read time from `valid_until`, so
+   there was no write to hang an event on. `expired_notified_at` is that write and is read by
+   nothing else — how expiry is *determined* is unchanged everywhere.
+3. **`order.billing_completed` carries no figures.** The Partner API exposes no billing
+   endpoint, and a webhook must not be a side door into data no endpoint serves.
+4. **B2C emits nothing, with no channel check at any emit site.** `PartnerWebhookEvents`
+   resolves the company from the vehicle; a B2C vehicle has none, so `emit()` returns
+   immediately. Adding a new emit site cannot forget the B2C guard, because there isn't one.
+
+### 12.16.6 Write paths modified
+
+Seven, each one line plus a constructor dependency on `PartnerWebhookEvents`:
+`TransitionOrderStatus`, `OrderService`, `VehicleService`, `OrderCollectionService`,
+`OfferService`, `B2bOfferService`, `B2bBillingService`, `VehicleReportService`.
+
+Every emit sits **inside** the surrounding transaction. That is the point of §12.16.2 property
+1, and it is safe because the emitter never does I/O — it writes one row and registers an
+after-commit dispatch.
+
+`B2bOfferService::announceOffer()` is the single funnel for all five offer events. An offer
+only exists for partners once it has a `b2b_offer_presentations` row, and that check has to be
+in one place or a B2C offer — which never has one — would eventually leak through a new call
+site.
+
+### 12.16.7 Signing
+
+```
+X-LeasyBack-Event-ID    evt_{32 hex}     stable across every retry and replay
+X-LeasyBack-Timestamp   {unix seconds}
+X-LeasyBack-Signature   v1={hex hmac}
+```
+
+`HMAC-SHA256(secret, "{timestamp}.{raw body}")`. The verification recipe is published to
+partners verbatim (see `PartnerWebhookSigner`'s docblock, and it is returned in the create and
+rotate responses alongside the secret — the moment they are actually writing the check):
+
+1. read the timestamp; reject if further than `replay_tolerance_seconds` (default 300) from
+   your clock;
+2. compute the HMAC over `timestamp + "." + raw_request_body`;
+3. constant-time compare against the `v1=` value;
+4. use the event id to discard events you have already processed.
+
+The timestamp is **inside** the signed material deliberately. Signing the body alone would let
+anyone who captured one request replay it forever; because the timestamp is covered, a replayer
+cannot move it forward without invalidating the signature, which is what makes step 1 a real
+defence rather than a decorative one. The `v1=` prefix is a version marker so a future scheme
+change can send both during a transition.
+
+Secrets are `whsec_` + 64 hex, shown exactly twice in a subscription's life (creation and
+rotation) and stored as an `encrypted` cast. Rotation keeps the previous secret verifying for
+`secret_rotation_grace_minutes` (default 60) so a partner deploys rather than cuts over.
+
+The body is `json_encode(..., JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE)` — pinned, not
+defaulted, because any change to how we serialise is a change to every signature. Retries
+re-serialise deterministically: the event payload is frozen at emit, and the per-client
+external-id map added at send time is immutable once registered.
+
+### 12.16.8 Retry policy, auto-disable and SSRF
+
+**Backoff** is a config table, not arithmetic, so the schedule can be quoted to a partner
+exactly: `30s, 2m, 10m, 1h, 6h` after the preceding attempt — six attempts over roughly seven
+hours. Running off the end sets the delivery to `exhausted`; nothing further happens without a
+manual replay. `failed` and `exhausted` are distinct states because "still trying" and "gave
+up" are different answers and one flag cannot say both.
+
+`DeliverPartnerWebhook::$tries = 1`. The schedule is ours — persisted, visible over
+`/deliveries`, quotable — and letting the queue retry as well would produce two overlapping
+schedules and an attempt count that does not match reality.
+
+**Auto-disable** counts consecutive failed *deliveries*, not attempts, so a dead endpoint is
+measured in events missed. At 20 (configurable) the subscription is suspended with a reason a
+partner can read over the API. Any success clears the counter; so does re-enabling, or a fixed
+endpoint would be suspended again by its next single failure.
+
+**SSRF.** The target URL is the one thing a partner writes and our servers then fetch.
+`PartnerWebhookUrlGuard` is called at creation *and before every single delivery*, because DNS
+is not a property of the URL — a hostname that answered a public address when the subscription
+was created can answer `169.254.169.254` an hour later.
+
+- https only (an `http` escape hatch exists off-production and is ignored outright when
+  `APP_ENV=production`);
+- ports restricted to 80/443/8443;
+- credentials in the URL refused;
+- hostnames refused by name: `localhost`, `*.local`, `*.internal`, `*.localdomain`, and any
+  bare label with no dot (a container name or an internal DNS shortcut);
+- both A and AAAA records resolved — resolving only A would leave a host whose AAAA points at
+  `::1` unchecked;
+- IPv4 blocked: `0.0.0.0/8`, `10/8`, `100.64/10`, `127/8`, `169.254/16` (link-local *and* cloud
+  instance metadata), `172.16/12`, `192.0.0/24`, `192.168/16`, multicast, reserved, and the
+  documentation ranges;
+- IPv6 blocked: unspecified, loopback, link-local, site-local, unique-local, multicast, and
+  IPv4-mapped;
+- the connection is pinned to the approved addresses via `CURLOPT_RESOLVE`, so a DNS answer
+  that changes between the check and the connect cannot be reached;
+- **redirects are not followed at all** (`allow_redirects => false`). A 30x is the cheapest way
+  to turn a validated public URL into a request against an internal one, and no legitimate
+  receiver needs one; a 30x is recorded as a failed delivery with its status code.
+
+A delivery blocked by the guard is recorded as an attempt with `blocked = true` and no status
+code, and retried on the normal schedule — a partner who corrected their DNS should not be
+stranded.
+
+### 12.16.9 The `auftragsnummer` fix
+
+**The defect.** The reference was registration number (spaces and dashes stripped) plus `ymd`,
+with a unique index on `leasyback_orders.auftragsnummer`. A second order for the same vehicle
+on the same calendar day — legal once the first has closed — collided at that index. The portal
+surfaced it as a 500; the Partner API translated it to a `order_reference_conflict` a partner
+could do nothing about.
+
+**The format.** Unchanged for the first order of a vehicle-day; subsequent ones gain `-02`,
+`-03`, … `-` cannot occur in the base (the plate is stripped of it first), so the separator is
+unambiguous and a prefix search still finds every order of that vehicle-day. Every historical
+value is still exactly what it was.
+
+Dependencies checked before choosing it: `AdminQueryService::applyListSearch` (a LIKE over
+`o.auftragsnummer` — a suffix is fine), `VehicleReportService`'s storage path
+`vehicle-reports/{auftragsnummer}/…` (path-safe), the six tables with an FK on the value
+(`string`, so 3 more characters fit), and the statistics export. **Nothing anywhere parses the
+reference** — no `substr`, `preg_`, `explode` or `strlen` against it in PHP or in the frontend
+— so no consumer can be broken by the suffix.
+
+**Concurrency** is handled by claiming, not by hoping. `OrderNumberGenerator::reserve()` scans
+for the highest sequence, inserts the candidate into `order_number_reservations`, and lets that
+table's unique index decide the race; the loser rescans and takes the next number. There is no
+random component and no silent fallback — exhausting the retries raises, because a reference
+nobody can predict from the plate and the date would be worse than a visible failure.
+
+The claim happens **before** the order row exists, on purpose: `createTuvsudOrder()` puts the
+reference into an outbound booking payload before persisting, so "insert and retry on conflict"
+would mean re-sending a booking. Reserving first keeps every channel — B2C inspections, B2B
+collections, Partner API creations — on one code path and one sequence.
+
+Reservations are never deleted. A reservation whose order was never created burns that number
+deliberately: reusing it would hand a partner a reference they may already have seen on a failed
+request. The scan reads both tables, because orders written before this table existed have a
+reference and no reservation row.
+
+Consequences: `VehicleService::generateAuftragsnummer()` is gone (its only callers were the
+three `OrderService` creation paths), the Partner API's `order_reference_conflict` code is
+**withdrawn**, and the one-open-order-per-vehicle rule and the unique index are both untouched.
+
+### 12.16.10 Deltas from the §12.15 prompt
+
+| §12.15 proposed | Built | Why |
+|---|---|---|
+| 4 event types | **18** | The executed brief listed them, and each maps to a writer that already existed. |
+| No outbox mentioned | **Outbox + sweeper command** | "Committed business changes must not lose their webhook event" cannot be satisfied by an after-commit dispatch alone. |
+| No replay | **`POST /deliveries/{id}/replay`** | Executed brief required manual replay. |
+| No secret rotation endpoint | **`POST /rotate-secret`** with grace window | Executed brief required rotation. |
+| `document.published` | **`document.available` / `document.replaced`** | Two states, and withdrawal needed a name. |
+| Order-number fix explicitly deferred | **Done** | Executed brief required it in this phase. |
+| `POST /webhooks/{id}/test` | built | unchanged |
+| Auto-disable after N failures | built | unchanged |
+
+### 12.16.11 New error codes
+
+| Situation | Status | `error.code` |
+|---|---|---|
+| Target URL fails the SSRF guard | 400 | `webhook_url_not_allowed` |
+| Unknown event type in the list | 400 | `webhook_event_type_unknown` |
+| Empty event-type list after normalisation | 400 | `webhook_event_types_required` |
+| Subscription id not this client's | 404 | `webhook_not_found` |
+| Delivery id not this subscription's | 404 | `webhook_delivery_not_found` |
+| Replaying a delivery that already succeeded | 409 | `webhook_delivery_already_succeeded` |
+
+**Withdrawn:** `order_reference_conflict` (409). It described a collision that can no longer
+occur. A unique violation on that column would now be a real bug and is left to surface as one.
+
+These join §12.4, §12.12.5 and §12.14.5. As there: **changing one is a breaking change.**
+
+### 12.16.12 Routes
+
+```
+GET    /api/v1/partner/webhooks                                 webhooks.read   + company.view
+POST   /api/v1/partner/webhooks                                 webhooks.manage + company.view + Idempotency-Key required
+GET    /api/v1/partner/webhooks/{webhook}                       webhooks.read   + company.view
+PATCH  /api/v1/partner/webhooks/{webhook}                       webhooks.manage + company.view + Idempotency-Key optional
+DELETE /api/v1/partner/webhooks/{webhook}                       webhooks.manage + company.view
+POST   /api/v1/partner/webhooks/{webhook}/rotate-secret         webhooks.manage + company.view
+POST   /api/v1/partner/webhooks/{webhook}/test                  webhooks.manage + company.view
+GET    /api/v1/partner/webhooks/{webhook}/deliveries            webhooks.read   + company.view
+GET    /api/v1/partner/webhooks/{webhook}/deliveries/{delivery} webhooks.read   + company.view
+POST   /api/v1/partner/webhooks/{webhook}/deliveries/{delivery}/replay  webhooks.manage + company.view
+```
+
+The company gate is `company.view` rather than `company.manage` deliberately: a subscription is
+the integration client's own configuration, not company master data, and the integration
+account holds no master-data permission by design (§12.6). What the gate asserts here is that
+the account is still a live member of its company. The *ability* is what separates reads from
+writes, and both halves are still independently required.
+
+Both `/deliveries` routes sit under the subscription so the ownership check is one lookup: a
+delivery is reachable only through its subscription, which is reachable only through this
+token's client.
+
+### 12.16.13 Tests
+
+| File | Tests | Covers |
+|---|---|---|
+| `PartnerWebhookEndpointTest` | 15 | create/read/update/delete, secret shown once and encrypted at rest, unknown event type refused, ability **and** company permission independently, cross-client 404, disable/re-enable, rotation + grace, test event, replay (and the 409 on a succeeded one), failure filter |
+| `PartnerWebhookEmissionTest` | 12 | event created once per transition, no event on a no-op, **no event after rollback**, specific + generic event pair, no audience → no row, B2C → nothing, cross-company fan-out isolation, fan-out idempotence, order creation, internal note absent from a collection event, immutable offer snapshot + no workshop data, `offer.expired` exactly once |
+| `PartnerWebhookDeliveryTest` | 27 | HMAC against the published recipe, wrong secret fails, timestamp covered, rotation window verifies both, documented backoff, event id stable across retries, success stops retries, auto-disable, disabled subscription never called, bounded excerpt, envelope shape, **13 SSRF targets**, re-check at delivery time, redirect not followed |
+| `PartnerWebhookSweeperTest` | 4 | undispatched event re-queued, fresh event left alone, overdue retry re-queued, succeeded delivery never re-queued |
+| `OrderNumberGeneratorTest` | 11 | first order keeps the historical form, second same-day suffixed, 25 repeats all unique, concurrent claim skipped, unused reservation not recycled, similar plates, historical order with no reservation row, unparsable suffix, B2B portal path, B2C path, exhaustion raises |
+
+`PartnerOrderEndpointTest`'s `a_second_order_on_the_same_day_conflicts_rather_than_erroring`
+was **rewritten**, not removed: it now asserts the second same-day order is created with a
+`-02` reference. The old assertion pinned the defect.
+
+The signature tests compute the expected HMAC in the test rather than calling the signer — a
+test that asked the signer to check its own output would pass even if the documented recipe
+were wrong.
+
+### 12.16.14 Verification
+
+| Check | Result |
+|---|---|
+| `tests/Feature/PartnerApi` | **220 passed** (866 assertions) |
+| `tests/Feature/Order` | **21 passed** (76 assertions) |
+| `tests/Feature/B2b` | **59 passed** (175 assertions) |
+| Full suite | **702 tests, 2 failed, 4 skipped** (2662 assertions) — the two §6 baseline failures, **no third** |
+| `vendor/bin/pint --dirty` | clean |
+| `route:list --path=api/v1/partner` | 28 routes (18 before + 10) |
+| `route:cache` | succeeds |
+| `migrate:status` | all 5 new migrations `Ran` (batches 19–20) |
+| `schedule:list` | 3 entries; the 2 new ones due as expected |
+| `queue:failed` | none |
+
+**A note on running the full suite locally:** `php artisan test` exhausts the default 128 MB
+memory limit partway through. `php -d memory_limit=1024M vendor/bin/phpunit --no-progress` is
+the run the numbers above come from.
+
+**Operational requirement.** Webhook jobs run on a dedicated `webhooks` queue so a backlog of
+retries against one dead endpoint cannot starve the application's own work. **The worker must
+be told to consume it** — `php artisan queue:work --queue=webhooks,default`. A deployment that
+misses this will record events and deliver none of them; the sweeper will keep re-queueing them
+onto a queue nobody reads.
+
+### 12.16.15 Risks and open points
+
+1. **The dedicated queue is a deployment footgun.** See above. There is no runtime check that
+   anything is consuming `webhooks`; the symptom is a growing `partner_webhook_deliveries`
+   table with every row `pending`. A health check that alerts on the oldest pending delivery
+   would close this and is not built.
+2. **On Postgres, a failed outbox insert poisons the caller's transaction.** `emit()` catches
+   `Throwable` so it cannot *raise* into the business path, but Postgres aborts a transaction
+   on any failed statement — so a genuine insert failure there would fail the surrounding
+   business write anyway, despite the catch. This requires a schema or constraint problem to
+   trigger, and would be a real bug rather than a partner's doing. Untested against Postgres:
+   local is SQLite.
+3. **`CURLOPT_RESOLVE` pinning is unverified end to end.** `Http::fake()` never reaches cURL,
+   so the tests cover the guard's refusal (13 targets, plus the re-check at delivery) and not
+   the pinning itself. The pinning is defence in depth behind a check that *is* tested; a live
+   integration test against a rebinding host is the only way to close it properly.
+4. **The replay window is advisory.** We send the timestamp and document the tolerance; whether
+   a partner enforces it is theirs to decide. We cannot detect a partner who ignores step 1.
+5. **`offer.updated` is doing two jobs** — withdrawn, and superseded by a sibling's acceptance.
+   A partner cannot tell them apart from the event type alone; they have to read
+   `offer.status` (`cancelled` vs `closed`). Splitting it later is an additive change.
+6. **No usage/audit log for partner reads** (phase-1 risk 6, phase-3 risk 5, unchanged). Webhook
+   *deliveries* are now fully logged, which is the first thing in this API that is.
+7. **Order-number reservations grow without bound**, one row per order plus any burned by
+   failed creations. That is the same order of magnitude as `leasyback_orders` itself and is
+   judged acceptable; the table is never scanned except by `reference_base`, which is indexed.
+8. **The generator's exhaustion path is reachable only by a corrupted ledger.** The test that
+   covers it writes a reservation whose `reference` and `reference_base` disagree. Sustained
+   real contention on one vehicle-day cannot reach 10 rescans, because
+   `hasUnfinishedOrder()` refuses a second open order for the same vehicle first.
+9. **B2C is unchanged and asserted so.** The B2C creation path shares the generator (tested),
+   and B2C orders emit no events at all (tested). The full suite shows no third failure.
+
+### 12.17 Next phase — ready-to-use prompt
+
+```
+Implement Phase 5 of the LeasyBack Partner API: the documentation and onboarding surface.
+
+Read section 12 of B2B_IMPLEMENTATION_HANDOFF.md first — 12.12, 12.14 and 12.16 are the phase
+2, 3 and 4 records and establish the patterns you must follow. Do not re-audit phases 1–4.
+Inspect only config/scribe.php, the Scribe attributes already on the Partner API controllers,
+and app/Modules/PartnerApi/**.
+
+Build:
+- A generated, publishable API reference for /api/v1/partner. Every endpoint already carries
+  Scribe attributes; the gaps are the webhook endpoints' response examples, an authentication
+  section that explains the bearer format and the two-gate authorization model (§12.4), and a
+  webhooks page carrying the event catalogue, the envelope, the signing recipe and the retry
+  table verbatim from §12.16.7–8.
+- Runnable verification snippets for the signature check in at least two languages. These are
+  the single highest-support-cost part of the integration; a partner who copies a working
+  checker never opens a ticket about it.
+- A machine-readable event catalogue endpoint or artefact (the 18 types plus their payload
+  shapes), so a partner can validate their handler coverage without reading prose.
+- Sandbox onboarding: what a partner receives, in what order, and how they verify a fresh
+  credential end to end (/health, /me, a test webhook) before any real data exists.
+
+Design constraints — decide these deliberately and record the decisions:
+- The docs are generated from the code, never hand-maintained in parallel. An endpoint that
+  changes shape and does not change its docs is the failure mode to design against.
+- Error codes are a published contract (§12.4, §12.12.5, §12.14.5, §12.16.11). The reference
+  must list every one in a single table, and adding one must be visible in a diff.
+- Do NOT change any endpoint's behaviour, any payload shape, or any error code in this phase.
+  If you find one that is wrong, record it in the risks section and leave it.
+
+Do NOT touch OAuth, GDPR, Lexware, billing or statistics. Do NOT change any B2C path or any
+existing portal behaviour. Do NOT add an offer accept/reject endpoint (12.14.4 decision 8) or a
+status-write endpoint (12.12.4 decision 1).
+
+Tests required:
+- scribe:generate succeeds and the output contains every route route:list reports
+- the error-code table matches the codes the exception classes can actually produce
+- the published signature recipe verifies a request the deliverer actually built (assert
+  against a real PartnerWebhookDeliverer body, not a fixture)
+- existing B2B, B2C and Partner API tests still pass
+
+Verify: focused tests, full suite once (use `php -d memory_limit=1024M vendor/bin/phpunit
+--no-progress`; `php artisan test` runs out of memory — §12.16.14), Pint, route:list,
+migrate:status, scribe:generate.
+Update section 12: add 12.18 for phase 5, extend the tables in 12.16.3/12.16.12/12.16.13,
+record results, and re-point the next-phase prompt.
+Stop after Phase 5.
 ```
