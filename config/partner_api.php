@@ -28,7 +28,16 @@ return [
         // Default lifetime for a newly issued token, in days. null = no
         // expiry, which is the intended default: these are long-lived
         // machine credentials rotated on demand, not session tokens.
-        'default_expiry_days' => env('PARTNER_API_TOKEN_EXPIRY_DAYS'),
+        //
+        // Normalised to ?int here rather than left raw. A `.env` line reading
+        // `PARTNER_API_TOKEN_EXPIRY_DAYS=` yields the *string* `''`, which is
+        // not null, survives `??`, and casts to 0 — issuing tokens that expire
+        // the instant they are created. Blank, non-numeric and <= 0 all mean
+        // "never".
+        'default_expiry_days' => is_numeric($expiryDays = env('PARTNER_API_TOKEN_EXPIRY_DAYS'))
+            && (int) $expiryDays > 0
+                ? (int) $expiryDays
+                : null,
 
         // Grace period applied by `partner:token:rotate` before the previous
         // token is revoked, so a partner can deploy the new secret without a

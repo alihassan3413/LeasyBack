@@ -5,7 +5,6 @@ namespace App\Console\Commands\Partner;
 use App\Modules\PartnerApi\Enums\PartnerAbility;
 use App\Modules\PartnerApi\Services\PartnerClientProvisioner;
 use App\Modules\UserProfile\B2B\Models\B2B;
-use Illuminate\Support\Carbon;
 use Throwable;
 
 /**
@@ -77,7 +76,6 @@ class ProvisionPartnerClient extends PartnerCommand
         }
 
         $slug = (string) $this->argument('slug');
-        $expiresInDays = $this->option('expires-in-days') ?? config('partner_api.token.default_expiry_days');
 
         try {
             $issued = $provisioner->provision(
@@ -87,7 +85,7 @@ class ProvisionPartnerClient extends PartnerCommand
                 company: $company,
                 integrationUserEmail: $this->option('user-email') ?: null,
                 abilities: $abilities,
-                expiresAt: $expiresInDays === null ? null : Carbon::now()->addDays((int) $expiresInDays),
+                expiresAt: $this->resolveTokenExpiry(),
                 contactEmail: $this->option('contact-email') ?: null,
                 issuedBy: $this->option('issued-by') ?: 'cli',
             );

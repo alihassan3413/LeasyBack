@@ -12,6 +12,7 @@ use App\Modules\PartnerApi\Services\PartnerClientProvisioner;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\PartnerApi\Concerns\BuildsPartnerClients;
 use Tests\TestCase;
 
@@ -341,6 +342,187 @@ class PartnerProvisioningCommandTest extends TestCase
         $this->artisan('partner:activate', ['slug' => 'shiftmove', '--environment' => 'staging'])
             ->expectsOutputToContain('Unknown environment')
             ->assertFailed();
+    }
+
+    public function test_a_sandbox_token_is_issued_with_no_expiry(): void
+    {
+        $company = $this->makePartnerCompany();
+
+        $this->artisan('partner:provision', [
+            'slug' => 'shiftmove',
+            '--company' => $company->b2b_id,
+            '--environment' => 'sandbox',
+        ])->assertSuccessful();
+
+        $token = PartnerIntegrationClient::where('slug', 'shiftmove')->firstOrFail()
+            ->tokens()->firstOrFail();
+
+        $this->assertNull($token->expires_at);
+        $this->assertFalse($token->isExpired());
+        $this->assertTrue($token->isUsable());
+    }
+
+    public function test_a_production_token_is_issued_with_no_expiry(): void
+    {
+        $company = $this->makePartnerCompany();
+
+        $this->artisan('partner:provision', [
+            'slug' => 'shiftmove',
+            '--company' => $company->b2b_id,
+            '--environment' => 'production',
+            '--force' => true,
+        ])->assertSuccessful();
+
+        $token = PartnerIntegrationClient::where('slug', 'shiftmove')
+            ->where('environment', PartnerEnvironment::Production->value)
+            ->firstOrFail()
+            ->tokens()->firstOrFail();
+
+        $this->assertNull($token->expires_at);
+        $this->assertFalse($token->isExpired());
+    }
+
+    public function test_a_token_with_no_expiry_authenticates(): void
+    {
+        $company = $this->makePartnerCompany();
+
+        $plainText = $this->capturedToken('partner:provision', [
+            'slug' => 'shiftmove',
+            '--company' => $company->b2b_id,
+        ]);
+
+        $this->assertNull(PartnerApiToken::latest('id')->firstOrFail()->expires_at);
+
+        $this->getJson('/api/v1/partner/me', $this->bearer($plainText))
+            ->assertOk()
+            ->assertJsonPath('data.client.slug', 'shiftmove');
+    }
+
+    /**
+     * The production regression this fix exists for.
+     *
+     * `.env` shipping `PARTNER_API_TOKEN_EXPIRY_DAYS=` makes `env()` return the
+     * string `''`. It is not null, so `??` does not fall back to "never"; it
+     * casts to 0, so `addDays()` produced *now*. Every token issued on such a
+     * server was expired on arrival and the API answered `token_expired` on the
+     * partner's first request. Each of these values must mean never.
+     *
+     * @return list<array{mixed}>
+     */
+    public static function blankExpiryProvider(): array
+    {
+        return [
+            'blank env value' => [''],
+            'zero' => [0],
+            'zero as text' => ['0'],
+            'whitespace' => ['   '],
+            'non-numeric' => ['never'],
+            'negative' => [-1],
+        ];
+    }
+
+    #[DataProvider('blankExpiryProvider')]
+    public function test_a_non_positive_expiry_setting_issues_a_token_that_never_expires(mixed $configured): void
+    {
+        config(['partner_api.token.default_expiry_days' => $configured]);
+
+        $company = $this->makePartnerCompany();
+
+        $plainText = $this->capturedToken('partner:provision', [
+            'slug' => 'shiftmove',
+            '--company' => $company->b2b_id,
+        ]);
+
+        $token = PartnerApiToken::latest('id')->firstOrFail();
+
+        $this->assertNull($token->expires_at);
+
+        // The assertion that would have caught this in production: the token
+        // the operator just handed over actually works.
+        $this->getJson('/api/v1/partner/me', $this->bearer($plainText))->assertOk();
+    }
+
+    public function test_the_config_normalises_a_blank_expiry_env_value_to_null(): void
+    {
+        $normalise = static fn (mixed $raw): ?int => is_numeric($raw) && (int) $raw > 0 ? (int) $raw : null;
+
+        $this->assertNull($normalise(''), 'A blank .env value must mean never, not now.');
+        $this->assertNull($normalise(null));
+        $this->assertNull($normalise('0'));
+        $this->assertNull($normalise('not-a-number'));
+        $this->assertSame(30, $normalise('30'));
+
+        // The shipped default is unset, so the resolved config is null.
+        $this->assertNull(config('partner_api.token.default_expiry_days'));
+    }
+
+    public function test_an_explicit_expiry_is_still_honoured(): void
+    {
+        $company = $this->makePartnerCompany();
+
+        $this->artisan('partner:provision', [
+            'slug' => 'shiftmove',
+            '--company' => $company->b2b_id,
+            '--expires-in-days' => 30,
+        ])->assertSuccessful();
+
+        $token = PartnerApiToken::latest('id')->firstOrFail();
+
+        $this->assertNotNull($token->expires_at);
+        $this->assertEqualsWithDelta(30, now()->diffInDays($token->expires_at, false), 1);
+    }
+
+    public function test_provisioning_reports_that_the_token_never_expires(): void
+    {
+        $company = $this->makePartnerCompany();
+
+        // Artisan::call rather than $this->artisan(): this asserts on the whole
+        // block the operator actually reads, in one piece.
+        $this->assertSame(0, Artisan::call('partner:provision', [
+            'slug' => 'shiftmove',
+            '--company' => $company->b2b_id,
+        ]));
+
+        $output = Artisan::output();
+
+        $this->assertMatchesRegularExpression('/Expires\s[\s.]*\sNever/', $output);
+        $this->assertStringNotContainsString('token_expired', $output);
+    }
+
+    public function test_rotation_also_issues_a_token_with_no_expiry(): void
+    {
+        config(['partner_api.token.default_expiry_days' => '']);
+
+        $company = $this->makePartnerCompany();
+
+        $this->artisan('partner:provision', ['slug' => 'shiftmove', '--company' => $company->b2b_id])
+            ->assertSuccessful();
+
+        $rotated = $this->capturedToken('partner:token:rotate', ['slug' => 'shiftmove']);
+
+        $this->assertNull(PartnerApiToken::latest('id')->firstOrFail()->expires_at);
+
+        $this->getJson('/api/v1/partner/me', $this->bearer($rotated))->assertOk();
+    }
+
+    public function test_issuing_a_token_does_not_alter_an_existing_ones_expiry(): void
+    {
+        $company = $this->makePartnerCompany();
+
+        $this->artisan('partner:provision', ['slug' => 'first-partner', '--company' => $company->b2b_id])
+            ->assertSuccessful();
+
+        // An already-expiring token, as a server that ran the old code would hold.
+        $existing = PartnerApiToken::latest('id')->firstOrFail();
+        $existing->forceFill(['expires_at' => now()->subDay()])->save();
+
+        $this->artisan('partner:provision', ['slug' => 'second-partner', '--company' => $company->b2b_id])
+            ->assertSuccessful();
+
+        // Untouched: the fix changes what is issued from now on, and nothing
+        // reaches back to rewrite credentials a partner may already be using.
+        $this->assertTrue($existing->fresh()->expires_at->isYesterday());
+        $this->assertNull(PartnerApiToken::latest('id')->firstOrFail()->expires_at);
     }
 
     /**

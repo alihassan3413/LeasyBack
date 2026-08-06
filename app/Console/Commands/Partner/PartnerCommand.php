@@ -5,8 +5,10 @@ namespace App\Console\Commands\Partner;
 use App\Modules\PartnerApi\Data\IssuedPartnerToken;
 use App\Modules\PartnerApi\Enums\PartnerEnvironment;
 use App\Modules\PartnerApi\Models\PartnerIntegrationClient;
+use Carbon\CarbonInterface;
 use Illuminate\Console\Command;
 use Illuminate\Console\ConfirmableTrait;
+use Illuminate\Support\Carbon;
 
 /**
  * Shared plumbing for the partner credential commands.
@@ -88,10 +90,39 @@ abstract class PartnerCommand extends Command
         $this->components->twoColumnDetail('Abilities', implode(', ', $issued->token->abilityValues()));
         $this->components->twoColumnDetail(
             'Expires',
-            $issued->token->expires_at?->toDayDateTimeString() ?? 'never (rotate on demand)',
+            $issued->token->expires_at?->toDayDateTimeString() ?? 'Never',
         );
         $this->newLine();
         $this->components->warn('Send it over a channel the partner controls. Rotate it if it is ever pasted anywhere else.');
+    }
+
+    /**
+     * When a newly issued token should expire, or null for never.
+     *
+     * Never is the default and the only value anything sets today: these are
+     * long-lived machine credentials, retired with `partner:token:revoke` or
+     * `partner:deactivate`, not session tokens that lapse on a timer.
+     *
+     * The care here is about *blank*, not about the happy path. `.env` shipping
+     * `PARTNER_API_TOKEN_EXPIRY_DAYS=` makes `env()` return `''`, which `??`
+     * does not treat as absent and `(int)` turns into `0` — and `addDays(0)` is
+     * now, so every token issued on such a server was born expired and the API
+     * answered `token_expired` on the partner's first call. An empty option,
+     * an empty env value, a non-numeric one and anything `<= 0` therefore all
+     * mean "never" rather than "immediately"; the failure mode of guessing
+     * wrong is a dead credential, so guess in the direction that still works.
+     */
+    protected function resolveTokenExpiry(): ?CarbonInterface
+    {
+        $raw = $this->option('expires-in-days') ?? config('partner_api.token.default_expiry_days');
+
+        if ($raw === null || ! is_numeric($raw)) {
+            return null;
+        }
+
+        $days = (int) $raw;
+
+        return $days > 0 ? Carbon::now()->addDays($days) : null;
     }
 
     /**

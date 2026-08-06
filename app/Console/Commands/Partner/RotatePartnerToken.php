@@ -4,7 +4,6 @@ namespace App\Console\Commands\Partner;
 
 use App\Modules\PartnerApi\Enums\PartnerAbility;
 use App\Modules\PartnerApi\Services\PartnerTokenService;
-use Illuminate\Support\Carbon;
 
 /**
  * Issues a replacement credential and retires the current ones.
@@ -54,14 +53,13 @@ class RotatePartnerToken extends PartnerCommand
             return self::FAILURE;
         }
 
-        $expiresInDays = $this->option('expires-in-days') ?? config('partner_api.token.default_expiry_days');
         $graceMinutes = $this->option('grace-minutes')
             ?? config('partner_api.token.rotation_grace_minutes');
 
         $issued = $tokens->rotate(
             client: $client,
             abilities: $abilities,
-            expiresAt: $expiresInDays === null ? null : Carbon::now()->addDays((int) $expiresInDays),
+            expiresAt: $this->resolveTokenExpiry(),
             graceMinutes: (int) $graceMinutes,
             issuedBy: $this->option('issued-by') ?: 'cli',
         );
