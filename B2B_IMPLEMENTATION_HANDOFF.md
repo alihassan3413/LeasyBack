@@ -3886,11 +3886,62 @@ them**.
 purpose, and a deploy that silently regenerated it would change what a partner has been sent
 without anybody deciding to. `PartnerApiDocumentationTest` catches a missed rebuild in CI.
 
+#### The external docs URL — `/api-docs` (2026-08-07)
+
+The zip covers a handover; it does not cover the standing URL a partner links their engineers at,
+and re-zipping on every API change is how documentation goes stale. Added:
+**`{APP_URL}/api-docs/`, HTTP Basic Auth, served by nginx directly out of
+`storage/app/private/partner-api-docs`.**
+
+No hostname is hard-coded anywhere in this. The docs URL is `APP_URL` plus a path — nginx serves
+it from the existing server block, so there is no config key for it and Laravel never generates
+it. The API host in the *generated* artefacts stays `PARTNER_API_DOCS_BASE_URL` (falling back to
+`APP_URL`), which despite its name is the API base URL baked into the examples, not the address
+of the documentation site. There is no `PARTNER_API_BASE_URL` key and none was added. Runbook
+prose uses `YOUR-ACTUAL-DOMAIN`; local defaults are `http://127.0.0.1:8001/partner-api/docs` and
+`http://127.0.0.1:8001/api/v1/partner`.
+
+Decision — **nginx, not a Laravel route.** The alternative was a second guarded route group with
+its own credential concept, which means a login system, a table or a permission, and a code path
+that can regress. nginx already terminates TLS in front of the app and already serves static
+trees; the feature is an `alias` and an `auth_basic`. The application is not in the request path,
+so nothing about it can alter Partner API behaviour. No migration, no `users` row, no B2B
+permission was added.
+
+The internal preview at `/partner-api/docs` is unchanged and stays behind
+`['auth','active','verified','admin']`. Two URLs onto one generated directory: the one we read,
+and the one a partner reads. The generator, the output path and the controller are untouched.
+
+| Concern | How it is handled |
+|---|---|
+| Relative asset links | Scribe links `./css/…` and a browser resolves against the *parent* path, so `location = /api-docs` 301s to `/api-docs/`. Without it every asset resolves against `/` and 404s. |
+| nginx alias traversal | Trailing slash on **both** the location prefix and the alias. Prefix-without / alias-with is the classic `/api-docs../` escape. |
+| PHP execution under the docs prefix | `^~` on the prefix, which stops nginx considering `location ~ \.php$` underneath it. The bundle contains no `.php`; this makes it impossible if it ever did. |
+| `..` in the request | nginx decodes `%`-escapes and collapses `..` while normalising the URI *before* location matching, so a traversal never enters the block. No application check needed or possible. |
+| MIME types | `.json/.css/.js/.svg/.png` are in nginx's default `mime.types`. `.yaml` is not, so `openapi.yaml` gets an exact-match location with `default_type application/yaml` — `=` outranks `^~`. |
+| Missing auth file | nginx does not validate `auth_basic_user_file` at config-test time and 500s per request if absent. `provision.sh` creates it empty, so `/api-docs` fails **closed** with a 401 until a user is added on purpose. |
+| Nothing in `public/` | Unchanged. `alias` reads the private directory in place; `deploy:www-data` group-read is all nginx needs. |
+
+Files: `deploy/nginx/partner-api-docs.conf.template` (new), an `include` in
+`deploy/nginx/leasyback.conf.template`, and `provision.sh` installing the snippet, creating the
+empty htpasswd file and adding `apache2-utils`. Runbook: DEPLOYMENT.md §4a.
+
+**Three credentials, deliberately unrelated** (DEPLOYMENT.md §4a.7): the docs Basic Auth login is
+for a *human* with a browser; the `lbp_…` Bearer token is for *software*; the webhook signing
+secret is *also* software and is held only by the partner. Each is issued and rotated by a
+different mechanism, and revoking one does not affect the others.
+
+The standing rule this URL exists to protect: **a partner never receives a LeasyBack Admin
+account.** `/partner-api/docs` is gated with the whole `/admin` surface, so an account that opens
+the docs opens every company, order and document. `/api-docs` makes granting documentation access
+an `htpasswd` line instead.
+
 ### 12.18.9 Security review
 
 | Question | Answer |
 |---|---|
-| Are the docs reachable without authentication? | No. `['auth','active','verified','admin']`, asserted for a guest and for a signed-in non-admin. |
+| Are the docs reachable without authentication? | No. The internal preview is `['auth','active','verified','admin']`, asserted for a guest and for a signed-in non-admin. The external `/api-docs` is HTTP Basic Auth at the nginx layer, over TLS, and fails closed with a 401 when no user has been added. |
+| Does `/api-docs` widen what a partner can reach? | No. It serves the same generated bundle the zip contains — no credential, no internal path, no non-partner route (rows below are asserted against the artefacts themselves). It adds no route, table, permission or login to the application. |
 | Is anything partner-facing under `public/`? | No. The bundle is under `storage/app/private`; only Scribe's own theme assets travel with it, inside the same private directory. |
 | Can the asset route be walked out of its directory? | No. The route constrains the directory to `css\|js\|images` and the filename to `[A-Za-z0-9._-]+`, and the controller re-checks the resolved real path is still inside the docs root. Asserted with an encoded traversal and an unknown directory. |
 | Does the bundle contain a credential? | No. Asserted by regex against the token and secret formats across all four artefacts. |

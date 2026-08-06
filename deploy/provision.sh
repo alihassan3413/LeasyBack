@@ -41,7 +41,7 @@ step "Installing base packages"
 apt-get update -qq
 apt-get install -y -qq \
     software-properties-common curl git unzip zip ca-certificates \
-    supervisor nginx redis-server ufw acl sqlite3 >/dev/null
+    supervisor nginx redis-server ufw acl sqlite3 apache2-utils >/dev/null
 info "base packages ready"
 
 # ---------------------------------------------------------------------------
@@ -207,6 +207,25 @@ fi
 
 # ---------------------------------------------------------------------------
 step "Configuring nginx for ${DOMAIN}"
+
+# The Partner API docs snippet must exist before the site config that includes
+# it, or `nginx -t` fails on a missing include.
+mkdir -p /etc/nginx/snippets
+sed -e "s|__DOMAIN__|${DOMAIN}|g" \
+    -e "s|__APP_DIR__|${APP_DIR}|g" \
+    "${SCRIPT_DIR}/nginx/partner-api-docs.conf.template" \
+    >/etc/nginx/snippets/leasyback-partner-api-docs.conf
+
+# nginx does not check auth_basic_user_file at config-test time — it opens it per
+# request and 500s if it is missing. Create it empty so /api-docs fails *closed*
+# with a 401 until somebody deliberately adds a partner with htpasswd. Never
+# overwrite an existing one: that would silently lock out every partner already
+# issued a login.
+if [[ ! -f /etc/nginx/.partner-docs-users ]]; then
+    install -o root -g www-data -m 640 /dev/null /etc/nginx/.partner-docs-users
+    warn "no /api-docs users yet — add one with: sudo htpasswd /etc/nginx/.partner-docs-users <name>"
+fi
+
 sed -e "s|__DOMAIN__|${DOMAIN}|g" \
     -e "s|__APP_DIR__|${APP_DIR}|g" \
     -e "s|__PHP_VERSION__|${PHP_VERSION}|g" \
@@ -219,6 +238,7 @@ rm -f /etc/nginx/sites-enabled/default
 nginx -t
 systemctl reload nginx
 info "nginx serving ${APP_DIR}/public on ${DOMAIN}"
+info "partner docs at https://${DOMAIN}/api-docs (Basic Auth, /etc/nginx/.partner-docs-users)"
 
 # ---------------------------------------------------------------------------
 step "Configuring supervisor (queue workers$( [[ "${RUN_REVERB}" == "true" ]] && echo " + reverb" ))"

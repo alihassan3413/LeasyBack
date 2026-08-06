@@ -49,7 +49,18 @@ Send to Shiftmove, over a secure channel, separately from the documentation bund
 | Token | `lbp_sbx_…` |
 | Granted abilities | the exact list above |
 | Company | the sandbox company name and id |
-| Reference bundle | `leasyback-partner-api-v1.zip` (see DEPLOYMENT.md §4) |
+| Documentation URL | `https://YOUR-ACTUAL-DOMAIN/api-docs/` — the host from `APP_URL` (see DEPLOYMENT.md §4a) |
+| Documentation login | the `shiftmove-docs` Basic Auth user, **in its own message** |
+| Reference bundle | `leasyback-partner-api-v1.zip` (see DEPLOYMENT.md §4) — optional once the URL exists; still useful for offline review |
+
+Create the documentation login before this message goes out:
+
+```bash
+sudo htpasswd /etc/nginx/.partner-docs-users shiftmove-docs
+```
+
+No `-c`. That flag creates and **truncates** the file, deleting every other partner's login.
+Full setup, first time only, is DEPLOYMENT.md §4a.3.
 
 ---
 
@@ -160,10 +171,41 @@ Then, in order:
 | Compromised webhook secret | They call `POST /webhooks/{id}/rotate-secret` themselves. We do not hold a usable copy. |
 | They report a failing request | Ask for the `request_id`. For a webhook, the event id (`evt_…`) and the delivery id. |
 
+---
+
+## What Shiftmove gets, and what they never get
+
+Three credentials, three purposes, three channels. They are unrelated to each other and are
+rotated independently — the table in DEPLOYMENT.md §4a.7 is the reference; this is the part that
+matters during onboarding.
+
+| Credential | What it opens | Who it is for |
+|---|---|---|
+| `shiftmove-docs` + password | `{APP_URL}/api-docs/` — the reference, in a browser | their engineers, as people |
+| `lbp_…` Bearer token | `{PARTNER_API_DOCS_BASE_URL}/api/v1/partner` — the API | their software |
+| Webhook signing secret | verifying the webhooks we send them | their software, at their end |
+
+The signing secret is theirs alone: it is returned once by `POST /webhooks`, we keep no usable
+copy, and they rotate it themselves via `POST /webhooks/{id}/rotate-secret`. When they lose it we
+cannot read it back to them.
+
+**Shiftmove never receives a LeasyBack Admin account.** Not to read the documentation, not for
+support, not for a day. `/partner-api/docs` — the internal preview — sits behind the same gate as
+the whole `/admin` section, so an account that opens it opens LeasyBack's staff surface: every
+company, every order, every document. `/api-docs` exists precisely so that giving a partner the
+documentation never means giving them that. If somebody asks for "just a login so they can see
+the docs", the answer is an `htpasswd` line, and it takes ten seconds.
+
+The same separation runs the other way. Removing their docs login does not interrupt the
+integration; revoking their token does not close the documentation. Neither is a substitute for
+the other when access has to be withdrawn — decide which one you mean.
+
 ## What we do not do
 
 - **We do not accept inbound webhooks.** There is no endpoint. Anything they want to tell us
   goes through the documented write endpoints.
+- **We do not issue a partner an Admin account**, or any `users` row on the portal, for
+  documentation access. See above.
 - **We do not add an offer accept/reject endpoint** (§12.14.4 decision 8) or a status-write
   endpoint (§12.12.4 decision 1) because a partner asks. Both are deliberate.
 - **We do not send a token by email in the same message as anything else**, and we never
