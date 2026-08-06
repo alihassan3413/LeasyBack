@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Modules\PartnerApi\Services\PartnerContext;
 use App\Modules\UserProfile\B2B\Services\B2bContext;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
@@ -19,6 +20,13 @@ class AppServiceProvider extends ServiceProvider
         // once per request keeps that to a single pair of queries, and keeps
         // every consumer looking at the same answer.
         $this->app->scoped(B2bContext::class);
+
+        // Same reasoning, for the Partner API: the middleware establishes the
+        // calling integration's identity once, and every controller, service
+        // and error response on that request reads the same instance. A
+        // non-scoped binding would let a controller resolve a fresh, empty
+        // context and silently run unscoped.
+        $this->app->scoped(PartnerContext::class);
     }
 
     /**

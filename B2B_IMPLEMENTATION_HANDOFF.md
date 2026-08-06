@@ -16,6 +16,11 @@ is a separate call — see unresolved item 39.)*
 specification — section numbers below (§n) refer to it. Where it conflicts with
 existing code, the code path must be reported before business logic changes (§21).
 
+**Sections 1–11 cover the B2B portal. Section 12 covers the Partner API**, a separate
+workstream (machine-to-machine integration under `/api/v1/partner`) that reuses the
+portal's company/membership/permission machinery but changes none of it. `b2b.txt` does
+not specify it; if you are here for the portal, stop at §11.
+
 ---
 
 ## 1. Completed phases
@@ -2349,6 +2354,10 @@ php artisan route:list --path=vehicles/import
 php artisan config:show database.default
 ```
 
+Partner API credential commands are listed in §12.7 — they are deliberately not repeated
+here, because getting a `--force` or an `--environment` wrong on one of them issues or
+kills a live third-party credential.
+
 Note `npm run build` runs **Tailwind v4**, not v3 — see the corrected stack line at the
 top of this document.
 
@@ -2356,3 +2365,307 @@ Verification technique used throughout: rolled-back
 `DB::beginTransaction()` / `DB::rollBack()` tinker scripts with `Http::fake()` /
 `Mail::fake()` for backend flows, and esbuild-bundled TypeScript probes run under
 node for frontend logic. Keep probe files in the session scratchpad, never in the repo.
+
+---
+
+## 12. Partner API — Phase 1 (2026-08-06)
+
+A **separate workstream** from phases 1–17. Those built the B2B *portal* (humans in a
+browser); this builds the B2B *integration surface* (partner systems over HTTP). It
+reuses the portal's company, membership, permission and B2bContext machinery rather than
+duplicating it, but it adds no behaviour to any existing B2B or B2C path — every file
+below is new except four wiring edits (`bootstrap/app.php`, `AppServiceProvider`,
+`config/scribe.php`, `.env.example`).
+
+Phase 1 is the reusable foundation only. **No vehicles, orders, documents, offers,
+webhooks, OAuth, GDPR or Lexware** — those are phase 2 onwards. The only endpoints are
+`GET /health` and `GET /me`.
+
+### 12.1 Architecture
+
+Nothing in the code names a partner. An integration is a **database row**, so onboarding
+the next one is a `partner:provision` run, not a deployment.
+
+Three layers:
+
+1. **Identity** — `partner_integration_clients`. One row binds one partner, one
+   environment, one B2B company and one dedicated integration user. `user_id` is unique,
+   so a credential cannot be re-pointed at a second company by adding a membership.
+   Sandbox and production are *separate rows*, not a flag, which is what makes a sandbox
+   token structurally incapable of reaching production data.
+2. **Credential** — `partner_api_tokens`. SHA-256 hash only, ability-scoped, revocable,
+   rotatable, optional expiry, `last_used_at`/`last_used_ip`.
+3. **Request context** — `PartnerContext`, a scoped singleton established by the
+   authentication middleware and read by everything downstream. It is the *only* source
+   of the acting company; no controller or service derives it from input.
+
+Why a dedicated token table rather than Sanctum's `personal_access_tokens`:
+`config('sanctum.expiration')` is 24 hours application-wide, so a partner credential
+stored there would silently die every day, and raising the global value would extend
+every human session token with it. The second reason is blast radius — a partner token is
+only accepted by the Partner API middleware and is worthless against `auth:sanctum`
+(asserted by a test), and vice versa.
+
+Why a dedicated integration user rather than reusing an employee account: every partner
+write goes through the same services a human member's request does, and those ask "what
+may this user do in this company". A purpose-built account with an explicit, narrower
+permission set keeps the audit trail honest and the scope bounded. It has a random
+unusable password, and there is no login endpoint.
+
+**Defence in depth.** A partner request is checked twice: the *token ability* gates the
+route, and the *integration user's B2B permissions* still gate the underlying service.
+A mis-scoped token therefore cannot exceed what the company itself may do.
+
+### 12.2 Files
+
+| File | Purpose |
+|---|---|
+| `config/partner_api.php` | Token format, rate limits, idempotency TTL, request-id rules, rejected input keys |
+| `routes/partner.php` | Versioned route group; mounted at `/api/v1/partner` by `bootstrap/app.php` |
+| `app/Modules/PartnerApi/Enums/PartnerEnvironment.php` | `sandbox` \| `production`, token segment |
+| `app/Modules/PartnerApi/Enums/PartnerAbility.php` | The 11 scopes + `*` wildcard constant |
+| `app/Modules/PartnerApi/Enums/PartnerIdempotencyState.php` | fresh / replay / conflict / in_progress |
+| `app/Modules/PartnerApi/Models/PartnerIntegrationClient.php` | Client; `b2b_id`/`user_id` deliberately **not** fillable |
+| `app/Modules/PartnerApi/Models/PartnerApiToken.php` | Token; `can()`, `isRevoked()`, `isExpired()`, `resolvedAbilityValues()` |
+| `app/Modules/PartnerApi/Models/PartnerExternalReference.php` | Partner id ↔ our id mapping |
+| `app/Modules/PartnerApi/Models/PartnerIdempotencyKey.php` | Recorded key + stored response |
+| `app/Modules/PartnerApi/Data/IssuedPartnerToken.php` | The one moment a plaintext exists |
+| `app/Modules/PartnerApi/Data/IdempotencyResult.php` | Claim outcome |
+| `app/Modules/PartnerApi/Services/PartnerContext.php` | Scoped singleton: client, user, company, environment, abilities, request id |
+| `app/Modules/PartnerApi/Services/PartnerTokenService.php` | Issue / rotate / revoke / match / record usage |
+| `app/Modules/PartnerApi/Services/PartnerClientProvisioner.php` | Atomic user + membership + client + first token |
+| `app/Modules/PartnerApi/Services/PartnerExternalReferenceRegistry.php` | Two-way lookup, both directions unique |
+| `app/Modules/PartnerApi/Services/PartnerIdempotencyService.php` | Claim / complete / release |
+| `app/Modules/PartnerApi/Support/PartnerApiResponse.php` | The `{data,request_id}` / `{error,request_id}` envelope |
+| `app/Modules/PartnerApi/Exceptions/PartnerApiException.php` | Self-rendering domain error with a code |
+| `app/Modules/PartnerApi/Exceptions/PartnerApiExceptionRenderer.php` | Path-scoped renderer for everything else |
+| `app/Modules/PartnerApi/Http/Middleware/AssignPartnerRequestId.php` | `X-Request-ID` in, echoed out, into `Context` |
+| `app/Modules/PartnerApi/Http/Middleware/AuthenticatePartner.php` | Token → context; state checks; auth-failure throttle |
+| `app/Modules/PartnerApi/Http/Middleware/ThrottlePartnerRequests.php` | Per-token budget with per-client override |
+| `app/Modules/PartnerApi/Http/Middleware/EnsurePartnerAbility.php` | Scope gate, fails closed on a typo |
+| `app/Modules/PartnerApi/Http/Middleware/RejectOwnershipInput.php` | Refuses `b2b_id`, `user_id`, … in query or body |
+| `app/Modules/PartnerApi/Http/Middleware/EnforcePartnerIdempotency.php` | `Idempotency-Key`, optional or `:required` |
+| `app/Modules/PartnerApi/Http/Controllers/HealthController.php` | `GET /health` (+ Scribe attributes) |
+| `app/Modules/PartnerApi/Http/Controllers/MeController.php` | `GET /me` (+ Scribe attributes) |
+| `app/Console/Commands/Partner/*.php` | 5 commands + 2 shared/abstract bases |
+| `database/factories/PartnerIntegrationClientFactory.php`, `PartnerApiTokenFactory.php` | Test/seed support |
+| `tests/Feature/PartnerApi/**` | 8 test files + `Concerns/BuildsPartnerClients` |
+
+Modified: `bootstrap/app.php` (route mount, 6 middleware aliases, renderer),
+`app/Providers/AppServiceProvider.php` (scoped `PartnerContext`), `config/scribe.php`
+(second route group), `.env.example` (6 documented knobs, no secrets).
+
+### 12.3 Migrations
+
+All four applied locally (SQLite, batch 18); Postgres in production.
+
+| Migration | Table | Notes |
+|---|---|---|
+| `2026_08_06_000002` | `partner_integration_clients` | `unique(slug, environment)`, `unique(user_id)`, FKs `b2b_id`/`user_id` restrict-on-delete |
+| `2026_08_06_000003` | `partner_api_tokens` | `unique(token_hash)`, cascade on client delete |
+| `2026_08_06_000004` | `partner_external_references` | Unique in **both** directions per client + type |
+| `2026_08_06_000005` | `partner_idempotency_keys` | `unique(client, key)`, `expires_at` index |
+
+### 12.4 Authentication design
+
+No login endpoint. `Authorization: Bearer lbp_{sbx|live}_{64 hex}`.
+
+Middleware order is load-bearing (see the comment block in `routes/partner.php`):
+`partner.request-id` → `partner.auth` → `partner.throttle` → `partner.no-ownership`.
+`partner.ability:…` is applied **per route**, not on the group, so `/health` and `/me`
+stay scope-free and a partner can verify a fresh credential before any feature is enabled
+for them.
+
+Every refusal carries a specific machine-readable `code` — partners branch on it, so
+changing one is a breaking change, and a test asserts each:
+
+| Situation | Status | `error.code` |
+|---|---|---|
+| No `Authorization` header | 401 | `missing_token` |
+| Unknown token, or client deleted | 401 | `invalid_token` |
+| Revoked (`revoked_at` reached) | 401 | `token_revoked` |
+| Past `expires_at` | 401 | `token_expired` |
+| Client deactivated | 403 | `client_inactive` |
+| Integration user deactivated | 403 | `integration_user_inactive` |
+| Company deactivated | 403 | `company_inactive` |
+| Client not a member of its company | 403 | `client_misconfigured` |
+| Token lacks the route's scope | 403 | `insufficient_scope` |
+| `b2b_id`/`user_id`/… in the request | 400 | `ownership_input_not_allowed` |
+| Per-token budget exhausted | 429 | `rate_limit_exceeded` |
+| Too many failed auths from one IP | 429 | `rate_limit_exceeded` |
+| Idempotency key reused differently | 409 | `idempotency_key_conflict` |
+| Original request still running | 409 | `idempotency_key_in_progress` |
+
+Two distinct limiters, deliberately: the **per-token** budget
+(`partner_integration_clients.rate_limit_per_minute`, else config) bills real traffic and
+runs after authentication; the **auth-failure** budget bills only 401s per source IP and
+runs before it, because a credential-guessing request has no token to charge. 403s are
+never charged — a suspended partner polling `/me` must keep learning *why*.
+
+`revoked_at` in the **future** means "still valid, briefly": that is how
+`partner:token:rotate --grace-minutes` gives a partner a deployment window.
+`partner:token:revoke` pulls any such schedule forward to now.
+
+### 12.5 Routes
+
+```
+GET /api/v1/partner/health   partner.v1.health   auth required, no scope
+GET /api/v1/partner/me       partner.v1.me       auth required, no scope
+```
+
+Registered from `routes/partner.php` rather than `routes/api.php` on purpose:
+`routes/api.php` is loaded **twice** (once at `/api/*`, once unprefixed as the
+`frontend.*` alias for the legacy SPA), and a partner endpoint must exist at exactly one
+URL. Verified: `route:list --path=api/v1/partner` shows 2 routes, and `route:cache`
+succeeds.
+
+Success envelope `{"data":{…},"request_id":"…"}`; error envelope
+`{"error":{"type","code","message","details?"},"request_id":"…"}`. Deliberately **not**
+the legacy `{ok,data,message}` shape — that contract is frozen for `leasyback_web`, and a
+public API needs a stable code partners can branch on without string-matching prose. The
+renderer is scoped to `api/v1/partner/*`, so no other module's error behaviour changed.
+The catch-all never leaks an exception message or trace regardless of `APP_DEBUG`.
+
+### 12.6 Scopes
+
+`vehicles.read`, `vehicles.write`, `orders.read`, `orders.write`, `timeline.read`,
+`documents.read`, `documents.write`, `offers.read`, `offers.accept`, `webhooks.read`,
+`webhooks.manage`, plus the `*` wildcard (expanded in `/me`, never shown as `*`).
+
+The integration user's B2B permission set
+(`PartnerClientProvisioner::INTEGRATION_USER_PERMISSIONS`) is `vehicles.view`,
+`vehicles.create`, `vehicles.update`, `vehicles.documents.upload`, `orders.create`,
+`offers.select`, `company.view` — no member management, no company master-data edits, no
+analytics.
+
+### 12.7 Commands
+
+```bash
+php artisan partner:provision {slug} --company={b2b_id} [--environment=sandbox|production]
+    [--name=] [--user-email=] [--contact-email=] [--abilities=a,b] [--expires-in-days=]
+    [--issued-by=] [--force]
+php artisan partner:token:rotate {slug} [--environment=] [--abilities=] [--expires-in-days=]
+    [--grace-minutes=] [--force]
+php artisan partner:token:revoke {slug} [--environment=] [--force]
+php artisan partner:activate     {slug} [--environment=] [--force]
+php artisan partner:deactivate   {slug} [--environment=] [--force]
+```
+
+The token is printed **once**, to stdout only, never logged, and is unrecoverable.
+`--force` is required when the app **or** the target partner environment is production —
+stricter than Laravel's default, because these commands get run from a staging box
+pointed at the production database.
+
+Deactivate ≠ revoke: deactivating suspends reversibly and the *same* token works again
+after `partner:activate`; revocation is irreversible and needs a rotation to restore
+access.
+
+### 12.8 Tests
+
+`tests/Feature/PartnerApi/` — **91 tests, 321 assertions, all passing.**
+
+| File | Tests | Covers |
+|---|---|---|
+| `PartnerAuthenticationTest` | 15 | valid / missing / invalid / revoked / expired / inactive client / inactive user / inactive company, `last_used_at`, hash-only storage, env segment, 404 envelope |
+| `PartnerAbilityTest` | 9 | granted, missing scope, empty scope set, all-of semantics, unknown-ability fail-closed, wildcard, `/me` expansion, scope-free endpoints |
+| `PartnerCompanyIsolationTest` | 6 | two partners, input ignored, stale `active_b2b_id` overridden, sandbox vs production, context throws outside a request, partner token rejected by `auth:sanctum` |
+| `PartnerProvisioningCommandTest` | 18 | provision / rotate / revoke / activate / deactivate, grace window, scope narrowing, duplicate slug, reused account, unknown company/ability/environment |
+| `PartnerRequestIdTest` | 6 | echo, generation, present on a 401, malformed replaced, over-long replaced, uniqueness |
+| `PartnerRateLimitTest` | 8 | limit, headers, client override, per-token isolation, fresh budget after rotation, auth-failure bound, 403s not charged |
+| `PartnerIdempotencyTest` | 14 | replay without re-running, payload conflict, endpoint conflict, key ordering, per-partner isolation, in-progress, stale-lock takeover, failure releases, expiry, `:required`, over-long, safe methods |
+| `PartnerExternalReferenceTest` | 11 | both directions, idempotent re-register, both uniqueness directions, DB-level enforcement, cross-partner independence and isolation, type separation, cascade |
+
+Ability and idempotency have no phase-1 endpoint, so those tests register routes with the
+same middleware stack phase 2 will declare. Idempotency tests count **handler
+invocations**, not just response bodies — a replay that returned the right JSON but ran
+the handler twice would have created two orders in production.
+
+### 12.9 Verification
+
+| Check | Result |
+|---|---|
+| `php artisan test --compact tests/Feature/PartnerApi` | **91 passed** (321 assertions) |
+| `php artisan test --compact` (full suite) | **556 passed, 4 skipped, 2 failed** (2099 assertions) — the two documented §6 baseline failures, **no third** |
+| `vendor/bin/pint --dirty --format agent` | `passed` |
+| `php artisan migrate` | 4 partner migrations DONE (batch 18) |
+| `php artisan migrate:status` | all Ran, none pending |
+| `php artisan route:list --path=api/v1/partner` | 2 routes, correct middleware order; `route:cache` succeeds |
+| `php artisan list partner` | 5 commands discovered |
+| `php artisan scribe:generate` | Both partner endpoints extracted into `.scribe/endpoints/01.yaml` with descriptions and example responses. The command then **fails** at `Writer.php:242` — `rename(public/docs/, public/vendor/scribe): Access is denied` — a Windows filesystem issue in Scribe's asset move. **Confirmed pre-existing**: reproduced identically with `config/scribe.php` stashed to its previous state. Not caused by this work; expected to pass on the Linux deploy target. |
+| `npm run build` | not run — PHP-only phase, no frontend file touched |
+
+### 12.10 Risks and open points
+
+1. **Postgres vs SQLite.** Migrations were applied on SQLite locally; production is
+   Postgres. `json` columns, `timestampTz` and the composite uniques are all standard,
+   but `PartnerExternalReferenceRegistry` relies on a unique-violation SQLSTATE check
+   (`23000`/`23505`) — verify on Postgres before the first partner write path (phase 2)
+   lands.
+2. **`PartnerApiResponse::requestId()` resolves `PartnerContext` from the container.**
+   Correct for HTTP, but if a later phase renders this envelope from a queued job there is
+   no scoped instance and the id will be null. Pass it explicitly if that arises.
+3. **Idempotency prunes expired rows on the claiming path**, scoped to the one client. No
+   scheduled sweeper. If a partner stops calling, their expired rows linger — harmless,
+   but a low-volume partner's table never self-cleans.
+4. **Idempotent replay does not re-emit the original response's headers**, only status and
+   JSON body. If a phase-2 create returns a `Location` header, the replay will not carry
+   it.
+5. **The auth-failure limiter is keyed on `$request->ip()`.** Behind a load balancer that
+   is only meaningful if `TrustProxies` is configured for the deploy target — otherwise
+   every partner shares one bucket. Verify before production.
+6. **No usage/audit log yet.** `last_used_at` and `last_used_ip` are the only trace. If
+   partner activity needs to be reconstructible per request, that is a phase-2 decision,
+   not a retrofit.
+7. **`/health` requires a token.** Deliberate — it doubles as a credential smoke test —
+   but it is therefore unsuitable as an uptime probe; `/up` remains that.
+8. **B2B/B2C unchanged.** No existing route, controller, service, policy or migration was
+   modified. The four edited files are additive wiring, and the error renderer is
+   path-scoped to `api/v1/partner/*`. The full suite shows no new failure.
+
+### 12.11 Next phase — ready-to-use prompt
+
+```
+Implement Phase 2 of the LeasyBack Partner API: vehicles.
+
+Read section 12 of B2B_IMPLEMENTATION_HANDOFF.md first, then inspect what exists:
+app/Modules/PartnerApi/** (the phase 1 foundation), and on the portal side
+VehicleService, VehicleScopeService, StoreVehicleRequest/UpdateVehicleRequest,
+VehicleRules and the Vehicle model — the Partner API must go through those services,
+not around them.
+
+Build, under /api/v1/partner:
+- GET   /vehicles          list the token's company fleet, paginated, filterable
+- GET   /vehicles/{id}     one vehicle
+- POST  /vehicles          create            (Idempotency-Key required)
+- PATCH /vehicles/{id}     update
+Gate each on the right PartnerAbility (vehicles.read / vehicles.write) with
+'partner.ability:…' on the route, exactly as PartnerAbilityTest already exercises.
+
+Constraints — all already enforced by phase 1; do not re-implement or bypass them:
+- Scope every query to PartnerContext::companyId(). Never accept a company or ownership
+  field; 'partner.no-ownership' already refuses them.
+- Reuse the existing vehicle services so the integration user's B2B permissions apply on
+  top of the token scope. Do not query the vehicles table directly from a controller.
+- Accept and return external_vehicle_id via PartnerExternalReferenceRegistry
+  (TYPE_VEHICLE). An external id already mapped to a different vehicle is a 409.
+- Use PartnerApiResponse for every response and PartnerApiException for every failure —
+  no new envelope, no raw abort().
+- Add the routes to routes/partner.php with 'partner.idempotent:required' on the POST.
+- Add Scribe #[Endpoint]/#[Response] attributes; the 'Partner API' group already exists.
+- Do NOT touch orders, documents, offers, webhooks, OAuth, GDPR or Lexware.
+- Do NOT change any B2C path or any existing portal behaviour.
+
+Tests required:
+- ability enforcement per endpoint (a read-only token cannot write)
+- cross-company isolation: another company's vehicle is 404, never 403
+- create + retry with the same Idempotency-Key creates exactly one vehicle
+- external_vehicle_id round-trips; a duplicate one is 409
+- validation errors render as the partner envelope with field details
+- the integration user sees the whole company fleet, not a member-scoped subset
+- existing B2B and B2C vehicle tests still pass
+
+Verify: focused tests, full suite once, Pint, route:list, migrate:status.
+Update section 12 of B2B_IMPLEMENTATION_HANDOFF.md: add a 12.12 for phase 2, extend the
+files/routes/scopes/tests tables, record results, and re-point the next-phase prompt.
+Stop after Phase 2.
+```

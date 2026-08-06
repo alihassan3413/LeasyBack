@@ -46,10 +46,24 @@ return [
     // a JSON API contract. UserProfile, DekraProcess, and other business
     // modules are excluded because they have not been reviewed/hardened
     // under this auth work yet.
+    //
+    // `api/v1/partner/*` is included as the second group: it is a public,
+    // third-party-facing contract, so the documentation *is* the deliverable
+    // handed to a partner. Its endpoints document their responses with
+    // explicit #[Response(...)] attributes for the same reason the auth ones
+    // do — no response calls are made (see the `responses` strategy below).
     'routes' => [
         [
             'match' => [
                 'prefixes' => ['api/auth/*'],
+                'domains' => ['*'],
+            ],
+            'include' => [],
+            'exclude' => [],
+        ],
+        [
+            'match' => [
+                'prefixes' => ['api/v1/partner/*'],
                 'domains' => ['*'],
             ],
             'include' => [],
