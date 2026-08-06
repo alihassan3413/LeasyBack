@@ -17,11 +17,16 @@ class VehicleScopeService
     public function __construct(private readonly B2bContext $b2bContext) {}
 
     /**
-     * Resolve the owner UUID for B2B or B2C based on user type.
+     * Resolve the owner UUID for B2B or B2C based on the context the user is
+     * currently acting in.
+     *
+     * Keyed on B2bContext::effectiveUserType() rather than the raw `user_type`
+     * column: a Privatkunde who joined a company is B2C while acting privately
+     * and B2B while acting as that company, and the owner id has to follow.
      */
     public function resolveOwnerId(User $user): ?string
     {
-        return match ($user->user_type->value) {
+        return match ($this->b2bContext->effectiveUserType($user)->value) {
             'Firmenkunde' => $this->getB2bIdForUser($user->id),
             'Privatkunde' => (string) $user->id,
             'Admin' => null, // Admin has no owner scope
@@ -53,15 +58,11 @@ class VehicleScopeService
      * exactly that second application being missing — so the decision now lives
      * in one place and both callers ask it rather than re-deriving it.
      *
-     * Non-Firmenkunde accounts are never narrowed: a Privatkunde's own filter
-     * is `b2c_user_id`, and an Admin sees everything.
+     * Accounts not acting as a company are never narrowed: a Privatkunde's own
+     * filter is `b2c_user_id`, and an Admin sees everything.
      */
     public function ownVehicleRestrictionFor(User $user): ?int
     {
-        if ($user->user_type->value !== 'Firmenkunde') {
-            return null;
-        }
-
         return $this->b2bContext->activeMembership($user)?->seesOwnVehiclesOnly()
             ? $user->id
             : null;
@@ -79,7 +80,7 @@ class VehicleScopeService
      */
     public function scopeQuery(Builder $query, User $user): Builder
     {
-        return match ($user->user_type->value) {
+        return match ($this->b2bContext->effectiveUserType($user)->value) {
             'Admin' => $query, // no filtering
             'Firmenkunde' => $query->where(function ($q) use ($user) {
                 $membership = $this->b2bContext->activeMembership($user);

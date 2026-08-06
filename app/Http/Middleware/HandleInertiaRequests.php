@@ -111,14 +111,24 @@ class HandleInertiaRequests extends Middleware
      * @return array{
      *     active: array<string, mixed>|null,
      *     memberships: list<array<string, mixed>>,
-     *     permissions: list<string>
+     *     permissions: list<string>,
+     *     personal_available: bool
      * }|null
      */
     private function b2bState(Request $request): ?array
     {
         $user = $request->user();
 
-        if ($user === null || $user->user_type !== UserType::Firmenkunde) {
+        if ($user === null || $user->user_type === UserType::Admin) {
+            return null;
+        }
+
+        $memberships = $this->b2bContext->memberships($user);
+
+        // Nothing company-shaped about this account: a Werkstatt, or a
+        // Privatkunde who was never invited anywhere. Null is what tells the
+        // frontend "company permissions do not apply to you".
+        if ($memberships === [] && $user->user_type !== UserType::Firmenkunde) {
             return null;
         }
 
@@ -126,6 +136,9 @@ class HandleInertiaRequests extends Middleware
 
         return [
             'active' => $active?->toSharedArray(),
+            // A Privatkunde who joined a company keeps their private side and
+            // can switch back to it; the switcher needs to know it exists.
+            'personal_available' => $this->b2bContext->hasPersonalContext($user),
             // Only what a company switcher needs — not each membership's full
             // permission set, which is nobody's business but the active one's.
             'memberships' => array_map(
@@ -136,7 +149,7 @@ class HandleInertiaRequests extends Middleware
                     'role' => $membership->role->value,
                     'role_label' => $membership->role->label(),
                 ],
-                $this->b2bContext->memberships($user),
+                $memberships,
             ),
             'permissions' => $active?->permissions->toArray() ?? [],
         ];

@@ -18,19 +18,29 @@ export function useB2bPermissions() {
     const membership = computed(() => state.value?.active ?? null);
     const memberships = computed(() => state.value?.memberships ?? []);
 
-    /** True only for Firmenkunde accounts that belong to a company. */
+    /** True while the user is actually acting as one of their companies. */
     const isCompanyUser = computed(() => membership.value !== null);
     const isOwner = computed(() => membership.value?.role === 'owner');
     const seesOwnVehiclesOnly = computed(() => membership.value?.vehicle_scope === 'own');
-    const canSwitchCompany = computed(() => memberships.value.length > 1);
+
+    /** True for a dual-context account that can return to its private area. */
+    const hasPersonalArea = computed(() => state.value?.personal_available === true);
 
     /**
-     * Non-Firmenkunde accounts (Privatkunde, Werkstatt, Admin) have no company
-     * permissions at all — they get `true` so shared components stay usable
-     * for them, exactly as EnsureB2bPermission waves them through.
+     * Worth showing a switcher for: more than one company, or one company plus
+     * a private area to go back to.
+     */
+    const canSwitchCompany = computed(() => memberships.value.length + (hasPersonalArea.value ? 1 : 0) > 1);
+
+    /**
+     * Accounts with no company side at all (Werkstatt, Admin, an uninvited
+     * Privatkunde) have no company permissions — they get `true` so shared
+     * components stay usable for them, exactly as EnsureB2bPermission waves
+     * them through. A dual-context account acting privately is in the same
+     * position: `active` is null, so it is waved through too.
      */
     function can(permission: B2bPermissionValue): boolean {
-        if (state.value === null) {
+        if (state.value === null || (membership.value === null && hasPersonalArea.value)) {
             return true;
         }
 
@@ -41,5 +51,5 @@ export function useB2bPermissions() {
         return permissions.some((permission) => can(permission));
     }
 
-    return { membership, memberships, isCompanyUser, isOwner, seesOwnVehiclesOnly, canSwitchCompany, can, canAny };
+    return { membership, memberships, isCompanyUser, isOwner, seesOwnVehiclesOnly, hasPersonalArea, canSwitchCompany, can, canAny };
 }

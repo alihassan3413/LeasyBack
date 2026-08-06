@@ -2,6 +2,7 @@
 
 namespace App\Modules\UserProfile\B2B\Services;
 
+use App\Enums\B2bPermission;
 use App\Enums\B2bRole;
 use App\Enums\B2bVehicleScope;
 use App\Enums\UserType;
@@ -134,18 +135,31 @@ class B2bInvitationService
     }
 
     /**
-     * Look up an invitation by its plaintext token. Returns null for anything
-     * unusable — unknown, revoked, already accepted or expired — so callers
-     * cannot accidentally distinguish "wrong token" from "expired token".
+     * Look up a *usable* invitation by its plaintext token. Returns null for
+     * anything that cannot be accepted — unknown, revoked, already accepted or
+     * expired — so no caller can accidentally act on a dead invitation.
      */
     public function findByToken(string $token): ?B2bInvitation
     {
-        $invitation = B2bInvitation::query()
+        $invitation = $this->findAnyByToken($token);
+
+        return $invitation?->isPending() ? $invitation : null;
+    }
+
+    /**
+     * The invitation behind this token whatever state it is in, so the accept
+     * page can say *why* a link no longer works instead of a flat "invalid".
+     *
+     * Telling the token holder that their own invitation expired leaks
+     * nothing: holding the token already proves they received the email.
+     * Unknown tokens still resolve to null, so guessing one reveals nothing.
+     */
+    public function findAnyByToken(string $token): ?B2bInvitation
+    {
+        return B2bInvitation::query()
             ->with('company:b2b_id,company_name,logo_url')
             ->where('token_hash', hash('sha256', $token))
             ->first();
-
-        return $invitation?->isPending() ? $invitation : null;
     }
 
     /**
@@ -153,6 +167,12 @@ class B2bInvitationService
      *
      * The email is checked against the invitation: a link forwarded to a
      * different person must not let that person into the company.
+     *
+     * An existing Privatkunde is joined as-is — no second account is created
+     * and `user_type` is left alone, so their own vehicles, orders and profile
+     * survive untouched and they can switch back to them at any time (see
+     * B2bContext::switchToPersonal). Only account types that have no customer
+     * side at all are refused.
      */
     public function accept(B2bInvitation $invitation, User $user): void
     {
@@ -160,8 +180,8 @@ class B2bInvitationService
             $this->fail(403, 'Diese Einladung wurde an eine andere E-Mail-Adresse gesendet.');
         }
 
-        if ($user->user_type !== UserType::Firmenkunde) {
-            $this->fail(422, 'Nur Firmenkunden-Konten können einem Unternehmen beitreten.');
+        if (! in_array($user->user_type, [UserType::Firmenkunde, UserType::Privatkunde], true)) {
+            $this->fail(422, 'Dieses Konto kann keinem Unternehmen beitreten.');
         }
 
         DB::transaction(function () use ($invitation, $user) {
@@ -204,12 +224,30 @@ class B2bInvitationService
 
     private function send(B2bInvitation $invitation, string $companyName, User $inviter, string $token): void
     {
+        $role = B2bRole::tryFrom($invitation->role) ?? B2bRole::Member;
+
+        // An owner holds everything implicitly and is stored without an
+        // explicit list — spelling out all twelve lines would be noise, so the
+        // role alone carries the meaning for them.
+        $permissions = $role === B2bRole::Owner
+            ? B2bPermissionSet::all()
+            : B2bPermissionSet::fromRaw($invitation->permissions);
+
         Notification::route('mail', $invitation->email)->notify(new B2bInvitationNotification(
             companyName: $companyName,
             acceptUrl: route('b2b.invitations.show', ['token' => $token]),
             invitedByName: $inviter->name ?: $inviter->email,
-            roleLabel: (B2bRole::tryFrom($invitation->role) ?? B2bRole::Member)->label(),
+            roleLabel: $role->label(),
             expiresInDays: self::EXPIRY_DAYS,
+            invitedEmail: $invitation->email,
+            expiresAt: $invitation->expires_at,
+            vehicleScope: B2bVehicleScope::tryFrom($invitation->vehicle_scope) ?? B2bVehicleScope::All,
+            permissionLabels: $role === B2bRole::Owner
+                ? []
+                : array_map(
+                    fn (string $value) => B2bPermission::from($value)->label(),
+                    $permissions->toArray(),
+                ),
         ));
     }
 

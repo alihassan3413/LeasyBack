@@ -2,6 +2,7 @@
 
 namespace App\Modules\UserProfile\Vehicle\Http\Requests;
 
+use App\Modules\UserProfile\B2B\Services\B2bContext;
 use App\Modules\UserProfile\Vehicle\Support\VehicleRules;
 use Illuminate\Foundation\Http\FormRequest;
 
@@ -12,9 +13,21 @@ class StoreVehicleRequest extends FormRequest
         return $this->user() !== null;
     }
 
+    /**
+     * Which set of rules applies — company vehicles carry fields a private one
+     * does not. Resolved from the context the user is acting in, so a
+     * Privatkunde who is also a company member gets company rules only while
+     * acting as that company.
+     */
     private function isB2bContext(): bool
     {
-        $userType = $this->user()?->user_type?->value;
+        $user = $this->user();
+
+        if ($user === null) {
+            return false;
+        }
+
+        $userType = app(B2bContext::class)->effectiveUserType($user)->value;
 
         if ($userType === 'Firmenkunde') {
             return true;

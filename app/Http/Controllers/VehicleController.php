@@ -51,12 +51,14 @@ class VehicleController extends Controller
             return to_route('admin.dashboard');
         }
 
-        $isB2b = $user->user_type === UserType::Firmenkunde;
-        $membership = $isB2b ? $this->b2bContext->activeMembership($user) : null;
+        $membership = $this->b2bContext->activeMembership($user);
+        $isB2b = $membership !== null;
 
         // A Firmenkunde who belongs to no company can't have any vehicles yet
-        // — send them to register one instead of an empty dashboard.
-        if ($isB2b && $membership === null) {
+        // — send them to register one instead of an empty dashboard. A
+        // Privatkunde acting privately has their own dashboard and is left
+        // alone.
+        if (! $isB2b && $user->user_type === UserType::Firmenkunde) {
             return to_route('onboarding.b2b.show');
         }
 
@@ -131,7 +133,7 @@ class VehicleController extends Controller
             abort(404);
         }
 
-        $belongs = match ($user->user_type->value) {
+        $belongs = match ($this->b2bContext->effectiveUserType($user)->value) {
             'Admin' => 'ALL',
             'Firmenkunde' => 'B2B',
             default => 'B2C',

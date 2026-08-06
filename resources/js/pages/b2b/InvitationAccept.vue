@@ -25,14 +25,44 @@ interface Viewer {
     email: string;
     user_type: string;
     email_matches: boolean;
-    is_firmenkunde: boolean;
+    can_join: boolean;
+    keeps_private_area: boolean;
 }
+
+type InvitationStatus = 'pending' | 'accepted' | 'revoked' | 'expired' | 'invalid';
 
 const props = defineProps<{
     token: string;
+    status: InvitationStatus;
     invitation: InvitationDetails | null;
     viewer: Viewer | null;
 }>();
+
+/** Why a dead link is dead — an instruction rather than a flat "invalid". */
+const deadLink = computed(() => {
+    switch (props.status) {
+        case 'accepted':
+            return {
+                title: 'Diese Einladung wurde bereits angenommen',
+                body: 'Sie gehören dem Unternehmen bereits an. Melden Sie sich an, um darauf zuzugreifen.',
+            };
+        case 'revoked':
+            return {
+                title: 'Diese Einladung wurde zurückgezogen',
+                body: 'Das Unternehmen hat die Einladung zurückgenommen. Bitten Sie um eine neue Einladung.',
+            };
+        case 'expired':
+            return {
+                title: 'Diese Einladung ist abgelaufen',
+                body: 'Einladungen sind nur begrenzt gültig. Bitten Sie das Unternehmen um eine neue Einladung.',
+            };
+        default:
+            return {
+                title: 'Diese Einladung ist nicht mehr gültig',
+                body: 'Der Link ist unbekannt oder unvollständig. Bitten Sie das Unternehmen um eine neue Einladung.',
+            };
+    }
+});
 
 const page = usePage();
 const processing = ref(false);
@@ -52,8 +82,8 @@ const blockedReason = computed(() => {
         return `Diese Einladung gilt für ${props.invitation?.email}. Sie sind als ${props.viewer.email} angemeldet — bitte melden Sie sich mit der eingeladenen Adresse an.`;
     }
 
-    if (!props.viewer.is_firmenkunde) {
-        return 'Ihr Konto ist kein Firmenkunden-Konto. Einem Unternehmen können nur Firmenkunden beitreten.';
+    if (!props.viewer.can_join) {
+        return 'Ihr Konto kann keinem Unternehmen beitreten. Bitte verwenden Sie ein Kundenkonto.';
     }
 
     return null;
@@ -61,9 +91,7 @@ const blockedReason = computed(() => {
 
 const canAccept = computed(() => props.invitation !== null && props.viewer !== null && blockedReason.value === null);
 
-const scopeLabel = computed(() =>
-    props.invitation?.vehicle_scope === 'own' ? 'Nur selbst angelegte Fahrzeuge' : 'Alle Fahrzeuge des Unternehmens',
-);
+const scopeLabel = computed(() => (props.invitation?.vehicle_scope === 'own' ? 'Nur selbst angelegte Fahrzeuge' : 'Alle Fahrzeuge des Unternehmens'));
 
 const dateFormatter = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
@@ -90,10 +118,16 @@ function accept() {
     <B2bRegistrationLayout title="Einladung" back-label="Zur Startseite">
         <div class="w-full rounded-[10px] bg-white px-6 py-6 shadow-[0_4px_4px_rgba(0,0,0,0.25)] md:px-8">
             <template v-if="!invitation">
-                <h2 class="text-brand-teal text-xl font-bold">Diese Einladung ist nicht mehr gültig</h2>
-                <p class="text-muted-foreground mt-2 text-sm">
-                    Der Link wurde bereits verwendet, zurückgezogen oder ist abgelaufen. Bitten Sie das Unternehmen um eine neue Einladung.
-                </p>
+                <h2 class="text-brand-teal text-xl font-bold">{{ deadLink.title }}</h2>
+                <p class="text-muted-foreground mt-2 text-sm">{{ deadLink.body }}</p>
+                <div v-if="status === 'accepted'" class="mt-5 flex justify-end">
+                    <Link
+                        :href="route('login')"
+                        class="bg-brand-green hover:bg-brand-green/90 w-full rounded-[5px] px-10 py-2.5 text-center text-sm font-bold text-white transition sm:w-auto"
+                    >
+                        Anmelden
+                    </Link>
+                </div>
             </template>
 
             <template v-else>
@@ -107,8 +141,8 @@ function accept() {
                     <div class="min-w-0">
                         <h2 class="text-brand-teal text-xl font-bold">{{ invitation.company_name }}</h2>
                         <p class="text-muted-foreground mt-1 text-sm">
-                            Sie wurden als <span class="font-semibold">{{ invitation.role_label }}</span> eingeladen, diesem Unternehmen bei
-                            LeasyBack beizutreten.
+                            Sie wurden als <span class="font-semibold">{{ invitation.role_label }}</span> eingeladen, diesem Unternehmen bei LeasyBack
+                            beizutreten.
                         </p>
                     </div>
                 </div>
@@ -134,6 +168,11 @@ function accept() {
 
                 <p v-if="blockedReason" class="mt-4 rounded-[8px] bg-amber-50 px-4 py-3 text-sm text-amber-900">
                     {{ blockedReason }}
+                </p>
+
+                <p v-else-if="viewer?.keeps_private_area" class="mt-4 rounded-[8px] bg-[#e6f8f4] px-4 py-3 text-sm text-[#0b4f49]">
+                    Ihr privater Bereich bleibt vollständig erhalten. Nach dem Beitritt können Sie jederzeit zwischen Ihren eigenen Fahrzeugen und
+                    {{ invitation.company_name }} wechseln.
                 </p>
 
                 <div class="mt-6 flex flex-col-reverse items-center gap-3 border-t pt-5 sm:flex-row sm:justify-end">
@@ -165,8 +204,9 @@ function accept() {
                 </div>
 
                 <p v-if="!viewer" class="text-muted-foreground mt-3 text-center text-xs sm:text-right">
-                    Registrieren Sie sich mit <span class="font-semibold">{{ invitation.email }}</span> als Firmenkunde und öffnen Sie diesen Link
-                    erneut.
+                    Haben Sie bereits ein Konto für <span class="font-semibold">{{ invitation.email }}</span
+                    >? Melden Sie sich damit an — es wird weiterverwendet. Andernfalls registrieren Sie sich mit dieser Adresse und öffnen Sie diesen
+                    Link erneut.
                 </p>
             </template>
         </div>

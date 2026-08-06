@@ -265,7 +265,10 @@ class VehicleService
      */
     private function resolveOwnership(User $user, array $validated): array
     {
-        return match ($user->user_type->value) {
+        // The context they are acting in, not the account type: a Privatkunde
+        // who is also a company member registers company vehicles while acting
+        // as that company, and private ones while acting as themselves.
+        return match ($this->b2bContext->effectiveUserType($user)->value) {
             'Admin' => $this->resolveAdminOwnership($validated),
             'Firmenkunde' => $this->resolveFirmenkundeOwnership($user),
             'Privatkunde' => ['B2C', null, $user->id],

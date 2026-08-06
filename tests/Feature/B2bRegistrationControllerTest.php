@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\B2bPermission;
 use App\Enums\UserType;
 use App\Models\User;
+use App\Modules\UserProfile\B2B\Services\B2bContext;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Inertia\Testing\AssertableInertia;
@@ -228,5 +229,140 @@ class B2bRegistrationControllerTest extends TestCase
         $this->actingAs($this->firmenkunde())
             ->put(route('company.update'), $this->payload())
             ->assertRedirect(route('onboarding.b2b.show', absolute: false));
+    }
+
+    // ------------------------------------------------- dual-context accounts
+
+    /**
+     * A private customer who accepted a B2B invitation, joined to $b2bId with
+     * the given permissions and left acting as that company.
+     */
+    private function dualContextMember(string $b2bId, array $permissions): User
+    {
+        $user = User::factory()->create(['user_type' => UserType::Privatkunde]);
+
+        $this->addMember($user, $b2bId, $permissions);
+        app(B2bContext::class)->switchTo($user, $b2bId);
+
+        return $user->fresh();
+    }
+
+    public function test_mein_konto_shows_the_company_while_a_dual_context_user_acts_as_it(): void
+    {
+        $b2bId = $this->registerCompany($this->firmenkunde());
+        $member = $this->dualContextMember($b2bId, [B2bPermission::ViewCompany->value]);
+
+        $this->actingAs($member)
+            ->get(route('profile.edit'))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('company.data.company_name', 'Acme GmbH')
+                ->where('company.data.address.city', 'Berlin')
+                ->where('company.can_manage', false)
+                ->where('company.can_register', false)
+                ->etc()
+            );
+    }
+
+    public function test_mein_konto_falls_back_to_the_personal_profile_on_the_private_side(): void
+    {
+        $b2bId = $this->registerCompany($this->firmenkunde());
+        $member = $this->dualContextMember($b2bId, [B2bPermission::ViewCompany->value]);
+
+        app(B2bContext::class)->switchToPersonal($member);
+
+        $this->actingAs($member->fresh())
+            ->get(route('profile.edit'))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('company', null)->etc());
+    }
+
+    public function test_switching_sides_switches_which_account_page_is_shown(): void
+    {
+        $b2bId = $this->registerCompany($this->firmenkunde());
+        $member = $this->dualContextMember($b2bId, [B2bPermission::ViewCompany->value]);
+
+        $this->actingAs($member)->post(route('b2b.switch'), ['b2b_id' => null]);
+
+        $this->actingAs($member->fresh())
+            ->get(route('profile.edit'))
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('company', null)->etc());
+
+        $this->actingAs($member->fresh())->post(route('b2b.switch'), ['b2b_id' => $b2bId]);
+
+        $this->actingAs($member->fresh())
+            ->get(route('profile.edit'))
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('company.data.company_name', 'Acme GmbH')
+                ->etc()
+            );
+    }
+
+    public function test_a_dual_context_member_with_manage_edits_the_company_from_mein_konto(): void
+    {
+        $b2bId = $this->registerCompany($this->firmenkunde());
+        $member = $this->dualContextMember($b2bId, [
+            B2bPermission::ViewCompany->value,
+            B2bPermission::ManageCompany->value,
+        ]);
+
+        $this->actingAs($member)
+            ->get(route('profile.edit'))
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('company.can_manage', true)->etc());
+
+        $this->actingAs($member)
+            ->put(route('company.update'), $this->payload(['company_name' => 'Acme Fleet GmbH']))
+            ->assertRedirect(route('profile.edit', absolute: false))
+            ->assertSessionHas('success');
+
+        $this->assertDatabaseHas('b2b', ['b2b_id' => $b2bId, 'company_name' => 'Acme Fleet GmbH']);
+    }
+
+    public function test_a_dual_context_member_without_manage_cannot_edit_the_company(): void
+    {
+        $b2bId = $this->registerCompany($this->firmenkunde());
+        $member = $this->dualContextMember($b2bId, [B2bPermission::ViewCompany->value]);
+
+        $this->actingAs($member)
+            ->put(route('company.update'), $this->payload(['company_name' => 'Renamed GmbH']))
+            ->assertForbidden();
+
+        $this->assertDatabaseHas('b2b', ['b2b_id' => $b2bId, 'company_name' => 'Acme GmbH']);
+    }
+
+    public function test_a_dual_context_member_cannot_edit_the_company_from_their_private_side(): void
+    {
+        $b2bId = $this->registerCompany($this->firmenkunde());
+        $member = $this->dualContextMember($b2bId, [
+            B2bPermission::ViewCompany->value,
+            B2bPermission::ManageCompany->value,
+        ]);
+
+        app(B2bContext::class)->switchToPersonal($member);
+
+        // Refused by the request's own authorize(): with no company context
+        // there is no company this request could be editing, so it never
+        // reaches the controller.
+        $this->actingAs($member->fresh())
+            ->put(route('company.update'), $this->payload(['company_name' => 'Renamed GmbH']))
+            ->assertForbidden();
+
+        $this->assertDatabaseHas('b2b', ['b2b_id' => $b2bId, 'company_name' => 'Acme GmbH']);
+    }
+
+    public function test_a_dual_context_user_is_never_offered_company_registration(): void
+    {
+        $b2bId = $this->registerCompany($this->firmenkunde());
+        $member = $this->dualContextMember($b2bId, [B2bPermission::ViewCompany->value]);
+
+        // Acting as the company: it already exists.
+        $this->actingAs($member)
+            ->get(route('profile.edit'))
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('company.can_register', false)->etc());
+
+        // Acting privately: registering a company is not a B2C action.
+        $this->actingAs($member)
+            ->get(route('onboarding.b2b.show'))
+            ->assertRedirect(route('dashboard', absolute: false));
     }
 }

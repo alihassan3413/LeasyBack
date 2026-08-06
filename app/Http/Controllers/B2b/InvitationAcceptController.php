@@ -31,19 +31,25 @@ class InvitationAcceptController extends Controller
 
     public function show(Request $request, string $token): Response
     {
-        $invitation = $this->invitations->findByToken($token);
+        $invitation = $this->invitations->findAnyByToken($token);
         $user = $request->user();
 
-        if ($invitation === null) {
+        // Unknown token, or one that has been used up. Naming which of the
+        // four it is costs nothing — holding the token already proves the
+        // holder received the email — and turns a dead end into an
+        // instruction ("ask for a new one" vs. "you already joined").
+        if ($invitation === null || ! $invitation->isPending()) {
             return Inertia::render('b2b/InvitationAccept', [
                 'token' => $token,
                 'invitation' => null,
+                'status' => $invitation?->status() ?? 'invalid',
                 'viewer' => null,
             ]);
         }
 
         return Inertia::render('b2b/InvitationAccept', [
             'token' => $token,
+            'status' => 'pending',
             'invitation' => [
                 'company_name' => $invitation->company?->company_name ?? '',
                 'company_logo_url' => $invitation->company?->logo_url,
@@ -59,17 +65,28 @@ class InvitationAcceptController extends Controller
                 'email' => $user->email,
                 'user_type' => $user->user_type->value,
                 'email_matches' => Str::lower($user->email) === Str::lower($invitation->email),
-                'is_firmenkunde' => $user->user_type === UserType::Firmenkunde,
+                // Private customers may join too — they keep their own account
+                // and gain the company alongside it. Only account types with
+                // no customer side at all cannot.
+                'can_join' => in_array($user->user_type, [UserType::Firmenkunde, UserType::Privatkunde], true),
+                'keeps_private_area' => $user->user_type === UserType::Privatkunde,
             ],
         ]);
     }
 
     public function accept(Request $request, string $token): RedirectResponse
     {
-        $invitation = $this->invitations->findByToken($token);
+        $invitation = $this->invitations->findAnyByToken($token);
 
-        if ($invitation === null) {
-            return back()->withErrors(['invitation' => 'Diese Einladung ist nicht mehr gültig.']);
+        if ($invitation === null || ! $invitation->isPending()) {
+            return back()->withErrors([
+                'invitation' => match ($invitation?->status()) {
+                    'accepted' => 'Diese Einladung wurde bereits angenommen.',
+                    'revoked' => 'Diese Einladung wurde zurückgezogen.',
+                    'expired' => 'Diese Einladung ist abgelaufen. Bitten Sie das Unternehmen um eine neue.',
+                    default => 'Diese Einladung ist nicht mehr gültig.',
+                },
+            ]);
         }
 
         return $this->withServiceErrorHandling(

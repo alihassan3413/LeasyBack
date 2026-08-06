@@ -116,14 +116,20 @@ export interface B2bActiveMembership extends B2bCompanySummary {
 }
 
 /**
- * Shared on every Inertia request for Firmenkunde accounts (null otherwise).
- * Used to hide what the server would refuse — never as the authorization
- * itself, which lives in EnsureB2bPermission and VehicleScopeService.
+ * Shared on every Inertia request for accounts that have a company side —
+ * Firmenkunde, and any Privatkunde who accepted a B2B invitation (null
+ * otherwise). Used to hide what the server would refuse — never as the
+ * authorization itself, which lives in EnsureB2bPermission and
+ * VehicleScopeService.
+ *
+ * `active` is null while a dual-context account is acting on its private side.
  */
 export interface B2bSharedState {
     active: B2bActiveMembership | null;
     memberships: B2bCompanySummary[];
     permissions: B2bPermissionValue[];
+    /** True for accounts that keep a private area to switch back to. */
+    personal_available: boolean;
 }
 
 export interface B2bMemberRow {

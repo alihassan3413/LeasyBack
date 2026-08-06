@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Onboarding;
 
 use App\Enums\UserType;
+use App\Modules\UserProfile\B2B\Services\B2bContext;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -33,9 +34,27 @@ class B2bRegistrationRequest extends FormRequest
         'Schweiz' => 4,
     ];
 
+    /**
+     * Either a Firmenkunde — who registers a company here and edits it from
+     * "Mein Konto" afterwards — or anyone currently acting as a company they
+     * belong to. The latter covers a private account that accepted a B2B
+     * invitation: it edits company master data through this same request, and
+     * gating on `user_type` alone would 403 it.
+     *
+     * This is not the permission check. Editing goes through the
+     * `b2b.can:company.manage` route middleware, which is what decides whether
+     * this member may change the company's data at all.
+     */
     public function authorize(): bool
     {
-        return $this->user()?->user_type === UserType::Firmenkunde;
+        $user = $this->user();
+
+        if ($user === null) {
+            return false;
+        }
+
+        return $user->user_type === UserType::Firmenkunde
+            || app(B2bContext::class)->actsAsCompany($user);
     }
 
     /**

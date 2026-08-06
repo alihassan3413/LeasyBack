@@ -17,7 +17,7 @@ const props = defineProps<{
     mustVerifyEmail: boolean;
     status?: string;
     profile: UserProfileData | null;
-    /** Null for every account type that has no company (Privatkunde, …). */
+    /** Null whenever the user is not acting as a company — see companyState(). */
     company: AccountCompanyState | null;
 }>();
 
@@ -28,9 +28,10 @@ const page = usePage<SharedData>();
 const email = computed(() => props.profile?.email ?? page.props.auth.user?.email ?? '');
 
 /**
- * A company account has no personal profile: its address, contact person and
- * phone numbers are the company's, entered once during registration. Falls
- * back to the personal cards for every other account type.
+ * While acting as a company there is no personal profile to show: the address,
+ * contact person and phone numbers are the company's, entered once during
+ * registration. Falls back to the personal cards otherwise — which is also
+ * what a dual-context account sees on its private side.
  */
 const isCompanyAccount = computed(() => props.company !== null);
 const companyData = computed(() => props.company?.data ?? null);
@@ -164,7 +165,7 @@ function scrollTo(id: string) {
                         </nav>
                     </aside>
 
-                    <main class="min-w-0 flex-1 scroll-smooth space-y-4 sm:space-y-5">
+                    <main class="min-w-0 flex-1 space-y-4 scroll-smooth sm:space-y-5">
                         <template v-if="isCompanyAccount">
                             <template v-if="company?.data">
                                 <section id="firmendaten" class="scroll-mt-6 sm:scroll-mt-8">

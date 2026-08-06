@@ -12,10 +12,15 @@ use Symfony\Component\HttpFoundation\Response;
 /**
  * Gates a route on a B2B company permission: `->middleware('b2b.can:vehicles.create')`.
  *
- * Applies only to Firmenkunde accounts. Every other account type — Privatkunde,
- * Werkstatt, Admin — passes straight through, because several of these routes
- * are shared and company permissions are meaningless outside a company; their
- * access is decided by the route's own policies exactly as before.
+ * Applies to anyone currently acting as a company. Accounts acting outside a
+ * company — Privatkunde on their private side, Werkstatt, Admin — pass
+ * straight through, because several of these routes are shared and company
+ * permissions are meaningless outside a company; their access is decided by
+ * the route's own policies exactly as before.
+ *
+ * The gate is the *active membership*, not `user_type`: a Privatkunde who
+ * accepted a B2B invitation is a real company member while acting as that
+ * company and must be held to the permissions they were granted.
  *
  * This is the route-level half of the check. Anything that reads or writes a
  * specific vehicle still goes through VehicleScopeService/the policies, so a
@@ -34,20 +39,18 @@ class EnsureB2bPermission
             abort(401);
         }
 
-        // Company permissions are a Firmenkunde concept. Every other account
-        // type passes straight through, leaving the route's own policies to
-        // decide — several of these routes are shared with Privatkunde, and
-        // refusing them here would lock B2C out of its own dashboard.
-        if ($user->user_type !== UserType::Firmenkunde) {
-            return $next($request);
-        }
-
         $membership = $this->context->activeMembership($user);
 
         if ($membership === null) {
-            // Belongs to no company yet — send them to register one rather
-            // than showing a dead end.
-            return redirect()->route('onboarding.b2b.show');
+            // Not acting as a company. A Firmenkunde in that state belongs to
+            // no company yet and is sent to register one rather than shown a
+            // dead end; everyone else passes straight through, leaving the
+            // route's own policies to decide — several of these routes are
+            // shared with Privatkunde, and refusing them here would lock B2C
+            // out of its own dashboard.
+            return $user->user_type === UserType::Firmenkunde
+                ? redirect()->route('onboarding.b2b.show')
+                : $next($request);
         }
 
         foreach ($permissions as $permission) {

@@ -30,10 +30,10 @@ class ProfileController extends Controller
     /**
      * Show the user's "Mein Konto" page.
      *
-     * For a Firmenkunde the page shows the company's master data instead of a
-     * personal profile: the address, contact person and phone numbers entered
-     * during company registration are the account's, and there is no second
-     * set of them to keep in sync.
+     * While acting as a company the page shows that company's master data
+     * instead of a personal profile: the address, contact person and phone
+     * numbers entered during company registration are the account's, and there
+     * is no second set of them to keep in sync.
      */
     public function edit(Request $request): Response
     {
@@ -46,24 +46,31 @@ class ProfileController extends Controller
     }
 
     /**
-     * The company half of "Mein Konto", or null for every account type that
-     * has no company at all — which is what tells the page to fall back to the
-     * personal profile cards.
+     * The company half of "Mein Konto", or null when the user is not acting as
+     * a company — which is what tells the page to fall back to the personal
+     * profile cards.
+     *
+     * Follows the active context rather than `user_type`, exactly like the
+     * dashboard and every vehicle listing: a dual-context account sees its
+     * company's master data while acting as that company, and its own personal
+     * profile while acting privately. Switching sides switches this page too,
+     * so the account page never describes a company the rest of the session is
+     * not in.
      *
      * @return array{data: array<string, mixed>|null, can_manage: bool, can_register: bool}|null
      */
     private function companyState(User $user): ?array
     {
-        if ($user->user_type !== UserType::Firmenkunde) {
-            return null;
-        }
-
         $membership = $this->context->activeMembership($user);
 
-        // Belongs to no company yet — the page offers the registration form
-        // rather than an empty set of company cards.
         if ($membership === null) {
-            return ['data' => null, 'can_manage' => false, 'can_register' => true];
+            // A Firmenkunde belongs to no company yet — the page offers the
+            // registration form rather than an empty set of company cards.
+            // Everyone else, including a dual-context account on its private
+            // side, gets the personal profile.
+            return $user->user_type === UserType::Firmenkunde
+                ? ['data' => null, 'can_manage' => false, 'can_register' => true]
+                : null;
         }
 
         // A member without company.view is told the data exists but isn't
