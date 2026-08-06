@@ -50,7 +50,7 @@ class MemberController extends Controller
             // never joined.
             'invitations' => $canManage ? $this->invitations->listForCompany($membership->b2bId) : [],
             'analytics' => $membership->can(B2bPermission::ViewAnalytics)
-                ? $this->analytics->summary($membership->b2bId)
+                ? $this->analytics->summary($membership->b2bId, $request->user())
                 : null,
             'permissionCatalog' => $this->permissionCatalog(),
             'roleOptions' => $this->roleOptions(),

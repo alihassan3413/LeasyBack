@@ -2,6 +2,8 @@
 
 namespace App\Modules\UserProfile\B2B\Services;
 
+use App\Models\User;
+use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -10,6 +12,12 @@ use Illuminate\Support\Facades\DB;
  * what. Read-only aggregation — no authorization decisions are made here,
  * the caller has already established the actor may view analytics for this
  * company.
+ *
+ * `totals` and `states` respect the viewer's vehicle scope, so an own-scope
+ * member's figures describe the same set of vehicles their dashboard list
+ * shows. Before this was applied the tiles counted the whole company fleet
+ * while the table beneath them was narrowed — "12 Fahrzeuge" above a list of
+ * three (unresolved item 32).
  */
 class B2bAnalyticsService
 {
@@ -23,18 +31,33 @@ class B2bAnalyticsService
 
     private const CLOSED_STATUSES = ['delivered', 'completed', 'cancelled', 'discarded'];
 
+    public function __construct(private readonly VehicleScopeService $vehicleScope) {}
+
     /**
+     * `$viewer` is **required**, not optional.
+     *
+     * Phase 17.1 made the equivalent parameter on VehicleService optional and
+     * recorded the resulting trap — a caller that forgets it silently gets
+     * company-wide data. With only two call sites here, both of which have the
+     * request user to hand, that trap is closed rather than repeated.
+     *
      * @return array{
      *     totals: array<string, int>,
      *     states: list<array<string, mixed>>,
      *     members: list<array<string, mixed>>
      * }
      */
-    public function summary(string $b2bId): array
+    public function summary(string $b2bId, User $viewer): array
     {
+        $restrictedTo = $this->vehicleScope->ownVehicleRestrictionFor($viewer);
+
         return [
-            'totals' => $this->totals($b2bId),
-            'states' => $this->vehicleStates($b2bId),
+            'totals' => $this->totals($b2bId, $restrictedTo),
+            'states' => $this->vehicleStates($b2bId, $restrictedTo),
+            // Deliberately NOT narrowed: this breakdown groups *by* member and
+            // exists to answer "who is contributing what". Narrowing it to the
+            // viewer would collapse it to a single row and destroy the panel's
+            // purpose. It is gated on `members.view`, a separate permission.
             'members' => $this->memberBreakdown($b2bId),
         ];
     }
@@ -58,7 +81,7 @@ class B2bAnalyticsService
      *
      * @return list<array{key: string, label: string, count: int, filter: ?string}>
      */
-    private function vehicleStates(string $b2bId): array
+    private function vehicleStates(string $b2bId, ?int $restrictedTo): array
     {
         $latestStatus = DB::table('leasyback_orders as lo')
             ->select('lo.order_status')
@@ -68,6 +91,7 @@ class B2bAnalyticsService
 
         $rows = DB::table('vehicles as v')
             ->where('v.b2b_id', $b2bId)
+            ->when($restrictedTo !== null, fn ($query) => $query->where('v.created_by_user_id', $restrictedTo))
             ->select('v.vehicle_id')
             ->selectSub($latestStatus, 'current_order_status')
             ->get();
@@ -102,13 +126,20 @@ class B2bAnalyticsService
     /**
      * @return array<string, int>
      */
-    private function totals(string $b2bId): array
+    private function totals(string $b2bId, ?int $restrictedTo): array
     {
-        $vehicles = DB::table('vehicles')->where('b2b_id', $b2bId)->count();
+        $vehicles = DB::table('vehicles')
+            ->where('b2b_id', $b2bId)
+            ->when($restrictedTo !== null, fn ($query) => $query->where('created_by_user_id', $restrictedTo))
+            ->count();
 
+        // Narrowed by the *vehicle's* creator, not the order's, so these
+        // figures describe exactly the vehicles the viewer's dashboard list
+        // shows — which is the agreement item 32 was about.
         $orderStatuses = DB::table('leasyback_orders as lo')
             ->join('vehicles as v', 'v.vehicle_id', '=', 'lo.vehicle_id')
             ->where('v.b2b_id', $b2bId)
+            ->when($restrictedTo !== null, fn ($query) => $query->where('v.created_by_user_id', $restrictedTo))
             ->select('lo.order_status', DB::raw('count(*) as total'))
             ->groupBy('lo.order_status')
             ->pluck('total', 'order_status');

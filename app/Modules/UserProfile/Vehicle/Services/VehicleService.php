@@ -36,6 +36,7 @@ class VehicleService
         private readonly OrderCollectionService $orderCollectionService,
         private readonly B2bOfferService $b2bOfferService,
         private readonly B2bOrderNoteService $b2bOrderNoteService,
+        private readonly VehicleScopeService $vehicleScopeService,
     ) {}
 
     /**
@@ -446,9 +447,9 @@ class VehicleService
      *
      * @return array<string, mixed>|null
      */
-    public function findVehicleWithOrders(string $vehicleId, ?string $ownerId, string $belongs): ?array
+    public function findVehicleWithOrders(string $vehicleId, ?string $ownerId, string $belongs, ?User $viewer = null): ?array
     {
-        return $this->listVehiclesWithOrders($ownerId, $belongs, [], $vehicleId)[0] ?? null;
+        return $this->listVehiclesWithOrders($ownerId, $belongs, [], $vehicleId, $viewer)[0] ?? null;
     }
 
     /**
@@ -459,9 +460,9 @@ class VehicleService
      * @param  array{search?: string, status?: string, sort?: string, direction?: string}  $filters
      * @return array{data: list<array<string, mixed>>, meta: array{current_page: int, last_page: int, per_page: int, total: int, from: int|null, to: int|null}}
      */
-    public function paginateVehiclesWithOrders(?string $ownerId, string $belongs, array $filters = [], int $perPage = 10, int $page = 1): array
+    public function paginateVehiclesWithOrders(?string $ownerId, string $belongs, array $filters = [], int $perPage = 10, int $page = 1, ?User $viewer = null): array
     {
-        $paginator = $this->applyVehicleFilters($this->scopedVehicleQuery($ownerId, $belongs), $filters)
+        $paginator = $this->applyVehicleFilters($this->scopedVehicleQuery($ownerId, $belongs, $viewer), $filters)
             ->paginate(perPage: $perPage, page: $page);
 
         return [
@@ -477,9 +478,9 @@ class VehicleService
         ];
     }
 
-    public function listVehiclesWithOrders(?string $ownerId, string $belongs, array $filters = [], ?string $vehicleId = null): array
+    public function listVehiclesWithOrders(?string $ownerId, string $belongs, array $filters = [], ?string $vehicleId = null, ?User $viewer = null): array
     {
-        $query = $this->scopedVehicleQuery($ownerId, $belongs);
+        $query = $this->scopedVehicleQuery($ownerId, $belongs, $viewer);
 
         if ($vehicleId !== null) {
             $query->where('v.vehicle_id', $vehicleId);
@@ -488,7 +489,22 @@ class VehicleService
         return $this->hydrateVehicles($this->applyVehicleFilters($query, $filters)->get());
     }
 
-    private function scopedVehicleQuery(?string $ownerId, string $belongs): Builder
+    /**
+     * The company/owner half of vehicle access, plus the member-level half
+     * when a viewer is supplied.
+     *
+     * The member-level narrowing is delegated to
+     * VehicleScopeService::ownVehicleRestrictionFor(), the same decision
+     * VehicleScopeService::scopeQuery() applies to policies and detail
+     * lookups. Before phase 17's fix this method knew only about `b2b_id`, so
+     * an own-scope member was listed the whole company fleet even though
+     * opening any of it was correctly refused.
+     *
+     * `$viewer` is nullable because Admin-side callers legitimately have no
+     * member scope to apply; a null viewer never widens the company filter
+     * above, which is applied regardless.
+     */
+    private function scopedVehicleQuery(?string $ownerId, string $belongs, ?User $viewer = null): Builder
     {
         $query = DB::table('vehicles as v');
 
@@ -498,6 +514,12 @@ class VehicleService
             $query->where('v.vehicle_belongs', 'B2B')->where('v.b2b_id', $ownerId);
         } else {
             $query->where('v.vehicle_belongs', 'B2C')->where('v.b2c_user_id', $ownerId);
+        }
+
+        $restrictedTo = $viewer === null ? null : $this->vehicleScopeService->ownVehicleRestrictionFor($viewer);
+
+        if ($restrictedTo !== null) {
+            $query->where('v.created_by_user_id', $restrictedTo);
         }
 
         return $query;

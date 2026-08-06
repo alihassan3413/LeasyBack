@@ -81,7 +81,10 @@ class VehicleController extends Controller
         ];
 
         $page = max(1, (int) $request->query('page', 1));
-        $paginated = $this->vehicleService->paginateVehiclesWithOrders($ownerId, $belongs, $filters, self::VEHICLES_PER_PAGE, $page);
+        // $user is passed so the listing applies the member-level vehicle
+        // scope, not just the company one — an own-scope member must be shown
+        // the same set the detail page would let them open (phase 17 finding 1).
+        $paginated = $this->vehicleService->paginateVehiclesWithOrders($ownerId, $belongs, $filters, self::VEHICLES_PER_PAGE, $page, $user);
 
         return Inertia::render('Dashboard', [
             'vehicles' => $paginated['data'],
@@ -93,7 +96,7 @@ class VehicleController extends Controller
             'filters' => $filters,
             'memberOptions' => $canFilterByMember ? $this->memberOptions($membership->b2bId) : [],
             'analytics' => $membership?->can(B2bPermission::ViewAnalytics)
-                ? $this->analytics->summary($membership->b2bId)
+                ? $this->analytics->summary($membership->b2bId, $user)
                 : null,
         ]);
     }
@@ -135,7 +138,7 @@ class VehicleController extends Controller
         };
         $ownerId = $belongs === 'ALL' ? null : $this->scope->resolveOwnerId($user);
 
-        $data = $this->vehicleService->findVehicleWithOrders($vehicleId, $ownerId, $belongs);
+        $data = $this->vehicleService->findVehicleWithOrders($vehicleId, $ownerId, $belongs, $user);
 
         abort_if($data === null, 404);
 

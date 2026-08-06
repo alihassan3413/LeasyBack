@@ -20,13 +20,15 @@ existing code, the code path must be reported before business logic changes (§2
 
 ## 1. Completed phases
 
-Phases 1–17 are implemented and verified — **all planned phases are done**. Phases 1–8 are
-in commit `d79a473` and phases 9–14 in `d792020`; **phases 15, 16 and 17 are uncommitted**
+Phases 1–17 are implemented and verified — **all planned phases are done**, and both
+defects the phase 17 audit found are fixed (17.1, 17.2). Phases 1–8 are in commit
+`d79a473` and phases 9–14 in `d792020`; **phases 15 through 17.2 are uncommitted**
 (see §6a). Each was delivered under the standing constraints in §7 of this document.
 
 ⚠ **Done does not mean §20 is fully satisfied.** Phase 17's audit found one criterion
 structurally unmet (Lexware, dropped by product decision), seven proven only by probe, one
-medium-severity defect and three unmet §19 security requirements. See the phase 17 section
+medium-severity defect (fixed — 17.1) plus an analytics inconsistency (fixed — 17.2), and
+three unmet §19 security requirements. See the phase 17 section
 and §10 items 44–49 before treating this as shippable.
 
 *(Corrected 2026-08-06: revisions before phase 15 said phases 9–14 were uncommitted, with
@@ -1236,7 +1238,8 @@ each needing a long fixture chain; they were left for a follow-up rather than ru
 #### Findings — defects (reported, NOT fixed)
 
 **Finding 1 — `vehicle_scope = 'own'` is not enforced on the vehicle listing.** Severity:
-**medium**, data disclosure inside a company.
+**medium**, data disclosure inside a company. ✅ **RESOLVED 2026-08-06 — see phase 17.1
+below.** The description that follows is the defect as originally found.
 
 `VehicleScopeService::scopeQuery()`, `findVehicleWithAccess()` and `VehiclePolicy` all
 narrow correctly to the member's own vehicles. `VehicleService::scopedVehicleQuery()` —
@@ -1298,6 +1301,58 @@ and `session.secure` are configuration hygiene.
 **Not done in this phase:** the seven probe-only §20 criteria were not converted to tests;
 no frontend/TS test harness was introduced (criterion 5 stays uncovered); neither finding
 was fixed; no §19 gap was implemented.
+
+### Phase 17.1 — Finding 1 fixed: own-scope narrowing on the vehicle listing (2026-08-06)
+
+Scoped strictly to finding 1. Finding 2 and every §19 gap are untouched.
+
+| File | Change |
+|---|---|
+| `Vehicle/Services/VehicleScopeService.php` | **new** `ownVehicleRestrictionFor(User): ?int`; `scopeQuery()` now uses it instead of inlining the same test |
+| `Vehicle/Services/VehicleService.php` | `scopedVehicleQuery()` applies the restriction; `paginateVehiclesWithOrders()`, `listVehiclesWithOrders()`, `findVehicleWithOrders()` take an optional `?User $viewer`; `VehicleScopeService` injected |
+| `app/Http/Controllers/VehicleController.php` | both call sites pass the acting user |
+| `tests/Feature/B2b/CrossCompanyIsolationTest.php` | the skipped test is **un-skipped**; 3 tests added guarding against over-narrowing |
+
+**Approach — one rule, two applications (option (c) adapted).** Routing the listing through
+`VehicleScopeService::scopeQuery()` outright was rejected after inspection: `scopeQuery()`
+takes an **Eloquent** builder, while `scopedVehicleQuery()` is a `DB::table('vehicles as v')`
+query-builder statement whose `v.`-aliased columns `applyVehicleFilters()` and
+`hydrateVehicles()` both depend on. Converting it would have been a broad refactor of code
+the fix does not otherwise need to touch.
+
+Instead the *decision* was extracted into `VehicleScopeService::ownVehicleRestrictionFor()`
+and both mechanisms now ask it — `scopeQuery()` for policies and detail lookups, the
+listing for the dashboard. There is one definition of "is this member restricted to their
+own vehicles, and to whose id", which is what the defect was missing; the two query
+builders keep their own way of applying it.
+
+**Why `$viewer` is nullable.** Admin-side callers have no member scope to apply, and the
+company/owner filter is applied regardless of it, so null never *widens* access beyond the
+company. Both production call sites (`VehicleController::index()` and `::show()`) pass the
+acting user. ⚠ **Residual risk, stated plainly:** a future direct service call that omits
+`$viewer` silently gets the company-wide list. That is the same "a boolean defaults and
+gets forgotten" trap phase 16 avoided by using separate methods, and it was accepted here
+only because a required parameter cannot follow the existing optional ones without
+reordering three public signatures. If a third caller appears, reorder them.
+
+**B2C untouched.** `ownVehicleRestrictionFor()` returns null for any non-`Firmenkunde`, so
+the Privatkunde path (`b2c_user_id`) and Admin (`ALL`) are unreachable by the new clause.
+Covered by a test.
+
+**Verified.** The original probe now reports, for the same own-scope member:
+`scopeQuery` → `A-MINE 1`; detail access to a colleague's vehicle → refused;
+`ownVehicleRestrictionFor` → the member's user id; **dashboard list → `A-MINE 1` (total 1)**,
+previously `A-MINE 1, A-THEIRS 2`. Four tests cover it end to end over HTTP: own-scope
+narrowed, company-wide member *not* narrowed, owner *not* narrowed, Privatkunde unaffected.
+
+**⚠ Consequence — unresolved item 32 is now a visible inconsistency, not a latent one.**
+*(Closed 2026-08-06 by phase 17.2, below.)*
+`B2bAnalyticsService::summary(string $b2bId)` takes only a company id and has no member
+scope at all. The dashboard's `FleetOverview` tiles are therefore still company-wide while
+the vehicle table beneath them is now narrowed, so an own-scope member can see
+"12 Fahrzeuge" above a list of 3. **Deliberately not fixed here** — it is a different
+service and outside "finding 1 only" — but it should be the next thing decided, and the
+direction is now set by this fix.
 
 ---
 
@@ -1703,6 +1758,83 @@ Untested by automation, same caveat as phases 8–15. If tests are ever allowed,
 highest-value cases are: an internal note is absent from the customer payload; the store
 route 404s on a B2C order; a note saved without `visibility` is rejected.
 
+### Phase 17.2 — Item 32 closed: analytics aligned with the vehicle scope (2026-08-06)
+
+Scoped strictly to unresolved item 32. Phase 14's `B2bStatisticsService`, the Excel
+export, offers, billing, notifications and Lexware were **not** touched.
+
+| File | Change |
+|---|---|
+| `B2B/Services/B2bAnalyticsService.php` | `summary()` takes a **required** `User $viewer`; `totals()` and `vehicleStates()` narrow by the viewer's vehicle scope; `VehicleScopeService` injected |
+| `app/Http/Controllers/VehicleController.php` | dashboard passes the acting user |
+| `app/Http/Controllers/B2b/MemberController.php` | team page passes the acting user |
+| `tests/Feature/B2b/B2bAnalyticsScopeTest.php` | **new** — 8 tests |
+
+**The three surfaces now agree.** All of them answer "which vehicles count for this
+member" through the one decision source, `VehicleScopeService::ownVehicleRestrictionFor()`:
+
+| Surface | Before | After |
+|---|---|---|
+| `B2bStatisticsService` (phase 14) | narrowed ✅ | narrowed ✅ |
+| `VehicleService` listing (phase 17.1) | narrowed ✅ | narrowed ✅ |
+| `B2bAnalyticsService` (this phase) | **company-wide ❌** | narrowed ✅ |
+
+**`$viewer` is required here, and that is deliberate.** Phase 17.1 made the equivalent
+parameter optional and recorded the trap it leaves — a caller that forgets it silently
+gets company-wide data. There are only two call sites here and both have the request user
+to hand, so the trap is **closed rather than repeated**. Phase 17.1's own residual risk is
+unchanged and still stands.
+
+**Narrowed by the vehicle's creator, not the order's.** `totals()` counts orders joined to
+vehicles and filters on `v.created_by_user_id`, so the figures describe exactly the
+vehicles the viewer's dashboard list shows. Filtering on `lo.created_by_user_id` would
+have produced a third, subtly different set — orders *this member booked*, which is the
+per-member breakdown's question, not the tiles'.
+
+**`memberBreakdown()` is deliberately NOT narrowed.** It groups *by* member and exists to
+answer "who is contributing what"; narrowing it to the viewer would collapse the panel to
+a single row. It is gated on `members.view`, a separate permission from the vehicle scope.
+Covered by a test that asserts both members still appear with their own counts.
+
+**Note on the team page.** For an own-scope member with `analytics.view` the team page's
+summary cards now show *their* figures while the per-member table below still lists
+everyone. That is the intended reading — cards describe the viewer, the table describes
+the company — and it is a non-event for the common case, since owners are never own-scope.
+
+**Cross-company isolation unchanged.** Every query still pins `b2b_id`; the new clause only
+ever narrows further. No company id or user id is accepted from request input — the company
+comes from `B2bContext::activeMembership()` and the viewer from `$request->user()`.
+
+**B2C unchanged.** `ownVehicleRestrictionFor()` returns null for any non-`Firmenkunde`, and
+a Privatkunde has no membership so no analytics object is built at all. Asserted directly:
+their dashboard still returns `analytics === null` and their own vehicle.
+
+**Verified** by 8 tests: own-scope totals (1 of 3 vehicles, 1 of 2 open orders), company-wide
+member (3 / 2), owner (2 / 1), a second company's vehicles excluded, the per-member
+breakdown still reporting both members, and two HTTP tests asserting the FleetOverview
+buckets **sum to the number of vehicles actually listed** — the specific contradiction item
+32 described.
+
+### Verification results — phase 17.2
+
+| Check | Result |
+|---|---|
+| `php artisan test --compact` | **465 passed, 4 skipped, 2 failed**, 1778 assertions — the 2 are the documented baseline, the 4 skips are the baseline set |
+| `php artisan test --compact` (focused: `tests/Feature/B2b`, `VehicleDashboardControllerTest`, `DashboardTest`) | 70 passed (255 assertions) |
+| `vendor/bin/pint --dirty --format agent` | `passed` |
+| `npm run build` / `npx eslint` | not run — phase 17.2 changes no frontend file (`FleetOverview.vue` consumes the same payload shape) |
+| `php artisan migrate` | not run — no migration |
+
+### Verification results — phase 17.1
+
+| Check | Result |
+|---|---|
+| `php artisan test --compact` | **457 passed, 4 skipped, 2 failed**, 1755 assertions. The skip count is back to the documented baseline of 4 — finding 1's skip is gone |
+| `php artisan test --compact` (focused: `tests/Feature/B2b`, `VehicleDashboardControllerTest`, `Policies/VehiclePolicyTest`, `Api/VehicleControllerTest`) | 78 passed (265 assertions) |
+| `vendor/bin/pint --dirty --format agent` | `passed` |
+| `npm run build` / `npx eslint` | not run — phase 17.1 changes no frontend file |
+| `php artisan migrate` | not run — no migration |
+
 ### Verification results — phase 17
 
 | Check | Result |
@@ -1718,7 +1850,7 @@ route 404s on a B2C order; a note saved without `visibility` is rejected.
 channel separation, note isolation, the vehicle import and the audit trail. Seven §20
 criteria remain probe-only (see the table above) — that is the honest remaining gap.
 
-## 6a. Current working-tree state (after phase 17, 2026-08-06)
+## 6a. Current working-tree state (after phase 17.2, 2026-08-06)
 
 Branch **`feat/b2b-flow`**. *(Corrected 2026-08-05: every earlier revision of this section
 said `feat/admin-chat`. The branch was renamed/switched during phase 14 — check
@@ -1727,11 +1859,12 @@ said `feat/admin-chat`. The branch was renamed/switched during phase 14 — chec
 All ten B2B migrations are applied locally (`migrate:status` batches 8–17). Phases 14 and
 15 add none; **phase 16 adds one**, `b2b_order_notes` (batch 17).
 
-**Phases 15, 16 and 17 are uncommitted.** Everything through phase 14 is committed
-(below); the working tree holds phase 15's vehicle import, phase 16's order notes, phase
-17's test suite, and this document. The per-phase file tables in §1 are the list of what
-each touched — check `git status --porcelain` rather than trusting a file list written
-here, which is the mistake every earlier revision of this section made.
+**Phases 15, 16, 17, 17.1 and 17.2 are uncommitted.** Everything through phase 14 is
+committed (below); the working tree holds phase 15's vehicle import, phase 16's order
+notes, phase 17's test suite, phase 17.1's listing-scope fix, phase 17.2's analytics-scope
+fix, and this document. The per-phase file tables in §1 are the list of what each touched
+— check `git status --porcelain` rather than trusting a file list written here, which is
+the mistake every earlier revision of this section made.
 
 **Phases 1–8 are in `d79a473`** (57 files, +4584/−84), together with the 7.1 correction.
 Its message — `feat: add service fee fields to b2b table and update existing records` —
@@ -1826,74 +1959,86 @@ What remains is **remediation, not new features** — everything below came out 
 
 | Priority | Item | Source |
 |---|---|---|
-| 1 | `vehicle_scope = 'own'` not enforced on the vehicle listing | finding 1 / item 44 |
-| 2 | GDPR retention and deletion workflows — not implemented at all | §19 / item 47 |
-| 3 | `AWS_DEFAULT_REGION=us-east-1`, not Frankfurt | §19 / item 48 |
-| 4 | Malware scanning on uploads — not implemented | §19 / item 46 |
-| 5 | Google Places API key committed in `.env` and shipped in the bundle | §19 / item 49 |
-| 6 | Seven §20 criteria still probe-only | phase 17 coverage table |
-| 7 | Lexware (§20 #14) structurally unmet — confirm the product decision stands | item 25 |
+| ~~—~~ | ~~`vehicle_scope = 'own'` not enforced on the vehicle listing~~ | ✅ **fixed in phase 17.1** |
+| ~~—~~ | ~~`FleetOverview` tiles company-wide for own-scope members~~ | ✅ **fixed in phase 17.2** (item 32) |
+| 1 | GDPR retention and deletion workflows — not implemented at all | §19 / item 47 |
+| 2 | `AWS_DEFAULT_REGION=us-east-1`, not Frankfurt | §19 / item 48 |
+| 3 | Malware scanning on uploads — not implemented | §19 / item 46 |
+| 4 | Google Places API key committed in `.env` and shipped in the bundle | §19 / item 49 |
+| 5 | Seven §20 criteria still probe-only | phase 17 coverage table |
+| 6 | Lexware (§20 #14) structurally unmet — confirm the product decision stands | item 25 |
+
+**Every known correctness defect is now fixed.** What remains is security/compliance
+configuration (1–4), test coverage depth (5) and one confirmed product decision (6).
 
 ---
 
 ## 9. Exact next phase
 
-**None. All planned phases (1–17) are complete.**
+**None. Phases 1–17 are complete and every known correctness defect is fixed**
+(finding 1 in 17.1, item 32 in 17.2).
 
-There is no phase 18. What is left is the remediation list in §8, which is a set of
-decisions rather than a build. Take them one at a time; none depends on another.
+What remains is in §8 and is no longer development work: three security/compliance gaps,
+one credential to rotate, coverage depth, and one product decision to confirm. None
+depends on another, so they can be taken in any order — the numbering in §8 is by risk.
 
-The single highest-value next action is **finding 1** — `vehicle_scope = 'own'` is not
-enforced on the vehicle listing, so a member restricted to their own vehicles is shown the
-whole company fleet while the UI tells them otherwise. It has a skipped test
-(`CrossCompanyIsolationTest::test_an_own_scope_member_sees_only_the_vehicles_they_registered`)
-already carrying the correct expectation, so the fix is verifiable the moment it lands.
+The highest-value next action is **item 47, GDPR retention and deletion**. It is the
+largest outright §19 gap, the only one with a legal dimension, and unlike the others it
+cannot be closed by a configuration change — it needs a decision on retention periods
+before any code is written.
 
-Ready-to-use prompt for that fix:
+Ready-to-use prompt:
 
 ```
-Fix phase 17 finding 1: vehicle_scope = 'own' is not enforced on the vehicle listing.
+Design and implement GDPR retention and deletion for the B2B portal (b2b.txt §19,
+handoff unresolved item 47).
 
-Read B2B_IMPLEMENTATION_HANDOFF.md's phase 17 section first (finding 1), then inspect:
-VehicleService::scopedVehicleQuery(), paginateVehiclesWithOrders(),
-listVehiclesWithOrders(), VehicleScopeService::scopeQuery() (which already does this
-correctly), B2bContext::activeMembership(), and B2bMembership::seesOwnVehiclesOnly().
+Read B2B_IMPLEMENTATION_HANDOFF.md's phase 17 §19 audit table first, then inspect what
+personal data actually exists: users, user_b2b, b2b_invitations, vehicles
+(driver_name/driver_contact), logistics_address_profiles, order_messages
+(sender_name snapshots), b2b_order_notes (author_name snapshots),
+b2b_workshop_quotations (contact_person/contact_email/contact_phone),
+vehicle_documents and vehicle_report_documents (files on the `documents` disk).
 
-The defect: scopedVehicleQuery() filters on b2b_id alone. VehicleScopeService::scopeQuery()
-additionally narrows to created_by_user_id when the membership's vehicle_scope is 'own'.
-The dashboard and listVehiclesWithOrders() therefore list every company vehicle to an
-own-scope member, while Dashboard.vue tells them they only see their own.
+STOP AND ASK BEFORE BUILDING. This phase cannot be specified from the code alone:
+retention periods are a legal decision, not an engineering one. Report first:
+1. A complete inventory of personal data: table, column, whose data it is (company user /
+   driver / workshop contact / B2C customer), and why it is held.
+2. For each, the candidate retention trigger (account deletion, membership ended, order
+   completed + N years, invitation expired) — as OPTIONS, not decisions.
+3. Which data cannot simply be deleted because it is load-bearing: the sender_name and
+   author_name snapshots exist precisely so a record stays readable after an account
+   goes, and order/billing history likely has a statutory retention period of its own
+   that CONFLICTS with erasure. Name every such conflict explicitly.
+4. Whether deletion should be hard delete, anonymisation, or per-table a mix — with a
+   recommendation.
+Then WAIT for the retention periods to be confirmed before implementing anything.
 
-The design problem to solve first, and to report before coding: scopedVehicleQuery()
-takes an $ownerId string and has no access to the acting User, so it cannot ask
-B2bContext anything. Decide and justify:
-  (a) thread the acting User (or a resolved scope object) through
-      paginateVehiclesWithOrders/listVehiclesWithOrders into scopedVehicleQuery, or
-  (b) have the callers pass an explicit created_by filter, or
-  (c) route these reads through VehicleScopeService::scopeQuery() instead, so there is
-      one narrowing implementation rather than two.
-(c) is the most likely right answer — two implementations of the same rule is what
-caused this — but it is an Eloquent-vs-query-builder change, so check the cost first.
+When approved, implement:
+- A documented retention policy (periods per data class) in one place, not scattered.
+- A scheduled command that applies it, following SendB2bOfferReminders' shape
+  (withoutOverlapping()->onOneServer(), a dry-run/report mode FIRST).
+- A per-subject erasure path for an explicit deletion request, distinct from scheduled
+  retention.
+- Documents on the `documents` disk deleted alongside their database rows — an orphaned
+  file on disk is still personal data.
+- Tests: data past its retention is removed/anonymised; data inside it is untouched; a
+  statutory-hold record survives erasure; cross-company isolation holds throughout.
 
-Requirements:
-- Un-skip CrossCompanyIsolationTest::test_an_own_scope_member_sees_only_the_vehicles_they_registered
-  and make it pass. Do not weaken the assertion.
-- An 'all'-scope member and the owner must still see the whole company fleet — add a test
-  for that too if one does not exist, so the fix cannot over-narrow.
-- B2C is unaffected: a Privatkunde's own filter is b2c_user_id and must not change.
-- Admin ('ALL') must still see everything.
-- Check whether the same gap exists in the vehicle count/analytics surfaces
-  (B2bAnalyticsService — see unresolved item 32) and REPORT it; do not fix it in the same
-  change without saying so.
-- Do not change unrelated files. Do not add dependencies.
+Constraints:
+- Do NOT delete anything without a dry-run mode proving what it would touch.
+- Do not break the sender_name/author_name readability guarantee without saying so.
+- Keep B2C behaviour unchanged unless the policy explicitly covers B2C subjects.
+- Do not touch statistics, offers, billing, notifications or Lexware.
+- Do not add dependencies.
 
-Report before implementing: your choice of (a)/(b)/(c) with the reason, and whether
-item 32's FleetOverview inconsistency should be resolved in the same direction.
-Report after: files changed, the test now passing, and what you found about item 32.
+Report after: the policy as implemented, what the dry run reports on a seeded dataset,
+every conflict between erasure and statutory retention, and what a data subject's
+erasure request does and does not remove.
 
-Update B2B_IMPLEMENTATION_HANDOFF.md: mark finding 1 resolved with a dated note in the
-phase 17 section and in §10 item 44, refresh §8's remediation table, and record test,
-build, Pint and ESLint results.
+Update B2B_IMPLEMENTATION_HANDOFF.md: add the phase to section 1, mark item 47 resolved
+or partially resolved with a dated note, refresh §8, re-point §9, and record test and
+Pint results.
 ```
 
 ---
@@ -2065,6 +2210,13 @@ Opened by phase 14:
     is not. §17 says "company-level", §19 says a user may only access their own permitted
     data. `FleetOverview` was deliberately left untouched (out of scope). Decide which
     reading wins and align the other.
+
+    **Escalated 2026-08-06 (phase 17.1), then RESOLVED 2026-08-06 (phase 17.2).**
+    `B2bAnalyticsService::summary()` now takes a required `User $viewer` and narrows
+    `totals` and `states` through `VehicleScopeService::ownVehicleRestrictionFor()` — the
+    same decision source as the listing and phase 14's statistics. All three surfaces now
+    agree. `memberBreakdown()` is deliberately left company-wide because it groups *by*
+    member; see the phase 17.2 section for that reasoning and for the team-page nuance.
 33. **The statistics have no date range.** Every figure covers all time; monthly volume is
     fixed at the last 12 months. §17 does not ask for filtering, but "total savings" grows
     forever and will eventually stop being a useful headline. No filter UI, no
@@ -2138,13 +2290,13 @@ Opened by phase 16:
 
 Opened by phase 17 (audit findings — see the phase 17 section for detail):
 
-44. **`vehicle_scope = 'own'` is not enforced on the vehicle listing.** *(Finding 1,
-    medium severity.)* `VehicleService::scopedVehicleQuery()` filters on `b2b_id` alone, so
-    an own-scope member is listed the whole company fleet on the dashboard and through
-    `listVehiclesWithOrders()`, while the UI states the opposite. Detail access is still
-    correctly refused and cross-company isolation is unaffected. A skipped test carries the
-    correct expectation. **Not fixed in phase 17 by design** — the audit reports, it does
-    not change behaviour. Closely related to item 32.
+44. ~~**`vehicle_scope = 'own'` is not enforced on the vehicle listing.**~~ **Resolved
+    2026-08-06 (phase 17.1)** — the decision moved into
+    `VehicleScopeService::ownVehicleRestrictionFor()` and both the Eloquent scope and the
+    dashboard's query-builder listing now ask it. The skipped test is un-skipped and three
+    over-narrowing guards were added. One residual risk is recorded in the phase 17.1
+    section: `$viewer` is optional, so a future direct service caller that omits it gets
+    the company-wide list.
 45. **Canonical/shim model type hints are inconsistent.** *(Finding 2, low severity.)*
     Several services hint `App\Models\Vehicle` while every relation and factory returns the
     canonical class, so `$order->vehicle` cannot be passed to them without a `TypeError`.

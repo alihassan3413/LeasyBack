@@ -2,8 +2,10 @@
 
 namespace Tests\Feature\B2b;
 
+use App\Models\User;
 use App\Modules\UserProfile\B2B\Services\B2bContext;
 use App\Modules\UserProfile\B2B\Services\B2bStatisticsService;
+use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Vehicle\Services\VehicleService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Feature\B2b\Concerns\BuildsB2bCompanies;
@@ -102,27 +104,12 @@ class CrossCompanyIsolationTest extends TestCase
     }
 
     /**
-     * KNOWN DEFECT — skipped, not deleted (phase 17 finding 1).
-     *
-     * `vehicle_scope = 'own'` is enforced by VehicleScopeService::scopeQuery(),
-     * findVehicleWithAccess() and VehiclePolicy, but **not** by
-     * VehicleService::scopedVehicleQuery(), which backs the dashboard list and
-     * listVehiclesWithOrders(). Both filter on `b2b_id` alone, so an own-scope
-     * member is listed every vehicle in the company — plate, VIN, make, model,
-     * orders, offers and documents — while the dashboard tells them "Sie sehen
-     * nur die Fahrzeuge, die Sie selbst angelegt haben". Opening a colleague's
-     * vehicle is still correctly refused, so this is a listing leak, not a
-     * detail-access one. Cross-company isolation is unaffected.
-     *
-     * This test carries the correct expectation and will pass once
-     * scopedVehicleQuery() consults the membership's vehicle scope.
+     * Phase 17 finding 1, fixed 2026-08-06: the dashboard listing now applies
+     * the same member-level scope as detail access, via
+     * VehicleScopeService::ownVehicleRestrictionFor().
      */
     public function test_an_own_scope_member_sees_only_the_vehicles_they_registered(): void
     {
-        $this->markTestSkipped(
-            'Known defect: VehicleService::scopedVehicleQuery() ignores vehicle_scope=own. See phase 17 finding 1.'
-        );
-
         $alpha = $this->makeCompany('Alpha GmbH');
 
         $scoped = $this->makeMember($alpha, ['vehicles.view'], 'own');
@@ -137,6 +124,62 @@ class CrossCompanyIsolationTest extends TestCase
 
         $this->assertContains('A-MINE 1', $plates);
         $this->assertNotContains('A-THEIRS 2', $plates);
+    }
+
+    /**
+     * The other half of the finding-1 fix: narrowing must apply *only* to
+     * own-scope members. A company-wide member and the owner must still be
+     * shown every vehicle in the company, including ones they did not create.
+     */
+    public function test_a_company_wide_member_still_sees_every_company_vehicle(): void
+    {
+        $alpha = $this->makeCompany('Alpha GmbH');
+
+        $companyWide = $this->makeMember($alpha, ['vehicles.view'], 'all');
+
+        $this->makeB2bVehicle($alpha, ['license_plate' => 'A-MINE 1', 'created_by_user_id' => $companyWide->id]);
+        $this->makeB2bVehicle($alpha, ['license_plate' => 'A-THEIRS 2']);
+
+        $response = $this->actingAs($companyWide)->get(route('dashboard'));
+
+        $response->assertOk();
+        $plates = collect($response->viewData('page')['props']['vehicles'])->pluck('license_plate');
+
+        $this->assertContains('A-MINE 1', $plates);
+        $this->assertContains('A-THEIRS 2', $plates);
+    }
+
+    public function test_the_owner_still_sees_vehicles_they_did_not_create(): void
+    {
+        $alpha = $this->makeCompany('Alpha GmbH');
+
+        $this->makeB2bVehicle($alpha, ['license_plate' => 'A-THEIRS 2']);
+
+        $response = $this->actingAs($this->makeOwner($alpha))->get(route('dashboard'));
+
+        $response->assertOk();
+        $plates = collect($response->viewData('page')['props']['vehicles'])->pluck('license_plate');
+
+        $this->assertContains('A-THEIRS 2', $plates);
+    }
+
+    /**
+     * A Privatkunde is narrowed by `b2c_user_id`, never by
+     * `created_by_user_id` — the fix must not reach the B2C path at all.
+     */
+    public function test_a_privatkunde_still_sees_their_own_vehicles(): void
+    {
+        $order = LeasybackOrder::factory()
+            ->create(['order_status' => 'confirmed']);
+
+        $owner = User::find($order->vehicle->b2c_user_id);
+
+        $response = $this->actingAs($owner)->get(route('dashboard'));
+
+        $response->assertOk();
+        $plates = collect($response->viewData('page')['props']['vehicles'])->pluck('license_plate');
+
+        $this->assertContains($order->vehicle->license_plate, $plates);
     }
 
     public function test_admin_order_detail_of_a_foreign_company_is_unreachable_by_a_company_user(): void
