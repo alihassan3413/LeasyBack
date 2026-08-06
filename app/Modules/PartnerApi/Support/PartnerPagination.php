@@ -16,9 +16,10 @@ use Illuminate\Http\Request;
  */
 final class PartnerPagination
 {
-    private const DEFAULT_PER_PAGE = 25;
+    /** Public so the generated reference quotes the real numbers (§12.18). */
+    public const DEFAULT_PER_PAGE = 25;
 
-    private const MAX_PER_PAGE = 100;
+    public const MAX_PER_PAGE = 100;
 
     /**
      * @param  LengthAwarePaginator<int, mixed>  $paginator

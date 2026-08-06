@@ -142,6 +142,36 @@ class VehicleController extends Controller
             .'enumerating ids must not be able to tell "not yours" from "no such thing".'
     )]
     #[Response(
+        status: 200,
+        content: [
+            'data' => [
+                'vehicle' => [
+                    'id' => '9d2c1f70-6a1a-4c2e-9f0b-1a2b3c4d5e6f',
+                    'external_id' => 'FLEET-00042',
+                    'license_plate' => 'B-XY 123',
+                    'vin' => 'WVWZZZ1JZXW000001',
+                    'make' => 'Volkswagen',
+                    'model' => 'Passat',
+                    'first_registration_date' => '2021-03-14',
+                    'leasing_end_date' => '2026-03-13',
+                    'leasinggeber' => 'Example Leasing GmbH',
+                    'mileage' => 84000,
+                    'contract_number' => 'LV-2021-0042',
+                    'cost_centre' => 'KST-1000',
+                    'driver_name' => 'A. Beispiel',
+                    'driver_contact' => 'a.beispiel@example.com',
+                    'status' => 'order_requested',
+                    'status_label' => 'Anfrage gesendet',
+                    'created_at' => '2026-08-06T09:12:44+00:00',
+                    'updated_at' => '2026-08-06T09:12:44+00:00',
+                ],
+            ],
+            'request_id' => '9f1c2e4a-4c1e-4a9b-9f0e-2b1d5a7c3e11',
+        ],
+        description: '`status` reflects the vehicle’s most recent order, so a vehicle with no order '
+            .'yet reports no order status.'
+    )]
+    #[Response(
         status: 404,
         content: [
             'error' => [

@@ -112,6 +112,51 @@ class OfferController extends Controller
             .'which no customer has seen — answers 404.'
     )]
     #[Response(
+        status: 200,
+        content: [
+            'data' => [
+                'offer' => [
+                    'id' => 'f0b1c2d3-e4f5-4a6b-8c9d-0e1f2a3b4c5d',
+                    'order' => [
+                        'id' => '4b6e0a52-9c3d-4f77-8f2a-77a1c0f9b3d2',
+                        'reference' => 'BXY123260806',
+                    ],
+                    'sequence' => 1,
+                    'status' => 'selected',
+                    'is_accepted' => true,
+                    'is_rejected' => false,
+                    'is_expired' => false,
+                    'valid_until' => '2026-08-20',
+                    'currency' => 'EUR',
+                    'totals' => [
+                        'appraisal_total_net' => '1200.00',
+                        'repair_total_net' => '820.00',
+                        'saving_net' => '380.00',
+                    ],
+                    'positions' => [[
+                        'component' => 'Stoßfänger vorne',
+                        'damage_description' => 'Kratzer, 20 cm',
+                        'appraisal_amount_net' => '400.00',
+                        'repair_amount_net' => '260.00',
+                        'saving_net' => '140.00',
+                        'repair_method' => 'Smart Repair',
+                        'not_repairable' => false,
+                    ]],
+                    'customer_note' => null,
+                    'customer_comment' => 'Bitte nur die Frontpartie instand setzen.',
+                    'published_at' => '2026-08-06T09:14:02+00:00',
+                    'accepted_at' => '2026-08-07T11:30:00+00:00',
+                    'rejected_at' => null,
+                    'presented_at' => '2026-08-06T09:14:02+00:00',
+                ],
+            ],
+            'request_id' => '9f1c2e4a-4c1e-4a9b-9f0e-2b1d5a7c3e11',
+        ],
+        description: '`selected` is our word for accepted; `is_accepted` is exposed alongside it so '
+            .'you branch on a boolean instead of memorising that. The figures are the frozen '
+            .'snapshot from the moment of acceptance.'
+    )]
+    #[Response(
         status: 404,
         content: [
             'error' => [

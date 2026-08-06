@@ -47,23 +47,19 @@ return [
     // modules are excluded because they have not been reviewed/hardened
     // under this auth work yet.
     //
-    // `api/v1/partner/*` is included as the second group: it is a public,
-    // third-party-facing contract, so the documentation *is* the deliverable
-    // handed to a partner. Its endpoints document their responses with
-    // explicit #[Response(...)] attributes for the same reason the auth ones
-    // do — no response calls are made (see the `responses` strategy below).
+    // `api/v1/partner/*` is deliberately **not** here. The Partner API is a
+    // third-party-facing contract whose documentation is itself the deliverable,
+    // and it has its own generator config — `config/scribe_partner.php`, driven
+    // by `php artisan partner:docs`. Two reasons it is not a second group in
+    // this file: these docs are served from the unauthenticated `/docs` route
+    // and nothing partner-facing may be generated into `public/`; and a partner
+    // handed a reference must not have to scroll past our internal auth module
+    // to find their own endpoints. Documenting a route in exactly one place also
+    // means "which artefact do I regenerate" has one answer.
     'routes' => [
         [
             'match' => [
                 'prefixes' => ['api/auth/*'],
-                'domains' => ['*'],
-            ],
-            'include' => [],
-            'exclude' => [],
-        ],
-        [
-            'match' => [
-                'prefixes' => ['api/v1/partner/*'],
                 'domains' => ['*'],
             ],
             'include' => [],

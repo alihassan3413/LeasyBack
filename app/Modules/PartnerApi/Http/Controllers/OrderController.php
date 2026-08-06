@@ -109,6 +109,49 @@ class OrderController extends Controller
     #[QueryParam('status', 'string', 'Machine status, or `open` for orders still in progress.', required: false, example: 'open')]
     #[QueryParam('per_page', 'integer', 'Results per page, 1–100. Defaults to 25.', required: false, example: 25)]
     #[QueryParam('page', 'integer', 'Page number, from 1.', required: false, example: 1)]
+    #[Response(
+        status: 200,
+        content: [
+            'data' => [
+                'orders' => [[
+                    'id' => '4b6e0a52-9c3d-4f77-8f2a-77a1c0f9b3d2',
+                    'external_id' => 'PO-2026-0042',
+                    'reference' => 'BXY123260806',
+                    'vehicle' => [
+                        'id' => '9d2c1f70-6a1a-4c2e-9f0b-1a2b3c4d5e6f',
+                        'external_id' => 'FLEET-00042',
+                    ],
+                    'status' => 'completed',
+                    'status_label' => 'Abgeschlossen',
+                    'is_open' => false,
+                    'created_at' => '2026-06-02T08:31:19+00:00',
+                    'placed_at' => '2026-06-02T09:02:44+00:00',
+                ]],
+                'pagination' => [
+                    'current_page' => 1,
+                    'last_page' => 1,
+                    'per_page' => 25,
+                    'total' => 1,
+                    'from' => 1,
+                    'to' => 1,
+                ],
+            ],
+            'request_id' => '9f1c2e4a-4c1e-4a9b-9f0e-2b1d5a7c3e11',
+        ],
+        description: 'A vehicle with no orders yet returns an empty list and a `total` of 0 — not '
+            .'a 404. The 404 means the vehicle itself is not yours.'
+    )]
+    #[Response(
+        status: 404,
+        content: [
+            'error' => [
+                'type' => 'not_found',
+                'code' => 'vehicle_not_found',
+                'message' => 'No vehicle with that id exists in the company this token belongs to.',
+            ],
+            'request_id' => '9f1c2e4a-4c1e-4a9b-9f0e-2b1d5a7c3e11',
+        ]
+    )]
     public function forVehicle(Request $request, string $vehicle): JsonResponse
     {
         // Resolved rather than filtered on, so an unknown or another company's
@@ -127,6 +170,30 @@ class OrderController extends Controller
      * Retrieve one order.
      */
     #[Endpoint(title: 'Get an order')]
+    #[Response(
+        status: 200,
+        content: [
+            'data' => [
+                'order' => [
+                    'id' => '4b6e0a52-9c3d-4f77-8f2a-77a1c0f9b3d2',
+                    'external_id' => 'PO-2026-0042',
+                    'reference' => 'BXY123260806',
+                    'vehicle' => [
+                        'id' => '9d2c1f70-6a1a-4c2e-9f0b-1a2b3c4d5e6f',
+                        'external_id' => 'FLEET-00042',
+                    ],
+                    'status' => 'inspected',
+                    'status_label' => 'Begutachtet',
+                    'is_open' => true,
+                    'created_at' => '2026-08-06T09:14:02+00:00',
+                    'placed_at' => '2026-08-06T09:20:11+00:00',
+                ],
+            ],
+            'request_id' => '9f1c2e4a-4c1e-4a9b-9f0e-2b1d5a7c3e11',
+        ],
+        description: '`is_open` saves you hardcoding our terminal statuses, and stays correct when '
+            .'the status graph gains a stage.'
+    )]
     #[Response(
         status: 404,
         content: [

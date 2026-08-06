@@ -21,6 +21,7 @@ require __DIR__.'/admin.php';
 require __DIR__.'/notifications.php';
 require __DIR__.'/settings.php';
 require __DIR__.'/auth.php';
+require __DIR__.'/partner_docs.php';
 
 if (app()->environment('local')) {
     require __DIR__.'/dev.php';

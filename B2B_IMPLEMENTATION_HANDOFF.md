@@ -3690,3 +3690,382 @@ Update section 12: add 12.18 for phase 5, extend the tables in 12.16.3/12.16.12/
 record results, and re-point the next-phase prompt.
 Stop after Phase 5.
 ```
+
+## 12.18 Partner API — Phase 5: documentation, onboarding and the go-live surface (2026-08-06)
+
+### 12.18.1 The one rule everything follows
+
+**The partner-facing reference is generated from the code, never maintained alongside it.**
+
+There is no hand-written copy of the endpoint list, the error codes, the abilities, the company
+permissions, the rate limits, the idempotency window, the retry schedule or the event catalogue.
+Each is rendered from the thing that implements it, and two of them are asserted in both
+directions by a test. The failure mode this phase is designed against is the ordinary one: an
+endpoint changes shape, its documentation does not, and a partner finds out in production.
+
+Consequence worth stating outright: **nothing under `.scribe_partner/` or
+`storage/app/private/partner-api-docs/` is a source file.** `partner:docs` runs Scribe with
+`--force`, so a hand edit there is discarded on the next build. If a sentence is wrong, it is
+wrong in `PartnerApiDocsComposer` or in a controller attribute.
+
+**No endpoint behaviour, payload shape or error code changed in this phase.** The only
+non-documentation edits are two `private const` on `PartnerPagination` becoming `public` (so the
+page quotes the real numbers) and the supervisor worker template gaining `--queue=webhooks`
+(§12.18.7).
+
+### 12.18.2 Architecture — a second Scribe config, not a second group
+
+`config/scribe.php` documents the internal auth module for our own developers, on the
+unauthenticated `/docs` route. Phase 1 had added `api/v1/partner/*` to it as a second group;
+that entry is **removed** here and the Partner API gets `config/scribe_partner.php`, consumed as
+`scribe:generate --config=scribe_partner`.
+
+Four reasons, each of which would have been a defect the other way:
+
+1. **Protection.** The auth docs sit on an unauthenticated route. A partner reference describes
+   an authentication scheme, an error contract and a signing recipe for a named partner; it does
+   not belong on a public URL, and nothing partner-facing may be generated into `public/`.
+2. **Audience.** A partner handed a reference must not scroll past our internal auth module to
+   reach their own endpoints.
+3. **Output.** `type: static` with the output path under `storage/app/private` gives one
+   self-contained directory — HTML, assets, OpenAPI, Postman, events — that zips and travels.
+4. **One answer to "which artefact do I regenerate".** A route is documented in exactly one
+   place.
+
+`php artisan partner:docs` is the only entry point. It composes the generated Markdown, sets
+`scribe_partner.intro_text` **at runtime** (composing it in the config file would freeze it into
+`config:cache`), writes `.scribe_partner/append.md` before the generator reads it, runs Scribe
+with `--force`, writes `events.json`, copies the logo, and prints where everything landed.
+
+### 12.18.3 Files
+
+| File | Role |
+|---|---|
+| `config/scribe_partner.php` | **new.** Partner-only Scribe config: `api/v1/partner/*` and nothing else, static output to private storage, response calls removed, Try-It-Out off, branded title and logo. |
+| `config/scribe.php` | **modified.** The `api/v1/partner/*` route group removed, with the reason recorded in place. |
+| `app/Console/Commands/Partner/BuildPartnerApiDocs.php` | **new.** `partner:docs`. |
+| `app/Modules/PartnerApi/Support/PartnerApiDocsComposer.php` | **new.** Everything in the reference that is not an endpoint, rendered from routes, enums and config. |
+| `app/Modules/PartnerApi/Support/PartnerApiErrorCatalog.php` | **new.** All 39 error codes in one table — the single source for the published table. |
+| `app/Modules/PartnerApi/Support/PartnerEventCatalog.php` | **new.** The 18 event types plus `webhook.test`, their payload shapes, the envelope, the signing recipe and the delivery policy. Rendered into the page *and* written as `events.json`. |
+| `app/Modules/PartnerApi/Support/PartnerPagination.php` | **modified.** `DEFAULT_PER_PAGE`/`MAX_PER_PAGE` made public so the page quotes them rather than restating them. |
+| `app/Http/Controllers/PartnerApiDocsController.php` | **new.** Serves the private bundle. Fixed filenames; the one path-taking method is constrained by the route and re-checked against the resolved real path. |
+| `routes/partner_docs.php` | **new.** `/partner-api/*` behind `['auth','active','verified','admin']`. |
+| `routes/web.php` | **modified.** One `require`. |
+| `docs/partner-api/examples/verify_signature.php` | **new.** PHP verifier, executed by the suite. |
+| `docs/partner-api/examples/verify-signature.cjs` | **new.** Node verifier, executed by the suite. `.cjs` deliberately — see 12.18.6. |
+| `docs/partner-api/README.md` | **new.** Where each part of the reference comes from, and what keeps it honest. |
+| `docs/partner-api/DEPLOYMENT.md` | **new.** Operational requirements, environment, artefact locations, hand-over. |
+| `docs/partner-api/SHIFTMOVE_ONBOARDING.md` | **new.** Our side of the onboarding sequence. |
+| `docs/partner-api/GO_LIVE_CHECKLIST.md` | **new.** Verifiable pre-flight list plus the gaps accepted at go-live. |
+| `deploy/supervisor/leasyback-worker.conf.template` | **modified.** `--queue=webhooks,default`. |
+| `.env.example` | **modified.** `PARTNER_API_DOCS_BASE_URL`. |
+| `.gitignore` | **modified.** `/.scribe_partner`. |
+| `tests/Feature/PartnerApi/PartnerApiDocumentationTest.php` | **new.** 18 tests. |
+| Partner API controllers | **modified, attributes only.** Response examples added — see 12.18.5. |
+
+No migration. No service, model or middleware behaviour touched.
+
+### 12.18.4 Where the reference gets each part
+
+| Section of the page | Source |
+|---|---|
+| Endpoints, parameters, response examples | `#[Endpoint]`, `#[QueryParam]`, `#[Response]` on the controllers |
+| Intro, conventions, authorization, errors | `PartnerApiDocsComposer::intro()` → `intro_text` |
+| Webhooks, documents, onboarding, changelog | `PartnerApiDocsComposer::append()` → `.scribe_partner/append.md` |
+| Ability table | `PartnerAbility::cases()` with `label()`/`group()` |
+| Company permission list | `PartnerClientProvisioner::INTEGRATION_USER_PERMISSIONS` |
+| Per-endpoint ability / permission / idempotency table | **walked off the registered routes and their middleware** |
+| Error table | `PartnerApiErrorCatalog` |
+| Event catalogue, envelope, `events.json` | `PartnerEventCatalog` |
+| Rate limits, idempotency TTL, backoff, tolerances, grace windows | `config/partner_api.php` |
+| Pagination defaults | `PartnerPagination` |
+| Signature verifiers | `docs/partner-api/examples/`, read off disk |
+
+The scope table is the one worth pointing at: it is built from `Route::getRoutes()` and the
+`partner.ability:` / `partner.company-can:` / `partner.idempotent` middleware arguments, so a
+route that gains, loses or changes a gate changes the published table on the next build, and an
+endpoint added without documentation cannot hide.
+
+### 12.18.5 Response-example gaps closed
+
+§12.17 named the webhook endpoints. Two more were found by the coverage test and closed:
+
+| Endpoint | Added |
+|---|---|
+| All 10 webhook endpoints | 200/201/202 success examples, plus 400/404/409 failures where the endpoint has one |
+| `GET /vehicles/{vehicle}/orders` | 200 + 404 — it had **none** |
+| `GET /documents/{document}/content` | 200 (binary) + 403 — it had **none** |
+| `GET /vehicles/{vehicle}` | 200 (had only a 404) |
+| `GET /orders/{order}` | 200 (had only a 404) |
+| `GET /documents/{document}` | 200 (had only a 404) |
+| `GET /offers/{offer}` | 200 (had only a 404) |
+
+Every example is fictional: `example.com` hosts, `B-XY 123`, `Musterfirma`, uuids that are not
+in any database. The suite asserts the generated bundle contains nothing shaped like a real
+token (`lbp_(sbx|live)_[0-9a-f]{64}`), a real webhook secret (`whsec_[0-9a-f]{64}`), or a
+filesystem path.
+
+### 12.18.6 The two verifiers
+
+The highest support cost in this integration is a partner writing their own HMAC check, so the
+verifiers are real files that the test suite **executes** against a body
+`PartnerWebhookDeliverer::body()` actually built and a signature `PartnerWebhookSigner` actually
+produced — not fixtures. A fixture keeps passing after the recipe changes, which is the only
+failure this is for. Both are asserted to reject a tampered body, a timestamp one second
+outside the tolerance, and the wrong secret.
+
+The event payload used carries a `/` and a German umlaut on purpose: both are places a
+re-serialising partner diverges from us, and the deliverer pins
+`JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE` for exactly that reason.
+
+**`.cjs`, not `.js`.** This repository's `package.json` declares `"type": "module"`, so a `.js`
+example here is ESM and `module.exports` does not load — the first version of the test failed on
+precisely that. `.cjs` is CommonJS whatever the surrounding project declares, so `require()`
+works from a CommonJS project and `import { … } from './verify-signature.cjs'` works from an ESM
+one. The file says so in its header.
+
+### 12.18.7 Deployment requirements
+
+Two, and neither fails loudly. Both are documented in `docs/partner-api/DEPLOYMENT.md` §1 and in
+the go-live checklist.
+
+**1. The worker must consume the webhook queue.**
+
+```bash
+php artisan queue:work --queue=webhooks,default
+```
+
+`deploy/supervisor/leasyback-worker.conf.template` said `--queue=default`. It now says
+`--queue=webhooks,default`, with the reasoning in the file. This closes the deployment half of
+§12.16.15 risk 1 for a *new* provision — **an existing server still holds the old value in
+`/etc/supervisor/conf.d/leasyback-worker.conf` and must be updated in place**, which
+DEPLOYMENT.md §1.1 gives the commands for. The runtime half of that risk (nothing alarms when
+the queue stalls) is still open; the detection query is written down and not automated.
+
+**2. The scheduler must run.**
+
+```
+* * * * * php artisan schedule:run
+```
+
+Already installed by `provision.sh`. `partner:webhooks:dispatch-pending` (every 5 min) and
+`partner:webhooks:emit-expired-offers` (daily 07:30) both depend on it.
+
+**New environment key.** `PARTNER_API_DOCS_BASE_URL` — the host that appears in every generated
+example and in the OpenAPI `servers` entry. Unset it falls back to `APP_URL`, which on a build
+machine is `http://localhost`; a reference shipped with that in every curl command is the
+failure it prevents.
+
+### 12.18.8 Artefacts and the docs URL
+
+`php artisan partner:docs` writes one self-contained, private directory:
+
+| Artefact | Path |
+|---|---|
+| HTML reference | `storage/app/private/partner-api-docs/index.html` |
+| OpenAPI 3.0.3 | `storage/app/private/partner-api-docs/openapi.yaml` |
+| Postman v2.1 | `storage/app/private/partner-api-docs/collection.json` |
+| Event catalogue | `storage/app/private/partner-api-docs/events.json` |
+| Theme assets + logo | `storage/app/private/partner-api-docs/{css,js,images}/` |
+| Scribe intermediates | `.scribe_partner/` (git-ignored) |
+
+**Recommended docs URL — `https://<host>/partner-api/docs`**, behind
+`['auth','active','verified','admin']`, with `/partner-api/openapi.yaml`,
+`/partner-api/collection.json` and `/partner-api/events.json` alongside it.
+
+The paths are shaped by the generated HTML rather than chosen freely: Scribe's static bundle
+uses relative asset links (`./css/…`, `./openapi.yaml`) and a browser resolves those against the
+*parent* of `/partner-api/docs`, so the assets and the two machine-readable artefacts sit one
+level up. Moving the docs path means moving both.
+
+For a partner: `cd storage/app/private && zip -r leasyback-partner-api-v1.zip partner-api-docs`.
+The bundle opens offline. Send it over the same channel as the credentials and **separately from
+them**.
+
+`partner:docs` is deliberately **not** wired into `deploy.sh`: the artefact is handed over on
+purpose, and a deploy that silently regenerated it would change what a partner has been sent
+without anybody deciding to. `PartnerApiDocumentationTest` catches a missed rebuild in CI.
+
+### 12.18.9 Security review
+
+| Question | Answer |
+|---|---|
+| Are the docs reachable without authentication? | No. `['auth','active','verified','admin']`, asserted for a guest and for a signed-in non-admin. |
+| Is anything partner-facing under `public/`? | No. The bundle is under `storage/app/private`; only Scribe's own theme assets travel with it, inside the same private directory. |
+| Can the asset route be walked out of its directory? | No. The route constrains the directory to `css\|js\|images` and the filename to `[A-Za-z0-9._-]+`, and the controller re-checks the resolved real path is still inside the docs root. Asserted with an encoded traversal and an unknown directory. |
+| Does the bundle contain a credential? | No. Asserted by regex against the token and secret formats across all four artefacts. |
+| Does it contain a storage path or internal note? | No. Asserted against `storage_path()`, the app path and the documents disk prefix. |
+| Does it document a non-partner route? | No. Asserted: every path in the spec starts with `/api/v1/partner`. |
+| Does it invent an endpoint we do not have? | No. Asserted specifically for the two standing decisions — no offer accept/reject (§12.14.4 d8), no status write (§12.12.4 d1). |
+| Is the example data real? | No. Fictional throughout, and the example token is deliberately not the shape of a real one. |
+| Did any endpoint behaviour change? | No. 220 pre-existing Partner API tests pass unchanged. |
+
+One judgement recorded: the reference contains no secret, so gating it is not strictly a
+confidentiality requirement. It is gated anyway because a document that names a partner and
+describes their authentication and signing scheme should be sent by a person who decided to send
+it, not found.
+
+### 12.18.10 Tests
+
+| File | Tests | Covers |
+|---|---|---|
+| `PartnerApiDocumentationTest` | 18 | spec covers every registered partner route and only those; every documented endpoint has a response example; the bundle contains all four artefacts; the error catalogue matches the codes the module can produce **in both directions** (source scan); no duplicate code; every code appears in the rendered page; the event catalogue matches `PartnerWebhookEvent` in both directions; `events.json` quotes the real backoff, tolerance and auto-disable values; the **PHP and Node verifiers are executed** against a real signed delivery and reject a tampered body, a stale timestamp and the wrong secret; no credential, secret or filesystem path in any artefact; no invented endpoint; guest and non-admin refused; admin can read all four artefacts; traversal refused |
+
+The error-code scan reads the module's source for the four ways a code reaches a response — the
+`PartnerApiException` factories, a direct `PartnerApiResponse::error()`, `AuthenticatePartner`'s
+two private helpers, and the `status => code` maps handed to `TranslatesServiceFailures` — plus
+the trait's `request_failed` fallback. It found **39** codes, which is the catalogue's length.
+
+It also, on its first run, found `something_new` — a code that existed only inside the
+catalogue's own docblock. The docblock now quotes no literal. That is the scan working.
+
+Generation runs once per class rather than once per test; the suite is 0.6 s.
+
+### 12.18.11 Verification
+
+| Check | Result |
+|---|---|
+| `php artisan partner:docs` | succeeds; 28 endpoints extracted, all four artefacts written |
+| `tests/Feature/PartnerApi` | **238 passed** (1005 assertions) — 220 pre-existing + 18 new |
+| Full suite (`php -d memory_limit=1024M vendor/bin/phpunit --no-progress`) | **720 tests, 4 skipped, 1 failed** (2801 assertions) — the §6 baseline, see below |
+| `vendor/bin/pint --dirty --format agent` | clean |
+| `route:list --path=api/v1/partner` | 28 routes, unchanged |
+| `route:list --path=partner-api` | 5 new docs routes |
+| `route:cache` | succeeds |
+| `schedule:list` | 3 entries, unchanged |
+| OpenAPI spec | 28 operations across 22 paths, all under `/api/v1/partner` |
+| `events.json` | 19 entries (18 business + `webhook.test`) |
+
+**On the full-suite failure.** `HandleInertiaRequestsTest > shared auth user prop exposes only
+the intended fields` is §6 baseline failure 2, confirmed still failing with this phase's changes
+stashed. **No third failure.** §6 baseline failure 1 (`SendGridMailTransportTest`) now passes —
+it asserts against local env, so it moves with the machine.
+
+One intermediate run also reported `AuthenticationTest > login is rate limited after too many
+failed attempts`. It is **flaky, not a regression**: it passes in isolation, it passed in the
+full run before that one and in the full run after it, and it touches no code this phase
+modified. Worth knowing about, because it will reappear.
+
+**On `migrate:status`.** Nineteen migrations read `Pending` on the local development SQLite —
+every B2B and Partner API migration from `2026_08_05` onwards. That is a stale local database,
+not a defect in this phase, which adds no migration: the full suite runs every migration against
+`:memory:` on every test, and 238 Partner API tests pass, which is stronger evidence that they
+apply cleanly than `migrate:status` on a development file would be.
+
+**On the environment.** `openspout/openspout` was present in `composer.lock` and missing from
+`vendor/`, which errored five vehicle-import tests. `composer install` repaired it. Unrelated to
+this phase.
+
+**No frontend build.** No Vue, Blade, CSS or Tailwind file was touched. The branding is a style
+block inside the generated HTML and needs no asset pipeline.
+
+### 12.18.12 Shiftmove onboarding — the exact flow
+
+Full runbook in `docs/partner-api/SHIFTMOVE_ONBOARDING.md`. In brief:
+
+| Stage | Who | Gate before moving on |
+|---|---|---|
+| 1. Sandbox provisioning | LeasyBack | `partner:provision shiftmove --company={sandbox_b2b_id} --environment=sandbox --abilities=…`. Token captured once; sent over a secure channel, separately from the docs bundle. |
+| 2. Credential verification | Shiftmove | `GET /health` → 200 and `environment: sandbox`; `GET /me` → company and abilities match what we sent. **If they disagree, stop.** |
+| 3. Webhook verification | Shiftmove | `POST /webhooks` (secret stored), `POST /webhooks/{id}/test`, then a **`succeeded`** row in `GET /webhooks/{id}/deliveries`. **This is the hard gate.** |
+| 4. Business flow in sandbox | both | Create vehicle → create order → we move it through the workflow → they confirm status/timeline reads, the specific-plus-generic event pair, a document download, and an offer event. Idempotency retry produces no second record. |
+| 5. Production | LeasyBack | Separate credential, separate database, separate webhook secret. `--force` required. Re-run stage 2 against production, re-verify a test event, then **one** real vehicle before the rest. |
+
+The three failures that account for almost all stage-3 problems are tabulated in the runbook:
+`blocked: true` (their DNS resolves privately), a `3xx` recorded as a failure (we never follow
+redirects), and a signature mismatch (they are re-serialising the parsed JSON instead of signing
+the raw body).
+
+The abilities to grant at stage 1 are the full read surface plus `vehicles.write`,
+`orders.write`, `webhooks.read` and `webhooks.manage`. **Not** `offers.accept` or
+`documents.write` — both gate no endpoint (§12.6) and granting them "for later" would publish a
+capability that does not exist.
+
+### 12.18.13 Remaining external dependencies
+
+Everything below is outside this repository. None of it blocks the code; all of it blocks
+go-live.
+
+| Dependency | Owner | Needed for |
+|---|---|---|
+| Sandbox and production hostnames for the partner API | LeasyBack ops | `PARTNER_API_DOCS_BASE_URL`, and the base URLs sent to Shiftmove. The two in the reference are placeholders. |
+| A B2B company record for Shiftmove's fleet, in both environments | LeasyBack | The `--company` argument to `partner:provision`. |
+| The agreed ability set, in writing | LeasyBack + Shiftmove | Provisioning. Production is expected to be narrower than sandbox. |
+| A secure channel for the token | LeasyBack | It is shown once and unrecoverable. Never the same message as the docs bundle. |
+| Shiftmove's HTTPS webhook endpoint | Shiftmove | Stage 3. Public, valid certificate, port 80/443/8443, no redirect. |
+| Shiftmove's signature check and deduplication | Shiftmove | Stage 3. The two verifiers are shipped; adopting them is theirs. |
+| Supervisor update on the existing server | LeasyBack ops | The worker still holds `--queue=default` until it is changed in place. |
+| An alert on stalled webhook deliveries | LeasyBack ops | Open risk; the query is written down, the alarm is not built. |
+
+### 12.18.14 Risks and open points
+
+1. **Nothing rebuilds the docs automatically.** `partner:docs` is a deliberate step, and the
+   suite fails if an endpoint or error code drifts from what was last generated — but a partner
+   holding a zip has whatever was in it when it was sent. There is no version stamp in the
+   bundle beyond `Last updated`, and no way for a partner to tell whether theirs is current.
+2. **The error-code scan is textual.** It reads source for known call shapes. A code produced by
+   a genuinely novel mechanism — a string built at runtime, a new helper — would be missed and
+   the catalogue would silently under-report. The five patterns are listed in the test; a new
+   way of emitting an error needs a sixth.
+3. **The scope table trusts middleware names.** It reads `partner.ability:` and
+   `partner.company-can:` off the route. A gate applied some other way (inside a controller, or
+   via a differently named alias) would not appear, and the table would under-report what an
+   endpoint requires — the safe direction, but still wrong.
+4. **Branding is a style block in the intro.** Scribe's default theme has no header hook, so the
+   banner and palette are injected as HTML through `intro_text`. A Scribe upgrade that changes
+   the theme's class names would degrade the styling silently. The content would survive; only
+   the look would go.
+5. **The base URL in a shipped bundle is whatever the build machine had.** Mitigated by
+   `PARTNER_API_DOCS_BASE_URL` and by the go-live checklist, not by a check — nothing verifies
+   that the value was set before the artefact was zipped.
+6. **The two example hostnames are placeholders.** `sandbox.leasyback.example` and
+   `app.leasyback.example` appear in the overview and the onboarding section, and must be
+   replaced with the real ones before the bundle is sent. They are in the composer, not in a
+   config key, on purpose: guessing a hostname into a config default would be worse.
+7. **No usage or audit log for partner reads** (phase-1 risk 6, unchanged by this phase).
+8. **Documentation does not make the API safe.** The security review in 12.18.9 covers the
+   *artefact*. The API's own posture is phases 1–4 and is unchanged here.
+
+### 12.19 Next phase — ready-to-use prompt
+
+```
+Phase 5 of the LeasyBack Partner API is complete (§12.18). Do not re-audit phases 1–5.
+
+The Partner API is feature-complete and documented for v1. The next piece of work is
+operational rather than functional, and it is the one thing §12.16.15 risk 1 and §12.18.14
+risk 1 both point at: nobody finds out when this integration stops working.
+
+Build:
+- A health signal for the webhook outbox. The symptom of a misconfigured worker is a growing
+  partner_webhook_deliveries table where every row is `pending`, and today the only detection
+  is somebody running a SQL query by hand (docs/partner-api/DEPLOYMENT.md §1.1). Decide where
+  this belongs — an artisan command the scheduler runs, an entry on /up, an admin page — and
+  record why. It must distinguish "nothing is consuming the queue" from "one partner's
+  endpoint is down", because the responses are completely different.
+- Whatever a partner-facing status answer needs. A partner asking "are you sending?" currently
+  has to read their own delivery list. Decide whether that is enough.
+
+Design constraints:
+- No new partner endpoint without deciding it is a contract we will keep (§12.12.4 d1,
+  §12.14.4 d8 are the precedent for saying no).
+- Do NOT change any endpoint's behaviour, payload shape or error code. If a documented one is
+  wrong, record it in the risks section and leave it.
+- If anything you add is partner-visible, it is documented by PartnerApiDocsComposer or a
+  controller attribute — never by hand. `php artisan partner:docs` must still reproduce the
+  reference exactly.
+
+Do NOT touch OAuth, GDPR, Lexware, billing or statistics. Do NOT change any B2C path or any
+existing portal behaviour.
+
+Tests required:
+- the health signal is wrong when the queue is stalled and right when it is not
+- PartnerApiDocumentationTest still passes, including the error-code and event-catalogue
+  scans in both directions
+- existing B2B, B2C and Partner API tests still pass
+
+Verify: focused tests, full suite once (`php -d memory_limit=1024M vendor/bin/phpunit
+--no-progress`), Pint, route:list, migrate:status, `php artisan partner:docs`.
+Update section 12: add 12.20 for phase 6, extend 12.18.3's file table if the docs surface
+changes, record results, and re-point this prompt.
+Stop after Phase 6.
+```

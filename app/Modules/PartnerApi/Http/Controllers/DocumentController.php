@@ -110,6 +110,34 @@ class DocumentController extends Controller
         description: 'Metadata only. The bytes come from `GET /documents/{document}/download`.'
     )]
     #[Response(
+        status: 200,
+        content: [
+            'data' => [
+                'document' => [
+                    'id' => 'ba3d7b0e-1a55-4a09-9a4f-4c2f1d8b1c11',
+                    'source' => 'report',
+                    'type' => 'gutachten',
+                    'type_label' => 'Gutachten',
+                    'title' => 'Erstgutachten',
+                    'filename' => 'Erstgutachten.pdf',
+                    'content_type' => 'application/pdf',
+                    'size_bytes' => 284913,
+                    'vehicle' => ['id' => '9d2c1f70-6a1a-4c2e-9f0b-1a2b3c4d5e6f'],
+                    'order' => [
+                        'id' => '4b6e0a52-9c3d-4f77-8f2a-77a1c0f9b3d2',
+                        'reference' => 'BXY123260806',
+                    ],
+                    'created_at' => '2026-08-06T09:14:02+00:00',
+                    'updated_at' => '2026-08-06T09:14:02+00:00',
+                    'download_url' => 'https://app.example/api/v1/partner/documents/ba3d7b0e-1a55-4a09-9a4f-4c2f1d8b1c11/download',
+                ],
+            ],
+            'request_id' => '9f1c2e4a-4c1e-4a9b-9f0e-2b1d5a7c3e11',
+        ],
+        description: '`size_bytes` is resolved from storage here, and is null in the listing — one '
+            .'stat call for one document is cheap; one per row is not.'
+    )]
+    #[Response(
         status: 404,
         content: [
             'error' => [
@@ -192,6 +220,28 @@ class DocumentController extends Controller
         description: 'Streams the file. Reached only through the signed URL returned by '
             .'`GET /documents/{document}/download`; there is nothing to construct by hand.',
         authenticated: false
+    )]
+    #[Response(
+        status: 200,
+        content: '<the file bytes>',
+        description: 'The file, with the `Content-Type` and filename reported by the metadata '
+            .'endpoints, and `Cache-Control: private, no-store`. This is the only partner route '
+            .'that carries no bearer token: the signature is the credential, and it is re-checked '
+            .'against the client and the document’s current ownership before a byte is read.'
+    )]
+    #[Response(
+        status: 403,
+        content: [
+            'error' => [
+                'type' => 'authorization_error',
+                'code' => 'download_link_expired',
+                'message' => 'This download link has expired. Request a new one.',
+            ],
+            'request_id' => '9f1c2e4a-4c1e-4a9b-9f0e-2b1d5a7c3e11',
+        ],
+        description: 'An altered or unsigned link answers `download_link_invalid` instead. A link '
+            .'minted for an integration client that has since been deactivated stops working '
+            .'immediately, not at its expiry.'
     )]
     public function content(Request $request, string $document): StreamedResponse
     {
