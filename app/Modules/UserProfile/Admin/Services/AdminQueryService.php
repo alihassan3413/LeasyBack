@@ -674,7 +674,8 @@ class AdminQueryService
         $rows = (clone $base)->select([
             'v.vehicle_id', 'v.license_plate', 'v.first_registration_date', 'v.leasing_end_date',
             'v.leasinggeber', 'v.vin', 'v.make', 'v.model', 'v.vehicle_belongs',
-            'v.b2b_id', 'v.b2c_user_id', 'v.assigned_profile_id', 'v.created_at', 'v.updated_at',
+            'v.b2b_id', 'v.b2c_user_id', 'v.assigned_profile_id', 'v.collection_address_profile_id',
+            'v.created_at', 'v.updated_at',
             'o.id as current_order_id', 'o.auftragsnummer as current_auftragsnummer',
             'o.order_status as current_order_status', 'o.created_at as current_order_created_at',
         ])->orderByDesc('v.created_at')->orderByDesc('v.vehicle_id')
@@ -703,7 +704,8 @@ class AdminQueryService
             ->select([
                 'v.vehicle_id', 'v.license_plate', 'v.first_registration_date', 'v.leasing_end_date',
                 'v.leasinggeber', 'v.vin', 'v.make', 'v.model', 'v.vehicle_belongs',
-                'v.b2b_id', 'v.b2c_user_id', 'v.assigned_profile_id', 'v.created_at', 'v.updated_at',
+                'v.b2b_id', 'v.b2c_user_id', 'v.assigned_profile_id', 'v.collection_address_profile_id',
+                'v.created_at', 'v.updated_at',
                 'o.id as current_order_id', 'o.auftragsnummer as current_auftragsnummer',
                 'o.order_status as current_order_status', 'o.created_at as current_order_created_at',
             ])
@@ -833,6 +835,16 @@ class AdminQueryService
 
             return $arr;
         })->values()->all());
+        // The vehicle's default pickup address, resolved the same way
+        // VehicleService::listVehiclesWithOrders() resolves it for the
+        // customer dashboard — the Admin "Auftrag erstellen" modal prefills a
+        // B2B collection order from it, so both audiences start the same
+        // order from the same address. B2C vehicles have no such profile.
+        $collectionAddresses = DB::table('logistics_address_profiles')
+            ->whereIn('id', $rows->where('vehicle_belongs', 'B2B')->pluck('collection_address_profile_id')->filter()->unique()->values())
+            ->pluck('details', 'id')
+            ->map(fn ($details) => json_decode((string) $details, true) ?: null);
+
         $documents = DB::table('vehicle_documents')->whereIn('vehicle_id', $vehicleIds)
             ->orderByDesc('created_at')->get([
                 'vehicle_id', 'document_id', 'document_category', 'document_type',
@@ -844,10 +856,13 @@ class AdminQueryService
                 return (array) $item;
             })->values()->all());
 
-        return $rows->map(function (object $row) use ($owners, $history, $documents, $canPull) {
+        return $rows->map(function (object $row) use ($owners, $history, $documents, $canPull, $collectionAddresses) {
             $owner = $owners[(string) $row->vehicle_id] ?? [];
 
             return [
+                'collection_address' => $row->vehicle_belongs === 'B2B'
+                    ? ($collectionAddresses[$row->collection_address_profile_id] ?? null)
+                    : null,
                 'vehicle_id' => $row->vehicle_id,
                 'license_plate' => $row->license_plate,
                 'first_registration_date' => $row->first_registration_date,

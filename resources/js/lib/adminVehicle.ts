@@ -32,6 +32,7 @@ export function toVehicleData(vehicle: AdminVehicleRow): VehicleData {
         make: vehicle.make,
         model: vehicle.model,
         vehicle_belongs: vehicle.vehicle_belongs,
+        collection_address: vehicle.collection_address,
         created_at: vehicle.created_at,
         updated_at: vehicle.updated_at,
         orders: vehicle.order_history.map(toVehicleOrderData),

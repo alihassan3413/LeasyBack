@@ -352,6 +352,8 @@ watch(
                                                 :stations="stations"
                                                 :has-open-order="vehicle.has_open_order"
                                                 :can-pull-documents="vehicle.can_pull_documents"
+                                                :vehicle-belongs="vehicle.vehicle_belongs"
+                                                :collection-address="vehicle.collection_address"
                                             >
                                                 <template #extra>
                                                     <DropdownMenuItem @select="openDetail(vehicle)">

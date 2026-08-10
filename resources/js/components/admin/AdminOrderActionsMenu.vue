@@ -14,9 +14,13 @@
  *
  * "Auftrag erstellen" reuses the customer's OrderCreationModal and its
  * orders.store route — VehicleScopeService's Admin branch is unfiltered, so
- * that route already accepts an admin booking for any vehicle. "Dokumente
- * abrufen" posts to admin.vehicles.reports.pull, which syncs the TÜV SÜD
- * appraisal and copies its documents in server-side.
+ * that route already accepts an admin booking for any vehicle. The modal
+ * branches on `vehicleBelongs`, so a B2B vehicle gets the same collection
+ * form (Wunschtermin + Abholadresse) the company user gets rather than the
+ * B2C station/appointment form — which is also what `orders.store` validates
+ * for a B2B vehicle. "Dokumente abrufen" posts to
+ * admin.vehicles.reports.pull, which syncs the TÜV SÜD appraisal and copies
+ * its documents in server-side.
  */
 import CreateOfferModal from '@/components/admin/CreateOfferModal.vue';
 import UploadReportDocumentModal from '@/components/admin/UploadReportDocumentModal.vue';
@@ -34,6 +38,7 @@ import {
 import OrderCreationModal from '@/components/vehicle/OrderCreationModal.vue';
 import { getAdminDashboardStatus } from '@/lib/adminStatus';
 import type { StationData } from '@/types/order';
+import type { VehicleCollectionAddress } from '@/types/vehicle';
 import { router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 
@@ -52,6 +57,14 @@ const props = withDefaults(
         hasOpenOrder?: boolean;
         /** Only a TÜV SÜD order can have its appraisal documents pulled. */
         canPullDocuments?: boolean;
+        /**
+         * Which order-creation flow this vehicle uses. Left null where the
+         * menu has no vehicle context (the order detail page, which disables
+         * "Auftrag erstellen" anyway), and treated as B2C then.
+         */
+        vehicleBelongs?: 'B2B' | 'B2C' | null;
+        /** The B2B vehicle's default pickup address, prefilled into the collection form. */
+        collectionAddress?: VehicleCollectionAddress | null;
     }>(),
     {
         orderId: null,
@@ -62,6 +75,8 @@ const props = withDefaults(
         stations: () => [],
         hasOpenOrder: false,
         canPullDocuments: false,
+        vehicleBelongs: null,
+        collectionAddress: null,
     },
 );
 
@@ -79,15 +94,27 @@ const canCancel = computed(() => hasOrder.value && props.availableTransitions.in
 
 const auftragsnummerOptions = computed(() => (props.auftragsnummer ? [{ value: props.auftragsnummer, label: props.auftragsnummer }] : []));
 
-/** OrderService rejects a second order while one is still running (hasUnfinishedOrder). */
-const canCreateOrder = computed(() => !props.hasOpenOrder && props.stations.length > 0);
+const isB2bVehicle = computed(() => props.vehicleBelongs === 'B2B');
+
+/** What OrderCreationModal needs to pick its flow — the B2C branch passes no vehicle at all. */
+const orderCreationVehicle = computed(() =>
+    props.vehicleBelongs === null ? null : { vehicle_belongs: props.vehicleBelongs, collection_address: props.collectionAddress },
+);
+
+/**
+ * OrderService rejects a second order while one is still running
+ * (hasUnfinishedOrder). A B2B collection order books no inspection
+ * appointment, so it does not need a station either — requiring one would
+ * disable the action on every B2B vehicle.
+ */
+const canCreateOrder = computed(() => !props.hasOpenOrder && (isB2bVehicle.value || props.stations.length > 0));
 
 const createOrderHint = computed(() => {
     if (props.hasOpenOrder) {
         return 'Für dieses Fahrzeug läuft bereits ein Auftrag';
     }
 
-    return props.stations.length === 0 ? 'Keine aktive Begutachtungsstelle hinterlegt' : '';
+    return canCreateOrder.value ? '' : 'Keine aktive Begutachtungsstelle hinterlegt';
 });
 
 const createOrderOpen = ref(false);
@@ -290,7 +317,13 @@ function statusLabel(status: string): string {
         </div>
     </div>
 
-    <OrderCreationModal v-if="stations.length" v-model:open="createOrderOpen" :vehicle-id="vehicleId" :stations="stations" />
+    <OrderCreationModal
+        v-if="canCreateOrder"
+        v-model:open="createOrderOpen"
+        :vehicle-id="vehicleId"
+        :stations="stations"
+        :vehicle="orderCreationVehicle"
+    />
 
     <CreateOfferModal v-if="orderId" v-model:open="createOfferOpen" :order-id="orderId" />
 

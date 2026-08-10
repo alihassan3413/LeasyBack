@@ -10,7 +10,7 @@ actually runs **Tailwind v4** — `package.json` has `tailwindcss ^4.2.4` with
 `@tailwindcss/vite`, not the v3 PostCSS setup. Trust `package.json`, not either document,
 when writing styles. `CLAUDE.md` was deliberately left unchanged: it is generated
 Laravel Boost guidance covering the whole project, not a B2B artefact, and correcting it
-is a separate call — see unresolved item 39.)*
+is a separate call — see unresolved item 39.)*I
 
 **Requirement source: `b2b.txt`** (repo root, 355 lines). It is the authoritative
 specification — section numbers below (§n) refer to it. Where it conflicts with

@@ -4,10 +4,14 @@ namespace Tests\Feature\Admin;
 
 use App\Enums\OrderStatus;
 use App\Enums\UserType;
+use App\Models\Address;
+use App\Models\Contact;
 use App\Models\InspectionStation;
 use App\Models\User;
+use App\Modules\UserProfile\B2B\Models\B2B;
 use App\Modules\UserProfile\Offer\Models\LeasybackOffer;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
+use App\Modules\UserProfile\Order\Models\LogisticsAddressProfile;
 use App\Modules\UserProfile\Order\Models\OrderStatusUpdate;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle;
 use App\Modules\UserProfile\Vehicle\Models\VehicleDocument;
@@ -15,6 +19,7 @@ use App\Modules\UserProfile\Vehicle\Models\VehicleReportDocument;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia;
 use Tests\TestCase;
@@ -343,6 +348,129 @@ class VehicleControllerTest extends TestCase
             'vehicle_id' => $vehicle->vehicle_id,
             'leasyback_partner' => 'tuvsud',
             'created_by_user_id' => $admin->id,
+        ]);
+    }
+
+    /**
+     * A B2B vehicle takes the collection flow, not the station/appointment
+     * one — from Admin exactly as from the company user's own dashboard, since
+     * both post to orders.store, which branches on the vehicle. Admin's
+     * "Auftrag erstellen" sends no station_id/termin (b2bOrderRules prohibits
+     * them), so this pins the payload the modal's B2B branch produces.
+     */
+    public function test_admin_creates_a_b2b_vehicles_order_through_the_collection_flow(): void
+    {
+        Mail::fake();
+        $admin = $this->admin();
+        $vehicle = $this->b2bVehicle();
+
+        $this->actingAs($admin)
+            ->post(route('orders.store', $vehicle->vehicle_id), [
+                'requested_collection_date' => now()->addWeek()->toDateString(),
+                'collection_note' => 'Schlüssel am Empfang',
+                'collection_address' => ['street' => 'Werkstr', 'zip_code' => '80331', 'city' => 'München'],
+            ])
+            ->assertRedirect()
+            ->assertSessionHasNoErrors();
+
+        $this->assertDatabaseHas('leasyback_orders', [
+            'vehicle_id' => $vehicle->vehicle_id,
+            'order_status' => 'order_requested',
+            'created_by_user_id' => $admin->id,
+        ]);
+    }
+
+    /** The old B2C payload is rejected outright, so Admin cannot fall back to it for a B2B vehicle. */
+    public function test_the_b2c_station_payload_is_rejected_for_a_b2b_vehicle(): void
+    {
+        $admin = $this->admin();
+        $vehicle = $this->b2bVehicle();
+        $station = InspectionStation::factory()->create(['provider' => 'tuvsud', 'is_active' => true]);
+
+        $this->actingAs($admin)
+            ->post(route('orders.store', $vehicle->vehicle_id), [
+                'station_id' => $station->station_id,
+                'termin' => now()->addWeek()->toDateTimeString(),
+            ])
+            ->assertSessionHasErrors(['station_id', 'termin']);
+
+        $this->assertDatabaseCount('leasyback_orders', 0);
+    }
+
+    /**
+     * The modal prefills the collection address from the vehicle, so the Admin
+     * vehicle payload has to carry it the same way the customer dashboard's
+     * does. B2C vehicles have no such profile and get null.
+     */
+    public function test_admin_vehicle_payload_carries_the_b2b_collection_address(): void
+    {
+        $admin = $this->admin();
+        $vehicle = $this->b2bVehicle([
+            'street' => 'Werkstr', 'number' => '7', 'additional_address' => 'Tor 3',
+            'zip_code' => '80331', 'city' => 'München', 'country' => 'DE',
+        ]);
+        Vehicle::factory()->create(['vehicle_belongs' => 'B2C']);
+
+        $this->actingAs($admin)
+            ->get(route('admin.vehicles.show', $vehicle->vehicle_id))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('vehicle.collection_address.street', 'Werkstr')
+                ->where('vehicle.collection_address.zip_code', '80331')
+                ->where('vehicle.collection_address.city', 'München')
+            );
+
+        $this->actingAs($admin)
+            ->get(route('admin.vehicles.index'))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->has('vehicles.data', 2)
+                ->where('vehicles.data', fn (Collection $rows) => $rows
+                    ->firstWhere('vehicle_id', $vehicle->vehicle_id)['collection_address']['city'] === 'München'
+                    && $rows->firstWhere('vehicle_belongs', 'B2C')['collection_address'] === null
+                )
+            );
+    }
+
+    /**
+     * A B2B vehicle whose company never stored a pickup address: the payload
+     * still carries the key, so the modal renders an empty (editable) address.
+     */
+    public function test_a_b2b_vehicle_without_an_address_profile_reports_a_null_collection_address(): void
+    {
+        $admin = $this->admin();
+        $vehicle = $this->b2bVehicle(null);
+
+        $this->actingAs($admin)
+            ->get(route('admin.vehicles.show', $vehicle->vehicle_id))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('vehicle.collection_address', null));
+    }
+
+    /**
+     * A company vehicle, optionally linked to a default pickup address.
+     *
+     * @param  array<string, string>|null  $address
+     */
+    private function b2bVehicle(?array $address = ['street' => 'Werkstr', 'zip_code' => '80331', 'city' => 'München']): Vehicle
+    {
+        $b2b = B2B::create([
+            'contact_id' => Contact::factory()->create()->contact_id,
+            'address_id' => Address::factory()->create()->address_id,
+            'company_name' => 'Acme GmbH',
+            'contact_email' => 'fleet@acme.example',
+        ]);
+
+        $profile = $address === null ? null : LogisticsAddressProfile::create([
+            'owner_type' => 'b2b',
+            'b2b_id' => $b2b->b2b_id,
+            'profile_name' => 'Zentrale',
+            'details' => $address,
+            'is_default' => true,
+        ]);
+
+        return Vehicle::factory()->forB2b($b2b->b2b_id)->create([
+            'collection_address_profile_id' => $profile?->id,
         ]);
     }
 

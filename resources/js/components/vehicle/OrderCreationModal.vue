@@ -9,15 +9,26 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { AppModal, AppModalButton } from '@/components/ui/modal';
 import type { StationData } from '@/types/order';
-import type { VehicleCollectionAddress, VehicleData } from '@/types/vehicle';
+import type { VehicleCollectionAddress } from '@/types/vehicle';
 import { useForm } from '@inertiajs/vue3';
 import { computed, ref, useId, watch } from 'vue';
+
+/**
+ * Only the two fields the flow actually branches on, rather than the full
+ * `VehicleData`: Admin reaches this modal with an `AdminVehicleRow`, which
+ * carries the same two but not the customer dashboard's order/document
+ * payloads. Both shapes satisfy this, so both audiences get the same form.
+ */
+type OrderCreationVehicle = {
+    vehicle_belongs: 'B2B' | 'B2C';
+    collection_address?: VehicleCollectionAddress | null;
+};
 
 const props = defineProps<{
     open: boolean;
     vehicleId: string;
     stations: StationData[];
-    vehicle?: VehicleData | null;
+    vehicle?: OrderCreationVehicle | null;
 }>();
 
 const emit = defineEmits<{ (e: 'update:open', value: boolean): void }>();
@@ -271,8 +282,8 @@ function submit() {
                 </div>
 
                 <p class="mt-3 text-xs text-gray-400">
-                    Vorbelegt mit der Abholadresse des Fahrzeugs. Änderungen gelten nur für diesen Auftrag. Es wird kein Prüfstationstermin benötigt
-                    — Leasyback holt das Fahrzeug bei Ihnen ab.
+                    Vorbelegt mit der Abholadresse des Fahrzeugs. Änderungen gelten nur für diesen Auftrag. Es wird kein Prüfstationstermin benötigt —
+                    Leasyback holt das Fahrzeug bei Ihnen ab.
                 </p>
 
                 <div class="mt-2 grid grid-cols-1 gap-3 md:grid-cols-2">

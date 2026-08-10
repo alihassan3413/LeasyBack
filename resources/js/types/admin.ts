@@ -1,5 +1,5 @@
 import type { B2bOfferPresentationData, OrderCollectionData } from './order';
-import type { OrderRequestPayload } from './vehicle';
+import type { OrderRequestPayload, VehicleCollectionAddress } from './vehicle';
 
 /** Matches AdminQueryService::summary()'s response shape. */
 export interface AdminSummaryData {
@@ -118,6 +118,8 @@ export interface AdminVehicleRow {
     has_open_order: boolean;
     /** True when a TÜV SÜD order carries a Gutachtennummer the appraisal pull can use. */
     can_pull_documents: boolean;
+    /** The vehicle's default pickup address; always null on a B2C vehicle. Prefills the B2B order modal. */
+    collection_address: VehicleCollectionAddress | null;
     order_history: AdminVehicleOrderHistoryEntry[];
     documents: AdminVehicleDocumentEntry[];
 }

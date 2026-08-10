@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import AdminAppraisalPositionsCard from '@/components/admin/AdminAppraisalPositionsCard.vue';
 import AdminBillingCard from '@/components/admin/AdminBillingCard.vue';
-import AdminOrderNotesCard from '@/components/admin/AdminOrderNotesCard.vue';
 import AdminCollectionCard from '@/components/admin/AdminCollectionCard.vue';
 import AdminOffersCard from '@/components/admin/AdminOffersCard.vue';
 import AdminOrderActionsMenu from '@/components/admin/AdminOrderActionsMenu.vue';
+import AdminOrderNotesCard from '@/components/admin/AdminOrderNotesCard.vue';
 import AdminOrderTasksCard from '@/components/admin/AdminOrderTasksCard.vue';
 import AdminRepairAppointmentCard from '@/components/admin/AdminRepairAppointmentCard.vue';
 import AdminWorkshopQuotationsCard from '@/components/admin/AdminWorkshopQuotationsCard.vue';
@@ -261,7 +261,28 @@ function formatDateTime(value: string | null): string {
                     </div>
                 </section>
 
-                <section class="grid grid-cols-[1fr_1.15fr] gap-4 max-[1180px]:grid-cols-1">
+                <!--
+                    Masonry (CSS multicol) rather than two fixed columns. Almost every
+                    card below is conditional — B2B-only, or gated on the order having
+                    reached a status — so no static left/right split balances for both
+                    audiences: the timeline sat alone in a stretched grid track and ran
+                    empty for most of its height next to the much longer stack beside it.
+                    Multicol balances the two columns by height on its own, whatever
+                    subset renders, and collapses to a single column below 1180px.
+                    `break-inside-avoid` keeps each card whole, so nothing is ever split
+                    across the gutter.
+
+                    It also removes the width blowout the old grid had: a multicol column
+                    is a fixed width, so a long unbreakable string (a freshly issued
+                    workshop link) or the quotation table's `min-w-[420px]` can no longer
+                    widen its column the way it could widen a `1.15fr` grid track — they
+                    truncate / scroll inside their card, which is what they were built to do.
+
+                    Columns space their items with `mb-4` (multicol has no row gap), and
+                    the matching `-mb-4` cancels the one the last card in each column
+                    leaves behind, so the section still sits `gap-5` from the next.
+                -->
+                <section class="-mb-4 columns-2 gap-4 max-[1180px]:columns-1 [&>*]:mb-4 [&>*]:break-inside-avoid">
                     <div id="order-section-status" class="content-card overflow-hidden p-0">
                         <OrderStatusTimeline :entries="timelineEntries" :header-label="timelineHeaderLabel">
                             <template #actions="{ entry }">
@@ -289,117 +310,115 @@ function formatDateTime(value: string | null): string {
                         </OrderStatusTimeline>
                     </div>
 
-                    <div class="flex flex-col gap-4">
-                        <AdminOrderTasksCard v-if="order.tasks" :tasks="order.tasks" />
+                    <AdminOrderTasksCard v-if="order.tasks" :tasks="order.tasks" />
 
-                        <OrderMessages
+                    <OrderMessages :order-id="order.id" :auftragsnummer="order.auftragsnummer" container-class="content-card overflow-hidden p-0" />
+
+                    <AdminCollectionCard
+                        v-if="order.vehicle_belongs === 'B2B'"
+                        id="order-section-abholung"
+                        :order-id="order.id"
+                        :collection="order.collection"
+                    />
+
+                    <AdminOrderNotesCard
+                        v-if="order.vehicle_belongs === 'B2B' && order.notes"
+                        id="order-section-notizen"
+                        :order-id="order.id"
+                        :notes="order.notes"
+                    />
+
+                    <AdminBillingCard
+                        v-if="order.vehicle_belongs === 'B2B' && order.billing && showBilling"
+                        id="order-section-abrechnung"
+                        :order-id="order.id"
+                        :billing="order.billing"
+                        :report-documents="order.report_documents"
+                    />
+
+                    <AdminRepairAppointmentCard
+                        v-if="order.vehicle_belongs === 'B2B' && showRepairAppointment"
+                        id="order-section-reparatur"
+                        :order-id="order.id"
+                        :order-status="order.order_status"
+                        :collection="order.collection"
+                        :source-quotation="offerSourceQuotation"
+                    />
+
+                    <!--
+                        The workshop quotations and the customer offers stay one masonry
+                        item: they are the two halves of the same step (a quotation is
+                        what an offer is built from), and `order-section-angebote` — the
+                        anchor the task card scrolls to — covers both.
+                    -->
+                    <div id="order-section-angebote" class="flex flex-col gap-4">
+                        <AdminWorkshopQuotationsCard
+                            v-if="order.vehicle_belongs === 'B2B' && order.workshop_quotations"
                             :order-id="order.id"
-                            :auftragsnummer="order.auftragsnummer"
-                            container-class="content-card overflow-hidden p-0"
+                            :quotations="order.workshop_quotations"
+                            :has-positions="!!order.appraisal_positions?.length"
                         />
 
-                        <AdminCollectionCard
-                            v-if="order.vehicle_belongs === 'B2B'"
-                            id="order-section-abholung"
-                            :order-id="order.id"
-                            :collection="order.collection"
-                        />
-
-                        <AdminOrderNotesCard
-                            v-if="order.vehicle_belongs === 'B2B' && order.notes"
-                            id="order-section-notizen"
-                            :order-id="order.id"
-                            :notes="order.notes"
-                        />
-
-                        <AdminBillingCard
-                            v-if="order.vehicle_belongs === 'B2B' && order.billing && showBilling"
-                            id="order-section-abrechnung"
-                            :order-id="order.id"
-                            :billing="order.billing"
-                            :report-documents="order.report_documents"
-                        />
-
-                        <AdminRepairAppointmentCard
-                            v-if="order.vehicle_belongs === 'B2B' && showRepairAppointment"
-                            id="order-section-reparatur"
-                            :order-id="order.id"
-                            :order-status="order.order_status"
-                            :collection="order.collection"
-                            :source-quotation="offerSourceQuotation"
-                        />
-
-                        <div id="order-section-angebote" class="flex flex-col gap-4">
-                            <AdminWorkshopQuotationsCard
-                                v-if="order.vehicle_belongs === 'B2B' && order.workshop_quotations"
-                                :order-id="order.id"
-                                :quotations="order.workshop_quotations"
-                                :has-positions="!!order.appraisal_positions?.length"
-                            />
-
-                            <AdminOffersCard :order-id="order.id" :offers="order.offers" />
-                        </div>
-
-                        <div id="order-section-dokumente" class="content-card">
-                            <div class="mb-4">
-                                <h2 class="text-[17px] font-extrabold tracking-[-0.3px] text-[#10393b]">Gutachten &amp; Rechnungen</h2>
-                                <p class="mt-0.5 text-[12px] font-medium text-[#9bb0af]">{{ order.report_documents.length }} Dokumente</p>
-                            </div>
-
-                            <p v-if="!order.report_documents.length" class="py-10 text-center text-[13px] text-[#9bb0af]">
-                                Keine Dokumente vorhanden.
-                            </p>
-
-                            <div v-else class="flex flex-col gap-1">
-                                <div
-                                    v-for="doc in order.report_documents"
-                                    :key="doc.id"
-                                    class="flex items-center gap-3 rounded-[13px] px-3 py-2.5 transition-colors hover:bg-[#f6f9f8]"
-                                >
-                                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-[11px] bg-[#01B990]/10 text-[#00856a]">
-                                        <IconMdiFileDocumentOutline class="size-[17px]" />
-                                    </div>
-
-                                    <div class="min-w-0 flex-1">
-                                        <p class="truncate text-[13px] font-bold text-[#10393b]">
-                                            {{ doc.document_title || doc.document_type || 'Dokument' }}
-                                        </p>
-                                        <p class="truncate text-[11.5px] text-[#6f8585]">{{ formatDate(doc.created_at) }}</p>
-                                    </div>
-
-                                    <span
-                                        class="shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-bold"
-                                        :class="doc.published ? 'bg-[#01B990]/10 text-[#00856a]' : 'bg-[#f4f7f6] text-[#9bb0af]'"
-                                    >
-                                        {{ doc.published ? 'Veröffentlicht' : 'Entwurf' }}
-                                    </span>
-
-                                    <a
-                                        v-if="doc.signed_url"
-                                        :href="doc.signed_url"
-                                        target="_blank"
-                                        rel="noopener"
-                                        class="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] text-[#bcccca] transition-all hover:bg-[#10393b] hover:text-white"
-                                        title="Öffnen"
-                                    >
-                                        <IconMdiOpenInNew class="size-[15px]" />
-                                    </a>
-                                </div>
-                            </div>
-                        </div>
-
-                        <AdminAppraisalPositionsCard
-                            v-if="order.vehicle_belongs === 'B2B' && order.appraisal_positions"
-                            :order-id="order.id"
-                            :positions="order.appraisal_positions"
-                            :totals="order.appraisal_totals"
-                            :report-documents="order.report_documents"
-                        />
+                        <AdminOffersCard :order-id="order.id" :offers="order.offers" />
                     </div>
+
+                    <div id="order-section-dokumente" class="content-card">
+                        <div class="mb-4">
+                            <h2 class="text-[17px] font-extrabold tracking-[-0.3px] text-[#10393b]">Gutachten &amp; Rechnungen</h2>
+                            <p class="mt-0.5 text-[12px] font-medium text-[#9bb0af]">{{ order.report_documents.length }} Dokumente</p>
+                        </div>
+
+                        <p v-if="!order.report_documents.length" class="py-10 text-center text-[13px] text-[#9bb0af]">Keine Dokumente vorhanden.</p>
+
+                        <div v-else class="flex flex-col gap-1">
+                            <div
+                                v-for="doc in order.report_documents"
+                                :key="doc.id"
+                                class="flex items-center gap-3 rounded-[13px] px-3 py-2.5 transition-colors hover:bg-[#f6f9f8]"
+                            >
+                                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-[11px] bg-[#01B990]/10 text-[#00856a]">
+                                    <IconMdiFileDocumentOutline class="size-[17px]" />
+                                </div>
+
+                                <div class="min-w-0 flex-1">
+                                    <p class="truncate text-[13px] font-bold text-[#10393b]">
+                                        {{ doc.document_title || doc.document_type || 'Dokument' }}
+                                    </p>
+                                    <p class="truncate text-[11.5px] text-[#6f8585]">{{ formatDate(doc.created_at) }}</p>
+                                </div>
+
+                                <span
+                                    class="shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-bold"
+                                    :class="doc.published ? 'bg-[#01B990]/10 text-[#00856a]' : 'bg-[#f4f7f6] text-[#9bb0af]'"
+                                >
+                                    {{ doc.published ? 'Veröffentlicht' : 'Entwurf' }}
+                                </span>
+
+                                <a
+                                    v-if="doc.signed_url"
+                                    :href="doc.signed_url"
+                                    target="_blank"
+                                    rel="noopener"
+                                    class="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] text-[#bcccca] transition-all hover:bg-[#10393b] hover:text-white"
+                                    title="Öffnen"
+                                >
+                                    <IconMdiOpenInNew class="size-[15px]" />
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <AdminAppraisalPositionsCard
+                        v-if="order.vehicle_belongs === 'B2B' && order.appraisal_positions"
+                        :order-id="order.id"
+                        :positions="order.appraisal_positions"
+                        :totals="order.appraisal_totals"
+                        :report-documents="order.report_documents"
+                    />
                 </section>
 
-                <section class="content-card">
-                    <div class="mb-4">
+                <section class="content-card mt-2">
+                    <div class="">
                         <h2 class="text-[17px] font-extrabold tracking-[-0.3px] text-[#10393b]">Statusverlauf</h2>
                         <p class="mt-0.5 text-[12px] font-medium text-[#9bb0af]">{{ order.status_updates.length }} Änderungen</p>
                     </div>
