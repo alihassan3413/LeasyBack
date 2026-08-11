@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import CreateVehicleModal from '@/components/admin/CreateVehicleModal.vue';
+import CalendarDateField from '@/components/form/CalendarDateField.vue';
 import RequiredMark from '@/components/form/RequiredMark.vue';
 import AdminLayout from '@/layouts/AdminLayout.vue';
 import { getAdminDashboardStatus as getStatus } from '@/lib/adminStatus';
@@ -334,11 +335,13 @@ function submitServiceFee() {
                                 <label for="service_fee_effective_from" class="text-[12.5px] font-bold text-[#10393b]"
                                     >Gültig ab<RequiredMark
                                 /></label>
-                                <input
+                                <CalendarDateField
                                     id="service_fee_effective_from"
                                     v-model="serviceFeeForm.service_fee_effective_from"
-                                    type="date"
-                                    class="mt-1 w-full rounded-[13px] border border-[#e9efee] bg-white px-3.5 py-2.5 text-[13.5px] font-semibold text-[#10393b] outline-none focus:border-[#01B990]"
+                                    allow-past
+                                    input-rounded="rounded-[13px]"
+                                    input-class="mt-1 font-semibold"
+                                    :invalid="!!serviceFeeForm.errors.service_fee_effective_from"
                                 />
                                 <p v-if="serviceFeeForm.errors.service_fee_effective_from" class="mt-1 text-[11.5px] text-[#ef8450]">
                                     {{ serviceFeeForm.errors.service_fee_effective_from }}

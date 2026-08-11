@@ -7,6 +7,7 @@
  * not to disclose the appraisal amounts, `requested_amount_net` arrives null
  * and the column simply is not rendered.
  */
+import CalendarDateField from '@/components/form/CalendarDateField.vue';
 import RequiredMark from '@/components/form/RequiredMark.vue';
 import InputError from '@/components/InputError.vue';
 import { Input } from '@/components/ui/input';
@@ -170,7 +171,7 @@ function submit() {
                         </div>
                         <div class="flex flex-col gap-1">
                             <label class="text-[12px] font-bold text-[#10393b]">Frühester Reparaturbeginn</label>
-                            <Input v-model="form.earliest_repair_start" type="date" />
+                            <CalendarDateField v-model="form.earliest_repair_start" :invalid="!!form.errors.earliest_repair_start" />
                             <InputError :message="form.errors.earliest_repair_start" />
                         </div>
                         <div class="flex flex-col gap-1">
