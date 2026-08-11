@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import CreateVehicleModal from '@/components/admin/CreateVehicleModal.vue';
+import RequiredMark from '@/components/form/RequiredMark.vue';
 import AdminLayout from '@/layouts/AdminLayout.vue';
 import { getAdminDashboardStatus as getStatus } from '@/lib/adminStatus';
 import type { AdminCustomerDetail, AdminCustomerOrder, AdminCustomerType, AdminCustomerVehicle } from '@/types/admin';
@@ -313,7 +314,9 @@ function submitServiceFee() {
                     <form v-else class="flex flex-col gap-4" @submit.prevent="submitServiceFee">
                         <div class="grid grid-cols-2 gap-3 max-[720px]:grid-cols-1">
                             <div>
-                                <label for="service_fee_amount" class="text-[12.5px] font-bold text-[#10393b]">Servicepauschale (EUR, netto)</label>
+                                <label for="service_fee_amount" class="text-[12.5px] font-bold text-[#10393b]"
+                                    >Servicepauschale (EUR, netto)<RequiredMark
+                                /></label>
                                 <input
                                     id="service_fee_amount"
                                     v-model="serviceFeeForm.service_fee_amount"
@@ -328,7 +331,9 @@ function submitServiceFee() {
                             </div>
 
                             <div>
-                                <label for="service_fee_effective_from" class="text-[12.5px] font-bold text-[#10393b]">Gültig ab</label>
+                                <label for="service_fee_effective_from" class="text-[12.5px] font-bold text-[#10393b]"
+                                    >Gültig ab<RequiredMark
+                                /></label>
                                 <input
                                     id="service_fee_effective_from"
                                     v-model="serviceFeeForm.service_fee_effective_from"

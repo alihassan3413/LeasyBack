@@ -236,6 +236,7 @@ declare module 'vue' {
     PopoverTrigger: typeof import('./../components/ui/popover/PopoverTrigger.vue')['default']
     ProcessSection: typeof import('./../components/landing/ProcessSection.vue')['default']
     ProfileStep: typeof import('./../components/onboarding/ProfileStep.vue')['default']
+    RequiredMark: typeof import('./../components/form/RequiredMark.vue')['default']
     RowIconAction: typeof import('./../components/b2b/RowIconAction.vue')['default']
     SearchableSelectField: typeof import('./../components/form/SearchableSelectField.vue')['default']
     Select: typeof import('./../components/ui/select/Select.vue')['default']

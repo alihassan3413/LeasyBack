@@ -156,9 +156,7 @@ function submit() {
     <AppModal
         :open="open"
         :title="isEditMode ? 'Fahrzeug bearbeiten' : 'Neues Fahrzeug anlegen'"
-        :description="
-            isEditMode ? 'Aktualisieren Sie die Daten Ihres Fahrzeugs.' : 'Erfassen Sie Ihr Fahrzeug, um mit einer Bewertung zu starten.'
-        "
+        :description="isEditMode ? 'Aktualisieren Sie die Daten Ihres Fahrzeugs.' : 'Erfassen Sie Ihr Fahrzeug, um mit einer Bewertung zu starten.'"
         @update:open="(value) => emit('update:open', value)"
     >
         <form @submit.prevent="submit">
@@ -170,7 +168,8 @@ function submit() {
                 <FormField
                     v-slot="{ id, describedBy, invalid }"
                     label="FIN"
-                    label-hint="* (siehe Fahrzeugschein – Feld E)"
+                    required
+                    label-hint="(siehe Fahrzeugschein – Feld E)"
                     :error="form.errors.vin"
                 >
                     <Input
@@ -225,7 +224,7 @@ function submit() {
                 </div>
 
                 <div>
-                    <FormField v-slot="{ id, describedBy, invalid }" label="Leasinggeber" label-hint="*" :error="form.errors.leasinggeber">
+                    <FormField v-slot="{ id, describedBy, invalid }" label="Leasinggeber" required :error="form.errors.leasinggeber">
                         <Input
                             :id="id"
                             v-model="form.leasinggeber"

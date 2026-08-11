@@ -38,6 +38,8 @@
     --color-destructive: var(--destructive);
     --color-destructive-foreground: var(--destructive-foreground);
 
+    --color-required: var(--required);
+
     --color-border: var(--border);
     --color-input: var(--input);
     --color-ring: var(--ring);
@@ -265,6 +267,7 @@
     --accent-foreground: hsl(222 47% 12%);
     --destructive: hsl(0 74% 53%);
     --destructive-foreground: hsl(210 40% 99%);
+    --required: hsl(0 58% 62%);
     --border: hsl(214 28% 86%);
     --input: hsl(214 28% 86%);
     --ring: var(--brand-green);
@@ -309,6 +312,7 @@
     --accent-foreground: hsl(210 40% 96%);
     --destructive: hsl(0 71% 60%);
     --destructive-foreground: hsl(210 40% 98%);
+    --required: hsl(0 60% 70%);
     --border: hsl(223 22% 22%);
     --input: hsl(223 22% 22%);
     --ring: var(--brand-green);

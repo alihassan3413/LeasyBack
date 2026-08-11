@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import CalendarDateField from '@/components/form/CalendarDateField.vue';
+import RequiredMark from '@/components/form/RequiredMark.vue';
 import SearchableSelectField, { type SearchableOption } from '@/components/form/SearchableSelectField.vue';
 import StationMap from '@/components/form/StationMap.vue';
 import StationSelectField from '@/components/form/StationSelectField.vue';
@@ -217,20 +218,20 @@ function submit() {
                     </div>
 
                     <div class="flex flex-col gap-1">
-                        <label class="text-sm font-semibold text-black">Station</label>
+                        <label class="text-sm font-semibold text-black">Station<RequiredMark /></label>
                         <StationSelectField v-model="form.station_id" :stations="filteredStations" :invalid="!!form.errors.station_id" />
                         <InputError :message="form.errors.station_id" />
                     </div>
 
                     <div class="grid grid-cols-2 gap-x-3">
                         <div class="flex flex-col gap-1">
-                            <label class="text-sm font-semibold text-black">Datum</label>
+                            <label class="text-sm font-semibold text-black">Datum<RequiredMark /></label>
                             <CalendarDateField v-model="form.date" :min-days-ahead="3" block-weekends :invalid="!!form.errors.termin" />
                             <InputError :message="form.errors.termin" />
                         </div>
 
                         <div class="flex flex-col gap-1">
-                            <label class="text-sm font-semibold text-black">Uhrzeit</label>
+                            <label class="text-sm font-semibold text-black">Uhrzeit<RequiredMark /></label>
                             <Input v-model="form.time" type="time" />
                         </div>
                     </div>
@@ -266,7 +267,7 @@ function submit() {
 
                 <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
                     <div class="flex flex-col gap-1">
-                        <label class="text-sm font-semibold text-black">Wunschtermin Abholung</label>
+                        <label class="text-sm font-semibold text-black">Wunschtermin Abholung<RequiredMark /></label>
                         <CalendarDateField v-model="form.requested_collection_date" :invalid="!!form.errors.requested_collection_date" />
                         <InputError :message="form.errors.requested_collection_date" />
                     </div>
@@ -288,7 +289,7 @@ function submit() {
 
                 <div class="mt-2 grid grid-cols-1 gap-3 md:grid-cols-2">
                     <div class="flex flex-col gap-1">
-                        <label class="text-sm font-semibold text-black">Straße</label>
+                        <label class="text-sm font-semibold text-black">Straße<RequiredMark /></label>
                         <Input v-model="form.collection_address.street" />
                         <InputError :message="form.errors['collection_address.street']" />
                     </div>
@@ -306,13 +307,13 @@ function submit() {
                     </div>
 
                     <div class="flex flex-col gap-1">
-                        <label class="text-sm font-semibold text-black">PLZ</label>
+                        <label class="text-sm font-semibold text-black">PLZ<RequiredMark /></label>
                         <Input v-model="form.collection_address.zip_code" />
                         <InputError :message="form.errors['collection_address.zip_code']" />
                     </div>
 
                     <div class="flex flex-col gap-1">
-                        <label class="text-sm font-semibold text-black">Ort</label>
+                        <label class="text-sm font-semibold text-black">Ort<RequiredMark /></label>
                         <Input v-model="form.collection_address.city" />
                         <InputError :message="form.errors['collection_address.city']" />
                     </div>

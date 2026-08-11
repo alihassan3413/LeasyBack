@@ -4,6 +4,7 @@
  * administers the company's LeasyBack account, as entered during company
  * registration.
  */
+import RequiredMark from '@/components/form/RequiredMark.vue';
 import SelectField, { type SelectFieldOption } from '@/components/form/SelectField.vue';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -80,12 +81,12 @@ const labelClass = 'text-sm font-bold text-black';
                         <p v-if="form.errors['contact.salutation']" class="text-brand-orange mt-1 text-xs">{{ form.errors['contact.salutation'] }}</p>
                     </div>
                     <div class="min-w-[140px] flex-1">
-                        <Label for="company_contact_first_name" :class="labelClass">Vorname</Label>
+                        <Label for="company_contact_first_name" :class="labelClass">Vorname<RequiredMark /></Label>
                         <Input id="company_contact_first_name" v-model="form.contact.first_name" maxlength="100" class="mt-0.5 text-sm text-black" />
                         <p v-if="form.errors['contact.first_name']" class="text-brand-orange mt-1 text-xs">{{ form.errors['contact.first_name'] }}</p>
                     </div>
                     <div class="min-w-[140px] flex-1">
-                        <Label for="company_contact_last_name" :class="labelClass">Nachname</Label>
+                        <Label for="company_contact_last_name" :class="labelClass">Nachname<RequiredMark /></Label>
                         <Input id="company_contact_last_name" v-model="form.contact.last_name" maxlength="100" class="mt-0.5 text-sm text-black" />
                         <p v-if="form.errors['contact.last_name']" class="text-brand-orange mt-1 text-xs">{{ form.errors['contact.last_name'] }}</p>
                     </div>

@@ -10,6 +10,7 @@
  * Rendered only for B2B orders; the endpoint 404s for a B2C order regardless
  * of what this card offers.
  */
+import RequiredMark from '@/components/form/RequiredMark.vue';
 import InputError from '@/components/InputError.vue';
 import { Input } from '@/components/ui/input';
 import type { AdminAppraisalPosition, AdminAppraisalTotals, AdminReportDocument } from '@/types/admin';
@@ -77,9 +78,7 @@ const isDirty = computed(() => form.isDirty);
 function formatEuro(value: number | string | null | undefined): string {
     const amount = typeof value === 'string' ? Number.parseFloat(value) : (value ?? 0);
 
-    return Number.isFinite(amount)
-        ? new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(amount as number)
-        : '—';
+    return Number.isFinite(amount) ? new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(amount as number) : '—';
 }
 
 function addPosition() {
@@ -129,9 +128,7 @@ function submit() {
             </span>
             <div class="min-w-0 flex-1">
                 <h2 class="text-[15px] font-extrabold tracking-[-0.3px] text-[#10393b]">Gutachtenpositionen</h2>
-                <p class="mt-0.5 text-[11.5px] font-medium text-[#9bb0af]">
-                    Erstgutachten · Nettobeträge · manuell erfasst
-                </p>
+                <p class="mt-0.5 text-[11.5px] font-medium text-[#9bb0af]">Erstgutachten · Nettobeträge · manuell erfasst</p>
             </div>
         </div>
 
@@ -188,7 +185,7 @@ function submit() {
 
                 <div class="grid grid-cols-2 gap-2">
                     <div class="flex flex-col gap-1">
-                        <label class="text-[12px] font-bold text-[#10393b]">Gutachten netto (€)</label>
+                        <label class="text-[12px] font-bold text-[#10393b]">Gutachten netto (€)<RequiredMark /></label>
                         <Input v-model="row.original_amount_net" type="number" step="0.01" min="0" inputmode="decimal" />
                         <InputError :message="error(index, 'original_amount_net')" />
                     </div>

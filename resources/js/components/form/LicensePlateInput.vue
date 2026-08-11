@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import RequiredMark from '@/components/form/RequiredMark.vue';
 import { normalizePlate, sanitizePlateNumber, toPlateUpperCase, validatePlateParts } from '@/lib/licensePlate';
 import { computed, ref, useId, watch } from 'vue';
 
@@ -7,13 +8,15 @@ const props = withDefaults(
         modelValue: string;
         id?: string;
         label?: string;
+        required?: boolean;
         hint?: string;
         disabled?: boolean;
         serverError?: string;
     }>(),
     {
         label: 'Kennzeichen',
-        hint: '*(Format: K LB 2026E)',
+        required: true,
+        hint: '(Format: K LB 2026E)',
         disabled: false,
     },
 );
@@ -74,6 +77,8 @@ const segmentClass =
     <div class="flex flex-col gap-1">
         <label v-if="label" :for="fieldId" class="text-sm font-semibold text-black">
             {{ label }}
+
+            <RequiredMark v-if="required" />
 
             <span v-if="hint" class="ml-2 text-[10px] font-medium text-gray-500">
                 {{ hint }}

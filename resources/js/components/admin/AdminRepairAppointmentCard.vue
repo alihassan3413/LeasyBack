@@ -10,9 +10,10 @@
  * Saving from `workshop_commissioned` also starts the repair phase; the server
  * owns that rule, this only says so.
  */
+import CalendarDateField from '@/components/form/CalendarDateField.vue';
+import RequiredMark from '@/components/form/RequiredMark.vue';
 import InputError from '@/components/InputError.vue';
 import { Input } from '@/components/ui/input';
-import CalendarDateField from '@/components/form/CalendarDateField.vue';
 import type { AdminWorkshopQuotation } from '@/types/admin';
 import type { OrderCollectionData } from '@/types/order';
 import { useForm } from '@inertiajs/vue3';
@@ -28,11 +29,8 @@ const props = defineProps<{
 }>();
 
 const form = useForm(() => ({
-    confirmed_repair_start_date:
-        props.collection?.confirmed_repair_start_date ?? props.sourceQuotation?.earliest_repair_start ?? '',
-    estimated_processing_days: String(
-        props.collection?.estimated_processing_days ?? props.sourceQuotation?.processing_days ?? '',
-    ),
+    confirmed_repair_start_date: props.collection?.confirmed_repair_start_date ?? props.sourceQuotation?.earliest_repair_start ?? '',
+    estimated_processing_days: String(props.collection?.estimated_processing_days ?? props.sourceQuotation?.processing_days ?? ''),
 }));
 
 const isConfirmed = computed(() => !!props.collection?.confirmed_repair_start_date);
@@ -92,7 +90,7 @@ function submit() {
 
         <form class="flex flex-col gap-3" @submit.prevent="submit">
             <div class="flex flex-col gap-1">
-                <label class="text-[12px] font-bold text-[#10393b]">Bestätigter Reparaturbeginn</label>
+                <label class="text-[12px] font-bold text-[#10393b]">Bestätigter Reparaturbeginn<RequiredMark /></label>
                 <CalendarDateField v-model="form.confirmed_repair_start_date" allow-past :invalid="!!form.errors.confirmed_repair_start_date" />
                 <InputError :message="form.errors.confirmed_repair_start_date" />
             </div>
@@ -103,9 +101,7 @@ function submit() {
                 <InputError :message="form.errors.estimated_processing_days" />
             </div>
 
-            <p v-if="startsRepairPhase" class="text-[11.5px] text-[#6f8585]">
-                Mit dem Speichern wechselt der Auftrag in die Reparaturphase.
-            </p>
+            <p v-if="startsRepairPhase" class="text-[11.5px] text-[#6f8585]">Mit dem Speichern wechselt der Auftrag in die Reparaturphase.</p>
 
             <button
                 type="submit"

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import RequiredMark from '@/components/form/RequiredMark.vue';
 import InputError from '@/components/InputError.vue';
 import Label from '@/components/ui/label/Label.vue';
 import { computed, useId } from 'vue';
@@ -32,8 +33,7 @@ const describedBy = computed(() => {
     <div class="grid gap-2">
         <Label v-if="label" :for="fieldId">
             {{ label }}
-            <span v-if="required" aria-hidden="true" class="text-destructive"> *</span>
-            <span v-if="required" class="sr-only"> (erforderlich)</span>
+            <RequiredMark v-if="required" />
 
             <span v-if="labelHint" class="ml-2 text-[10px] font-medium text-gray-500">
                 {{ labelHint }}

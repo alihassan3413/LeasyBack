@@ -108,7 +108,13 @@ function submit() {
             <div class="grid grid-cols-1 gap-x-6 gap-y-3 px-2 md:grid-cols-2">
                 <LicensePlateInput v-model="form.license_plate" :server-error="form.errors.license_plate" />
 
-                <FormField v-slot="{ id, describedBy, invalid }" label="FIN" label-hint="* (siehe Fahrzeugschein – Feld E)" :error="form.errors.vin">
+                <FormField
+                    v-slot="{ id, describedBy, invalid }"
+                    label="FIN"
+                    required
+                    label-hint="(siehe Fahrzeugschein – Feld E)"
+                    :error="form.errors.vin"
+                >
                     <Input
                         :id="id"
                         v-model="form.vin"
@@ -120,7 +126,7 @@ function submit() {
                     />
                 </FormField>
 
-                <FormField v-slot="{ id, describedBy, invalid }" label="Marke" :error="form.errors.make">
+                <FormField v-slot="{ id, describedBy, invalid }" label="Marke" required :error="form.errors.make">
                     <SearchableSelectField
                         :id="id"
                         v-model="form.make"
@@ -161,7 +167,7 @@ function submit() {
                 </div>
 
                 <div>
-                    <FormField v-slot="{ id, describedBy, invalid }" label="Leasinggeber" label-hint="*" :error="form.errors.leasinggeber">
+                    <FormField v-slot="{ id, describedBy, invalid }" label="Leasinggeber" required :error="form.errors.leasinggeber">
                         <Input
                             :id="id"
                             v-model="form.leasinggeber"

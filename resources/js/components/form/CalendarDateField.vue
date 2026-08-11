@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import RequiredMark from '@/components/form/RequiredMark.vue';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useAppointmentCalendar } from '@/composables/useAppointmentCalendar';
 import { computed, useId } from 'vue';
@@ -8,6 +9,7 @@ const props = withDefaults(
         modelValue: string;
         id?: string;
         label?: string;
+        required?: boolean;
         helpText?: string;
         placeholder?: string;
         error?: string;
@@ -23,6 +25,7 @@ const props = withDefaults(
     }>(),
     {
         placeholder: 'TT.MM.JJJJ',
+        required: false,
         helpText: '',
         minDaysAhead: 0,
         allowPast: false,
@@ -79,6 +82,8 @@ const {
         <label v-if="label" :for="fieldId" class="text-brand-teal text-sm font-bold">
             {{ label }}
 
+            <RequiredMark v-if="required" />
+
             <span v-if="helpText" class="text-brand-green-gray ml-1 text-[10px] font-normal">
                 {{ helpText }}
             </span>
@@ -93,7 +98,7 @@ const {
                     :aria-invalid="hasError"
                     :aria-describedby="describedByIds"
                     :class="[
-                        'border-input text-brand-black focus:border-brand-green flex w-full items-center justify-between border bg-white px-4 text-left text-sm outline-none transition disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400',
+                        'border-input text-brand-black focus:border-brand-green flex w-full items-center justify-between border bg-white px-4 text-left text-sm transition outline-none disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400',
                         inputHeight,
                         inputRounded,
                         inputClass,
@@ -108,16 +113,16 @@ const {
                 </button>
             </PopoverTrigger>
 
-            <PopoverContent align="start">
+            <PopoverContent align="start" class="w-auto min-w-70">
                 <div class="mb-4 flex items-center justify-center gap-2">
                     <div
-                        class="border-brand-green-gray text-brand-black flex h-10 w-20 items-center justify-center gap-2 rounded-[6px] border bg-white text-[15px] font-bold"
+                        class="border-brand-green-gray text-brand-black flex h-10 min-w-20 items-center justify-center gap-2 rounded-[6px] border bg-white px-2 text-[15px] font-bold"
                     >
-                        <span>
+                        <span class="whitespace-nowrap">
                             {{ monthNamesShort[calendarMonth] }}
                         </span>
 
-                        <div class="flex flex-col">
+                        <div class="flex shrink-0 flex-col">
                             <button
                                 type="button"
                                 class="text-brand-green-gray hover:text-brand-teal leading-none"
@@ -139,13 +144,13 @@ const {
                     </div>
 
                     <div
-                        class="border-brand-green-gray text-brand-black flex h-10 w-24 items-center justify-center gap-2 rounded-[6px] border bg-white text-[15px] font-bold"
+                        class="border-brand-green-gray text-brand-black flex h-10 min-w-24 items-center justify-center gap-2 rounded-[6px] border bg-white px-2 text-[15px] font-bold"
                     >
-                        <span>
+                        <span class="whitespace-nowrap">
                             {{ calendarYear }}
                         </span>
 
-                        <div class="flex flex-col">
+                        <div class="flex shrink-0 flex-col">
                             <button
                                 type="button"
                                 class="text-brand-green-gray hover:text-brand-teal leading-none"

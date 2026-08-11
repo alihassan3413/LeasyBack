@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import RequiredMark from '@/components/form/RequiredMark.vue';
 import SelectField, { type SelectFieldOption } from '@/components/form/SelectField.vue';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -126,7 +127,7 @@ const labelClass = 'text-sm font-bold text-black';
         <form v-else @submit.prevent="submit">
             <div class="flex flex-col gap-y-5 px-4 py-5 sm:flex-row sm:flex-wrap sm:gap-x-[30px] sm:px-8 sm:py-7">
                 <div class="w-full shrink-0 sm:w-[128px]">
-                    <Label for="contact_salutation" :class="labelClass">Anrede</Label>
+                    <Label for="contact_salutation" :class="labelClass">Anrede<RequiredMark /></Label>
                     <SelectField
                         id="contact_salutation"
                         v-model="form.salutation"
@@ -138,18 +139,20 @@ const labelClass = 'text-sm font-bold text-black';
                     <p v-if="form.errors['contact.salutation']" class="text-brand-orange mt-1 text-xs">{{ form.errors['contact.salutation'] }}</p>
                 </div>
                 <div class="min-w-[140px] flex-1">
-                    <Label for="contact_first_name" :class="labelClass">Vorname</Label>
+                    <Label for="contact_first_name" :class="labelClass">Vorname<RequiredMark /></Label>
                     <Input id="contact_first_name" v-model="form.first_name" placeholder="Vorname" class="mt-0.5 text-sm text-black" />
                     <p v-if="form.errors['contact.first_name']" class="text-brand-orange mt-1 text-xs">{{ form.errors['contact.first_name'] }}</p>
                 </div>
                 <div class="min-w-[140px] flex-1">
-                    <Label for="contact_last_name" :class="labelClass">Nachname</Label>
+                    <Label for="contact_last_name" :class="labelClass">Nachname<RequiredMark /></Label>
                     <Input id="contact_last_name" v-model="form.last_name" placeholder="Nachname" class="mt-0.5 text-sm text-black" />
                     <p v-if="form.errors['contact.last_name']" class="text-brand-orange mt-1 text-xs">{{ form.errors['contact.last_name'] }}</p>
                 </div>
             </div>
 
-            <div class="flex flex-col-reverse gap-3 border-t border-[#EDF2F2] bg-[#F8FAFB] px-4 py-4 sm:flex-row sm:items-center sm:justify-end sm:px-8">
+            <div
+                class="flex flex-col-reverse gap-3 border-t border-[#EDF2F2] bg-[#F8FAFB] px-4 py-4 sm:flex-row sm:items-center sm:justify-end sm:px-8"
+            >
                 <p v-if="form.errors.address" class="text-sm text-red-500 sm:mr-auto">{{ form.errors.address }}</p>
                 <button
                     type="button"

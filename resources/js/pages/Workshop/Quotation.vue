@@ -7,6 +7,7 @@
  * not to disclose the appraisal amounts, `requested_amount_net` arrives null
  * and the column simply is not rendered.
  */
+import RequiredMark from '@/components/form/RequiredMark.vue';
 import InputError from '@/components/InputError.vue';
 import { Input } from '@/components/ui/input';
 import { Head, useForm } from '@inertiajs/vue3';
@@ -108,7 +109,7 @@ function submit() {
     <div class="min-h-screen bg-[#f6f9f8] px-4 py-10">
         <div class="mx-auto flex w-full max-w-3xl flex-col gap-4">
             <header class="rounded-3xl border border-[#ececec] bg-white p-6">
-                <p class="text-[12px] font-bold uppercase tracking-wide text-[#9bb0af]">Leasyback · Reparaturanfrage</p>
+                <p class="text-[12px] font-bold tracking-wide text-[#9bb0af] uppercase">Leasyback · Reparaturanfrage</p>
                 <h1 class="mt-1 text-[22px] font-extrabold tracking-[-0.4px] text-[#10393b]">Angebot abgeben</h1>
                 <p class="mt-2 text-[13px] text-[#6f8585]">
                     Bitte geben Sie Ihre Nettopreise je Position an. Der Link ist gültig bis
@@ -148,17 +149,17 @@ function submit() {
                     <h2 class="mb-3 text-[15px] font-extrabold text-[#10393b]">Ihre Kontaktdaten</h2>
                     <div class="grid grid-cols-2 gap-3 max-[560px]:grid-cols-1">
                         <div class="flex flex-col gap-1">
-                            <label class="text-[12px] font-bold text-[#10393b]">Firma *</label>
+                            <label class="text-[12px] font-bold text-[#10393b]">Firma<RequiredMark /></label>
                             <Input v-model="form.company_name" />
                             <InputError :message="form.errors.company_name" />
                         </div>
                         <div class="flex flex-col gap-1">
-                            <label class="text-[12px] font-bold text-[#10393b]">Ansprechpartner *</label>
+                            <label class="text-[12px] font-bold text-[#10393b]">Ansprechpartner<RequiredMark /></label>
                             <Input v-model="form.contact_person" />
                             <InputError :message="form.errors.contact_person" />
                         </div>
                         <div class="flex flex-col gap-1">
-                            <label class="text-[12px] font-bold text-[#10393b]">E-Mail *</label>
+                            <label class="text-[12px] font-bold text-[#10393b]">E-Mail<RequiredMark /></label>
                             <Input v-model="form.contact_email" type="email" />
                             <InputError :message="form.errors.contact_email" />
                         </div>
@@ -189,11 +190,7 @@ function submit() {
                     </p>
 
                     <div v-else class="flex flex-col gap-3">
-                        <div
-                            v-for="(position, index) in quotation.positions"
-                            :key="position.id"
-                            class="rounded-[13px] border border-[#e9efee] p-3"
-                        >
+                        <div v-for="(position, index) in quotation.positions" :key="position.id" class="rounded-[13px] border border-[#e9efee] p-3">
                             <div class="mb-2 flex items-start justify-between gap-3">
                                 <div class="min-w-0">
                                     <p class="text-[13px] font-bold text-[#10393b]">{{ index + 1 }}. {{ position.component }}</p>

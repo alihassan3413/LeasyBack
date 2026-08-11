@@ -2,6 +2,7 @@
 import AddressAutocompleteField from '@/components/form/AddressAutocompleteField.vue';
 import AddressMapPicker from '@/components/form/AddressMapPicker.vue';
 import PhoneNumberFieldset from '@/components/form/PhoneNumberFieldset.vue';
+import RequiredMark from '@/components/form/RequiredMark.vue';
 import SelectField, { type SelectFieldOption } from '@/components/form/SelectField.vue';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -66,9 +67,7 @@ const addressLine2 = computed(() => [props.profile?.address?.zip_code, props.pro
 const hasAddress = computed(() => Boolean(props.profile?.address?.street && props.profile?.address?.city));
 
 const phoneLines = computed(() =>
-    (props.profile?.phones ?? [])
-        .map((phone) => [phone.international_prefix, phone.phone_number].filter(Boolean).join(' ').trim())
-        .filter(Boolean),
+    (props.profile?.phones ?? []).map((phone) => [phone.international_prefix, phone.phone_number].filter(Boolean).join(' ').trim()).filter(Boolean),
 );
 
 // Street + city are the minimum for an unambiguous geocode: a lone street name
@@ -176,10 +175,7 @@ const dtClass = 'text-[10px] sm:text-[10.5px] font-bold uppercase tracking-[0.16
         </div>
 
         <div v-if="!isEditMode" class="px-4 py-6 sm:px-5 sm:py-8">
-            <div
-                v-if="isCreateMode"
-                class="mb-6 flex items-start gap-3 rounded-2xl border border-[#EF8450]/25 bg-[#EF8450]/[0.07] px-4 py-3"
-            >
+            <div v-if="isCreateMode" class="mb-6 flex items-start gap-3 rounded-2xl border border-[#EF8450]/25 bg-[#EF8450]/[0.07] px-4 py-3">
                 <IconMdiAccountCircleOutline class="mt-0.5 size-5 shrink-0 text-[#EF8450]" />
                 <div>
                     <p class="text-[13px] font-bold text-[#10393B]">Profil noch nicht vollständig</p>
@@ -247,7 +243,7 @@ const dtClass = 'text-[10px] sm:text-[10.5px] font-bold uppercase tracking-[0.16
             <div class="space-y-6 px-4 py-6 sm:px-8 sm:py-7">
                 <div class="flex min-w-0 flex-1 flex-wrap gap-x-5 gap-y-4 sm:gap-x-[30px]">
                     <div class="w-full shrink-0 sm:w-[128px]">
-                        <Label for="account_salutation" :class="labelClass">Anrede</Label>
+                        <Label for="account_salutation" :class="labelClass">Anrede<RequiredMark /></Label>
                         <SelectField
                             id="account_salutation"
                             v-model="form.contact.salutation"
@@ -259,12 +255,12 @@ const dtClass = 'text-[10px] sm:text-[10.5px] font-bold uppercase tracking-[0.16
                         <p v-if="form.errors['contact.salutation']" class="text-brand-orange mt-1 text-xs">{{ form.errors['contact.salutation'] }}</p>
                     </div>
                     <div class="min-w-[140px] flex-1">
-                        <Label for="account_first_name" :class="labelClass">Vorname</Label>
+                        <Label for="account_first_name" :class="labelClass">Vorname<RequiredMark /></Label>
                         <Input id="account_first_name" v-model="form.contact.first_name" placeholder="Vorname" class="mt-0.5 text-sm text-black" />
                         <p v-if="form.errors['contact.first_name']" class="text-brand-orange mt-1 text-xs">{{ form.errors['contact.first_name'] }}</p>
                     </div>
                     <div class="min-w-[140px] flex-1">
-                        <Label for="account_last_name" :class="labelClass">Nachname</Label>
+                        <Label for="account_last_name" :class="labelClass">Nachname<RequiredMark /></Label>
                         <Input id="account_last_name" v-model="form.contact.last_name" placeholder="Nachname" class="mt-0.5 text-sm text-black" />
                         <p v-if="form.errors['contact.last_name']" class="text-brand-orange mt-1 text-xs">{{ form.errors['contact.last_name'] }}</p>
                     </div>
@@ -281,7 +277,7 @@ const dtClass = 'text-[10px] sm:text-[10.5px] font-bold uppercase tracking-[0.16
                 <div class="flex flex-col gap-6 lg:flex-row">
                     <div class="grid min-w-0 flex-1 grid-cols-1 gap-x-5 gap-y-5 sm:grid-cols-[2fr_1fr] sm:gap-x-[30px]">
                         <div>
-                            <Label for="account_street" :class="labelClass">Straße</Label>
+                            <Label for="account_street" :class="labelClass">Straße<RequiredMark /></Label>
                             <AddressAutocompleteField
                                 id="account_street"
                                 v-model="form.address.street"
@@ -292,33 +288,33 @@ const dtClass = 'text-[10px] sm:text-[10.5px] font-bold uppercase tracking-[0.16
                             />
                             <p v-if="form.errors['address.street']" class="text-brand-orange mt-1 text-xs">{{ form.errors['address.street'] }}</p>
                         </div>
-                    <div>
-                        <Label for="account_number" :class="labelClass">Nr.</Label>
-                        <Input id="account_number" v-model="form.address.number" placeholder="Nr." class="mt-0.5 text-sm text-black" />
-                        <p v-if="form.errors['address.number']" class="text-brand-orange mt-1 text-xs">{{ form.errors['address.number'] }}</p>
-                    </div>
-                    <div>
-                        <Label for="account_additional" :class="labelClass">Zusätzliche Anschrift</Label>
-                        <Input
-                            id="account_additional"
-                            v-model="form.address.additional_address"
-                            placeholder="Adresszusatz"
-                            class="mt-0.5 text-sm text-black"
-                        />
-                        <p v-if="form.errors['address.additional_address']" class="text-brand-orange mt-1 text-xs">
-                            {{ form.errors['address.additional_address'] }}
-                        </p>
-                    </div>
-                    <div>
-                        <Label for="account_zip" :class="labelClass">PLZ</Label>
-                        <Input id="account_zip" v-model="form.address.zip_code" placeholder="PLZ" class="mt-0.5 text-sm text-black" />
-                        <p v-if="form.errors['address.zip_code']" class="text-brand-orange mt-1 text-xs">{{ form.errors['address.zip_code'] }}</p>
-                    </div>
-                    <div>
-                        <Label for="account_city" :class="labelClass">Ort</Label>
-                        <Input id="account_city" v-model="form.address.city" placeholder="Ort" class="mt-0.5 text-sm text-black" />
-                        <p v-if="form.errors['address.city']" class="text-brand-orange mt-1 text-xs">{{ form.errors['address.city'] }}</p>
-                    </div>
+                        <div>
+                            <Label for="account_number" :class="labelClass">Nr.<RequiredMark /></Label>
+                            <Input id="account_number" v-model="form.address.number" placeholder="Nr." class="mt-0.5 text-sm text-black" />
+                            <p v-if="form.errors['address.number']" class="text-brand-orange mt-1 text-xs">{{ form.errors['address.number'] }}</p>
+                        </div>
+                        <div>
+                            <Label for="account_additional" :class="labelClass">Zusätzliche Anschrift</Label>
+                            <Input
+                                id="account_additional"
+                                v-model="form.address.additional_address"
+                                placeholder="Adresszusatz"
+                                class="mt-0.5 text-sm text-black"
+                            />
+                            <p v-if="form.errors['address.additional_address']" class="text-brand-orange mt-1 text-xs">
+                                {{ form.errors['address.additional_address'] }}
+                            </p>
+                        </div>
+                        <div>
+                            <Label for="account_zip" :class="labelClass">PLZ<RequiredMark /></Label>
+                            <Input id="account_zip" v-model="form.address.zip_code" placeholder="PLZ" class="mt-0.5 text-sm text-black" />
+                            <p v-if="form.errors['address.zip_code']" class="text-brand-orange mt-1 text-xs">{{ form.errors['address.zip_code'] }}</p>
+                        </div>
+                        <div>
+                            <Label for="account_city" :class="labelClass">Ort<RequiredMark /></Label>
+                            <Input id="account_city" v-model="form.address.city" placeholder="Ort" class="mt-0.5 text-sm text-black" />
+                            <p v-if="form.errors['address.city']" class="text-brand-orange mt-1 text-xs">{{ form.errors['address.city'] }}</p>
+                        </div>
                         <div class="flex flex-col">
                             <span class="mb-1.5 text-sm font-semibold text-[#10393B]">Land</span>
                             <span class="py-2 text-[14px] font-semibold text-[#10393B] sm:text-[15px]">
@@ -348,7 +344,9 @@ const dtClass = 'text-[10px] sm:text-[10.5px] font-bold uppercase tracking-[0.16
                 </div>
             </div>
 
-            <div class="flex flex-col-reverse gap-3 border-t border-[#EDF2F2] bg-[#F8FAFB] px-4 py-4 sm:flex-row sm:items-center sm:justify-end sm:px-8">
+            <div
+                class="flex flex-col-reverse gap-3 border-t border-[#EDF2F2] bg-[#F8FAFB] px-4 py-4 sm:flex-row sm:items-center sm:justify-end sm:px-8"
+            >
                 <p v-if="form.errors.address" class="text-sm text-red-500 sm:mr-auto">{{ form.errors.address }}</p>
                 <button
                     type="button"

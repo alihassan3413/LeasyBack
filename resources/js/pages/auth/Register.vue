@@ -30,7 +30,6 @@ const submit = () => {
 
 // Design match note: consistent with Login/ForgotPassword/etc. — see Login.vue.
 const fieldClass = 'h-auto rounded-full border-brand-green-gray bg-white px-4 py-2.5 text-sm';
-
 </script>
 
 <template>
@@ -47,7 +46,13 @@ const fieldClass = 'h-auto rounded-full border-brand-green-gray bg-white px-4 py
             <div class="flex-1" />
 
             <form novalidate class="space-y-5" @submit.prevent="submit">
-                <FormField id="user_type" v-slot="{ id, describedBy, invalid }" label="Jetzt registrieren als" :error="form.errors.user_type">
+                <FormField
+                    id="user_type"
+                    v-slot="{ id, describedBy, invalid }"
+                    label="Jetzt registrieren als"
+                    required
+                    :error="form.errors.user_type"
+                >
                     <SelectField
                         :id="id"
                         :model-value="form.user_type"
@@ -59,7 +64,7 @@ const fieldClass = 'h-auto rounded-full border-brand-green-gray bg-white px-4 py
                     />
                 </FormField>
 
-                <FormField id="email" v-slot="{ id, describedBy, invalid }" label="E-Mail-Adresse" :error="form.errors.email">
+                <FormField id="email" v-slot="{ id, describedBy, invalid }" label="E-Mail-Adresse" required :error="form.errors.email">
                     <Input
                         :id="id"
                         v-model="form.email"
@@ -74,7 +79,7 @@ const fieldClass = 'h-auto rounded-full border-brand-green-gray bg-white px-4 py
                 </FormField>
 
                 <div>
-                    <FormField id="password" v-slot="{ id, describedBy, invalid }" label="Passwort" :error="form.errors.password">
+                    <FormField id="password" v-slot="{ id, describedBy, invalid }" label="Passwort" required :error="form.errors.password">
                         <PasswordInput
                             :id="id"
                             v-model="form.password"

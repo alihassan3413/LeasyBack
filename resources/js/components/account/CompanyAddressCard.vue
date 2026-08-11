@@ -7,6 +7,7 @@
 import AddressAutocompleteField from '@/components/form/AddressAutocompleteField.vue';
 import AddressMapPicker from '@/components/form/AddressMapPicker.vue';
 import PhoneNumberFieldset from '@/components/form/PhoneNumberFieldset.vue';
+import RequiredMark from '@/components/form/RequiredMark.vue';
 import SelectField, { type SelectFieldOption } from '@/components/form/SelectField.vue';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -180,7 +181,7 @@ const dtClass = 'text-[10px] sm:text-[10.5px] font-bold uppercase tracking-[0.16
                 <div class="flex flex-col gap-6 lg:flex-row">
                     <div class="grid min-w-0 flex-1 grid-cols-1 gap-x-5 gap-y-5 sm:grid-cols-[2fr_1fr] sm:gap-x-[30px]">
                         <div>
-                            <Label for="company_street" :class="labelClass">Straße</Label>
+                            <Label for="company_street" :class="labelClass">Straße<RequiredMark /></Label>
                             <AddressAutocompleteField
                                 id="company_street"
                                 v-model="form.address.street"
@@ -192,7 +193,7 @@ const dtClass = 'text-[10px] sm:text-[10.5px] font-bold uppercase tracking-[0.16
                             <p v-if="form.errors['address.street']" class="text-brand-orange mt-1 text-xs">{{ form.errors['address.street'] }}</p>
                         </div>
                         <div>
-                            <Label for="company_number" :class="labelClass">Nr.</Label>
+                            <Label for="company_number" :class="labelClass">Nr.<RequiredMark /></Label>
                             <Input id="company_number" v-model="form.address.number" maxlength="50" class="mt-0.5 text-sm text-black" />
                             <p v-if="form.errors['address.number']" class="text-brand-orange mt-1 text-xs">{{ form.errors['address.number'] }}</p>
                         </div>
@@ -209,7 +210,7 @@ const dtClass = 'text-[10px] sm:text-[10.5px] font-bold uppercase tracking-[0.16
                             </p>
                         </div>
                         <div>
-                            <Label for="company_zip" :class="labelClass">PLZ</Label>
+                            <Label for="company_zip" :class="labelClass">PLZ<RequiredMark /></Label>
                             <Input
                                 id="company_zip"
                                 :model-value="form.address.zip_code"
@@ -222,12 +223,12 @@ const dtClass = 'text-[10px] sm:text-[10.5px] font-bold uppercase tracking-[0.16
                             <p v-if="form.errors['address.zip_code']" class="text-brand-orange mt-1 text-xs">{{ form.errors['address.zip_code'] }}</p>
                         </div>
                         <div>
-                            <Label for="company_city" :class="labelClass">Ort</Label>
+                            <Label for="company_city" :class="labelClass">Ort<RequiredMark /></Label>
                             <Input id="company_city" v-model="form.address.city" maxlength="100" class="mt-0.5 text-sm text-black" />
                             <p v-if="form.errors['address.city']" class="text-brand-orange mt-1 text-xs">{{ form.errors['address.city'] }}</p>
                         </div>
                         <div>
-                            <Label for="company_country" :class="labelClass">Land</Label>
+                            <Label for="company_country" :class="labelClass">Land<RequiredMark /></Label>
                             <SelectField
                                 id="company_country"
                                 v-model="form.address.country"

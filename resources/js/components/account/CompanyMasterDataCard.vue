@@ -5,6 +5,7 @@
  * during company registration.
  */
 import LogoUploadField from '@/components/form/LogoUploadField.vue';
+import RequiredMark from '@/components/form/RequiredMark.vue';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useCompanyCard } from '@/composables/useCompanyCard';
@@ -140,7 +141,7 @@ const serviceFeeEffectiveFrom = computed(() => {
             <div class="space-y-6 px-4 py-6 sm:px-8 sm:py-7">
                 <div class="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2 sm:gap-x-[30px]">
                     <div>
-                        <Label for="company_name" :class="labelClass">Firmenname (lt. HGB/Gewerbeeintrag)</Label>
+                        <Label for="company_name" :class="labelClass">Firmenname (lt. HGB/Gewerbeeintrag)<RequiredMark /></Label>
                         <Input id="company_name" v-model="form.company_name" maxlength="255" class="mt-0.5 text-sm text-black" />
                         <p v-if="form.errors.company_name" class="text-brand-orange mt-1 text-xs">{{ form.errors.company_name }}</p>
                     </div>

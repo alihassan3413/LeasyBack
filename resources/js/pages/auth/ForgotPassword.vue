@@ -33,7 +33,7 @@ const fieldClass = 'h-auto rounded-full border-brand-green-gray bg-white px-4 py
             <AuthStatusMessage v-if="status">{{ status }}</AuthStatusMessage>
 
             <form class="space-y-2" @submit.prevent="submit">
-                <FormField id="email" v-slot="{ id, describedBy, invalid }" label="E-Mail-Adresse" :error="form.errors.email">
+                <FormField id="email" v-slot="{ id, describedBy, invalid }" label="E-Mail-Adresse" required :error="form.errors.email">
                     <Input
                         :id="id"
                         v-model="form.email"

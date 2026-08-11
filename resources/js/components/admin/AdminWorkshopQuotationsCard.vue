@@ -9,6 +9,7 @@
  * The generated link is shown once, right after creation: only its hash is
  * stored, so it cannot be displayed again later.
  */
+import RequiredMark from '@/components/form/RequiredMark.vue';
 import InputError from '@/components/InputError.vue';
 import { Input } from '@/components/ui/input';
 import type { AdminWorkshopQuotation } from '@/types/admin';
@@ -126,7 +127,7 @@ async function copyLink(link: string) {
 
         <form class="mb-4 flex flex-col gap-2 rounded-[13px] border border-[#e9efee] p-3" @submit.prevent="submit">
             <div class="flex flex-col gap-1">
-                <label class="text-[12px] font-bold text-[#10393b]">Werkstatt</label>
+                <label class="text-[12px] font-bold text-[#10393b]">Werkstatt<RequiredMark /></label>
                 <Input v-model="form.workshop_label" placeholder="Name der Werkstatt" />
                 <InputError :message="form.errors.workshop_label" />
             </div>
@@ -248,7 +249,9 @@ async function copyLink(link: string) {
                                     </td>
                                     <td
                                         class="py-1.5 text-right text-[11.5px] font-bold"
-                                        :class="row.difference_net && Number.parseFloat(row.difference_net) >= 0 ? 'text-[#00856a]' : 'text-[#c0392b]'"
+                                        :class="
+                                            row.difference_net && Number.parseFloat(row.difference_net) >= 0 ? 'text-[#00856a]' : 'text-[#c0392b]'
+                                        "
                                     >
                                         {{ formatEuro(row.difference_net) }}
                                     </td>
