@@ -51,9 +51,15 @@ class Vehicle extends Model
         'collection_address_profile_id',
     ];
 
+    /**
+     * Both dates are serialised as plain `Y-m-d`, not as the default ISO-8601
+     * timestamp: they reach the customer's edit form as-is, and CalendarDateField
+     * reads a date, not a moment. The Partner API already normalised its own
+     * copies with `toDateString()` — this makes the Inertia payloads agree.
+     */
     protected $casts = [
-        'first_registration_date' => 'date',
-        'leasing_end_date' => 'date',
+        'first_registration_date' => 'date:Y-m-d',
+        'leasing_end_date' => 'date:Y-m-d',
         'mileage' => 'integer',
     ];
 

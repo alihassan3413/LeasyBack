@@ -306,6 +306,7 @@ declare module 'vue' {
     TabsTrigger: typeof import('./../components/ui/tabs/TabsTrigger.vue')['default']
     TestimonialsSection: typeof import('./../components/landing/TestimonialsSection.vue')['default']
     TextLink: typeof import('./../components/TextLink.vue')['default']
+    TimeSelectField: typeof import('./../components/form/TimeSelectField.vue')['default']
     ToastHost: typeof import('./../components/ui/toast/ToastHost.vue')['default']
     ToastItem: typeof import('./../components/ui/toast/ToastItem.vue')['default']
     Tooltip: typeof import('./../components/ui/tooltip/Tooltip.vue')['default']

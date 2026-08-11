@@ -4,6 +4,7 @@ import RequiredMark from '@/components/form/RequiredMark.vue';
 import SearchableSelectField, { type SearchableOption } from '@/components/form/SearchableSelectField.vue';
 import StationMap from '@/components/form/StationMap.vue';
 import StationSelectField from '@/components/form/StationSelectField.vue';
+import TimeSelectField from '@/components/form/TimeSelectField.vue';
 import InputError from '@/components/InputError.vue';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -232,7 +233,7 @@ function submit() {
 
                         <div class="flex flex-col gap-1">
                             <label class="text-sm font-semibold text-black">Uhrzeit<RequiredMark /></label>
-                            <Input v-model="form.time" type="time" />
+                            <TimeSelectField v-model="form.time" />
                         </div>
                     </div>
 

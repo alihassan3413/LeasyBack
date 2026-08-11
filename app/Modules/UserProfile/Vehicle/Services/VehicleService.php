@@ -738,8 +738,8 @@ class VehicleService
                 ] : []),
                 'vehicle_id' => $vehicle->vehicle_id,
                 'license_plate' => $vehicle->license_plate,
-                'first_registration_date' => $vehicle->first_registration_date,
-                'leasing_end_date' => $vehicle->leasing_end_date,
+                'first_registration_date' => self::asDateString($vehicle->first_registration_date),
+                'leasing_end_date' => self::asDateString($vehicle->leasing_end_date),
                 'leasinggeber' => $vehicle->leasinggeber ?? null,
                 'vin' => $vehicle->vin,
                 'make' => $vehicle->make,
@@ -753,6 +753,24 @@ class VehicleService
         }
 
         return $result;
+    }
+
+    /**
+     * A vehicle date as the plain `Y-m-d` the edit form's date field reads.
+     *
+     * These rows come straight off the query builder, so the value is whatever
+     * the column holds: rows written before the `date:Y-m-d` cast still carry
+     * "2026-03-13 00:00:00", which the field rendered as "13 00:00:00.03.2026".
+     */
+    public static function asDateString(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        return $value instanceof \DateTimeInterface
+            ? $value->format('Y-m-d')
+            : substr((string) $value, 0, 10);
     }
 
     /**

@@ -50,8 +50,11 @@ const describedByIds = computed(() => {
     return ids.length ? ids.join(' ') : undefined;
 });
 
+// A caller may hand over a full ISO timestamp rather than the `YYYY-MM-DD`
+// this field speaks; keeping only the date part here means the day grid, the
+// selection highlight and the displayed value all agree on one format.
 const selectedDate = computed({
-    get: () => props.modelValue,
+    get: () => props.modelValue.slice(0, 10),
     set: (value: string) => emit('update:modelValue', value),
 });
 

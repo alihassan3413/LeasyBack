@@ -10,6 +10,7 @@ use App\Modules\UserProfile\Order\Models\OrderStatusUpdate;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle;
 use App\Modules\UserProfile\Vehicle\Models\VehicleDocument;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Inertia\Testing\AssertableInertia;
 use Tests\TestCase;
 
@@ -230,5 +231,46 @@ class VehicleDashboardControllerTest extends TestCase
             ->get(route('dashboard', ['search' => 'BMW Passat']))
             ->assertOk()
             ->assertInertia(fn (AssertableInertia $page) => $page->has('vehicles', 0));
+    }
+
+    /**
+     * The edit form binds these straight into CalendarDateField, which reads
+     * `YYYY-MM-DD`. Serialised as the default ISO-8601 timestamp they rendered
+     * as "13T00:00:00.000000Z.03.2026".
+     */
+    public function test_dashboard_sends_vehicle_dates_without_a_time_component(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        Vehicle::factory()->create([
+            'b2c_user_id' => $owner->id,
+            'first_registration_date' => '2021-03-14',
+            'leasing_end_date' => '2026-03-13',
+        ]);
+
+        $this->actingAs($owner)
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('vehicles.0.first_registration_date', '2021-03-14')
+                ->where('vehicles.0.leasing_end_date', '2026-03-13')
+            );
+    }
+
+    /** Rows written before the `date:Y-m-d` cast still hold "2026-03-13 00:00:00". */
+    public function test_dashboard_normalises_a_stored_date_that_still_carries_a_time(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create(['b2c_user_id' => $owner->id]);
+
+        DB::table('vehicles')
+            ->where('vehicle_id', $vehicle->vehicle_id)
+            ->update(['leasing_end_date' => '2026-03-13 00:00:00']);
+
+        $this->actingAs($owner)
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('vehicles.0.leasing_end_date', '2026-03-13')
+            );
     }
 }

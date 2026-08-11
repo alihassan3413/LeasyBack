@@ -4,6 +4,7 @@ import CalendarDateField from '@/components/form/CalendarDateField.vue';
 import FormField from '@/components/form/FormField.vue';
 import StationMap from '@/components/form/StationMap.vue';
 import StationSelectField from '@/components/form/StationSelectField.vue';
+import TimeSelectField from '@/components/form/TimeSelectField.vue';
 import OnboardingCard from '@/components/onboarding/OnboardingCard.vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -105,7 +106,7 @@ const forwardButtonClass = 'bg-brand-green hover:bg-brand-green/90 rounded-[5px]
                     <CalendarDateField :id="id" v-model="form.date" :min-days-ahead="3" :invalid="invalid" :described-by="describedBy" />
                 </FormField>
                 <FormField id="time" v-slot="{ id }" label="Uhrzeit" required>
-                    <Input :id="id" v-model="form.time" type="time" />
+                    <TimeSelectField :id="id" v-model="form.time" />
                 </FormField>
             </div>
 

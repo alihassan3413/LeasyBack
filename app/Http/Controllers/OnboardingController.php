@@ -49,10 +49,12 @@ class OnboardingController extends Controller
 
         return Inertia::render('onboarding/B2cRegistration', [
             'profile' => $this->profileService->findForUser($user),
-            'vehicle' => $vehicle?->only([
-                'vehicle_id', 'license_plate', 'make', 'model', 'vin',
-                'leasing_end_date', 'leasinggeber',
-            ]),
+            'vehicle' => $vehicle === null ? null : [
+                ...$vehicle->only(['vehicle_id', 'license_plate', 'make', 'model', 'vin', 'leasinggeber']),
+                // `only()` hands back the Carbon instance, which serialises as a
+                // full ISO timestamp; the wizard's date field reads `Y-m-d`.
+                'leasing_end_date' => VehicleService::asDateString($vehicle->leasing_end_date),
+            ],
             'order' => $vehicle ? $this->currentOrder($vehicle)?->only(['auftragsnummer', 'order_status']) : null,
             'stations' => InspectionStation::where('is_active', true)
                 ->orderBy('provider')

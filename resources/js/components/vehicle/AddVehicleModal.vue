@@ -101,8 +101,12 @@ watch(
             city: props.vehicle?.collection_address?.city ?? '',
             country: props.vehicle?.collection_address?.country ?? '',
         };
-        leasingEndUnknown.value = false;
-        leasinggeberUnknown.value = false;
+        // An existing vehicle with no leasing end date is one the owner already
+        // declared unknown, so the checkbox comes back ticked instead of
+        // offering the empty field again. Nothing is written back until the
+        // user unticks it and enters a value.
+        leasingEndUnknown.value = isEditMode.value && form.leasing_end_date === '';
+        leasinggeberUnknown.value = isEditMode.value && form.leasinggeber === '';
     },
 );
 

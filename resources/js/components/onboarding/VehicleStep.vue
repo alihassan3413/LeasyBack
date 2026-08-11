@@ -70,8 +70,11 @@ watch(
         form.vin = vehicle?.vin ?? '';
         form.make = vehicle?.make ?? '';
         form.model = vehicle?.model ?? '';
-        leasingEndUnknown.value = false;
-        leasinggeberUnknown.value = false;
+        // A saved vehicle without these values is one the user already declared
+        // unknown; re-ticking the boxes keeps that answer across a wizard step
+        // rather than presenting an empty field as if nothing had been said.
+        leasingEndUnknown.value = !!vehicle && form.leasing_end_date === '';
+        leasinggeberUnknown.value = !!vehicle && form.leasinggeber === '';
     },
     { immediate: true, deep: true },
 );
