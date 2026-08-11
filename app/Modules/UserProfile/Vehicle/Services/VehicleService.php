@@ -436,6 +436,9 @@ class VehicleService
     /** Free-text search covers every column a customer would recognise a vehicle by. */
     private const VEHICLE_SEARCH_COLUMNS = ['license_plate', 'make', 'model', 'vin', 'leasinggeber'];
 
+    /** Each extra word adds an OR-group to the query; long phrases are capped rather than run. */
+    private const VEHICLE_SEARCH_MAX_WORDS = 6;
+
     /**
      * List vehicles with nested orders for dashboard.
      *
@@ -787,10 +790,14 @@ class VehicleService
             $query->where('v.created_by_user_id', (int) $createdBy);
         }
 
-        $search = trim((string) ($filters['search'] ?? ''));
+        // Each whitespace-separated word has to match one of the searchable
+        // columns, but not necessarily the same one — that is what makes
+        // "BMW X5" (make + model) or "K LB 1 BMW" (plate + make) find the row
+        // a single-column LIKE over the whole phrase never could.
+        $words = array_slice(preg_split('/\s+/', trim((string) ($filters['search'] ?? '')), -1, PREG_SPLIT_NO_EMPTY) ?: [], 0, self::VEHICLE_SEARCH_MAX_WORDS);
 
-        if ($search !== '') {
-            $term = '%'.addcslashes($search, '%_\\').'%';
+        foreach ($words as $word) {
+            $term = '%'.addcslashes($word, '%_\\').'%';
 
             $query->where(function (Builder $scoped) use ($term) {
                 foreach (self::VEHICLE_SEARCH_COLUMNS as $column) {

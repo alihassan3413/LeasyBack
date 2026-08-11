@@ -184,4 +184,51 @@ class VehicleDashboardControllerTest extends TestCase
 
         $this->assertSame('Original', $vehicle->fresh()->make);
     }
+
+    /**
+     * Typing make and model together used to return nothing, because every
+     * word was matched against one column at a time and no single column
+     * holds "BMW X5".
+     */
+    public function test_search_matches_words_spread_across_columns(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        Vehicle::factory()->create(['b2c_user_id' => $owner->id, 'license_plate' => 'K LB 1', 'make' => 'BMW', 'model' => 'X5']);
+        Vehicle::factory()->create(['b2c_user_id' => $owner->id, 'license_plate' => 'K LB 2', 'make' => 'BMW', 'model' => 'X3']);
+        Vehicle::factory()->create(['b2c_user_id' => $owner->id, 'license_plate' => 'K LB 3', 'make' => 'Audi', 'model' => 'X5']);
+
+        $this->actingAs($owner)
+            ->get(route('dashboard', ['search' => 'BMW X5']))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->has('vehicles', 1)
+                ->where('vehicles.0.license_plate', 'K LB 1')
+            );
+    }
+
+    public function test_search_still_matches_a_single_column_phrase(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        Vehicle::factory()->create(['b2c_user_id' => $owner->id, 'license_plate' => 'K LB 1', 'make' => 'BMW', 'model' => 'X5']);
+        Vehicle::factory()->create(['b2c_user_id' => $owner->id, 'license_plate' => 'M AB 9', 'make' => 'Audi', 'model' => 'A4']);
+
+        $this->actingAs($owner)
+            ->get(route('dashboard', ['search' => 'K LB 1']))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->has('vehicles', 1)
+                ->where('vehicles.0.license_plate', 'K LB 1')
+            );
+    }
+
+    public function test_search_returns_nothing_when_one_word_matches_no_column(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        Vehicle::factory()->create(['b2c_user_id' => $owner->id, 'make' => 'BMW', 'model' => 'X5']);
+
+        $this->actingAs($owner)
+            ->get(route('dashboard', ['search' => 'BMW Passat']))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page->has('vehicles', 0));
+    }
 }
