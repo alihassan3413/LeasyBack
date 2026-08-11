@@ -41,6 +41,28 @@ class CrossCompanyIsolationTest extends TestCase
         $this->assertNotContains('B-BB 2222', $plates);
     }
 
+    /**
+     * The B2C dashboard's multi-word search (make + model in one query) runs
+     * through the same VehicleService filter, so it must narrow the company
+     * fleet without ever reaching across companies.
+     */
+    public function test_multi_word_search_matches_across_columns_within_the_company_only(): void
+    {
+        $alpha = $this->makeCompany('Alpha GmbH');
+        $beta = $this->makeCompany('Beta GmbH');
+
+        $this->makeB2bVehicle($alpha, ['license_plate' => 'A-AA 1111', 'make' => 'BMW', 'model' => 'X5']);
+        $this->makeB2bVehicle($alpha, ['license_plate' => 'A-AA 2222', 'make' => 'BMW', 'model' => 'X3']);
+        $this->makeB2bVehicle($beta, ['license_plate' => 'B-BB 2222', 'make' => 'BMW', 'model' => 'X5']);
+
+        $response = $this->actingAs($this->makeOwner($alpha))->get(route('dashboard', ['search' => 'BMW X5']));
+
+        $response->assertOk();
+        $plates = collect($response->viewData('page')['props']['vehicles'])->pluck('license_plate');
+
+        $this->assertSame(['A-AA 1111'], $plates->all());
+    }
+
     public function test_vehicle_detail_of_another_company_is_not_reachable(): void
     {
         $alpha = $this->makeCompany('Alpha GmbH');
