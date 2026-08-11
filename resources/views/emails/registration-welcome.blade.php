@@ -63,7 +63,7 @@
                 Willkommen im Leasyback-Portal
               </h1>
 
-              <p style="margin:0 0 16px 0;">Hallo {{ $userName }},</p>
+              <p style="margin:0 0 16px 0;">{{ $userName ? 'Hallo '.$userName.',' : 'Guten Tag,' }}</p>
               <p style="margin:0 0 16px 0;">herzlich willkommen im Leasyback-Portal.</p>
               <p style="margin:0 0 16px 0;">Ihre Registrierung war erfolgreich.</p>
               <p style="margin:0 0 16px 0;">Ab sofort können Sie sich im Portal anmelden und alle relevanten Informationen zu Ihrem Leasingfahrzeug einsehen.</p>
