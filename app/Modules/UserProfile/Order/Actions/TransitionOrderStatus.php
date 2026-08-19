@@ -57,7 +57,27 @@ class TransitionOrderStatus
         'order_requested' => ['order_placed', 'discarded', 'cancelled'],
         'order_placed' => ['confirmed', 'cancelled'],
         'confirmed' => ['inspected', 'cancelled'],
-        'inspected' => ['workshop', 'cancelled'],
+
+        /*
+         * Two ways out of `inspected`, and they are not alternatives so much as
+         * a normal path and a shortcut.
+         *
+         * The normal one goes through `workshop_commissioned`: the customer has
+         * accepted a quotation-backed offer, and LeasyBack has now actually
+         * instructed the workshop that quoted it. Acceptance and commissioning
+         * are separate business events — the customer choosing an offer is not
+         * the same as anyone being told to start work — so they are separate
+         * statuses rather than one implying the other.
+         *
+         * `inspected → workshop` stays for the cases that never went through an
+         * offer at all: a price agreed off-system, a manually created offer with
+         * no workshop behind it, and every order written before commissioning
+         * existed. WorkshopCommissionService refuses to let it become a way of
+         * skipping the notification when there *is* a workshop to notify.
+         */
+        'inspected' => ['workshop_commissioned', 'workshop', 'cancelled'],
+        'workshop_commissioned' => ['workshop', 'cancelled'],
+
         'workshop' => ['reinspection', 'cancelled'],
 
         /*

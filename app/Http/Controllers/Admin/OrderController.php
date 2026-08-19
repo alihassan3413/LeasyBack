@@ -9,6 +9,8 @@ use App\Modules\UserProfile\Admin\Services\AdminQueryService;
 use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
 use App\Modules\UserProfile\Order\Services\OrderCollectionService;
 use App\Modules\UserProfile\Order\Services\OrderService;
+use App\Modules\UserProfile\Order\Services\WorkshopCommissionService;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -22,6 +24,7 @@ class OrderController extends Controller
         private readonly OrderService $orderService,
         private readonly TransitionOrderStatus $transitionOrderStatus,
         private readonly OrderCollectionService $orderCollectionService,
+        private readonly WorkshopCommissionService $workshopCommissionService,
     ) {}
 
     public function index(Request $request): Response
@@ -91,6 +94,17 @@ class OrderController extends Controller
             'status' => ['required', 'string', 'in:'.implode(',', $allowed ?: ['__none__'])],
         ]);
 
+        // Commissioning a workshop is not a status change with a side effect —
+        // it resolves the winning workshop, records who was instructed and
+        // sends them the repair order. Letting this generic endpoint set
+        // `workshop_commissioned` while a real winning workshop exists would
+        // produce an order that claims a workshop was instructed when none was.
+        if ($validated['status'] === 'workshop_commissioned' && $this->workshopCommissionService->resolve($order) !== null) {
+            $message = 'Bitte beauftragen Sie die gewählte Werkstatt über die Aktion „Gewählte Werkstatt beauftragen".';
+
+            return back()->withErrors(['status' => $message])->with('error', $message);
+        }
+
         $user = $request->user();
 
         try {
@@ -130,23 +144,80 @@ class OrderController extends Controller
     }
 
     /**
-     * Confirms or reschedules the workshop repair appointment. B2B only, same
-     * 404-on-vehicle-type rule as updateCollection(). Saving from
-     * `workshop_commissioned` also starts the repair phase — see
-     * OrderCollectionService::updateRepairAppointment().
+     * Confirms or reschedules the workshop repair appointment, in either
+     * channel. Saving from `workshop_commissioned` also starts the repair phase
+     * — see OrderCollectionService::updateRepairAppointment().
      */
     public function updateRepairAppointment(Request $request, string $orderId): RedirectResponse
     {
-        $order = LeasybackOrder::find($orderId);
-        abort_unless($order !== null, 404);
-
-        $vehicle = Vehicle::where('vehicle_id', $order->vehicle_id)->first();
-        abort_unless($vehicle !== null && $vehicle->vehicle_belongs === 'B2B', 404);
+        [$order, $vehicle] = $this->orderWithVehicle($orderId);
 
         $validated = $request->validate(OrderCollectionService::repairAppointmentRules());
 
         $this->orderCollectionService->updateRepairAppointment($order, $vehicle, $request->user(), $validated);
 
         return back()->with('success', 'Reparaturtermin wurde gespeichert.');
+    }
+
+    /**
+     * Instruct the workshop whose offer the customer accepted. The workshop is
+     * never named by the request — it is resolved from the accepted offer — so
+     * there is nothing here for a caller to point somewhere else.
+     */
+    public function commissionWorkshop(Request $request, string $orderId): RedirectResponse
+    {
+        [$order] = $this->orderWithVehicle($orderId);
+
+        try {
+            $result = $this->workshopCommissionService->commission($order, $request->user());
+        } catch (HttpResponseException $e) {
+            $message = $e->getResponse()->getData(true)['error'] ?? 'Die Werkstatt konnte nicht beauftragt werden.';
+
+            return back()->withErrors(['commission' => $message])->with('error', $message);
+        }
+
+        $workshop = $result['workshop']['company_name'] ?? $result['workshop']['label'] ?? 'Die Werkstatt';
+
+        if ($result['already_commissioned']) {
+            return back()->with('success', sprintf('%s war bereits beauftragt.', $workshop));
+        }
+
+        // A commissioning that could not be delivered is still a commissioning.
+        // It is reported as such rather than rolled back, and the card offers a
+        // resend.
+        return back()->with('success', $result['notified']
+            ? sprintf('%s wurde beauftragt und benachrichtigt.', $workshop)
+            : sprintf('%s wurde beauftragt, die E-Mail konnte jedoch nicht zugestellt werden.', $workshop));
+    }
+
+    public function resendWorkshopCommission(Request $request, string $orderId): RedirectResponse
+    {
+        [$order] = $this->orderWithVehicle($orderId);
+
+        try {
+            $sent = $this->workshopCommissionService->resendNotification($order, $request->user());
+        } catch (HttpResponseException $e) {
+            $message = $e->getResponse()->getData(true)['error'] ?? 'Die Benachrichtigung konnte nicht gesendet werden.';
+
+            return back()->withErrors(['commission' => $message])->with('error', $message);
+        }
+
+        return back()->with($sent ? 'success' : 'error', $sent
+            ? 'Die Werkstatt wurde erneut benachrichtigt.'
+            : 'Die E-Mail konnte nicht zugestellt werden.');
+    }
+
+    /**
+     * @return array{0: LeasybackOrder, 1: Vehicle}
+     */
+    private function orderWithVehicle(string $orderId): array
+    {
+        $order = LeasybackOrder::find($orderId);
+        abort_unless($order !== null, 404);
+
+        $vehicle = Vehicle::where('vehicle_id', $order->vehicle_id)->first();
+        abort_unless($vehicle !== null, 404);
+
+        return [$order, $vehicle];
     }
 }

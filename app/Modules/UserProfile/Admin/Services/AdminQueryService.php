@@ -4,12 +4,14 @@ namespace App\Modules\UserProfile\Admin\Services;
 
 use App\Enums\OrderStatus;
 use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
+use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Order\Services\AppraisalPositionService;
 use App\Modules\UserProfile\Order\Services\B2bBillingService;
 use App\Modules\UserProfile\Order\Services\B2bOrderNoteService;
 use App\Modules\UserProfile\Order\Services\OrderCollectionService;
 use App\Modules\UserProfile\Order\Services\OrderTaskResolver;
 use App\Modules\UserProfile\Order\Services\RepairOfferService;
+use App\Modules\UserProfile\Order\Services\WorkshopCommissionService;
 use App\Modules\UserProfile\Order\Services\WorkshopQuotationService;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
@@ -27,6 +29,7 @@ class AdminQueryService
         private readonly AppraisalPositionService $appraisalPositionService,
         private readonly WorkshopQuotationService $workshopQuotationService,
         private readonly RepairOfferService $repairOfferService,
+        private readonly WorkshopCommissionService $workshopCommissionService,
         private readonly B2bBillingService $b2bBillingService,
         private readonly B2bOrderNoteService $b2bOrderNoteService,
     ) {}
@@ -479,9 +482,14 @@ class AdminQueryService
         ));
 
         $order['vehicle_belongs'] = $row->vehicle_belongs;
-        $order['collection'] = $row->vehicle_belongs !== 'B2B'
-            ? null
-            : ($this->orderCollectionService->forOrders([$row->auftragsnummer], true)[$row->auftragsnummer] ?? null);
+        // Both channels now, because the repair appointment lives on this row
+        // and applies to both. The collection half of it stays null for B2C —
+        // nothing writes a pickup address for a car LeasyBack never moves — and
+        // the collection *card* is still B2B-only on the page.
+        $order['collection'] = $this->orderCollectionService->forOrders([$row->auftragsnummer], true)[$row->auftragsnummer] ?? null;
+        $order['workshop_commission'] = $this->workshopCommissionService->state(
+            LeasybackOrder::whereKey($orderId)->firstOrFail(),
+        );
 
         // Positions are repair-domain data, not company data, so both channels
         // get them — and get them as a list rather than null, which is what

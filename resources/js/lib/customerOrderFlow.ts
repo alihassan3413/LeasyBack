@@ -4,6 +4,7 @@ export type CustomerOrderStage =
     | 'inspection_completed'
     | 'offers_published'
     | 'offer_approved'
+    | 'workshop_commissioned'
     | 'in_repair'
     | 'followup_completed'
     | 'vehicle_ready'
@@ -15,6 +16,7 @@ export const CUSTOMER_ORDER_STAGE_SEQUENCE: readonly CustomerOrderStage[] = [
     'inspection_completed',
     'offers_published',
     'offer_approved',
+    'workshop_commissioned',
     'in_repair',
     'followup_completed',
     'vehicle_ready',
@@ -275,6 +277,23 @@ function appointmentDetailsSubtitle(place: CustomerOrderBesichtigungsort | null 
     return [place.name, address].filter(Boolean).join('\n');
 }
 
+/**
+ * The agreed repair dates, once there are any. Shared by the commissioning and
+ * repair stages: the same two facts answer "when does it start" before the car
+ * goes in and "how long is it in there" afterwards.
+ */
+function repairScheduleSubtitle(collection: CustomerOrderCollection | null | undefined): string {
+    const start = collection?.confirmed_repair_start_date;
+    const days = collection?.estimated_processing_days;
+
+    return [
+        start ? `Reparaturbeginn: ${formatGermanDate(start)}` : '',
+        days != null ? `Voraussichtliche Dauer: ${days} Arbeitstage` : '',
+    ]
+        .filter(Boolean)
+        .join('\n');
+}
+
 function offerApprovedSubtitle(offer: CustomerOrderOffer | null): string {
     if (!offer) {
         return 'Ihr ausgewähltes Angebot wird nun vorbereitet.';
@@ -292,6 +311,7 @@ const STAGE_SHORT_LABEL: Record<CustomerOrderStage, string> = {
     inspection_completed: 'Erstbegutachtung abgeschlossen',
     offers_published: 'Reparaturangebote zur Freigabe',
     offer_approved: 'Angebotsfreigabe erteilt',
+    workshop_commissioned: 'Werkstatt beauftragt',
     in_repair: 'In Reparaturphase',
     followup_completed: 'Nachgutachten abgeschlossen',
     vehicle_ready: 'Fahrzeug abholbereit',
@@ -304,6 +324,7 @@ const STAGE_TOOLTIP: Record<CustomerOrderStage, string> = {
     inspection_completed: 'Die Erstbegutachtung wurde durchgeführt und das Gutachten steht zum Einsehen bereit.',
     offers_published: 'Ein oder mehrere Reparaturangebote liegen vor und können von Ihnen freigegeben werden.',
     offer_approved: 'Sie haben ein Reparaturangebot freigegeben. Die Reparatur wird nun vorbereitet.',
+    workshop_commissioned: 'Die Werkstatt aus Ihrem freigegebenen Angebot wurde beauftragt und stimmt den Reparaturtermin ab.',
     in_repair: 'Ihr Fahrzeug befindet sich aktuell in der Reparatur bei der Partnerwerkstatt.',
     followup_completed: 'Die Nachbegutachtung nach der Reparatur wurde abgeschlossen. Gutachten und Rechnung stehen bereit.',
     vehicle_ready: 'Ihr Fahrzeug ist fertig und steht bei der Werkstatt zur Abholung bereit.',
@@ -474,16 +495,25 @@ function b2bStageSubtitle(
 }
 
 const KNOWN_EARLY_STATUSES = new Set(['order_requested', 'order_placed']);
-const REPAIR_PHASE_STATUSES = new Set(['workshop', 'reinspection', 'reworkshop', 'workshop_commissioned', 'repair_completed']);
+const REPAIR_PHASE_STATUSES = new Set(['workshop', 'reinspection', 'reworkshop', 'repair_completed']);
+
+/**
+ * Instructed, but the car is not in the workshop's hands yet. Its own rung
+ * rather than part of the repair phase: between "you approved the repair" and
+ * "your car is being repaired" there is a real wait, and collapsing it left the
+ * customer looking at a stage that had not started.
+ */
+const COMMISSIONED_STATUS = 'workshop_commissioned';
 const CLOSING_STATUSES = new Set(['vehicle_returned', 'invoice_processed']);
 const TERMINAL_STATUSES = new Set(['cancelled']);
 
 function resolveProgressIndex(status: string, relevantOffer: CustomerOrderOffer | null, hasFollowupReport: boolean): number | null {
-    if (status === 'completed') return 8;
-    if (status === 'delivered') return 7;
-    if (CLOSING_STATUSES.has(status)) return 6;
-    if (hasFollowupReport) return 6;
-    if (REPAIR_PHASE_STATUSES.has(status)) return 5;
+    if (status === 'completed') return 9;
+    if (status === 'delivered') return 8;
+    if (CLOSING_STATUSES.has(status)) return 7;
+    if (hasFollowupReport) return 7;
+    if (REPAIR_PHASE_STATUSES.has(status)) return 6;
+    if (status === COMMISSIONED_STATUS) return 5;
     if (relevantOffer?.offer_status === 'selected') return 4;
     if (relevantOffer?.offer_status === 'published') return 3;
     if (status === 'inspected') return 2;
@@ -513,6 +543,8 @@ function getStageDate(
             return relevantOffer?.published_at ?? '';
         case 'offer_approved':
             return relevantOffer?.selected_at ?? '';
+        case 'workshop_commissioned':
+            return findHistoryDate(ctx.statusHistory, new Set([COMMISSIONED_STATUS]), status);
         case 'in_repair':
             return findHistoryDate(ctx.statusHistory, REPAIR_PHASE_STATUSES, status);
         case 'followup_completed':
@@ -590,8 +622,13 @@ function buildStep(
         case 'offer_approved':
             subtitle = offerApprovedSubtitle(relevantOffer);
             break;
+        case 'workshop_commissioned':
+            subtitle = repairScheduleSubtitle(ctx.collection) || 'Die Werkstatt stimmt nun einen Reparaturtermin ab';
+            break;
         case 'in_repair':
-            subtitle = 'Nach der Reparatur erfolgt automatisch eine Nachbegutachtung durch den Gutachter';
+            subtitle =
+                repairScheduleSubtitle(ctx.collection) ||
+                'Nach der Reparatur erfolgt automatisch eine Nachbegutachtung durch den Gutachter';
             break;
         case 'followup_completed':
             subtitle = 'Hier können Sie Ihr Gutachten einsehen\nRechnung einsehen und bezahlen';

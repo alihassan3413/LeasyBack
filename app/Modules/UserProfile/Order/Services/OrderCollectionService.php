@@ -2,6 +2,7 @@
 
 namespace App\Modules\UserProfile\Order\Services;
 
+use App\Models\OrderAuditLog;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Modules\PartnerApi\Services\PartnerWebhookEvents;
@@ -87,6 +88,13 @@ class OrderCollectionService
     }
 
     /**
+     * The date is a plain `Y-m-d` calendar day and is stored as a date cast, so
+     * no timezone conversion is involved — a repair starting on the 4th starts
+     * on the 4th wherever it is read. Deliberately no lead-time rule: a workshop
+     * that can take the car tomorrow, or one already holding it, is a normal
+     * case and not a validation error. Backdating is allowed for the same
+     * reason — appointments get recorded after the fact.
+     *
      * @return array<string, array<int, string>>
      */
     public static function repairAppointmentRules(): array
@@ -101,29 +109,37 @@ class OrderCollectionService
      * Records the confirmed workshop appointment and, when the order is still
      * waiting on it, moves it into repair.
      *
+     * Both channels. The appointment is a fact about a car and a workshop, not
+     * about who owns the car; only the collection half of this service, which
+     * moves a fleet vehicle to and from LeasyBack, is genuinely B2B.
+     *
      * The transition lives here rather than in the controller so the §11 rule
      * "when the appointment is saved the status changes to In repair" cannot
      * be bypassed by a different caller. It only fires from
      * `workshop_commissioned`, so rescheduling an order that is already in
      * repair updates the dates and leaves the status alone —
-     * TransitionOrderStatus would reject the edge anyway.
+     * TransitionOrderStatus would reject the edge anyway. That also makes a
+     * resubmitted appointment safe: the second save rewrites the same dates and
+     * transitions nothing.
      *
      * @param  array<string, mixed>  $validated
      */
     public function updateRepairAppointment(LeasybackOrder $order, Vehicle $vehicle, User $user, array $validated): void
     {
-        if ($vehicle->vehicle_belongs !== 'B2B') {
-            return;
-        }
+        $existing = OrderLogistics::where('auftragsnummer', $order->auftragsnummer)->first();
+        $date = $this->trimToNull($validated['confirmed_repair_start_date'] ?? null);
+        $days = $validated['estimated_processing_days'] ?? null;
 
         OrderLogistics::updateOrCreate(
             ['auftragsnummer' => $order->auftragsnummer],
             [
-                'confirmed_repair_start_date' => $this->trimToNull($validated['confirmed_repair_start_date'] ?? null),
-                'estimated_processing_days' => $validated['estimated_processing_days'] ?? null,
+                'confirmed_repair_start_date' => $date,
+                'estimated_processing_days' => $days,
                 'updated_by_user_id' => $user->id,
             ],
         );
+
+        $this->auditAppointment($order, $user, $existing, $date, $days);
 
         if ($order->order_status === 'workshop_commissioned') {
             $this->transitionOrderStatus->__invoke(
@@ -135,6 +151,43 @@ class OrderCollectionService
                 request()?->ip(),
             );
         }
+    }
+
+    /**
+     * The appointment is business data an admin agreed with a workshop, so a
+     * change to it is worth the same trail as any other lifecycle touchpoint.
+     * The status change it may cause is recorded separately by
+     * TransitionOrderStatus; this records the dates themselves. A save that
+     * changes nothing writes nothing.
+     */
+    private function auditAppointment(
+        LeasybackOrder $order,
+        User $user,
+        ?OrderLogistics $existing,
+        ?string $date,
+        mixed $days,
+    ): void {
+        $old = [
+            'confirmed_repair_start_date' => $existing?->confirmed_repair_start_date?->toDateString(),
+            'estimated_processing_days' => $existing?->estimated_processing_days,
+        ];
+        $new = [
+            'confirmed_repair_start_date' => $date,
+            'estimated_processing_days' => $days === null ? null : (int) $days,
+        ];
+
+        if ($old == $new) {
+            return;
+        }
+
+        OrderAuditLog::create([
+            'order_id' => $order->id,
+            'vehicle_id' => $order->vehicle_id,
+            'action' => 'REPAIR_APPOINTMENT_SET',
+            'old_values' => $existing === null ? null : $old,
+            'new_values' => $new,
+            'changed_by_user_id' => $user->id,
+        ]);
     }
 
     /**

@@ -45,7 +45,10 @@ enum OrderStatus: string
     {
         return [
             self::VehicleCollected->value,
-            self::WorkshopCommissioned->value,
+            // `workshop_commissioned` used to be listed here. It is not a B2B
+            // fact: it means "the workshop has been instructed", which happens
+            // in both channels the moment a customer's accepted offer is acted
+            // on. What differs is only who moves the car afterwards.
             self::RepairCompleted->value,
             self::VehicleReturned->value,
             self::InvoiceProcessed->value,

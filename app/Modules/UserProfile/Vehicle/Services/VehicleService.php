@@ -626,9 +626,10 @@ class VehicleService
 
         $hasB2bVehicle = $vehicles->contains(fn ($vehicle) => $vehicle->vehicle_belongs === 'B2B');
 
-        $orderCollections = $hasB2bVehicle
-            ? $this->orderCollectionService->forOrders($auftragsnummern)
-            : [];
+        // Both channels: §11's confirmed repair start is the customer-visible
+        // half of this row, and a private customer waiting on their car needs
+        // it as much as a fleet manager does.
+        $orderCollections = $this->orderCollectionService->forOrders($auftragsnummern);
 
         // Customer-visible notes only (§16). `forCustomerOrders()` applies the
         // visibility scope internally and takes no flag that could widen it,
@@ -720,11 +721,11 @@ class VehicleService
                     ->toArray();
 
                 $ordersArr[] = [
+                    'collection' => $orderCollections[$order->auftragsnummer] ?? null,
+                    // Order notes stay B2B — §16 gives company users the right
+                    // to see them, and there is no B2C equivalent.
                     ...($vehicle->vehicle_belongs === 'B2B'
-                        ? [
-                            'collection' => $orderCollections[$order->auftragsnummer] ?? null,
-                            'notes' => $orderNotes[$order->auftragsnummer] ?? [],
-                        ]
+                        ? ['notes' => $orderNotes[$order->auftragsnummer] ?? []]
                         : []),
                     'id' => $order->id,
                     'auftragsnummer' => $order->auftragsnummer,

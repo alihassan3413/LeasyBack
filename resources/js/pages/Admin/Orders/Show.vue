@@ -7,6 +7,7 @@ import AdminOrderActionsMenu from '@/components/admin/AdminOrderActionsMenu.vue'
 import AdminOrderNotesCard from '@/components/admin/AdminOrderNotesCard.vue';
 import AdminOrderTasksCard from '@/components/admin/AdminOrderTasksCard.vue';
 import AdminRepairAppointmentCard from '@/components/admin/AdminRepairAppointmentCard.vue';
+import AdminWorkshopCommissionCard from '@/components/admin/AdminWorkshopCommissionCard.vue';
 import AdminWorkshopQuotationsCard from '@/components/admin/AdminWorkshopQuotationsCard.vue';
 import OrderMessages from '@/components/shared/OrderMessages.vue';
 import OrderStatusTimeline from '@/components/shared/OrderStatusTimeline.vue';
@@ -72,6 +73,20 @@ const customerHeadline = computed(() => getCustomerOrderHeadline(customerFlowSte
  * commissioned, and stays visible afterwards so it can be rescheduled.
  */
 const REPAIR_APPOINTMENT_STATUSES = new Set(['workshop_commissioned', 'workshop', 'repair_completed']);
+
+/**
+ * Shown only where there is something to say: a workshop that can be
+ * commissioned, one already commissioned, or a blocker an admin has to act on
+ * themselves. The server decides whether the action is legal; this only decides
+ * whether the card earns its space.
+ */
+const showCommissionCard = computed(
+    () =>
+        props.order.workshop_commission.is_commissioned ||
+        props.order.workshop_commission.can_commission ||
+        props.order.workshop_commission.blocked_reason === 'manual_offer' ||
+        props.order.workshop_commission.blocked_reason === 'no_workshop_contact',
+);
 
 const showRepairAppointment = computed(
     () => REPAIR_APPOINTMENT_STATUSES.has(props.order.order_status) || !!props.order.collection?.confirmed_repair_start_date,
@@ -336,8 +351,16 @@ function formatDateTime(value: string | null): string {
                         :report-documents="order.report_documents"
                     />
 
+                    <!--
+                        Commissioning and the repair appointment are the two halves of the
+                        same step — who was instructed, and when they start — so they sit
+                        together. Both channels: the commission card works out for itself
+                        whether this order has a workshop to commission.
+                    -->
+                    <AdminWorkshopCommissionCard v-if="showCommissionCard" :order-id="order.id" :commission="order.workshop_commission" />
+
                     <AdminRepairAppointmentCard
-                        v-if="order.vehicle_belongs === 'B2B' && showRepairAppointment"
+                        v-if="showRepairAppointment"
                         id="order-section-reparatur"
                         :order-id="order.id"
                         :order-status="order.order_status"

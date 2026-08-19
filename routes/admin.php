@@ -53,6 +53,17 @@ Route::middleware(['auth', 'active', 'verified', 'admin'])->prefix('admin')->nam
         Route::patch('{orderId}/collection', [OrderController::class, 'updateCollection'])->whereUuid('orderId')->name('collection');
         Route::patch('{orderId}/repair-appointment', [OrderController::class, 'updateRepairAppointment'])
             ->whereUuid('orderId')->name('repair-appointment');
+
+        /*
+         * Commissioning is its own action rather than a status value on
+         * `orders.status`: it resolves the winning workshop from the accepted
+         * offer, records who was instructed and emails them the repair order.
+         * Both are POST — they are events, not edits to a resource.
+         */
+        Route::post('{orderId}/commission-workshop', [OrderController::class, 'commissionWorkshop'])
+            ->whereUuid('orderId')->name('commission-workshop');
+        Route::post('{orderId}/commission-workshop/resend', [OrderController::class, 'resendWorkshopCommission'])
+            ->whereUuid('orderId')->name('commission-workshop.resend');
         Route::patch('{orderId}/billing', [OrderBillingController::class, 'update'])
             ->whereUuid('orderId')->name('billing');
         Route::put('{orderId}/appraisal-positions', [AppraisalPositionController::class, 'update'])->whereUuid('orderId')->name('appraisal-positions');

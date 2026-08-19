@@ -103,9 +103,15 @@ class B2bChannelSeparationTest extends TestCase
 
         $order = $payload[0]['orders'][0];
 
-        foreach (['collection', 'notes'] as $b2bOnlyKey) {
-            $this->assertArrayNotHasKey($b2bOnlyKey, $order);
-        }
+        // `notes` stays B2B — §16 gives company users the right to see them and
+        // there is no B2C equivalent. `collection` was on this list too and has
+        // since become shared: it carries the confirmed repair start, which a
+        // private customer waiting on their car is entitled to. What must not
+        // leak from it is the internal note, asserted separately below.
+        $this->assertArrayNotHasKey('notes', $order);
+
+        $this->assertArrayHasKey('collection', $order);
+        $this->assertArrayNotHasKey('internal_note', $order['collection'] ?? []);
     }
 
     public function test_the_documented_b2c_transition_path_still_works_end_to_end(): void

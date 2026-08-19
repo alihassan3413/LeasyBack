@@ -206,6 +206,21 @@ export interface AdminOrderList {
     data: AdminOrderRow[];
 }
 
+/** AdminQueryService::orderDetail()'s `workshop_commission` block — derived, never stored. */
+export interface AdminWorkshopCommission {
+    is_commissioned: boolean;
+    commissioned_at: string | null;
+    workshop: AdminOfferWorkshop | null;
+    offer_id: string | null;
+    offer_total_gross: string | null;
+    offer_total_net: string | null;
+    /** When the workshop actually received the repair order; null means it did not. */
+    notified_at: string | null;
+    can_commission: boolean;
+    /** Why not, when `can_commission` is false — see WorkshopCommissionService's BLOCKED_* constants. */
+    blocked_reason: 'no_selected_offer' | 'manual_offer' | 'no_workshop_contact' | 'wrong_status' | null;
+}
+
 /** Who quoted, as of the moment the offer was built from their quotation. */
 export interface AdminOfferWorkshop {
     quotation_id: string | null;
@@ -307,6 +322,7 @@ export interface AdminOrderDetail extends AdminOrderRow {
     available_transitions: string[];
     vehicle_belongs: 'B2B' | 'B2C';
     collection: OrderCollectionData | null;
+    workshop_commission: AdminWorkshopCommission;
     tasks: AdminOrderTasks | null;
     /** Both channels — an order with no positions yet sends an empty list, not null. */
     appraisal_positions: AdminAppraisalPosition[];

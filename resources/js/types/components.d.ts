@@ -26,6 +26,7 @@ declare module 'vue' {
     AdminRepairAppointmentCard: typeof import('./../components/admin/AdminRepairAppointmentCard.vue')['default']
     AdminReportDocumentsList: typeof import('./../components/admin/AdminReportDocumentsList.vue')['default']
     AdminSidebar: typeof import('./../components/AdminSidebar.vue')['default']
+    AdminWorkshopCommissionCard: typeof import('./../components/admin/AdminWorkshopCommissionCard.vue')['default']
     AdminWorkshopQuotationsCard: typeof import('./../components/admin/AdminWorkshopQuotationsCard.vue')['default']
     AppContent: typeof import('./../components/AppContent.vue')['default']
     AppearanceTabs: typeof import('./../components/AppearanceTabs.vue')['default']
