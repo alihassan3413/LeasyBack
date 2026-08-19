@@ -10,6 +10,7 @@ use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
 use App\Modules\UserProfile\Order\Services\OrderCollectionService;
 use App\Modules\UserProfile\Order\Services\OrderService;
 use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
+use App\Support\PartnerLifecyclePermissions;
 use Carbon\Carbon;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
@@ -98,9 +99,18 @@ class OrderController extends Controller
     /**
      * GET /order/tuvsud/confirm — external callback. API-key auth is
      * enforced by the `tuvsud.webhook` route middleware, not inline here.
+     *
+     * The status it sets is fixed in code, so nothing a caller sends can
+     * redirect it — but it still asks the same ownership question status()
+     * asks, so "may this integration confirm an appointment" has exactly one
+     * answer rather than one per endpoint.
      */
     public function confirm(Request $request): JsonResponse
     {
+        if ($denied = $this->denyUnownedTransition($request, OrderStatus::Confirmed->value)) {
+            return $denied;
+        }
+
         $auftragsnummer = $request->query('auftragsnummer');
         if (! $auftragsnummer) {
             return response()->json(['error' => 'auftragsnummer is required'], 400);
@@ -166,7 +176,9 @@ class OrderController extends Controller
             return response()->json(['error' => 'auftragsnummer and status are required'], 400);
         }
 
-        if (OrderStatus::tryFrom($newStatus) === null) {
+        $target = PartnerLifecyclePermissions::resolveStatus($newStatus);
+
+        if ($target === null) {
             return response()->json(['error' => 'Invalid status value'], 422);
         }
 
@@ -175,10 +187,24 @@ class OrderController extends Controller
             return response()->json(['error' => 'Auftragsnummer not found'], 404);
         }
 
+        // Both questions, in this order: does the edge exist at all, and does
+        // this caller own it. Asking about the graph first keeps an illegal
+        // jump reporting as an illegal jump rather than as a permission
+        // problem, which is what it is for any actor.
+        if (! $this->isReachable($order, $target)) {
+            return response()->json([
+                'error' => "Cannot transition order from '{$order->order_status}' to '{$target}'.",
+            ], 422);
+        }
+
+        if ($denied = $this->denyUnownedTransition($request, $target)) {
+            return $denied;
+        }
+
         try {
             $this->transitionOrderStatus->__invoke(
                 $order,
-                $newStatus,
+                $target,
                 'api_key',
                 'tuvsud_api_key',
                 null,
@@ -191,6 +217,51 @@ class OrderController extends Controller
         }
 
         return response()->json(['status' => 'success', 'message' => 'Status updated']);
+    }
+
+    /**
+     * Is this edge on the canonical graph at all?
+     *
+     * Re-sending the status the order already holds counts: TransitionOrderStatus
+     * treats it as a no-op rather than an error precisely so a redelivered
+     * callback does not fail for doing nothing, and that has to survive this
+     * gate or a provider's retry would start 422-ing.
+     */
+    private function isReachable(LeasybackOrder $order, string $target): bool
+    {
+        if ($order->order_status === $target) {
+            return true;
+        }
+
+        return in_array(
+            $target,
+            TransitionOrderStatus::allowedNextStatuses(
+                $order->order_status,
+                TransitionOrderStatus::isB2bOrder($order),
+            ),
+            true,
+        );
+    }
+
+    /**
+     * Does the authenticated integration own this transition? The provider is
+     * read from the request attribute its middleware set, so a caller cannot
+     * name itself.
+     */
+    private function denyUnownedTransition(Request $request, string $target): ?JsonResponse
+    {
+        $provider = (string) $request->attributes->get(PartnerLifecyclePermissions::REQUEST_ATTRIBUTE, '');
+
+        if (PartnerLifecyclePermissions::owns($provider, $target)) {
+            return null;
+        }
+
+        // Deliberately says only that the transition is not this caller's to
+        // make. Which statuses exist, and where the order currently stands,
+        // are not an unauthorized caller's business.
+        return response()->json([
+            'error' => "This integration may not set order status '{$target}'.",
+        ], 403);
     }
 
     /**
