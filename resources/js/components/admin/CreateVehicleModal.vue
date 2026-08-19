@@ -87,6 +87,7 @@ function submit() {
         vin: data.vin || null,
         leasing_end_date: leasingEndUnknown.value ? null : data.leasing_end_date || null,
         leasinggeber: leasinggeberUnknown.value ? null : data.leasinggeber || null,
+        leasinggeber_unknown: leasinggeberUnknown.value,
         vehicle_belongs: props.type === 'b2b' ? 'B2B' : 'B2C',
         b2b_id: props.type === 'b2b' ? props.ownerId : null,
         b2c_user_id: props.type === 'b2c' ? props.ownerId : null,
@@ -121,6 +122,7 @@ function submit() {
                         maxlength="17"
                         placeholder="FIN eingeben"
                         class="uppercase"
+                        autocomplete="off"
                         :aria-invalid="invalid"
                         :aria-describedby="describedBy"
                     />
@@ -140,7 +142,14 @@ function submit() {
                 </FormField>
 
                 <FormField v-slot="{ id, describedBy, invalid }" label="Modell" :error="form.errors.model">
-                    <Input :id="id" v-model="form.model" placeholder="Modell eingeben" :aria-invalid="invalid" :aria-describedby="describedBy" />
+                    <Input
+                        :id="id"
+                        v-model="form.model"
+                        placeholder="Modell eingeben"
+                        autocomplete="off"
+                        :aria-invalid="invalid"
+                        :aria-describedby="describedBy"
+                    />
                 </FormField>
 
                 <div>
@@ -172,6 +181,7 @@ function submit() {
                             :id="id"
                             v-model="form.leasinggeber"
                             placeholder="Leasinggeber eingeben"
+                            autocomplete="off"
                             :disabled="leasinggeberUnknown"
                             :aria-invalid="invalid"
                             :aria-describedby="describedBy"

@@ -147,8 +147,10 @@ class VehicleDashboardControllerTest extends TestCase
             ->from(route('dashboard'))
             ->post(route('vehicles.store'), [
                 'license_plate' => 'K LB 2026',
+                'vin' => 'WVWZZZ1JZXW000001',
                 'make' => 'Volkswagen',
                 'model' => 'Golf',
+                'leasinggeber' => 'Alte Bank',
             ])
             ->assertRedirect(route('dashboard'));
 
@@ -157,6 +159,64 @@ class VehicleDashboardControllerTest extends TestCase
             'vehicle_belongs' => 'B2C',
             'b2c_user_id' => $owner->id,
         ]);
+    }
+
+    public function test_vehicle_is_not_created_without_the_mandatory_fields(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+
+        $this->actingAs($owner)
+            ->from(route('dashboard'))
+            ->post(route('vehicles.store'), ['license_plate' => 'K LB 2026'])
+            ->assertSessionHasErrors(['vin', 'make', 'leasinggeber']);
+
+        $this->assertDatabaseMissing('vehicles', ['license_plate' => 'K LB 2026']);
+    }
+
+    public function test_blank_leasinggeber_is_only_accepted_when_declared_unknown(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+
+        $payload = [
+            'license_plate' => 'K LB 2026',
+            'vin' => 'WVWZZZ1JZXW000001',
+            'make' => 'Volkswagen',
+            'leasinggeber' => '',
+        ];
+
+        $this->actingAs($owner)
+            ->from(route('dashboard'))
+            ->post(route('vehicles.store'), $payload)
+            ->assertSessionHasErrors('leasinggeber');
+
+        $this->assertDatabaseMissing('vehicles', ['license_plate' => 'K LB 2026']);
+
+        $this->actingAs($owner)
+            ->from(route('dashboard'))
+            ->post(route('vehicles.store'), [...$payload, 'leasinggeber_unknown' => true])
+            ->assertRedirect(route('dashboard'));
+
+        $this->assertDatabaseHas('vehicles', ['license_plate' => 'K LB 2026', 'leasinggeber' => null]);
+    }
+
+    public function test_mandatory_fields_cannot_be_blanked_by_an_update(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create([
+            'b2c_user_id' => $owner->id,
+            'vehicle_belongs' => 'B2C',
+            'vin' => 'WVWZZZ1JZXW000001',
+            'make' => 'Volkswagen',
+        ]);
+
+        $this->actingAs($owner)
+            ->from(route('dashboard'))
+            ->patch(route('vehicles.update', $vehicle->vehicle_id), ['vin' => null, 'make' => null])
+            ->assertSessionHasErrors(['vin', 'make']);
+
+        $fresh = $vehicle->fresh();
+        $this->assertSame('WVWZZZ1JZXW000001', $fresh->vin);
+        $this->assertSame('Volkswagen', $fresh->make);
     }
 
     public function test_owner_can_update_own_vehicle(): void
@@ -193,6 +253,7 @@ class VehicleDashboardControllerTest extends TestCase
             ->patch(route('vehicles.update', $vehicle->vehicle_id), [
                 'leasing_end_date' => null,
                 'leasinggeber' => null,
+                'leasinggeber_unknown' => true,
             ])
             ->assertRedirect(route('dashboard'));
 
@@ -225,7 +286,7 @@ class VehicleDashboardControllerTest extends TestCase
 
         $this->actingAs($owner)
             ->from(route('dashboard'))
-            ->patch(route('vehicles.update', $vehicle->vehicle_id), ['leasinggeber' => ''])
+            ->patch(route('vehicles.update', $vehicle->vehicle_id), ['leasinggeber' => '', 'leasinggeber_unknown' => true])
             ->assertRedirect(route('dashboard'));
 
         $this->assertNull($vehicle->fresh()->leasinggeber);

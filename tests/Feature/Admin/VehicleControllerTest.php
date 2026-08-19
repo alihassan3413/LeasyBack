@@ -617,6 +617,9 @@ class VehicleControllerTest extends TestCase
         $response = $this->actingAs($admin)
             ->post(route('admin.vehicles.store'), [
                 'license_plate' => 'K LB 2026',
+                'vin' => 'WVWZZZ1JZXW000001',
+                'make' => 'BMW',
+                'leasinggeber' => 'Alte Bank',
                 'vehicle_belongs' => 'B2C',
                 'b2c_user_id' => $customer->id,
             ]);

@@ -131,6 +131,27 @@ final class VehicleRules
         ];
     }
 
+    public static function mandatoryWebFields(bool $onlyWhenPresent = false): array
+    {
+        $sometimes = $onlyWhenPresent ? ['sometimes'] : [];
+
+        return [
+            'vin' => [...$sometimes, 'required', 'string', 'size:17'],
+            'make' => [...$sometimes, 'required', 'string'],
+            'leasinggeber_unknown' => ['sometimes', 'boolean'],
+            'leasinggeber' => [...$sometimes, 'required_unless:leasinggeber_unknown,true', 'nullable', 'string'],
+        ];
+    }
+
+    public static function mandatoryWebMessages(): array
+    {
+        return [
+            'vin.required' => 'Bitte geben Sie die FIN an.',
+            'make.required' => 'Bitte wählen Sie eine Marke aus.',
+            'leasinggeber.required_unless' => 'Bitte geben Sie den Leasinggeber an oder bestätigen Sie, dass er Ihnen nicht vorliegt.',
+        ];
+    }
+
     /**
      * German validation messages for the import.
      *

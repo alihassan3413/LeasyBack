@@ -101,6 +101,7 @@ function submit() {
         ...data,
         leasing_end_date: leasingEndUnknown.value ? null : data.leasing_end_date || null,
         leasinggeber: leasinggeberUnknown.value ? null : data.leasinggeber || null,
+        leasinggeber_unknown: leasinggeberUnknown.value,
         vin: data.vin || null,
         model: data.model || null,
     }));
@@ -135,6 +136,7 @@ function submit() {
                         :model-value="form.vin"
                         maxlength="17"
                         placeholder="FIN eingeben"
+                        autocomplete="off"
                         :class="[fieldClass, 'uppercase']"
                         :aria-invalid="invalid"
                         :aria-describedby="describedBy"
@@ -160,6 +162,7 @@ function submit() {
                         :id="id"
                         v-model="form.model"
                         placeholder="Modell eingeben"
+                        autocomplete="off"
                         :class="fieldClass"
                         :aria-invalid="invalid"
                         :aria-describedby="describedBy"
@@ -192,6 +195,7 @@ function submit() {
                             :id="id"
                             v-model="form.leasinggeber"
                             placeholder="Leasinggeber eingeben"
+                            autocomplete="off"
                             :disabled="leasinggeberUnknown"
                             :class="fieldClass"
                             :aria-invalid="invalid"

@@ -9,8 +9,8 @@ use App\Models\InspectionStation;
 use App\Models\Vehicle;
 use App\Modules\UserProfile\B2B\Services\B2bAnalyticsService;
 use App\Modules\UserProfile\B2B\Services\B2bContext;
-use App\Modules\UserProfile\Vehicle\Http\Requests\StoreVehicleRequest;
-use App\Modules\UserProfile\Vehicle\Http\Requests\UpdateVehicleRequest;
+use App\Modules\UserProfile\Vehicle\Http\Requests\StoreWebVehicleRequest;
+use App\Modules\UserProfile\Vehicle\Http\Requests\UpdateWebVehicleRequest;
 use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
 use App\Modules\UserProfile\Vehicle\Services\VehicleService;
 use Illuminate\Http\RedirectResponse;
@@ -153,7 +153,7 @@ class VehicleController extends Controller
         ]);
     }
 
-    public function store(StoreVehicleRequest $request): RedirectResponse
+    public function store(StoreWebVehicleRequest $request): RedirectResponse
     {
         return $this->withServiceErrorHandling(
             'vehicle',
@@ -161,7 +161,7 @@ class VehicleController extends Controller
         ) ?? to_route('dashboard')->with('success', 'Fahrzeug wurde angelegt.');
     }
 
-    public function update(UpdateVehicleRequest $request, string $vehicleId): RedirectResponse
+    public function update(UpdateWebVehicleRequest $request, string $vehicleId): RedirectResponse
     {
         $user = $request->user();
         $vehicle = Vehicle::find($vehicleId);

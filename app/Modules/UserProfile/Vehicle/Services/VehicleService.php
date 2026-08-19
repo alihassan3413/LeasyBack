@@ -117,7 +117,7 @@ class VehicleService
             $old = $vehicle->toArray();
 
             $fleet = $this->b2bFleetAttributes($validated, $vehicle->vehicle_belongs, $vehicle->b2b_id, $user);
-            $plain = Arr::except($validated, [...Vehicle::B2B_ONLY_ATTRIBUTES, 'collection_address']);
+            $plain = Arr::except($validated, [...Vehicle::B2B_ONLY_ATTRIBUTES, 'collection_address', 'leasinggeber_unknown']);
 
             $vehicle->update([...self::blanksAsNull($plain), ...$fleet]);
 

@@ -90,8 +90,10 @@ class OnboardingControllerTest extends TestCase
         $this->actingAs($user)
             ->post(route('onboarding.vehicle.store'), [
                 'license_plate' => 'M-AB 123',
+                'vin' => 'WVWZZZ1JZXW000001',
                 'make' => 'BMW',
                 'model' => '3er',
+                'leasinggeber' => 'Alte Bank',
             ])
             ->assertRedirect(route('onboarding.show'));
 
@@ -115,7 +117,12 @@ class OnboardingControllerTest extends TestCase
         $user = User::factory()->unverified()->create(['user_type' => UserType::Privatkunde]);
 
         $this->actingAs($user)
-            ->post(route('onboarding.vehicle.store'), ['license_plate' => 'M-AB 123'])
+            ->post(route('onboarding.vehicle.store'), [
+                'license_plate' => 'M-AB 123',
+                'vin' => 'WVWZZZ1JZXW000001',
+                'make' => 'BMW',
+                'leasinggeber' => 'Alte Bank',
+            ])
             ->assertRedirect(route('onboarding.show'));
 
         $this->assertDatabaseHas('vehicles', ['license_plate' => 'M-AB 123']);
@@ -180,6 +187,9 @@ class OnboardingControllerTest extends TestCase
 
         $vehicleResponse = $this->actingAs($user)->post(route('onboarding.vehicle.store'), [
             'license_plate' => 'M-AB 123',
+            'vin' => 'WVWZZZ1JZXW000001',
+            'make' => 'BMW',
+            'leasinggeber' => 'Alte Bank',
         ]);
         $vehicleResponse->assertRedirect(route('onboarding.show'));
 

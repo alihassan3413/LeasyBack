@@ -11,8 +11,8 @@ use App\Models\Vehicle;
 use App\Modules\UserProfile\Order\Services\OrderService;
 use App\Modules\UserProfile\Profile\Http\Requests\AddressContactRequest;
 use App\Modules\UserProfile\Profile\Services\ProfileService;
-use App\Modules\UserProfile\Vehicle\Http\Requests\StoreVehicleRequest;
-use App\Modules\UserProfile\Vehicle\Http\Requests\UpdateVehicleRequest;
+use App\Modules\UserProfile\Vehicle\Http\Requests\StoreWebVehicleRequest;
+use App\Modules\UserProfile\Vehicle\Http\Requests\UpdateWebVehicleRequest;
 use App\Modules\UserProfile\Vehicle\Services\VehicleService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -82,7 +82,7 @@ class OnboardingController extends Controller
         ) ?? to_route('onboarding.show')->with('success', 'Kundendaten wurden aktualisiert.');
     }
 
-    public function storeVehicle(StoreVehicleRequest $request): RedirectResponse
+    public function storeVehicle(StoreWebVehicleRequest $request): RedirectResponse
     {
         return $this->withServiceErrorHandling(
             'vehicle',
@@ -95,7 +95,7 @@ class OnboardingController extends Controller
      * license plate is deliberately not updatable here, matching
      * VehicleService::updateVehicle() and the dashboard's edit modal.
      */
-    public function updateVehicle(UpdateVehicleRequest $request): RedirectResponse
+    public function updateVehicle(UpdateWebVehicleRequest $request): RedirectResponse
     {
         $user = $request->user();
         $vehicle = $this->currentVehicle($user);
