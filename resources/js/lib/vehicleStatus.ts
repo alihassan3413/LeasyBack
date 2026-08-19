@@ -61,15 +61,10 @@ const ORDER_STATUS_LABELS: Record<string, string> = {
 };
 
 /**
- * Status choices offered by the dashboard filter. Two are not real order
- * statuses: `none` means "no order yet", and `open` means "started but not
- * yet finished or abandoned" — the complement of the closed statuses, which
- * no single value can express. Both are resolved server-side in
- * VehicleService::applyVehicleFilters().
+ * Status choices offered by the dashboard filter — the real order statuses,
+ * minus the cancelled one.
  */
 export const VEHICLE_STATUS_FILTER_OPTIONS: { value: string; label: string }[] = [
-    { value: 'none', label: 'Eingeplant' },
-    { value: 'open', label: 'Laufend' },
     ...Object.entries(ORDER_STATUS_DISPLAY)
         .filter(([value]) => value !== 'cancelled')
         .map(([value, display]) => ({ value, label: display.label })),
