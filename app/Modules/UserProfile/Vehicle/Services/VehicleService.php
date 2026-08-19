@@ -11,9 +11,9 @@ use App\Models\VehicleDocument;
 use App\Modules\PartnerApi\Services\PartnerWebhookEvents;
 use App\Modules\UserProfile\B2B\Services\B2bContext;
 use App\Modules\UserProfile\Order\Models\LogisticsAddressProfile;
-use App\Modules\UserProfile\Order\Services\B2bOfferService;
 use App\Modules\UserProfile\Order\Services\B2bOrderNoteService;
 use App\Modules\UserProfile\Order\Services\OrderCollectionService;
+use App\Modules\UserProfile\Order\Services\RepairOfferService;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\UploadedFile;
@@ -35,7 +35,7 @@ class VehicleService
     public function __construct(
         private readonly B2bContext $b2bContext,
         private readonly OrderCollectionService $orderCollectionService,
-        private readonly B2bOfferService $b2bOfferService,
+        private readonly RepairOfferService $repairOfferService,
         private readonly B2bOrderNoteService $b2bOrderNoteService,
         private readonly VehicleScopeService $vehicleScopeService,
         private readonly PartnerWebhookEvents $webhooks,
@@ -604,17 +604,17 @@ class VehicleService
 
         // Only published/selected offers — matches OfferController::customerList's
         // own filter, so the dashboard never shows a customer a draft/cancelled offer.
-        // `rejected` is included so a B2B customer keeps seeing the offer they
-        // turned down instead of it vanishing from the page. A B2C offer never
-        // reaches that status, so this list is unchanged for B2C.
+        // `rejected` is included so a customer keeps seeing the offer they
+        // turned down instead of it vanishing from the page. Reachable in both
+        // channels now that a B2C offer can be quotation-backed.
         $offersByOrder = DB::table('leasyback_offers')
             ->whereIn('order_id', $orderIds)
-            ->whereIn('offer_status', ['published', 'selected', B2bOfferService::STATUS_REJECTED])
+            ->whereIn('offer_status', ['published', 'selected', RepairOfferService::STATUS_REJECTED])
             ->orderBy('offer_sequence')
             ->get()
             ->groupBy('order_id');
 
-        $offerPresentations = $this->b2bOfferService->forOffers(
+        $offerPresentations = $this->repairOfferService->forOffers(
             $offersByOrder->flatten(1)->pluck('offer_id')->all(),
         );
 
@@ -700,6 +700,8 @@ class VehicleService
                         'final_total_net' => $offer->final_total_net,
                         // §9 forbids gross anywhere in the B2B quotation
                         // process, so a B2B payload simply has no gross keys.
+                        // OfferPricingPolicy owns that rule; this is the one
+                        // place the offer row's own columns are filtered by it.
                         ...($isB2bOffer ? [] : [
                             'repair_cost_gross' => $offer->repair_cost_gross,
                             'depreciation_value_gross' => $offer->depreciation_value_gross,
@@ -707,7 +709,9 @@ class VehicleService
                             'missing_parts_cost_gross' => $offer->missing_parts_cost_gross,
                             'final_total_gross' => $offer->final_total_gross,
                         ]),
-                        ...($isB2bOffer ? ['presentation' => $offerPresentations[$offer->offer_id] ?? null] : []),
+                        // Both channels: a quotation-backed offer carries its
+                        // frozen presentation, a manual one carries null.
+                        'presentation' => $offerPresentations[$offer->offer_id] ?? null,
                         'additional_notes' => $offer->additional_notes,
                         'published_at' => $offer->published_at,
                         'selected_at' => $offer->selected_at,

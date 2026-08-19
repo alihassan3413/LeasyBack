@@ -1,9 +1,18 @@
 <script setup lang="ts">
 /**
- * Admin "create a draft offer for this order" — mirrors
- * UploadReportDocumentModal.vue's form/dialog pattern. Publishing/cancelling
- * an existing offer is a row action on AdminOffersCard, not part of this
- * modal.
+ * Admin "create a draft offer for this order" by hand — the **fallback**.
+ *
+ * The real path is a workshop quotation turned into an offer from the
+ * Werkstattangebote card: that one is backed by a named workshop's per-position
+ * prices, carries an immutable snapshot and derives its gross server-side. An
+ * offer created here has none of that — it is four numbers somebody typed, with
+ * no provenance — so AdminOffersCard labels it "Manuell erfasst".
+ *
+ * It stays available for the cases the quotation flow cannot serve yet (no
+ * workshop reachable, a price agreed off-system) and is expected to go away
+ * once that flow is proven. Mirrors UploadReportDocumentModal.vue's form/dialog
+ * pattern. Publishing/cancelling an existing offer is a row action on
+ * AdminOffersCard, not part of this modal.
  *
  * Each position is entered once: typing a net fills the gross at the German
  * standard VAT rate and vice versa, so eight fields become four. Only the
@@ -22,6 +31,12 @@ import { AppModal, AppModalButton } from '@/components/ui/modal';
 import { useForm } from '@inertiajs/vue3';
 import { computed, watch } from 'vue';
 
+/**
+ * Mirrors config('offers.vat_rate'), which is the authority — this copy exists
+ * only so typing a net amount fills the gross beside it as you type. What gets
+ * stored is whatever ends up in the two fields; nothing here derives a price
+ * the server then trusts.
+ */
 const VAT_RATE = 0.19;
 
 interface OfferFormFields {
@@ -136,7 +151,7 @@ function submit() {
     <AppModal
         :open="open"
         title="Angebot erstellen"
-        description="Neues Entwurfs-Angebot für diesen Auftrag. Netto und brutto werden automatisch umgerechnet."
+        description="Manuelles Entwurfs-Angebot ohne Werkstattbezug. Netto und brutto werden automatisch umgerechnet."
         @update:open="(value) => emit('update:open', value)"
     >
         <form @submit.prevent="submit">

@@ -9,7 +9,7 @@ import VehiclePanelShell from '@/components/vehicle/VehiclePanelShell.vue';
 import { CUSTOMER_PAYMENT_FEATURE_ENABLED, formatGermanDateTime, getCustomerOrderFlowSteps, getCustomerOrderHeadline } from '@/lib/customerOrderFlow';
 import { toOrderTimelineEntries, type OrderTimelineEntry } from '@/lib/timeline';
 import { getOrderStatusLabel } from '@/lib/vehicleStatus';
-import type { B2bOfferPresentationData, OfferData } from '@/types/order';
+import type { B2bOfferPresentationData, B2bOfferPresentationLine, OfferData } from '@/types/order';
 import type { VehicleCollectionAddress, VehicleData } from '@/types/vehicle';
 import { router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
@@ -264,9 +264,12 @@ const offersData = computed<PanelOffer[]>(() =>
         offerId: offer.offer_id,
         name: `Angebot ${offer.offer_sequence}`,
         // B2B never renders gross (b2b.txt §9) — the payload does not even
-        // carry the gross keys — so the net repair total is what is shown.
+        // carry the gross keys — so the net repair total is what is shown. A
+        // private customer pays the gross, so that is what they are quoted.
         cost: Number(
-            (isB2bVehicle.value ? (offer.presentation?.repair_total_net ?? offer.final_total_net) : offer.final_total_gross) ?? 0,
+            (isB2bVehicle.value
+                ? (offer.presentation?.repair_total_net ?? offer.final_total_net)
+                : (offer.presentation?.repair_total_gross ?? offer.final_total_gross)) ?? 0,
         ),
         note: offer.additional_notes ?? '',
         accepted: offer.offer_status === 'selected',
@@ -276,18 +279,50 @@ const offersData = computed<PanelOffer[]>(() =>
 );
 
 /**
- * The published B2B offer awaiting the customer's decision — the one §10's
- * accept/reject pair applies to.
+ * The detailed repair panel belongs to a *quotation-backed* offer, in either
+ * channel — it is the presentation row that gives it something to render.
+ * A manually created fallback offer has none and falls through to the plain
+ * offer table below, which is what it always did.
  */
-const b2bPendingOffer = computed(() =>
-    isB2bVehicle.value ? (offersData.value.find((offer) => offer.status === 'published') ?? null) : null,
+const presentedOffers = computed(() => offersData.value.filter((offer) => offer.presentation !== null));
+
+/**
+ * Whether this panel is quoting gross follows the payload: the server sends
+ * gross totals only in a channel that shows them (OfferPricingPolicy), so the
+ * wording and the numbers can never disagree.
+ */
+const showsGross = computed(
+    () => (pendingPresentedOffer.value ?? decidedPresentedOffer.value)?.presentation?.repair_total_gross != null,
 );
 
-const b2bDecidedOffer = computed(() =>
-    isB2bVehicle.value
-        ? (offersData.value.find((offer) => offer.status === 'selected' || offer.status === 'rejected') ?? null)
-        : null,
+const presentedAmountsUnit = computed(() => (showsGross.value ? 'brutto' : 'netto'));
+
+const presentedAmountsLabel = computed(() =>
+    showsGross.value ? 'Alle Beträge brutto, inkl. MwSt.' : 'Alle Beträge netto.',
 );
+
+const presentedWorkshopName = computed(
+    () => (pendingPresentedOffer.value ?? decidedPresentedOffer.value)?.presentation?.workshop_name ?? null,
+);
+
+const pendingPresentedOffer = computed(() => presentedOffers.value.find((offer) => offer.status === 'published') ?? null);
+
+const decidedPresentedOffer = computed(
+    () => presentedOffers.value.find((offer) => offer.status === 'selected' || offer.status === 'rejected') ?? null,
+);
+
+/** Gross is shown exactly where the payload carries it — the server's decision, not the component's. */
+function presentedAmount(presentation: PanelOffer['presentation'], key: 'appraisal_total' | 'repair_total' | 'saving'): string {
+    const gross = presentation?.[`${key}_gross`];
+
+    return gross != null ? formatEuro(gross) : formatEuro(presentation?.[`${key}_net`] ?? null);
+}
+
+function presentedLineAmount(line: B2bOfferPresentationLine, key: 'appraisal_amount' | 'repair_amount' | 'saving'): string {
+    const gross = line[`${key}_gross`];
+
+    return gross != null ? formatEuro(gross) : formatEuro(line[`${key}_net`] ?? null);
+}
 
 const rejectOpen = ref(false);
 const rejectComment = ref('');
@@ -310,7 +345,7 @@ function submitReject(offerId: string) {
     );
 }
 
-function formatEuroNet(value: string | number | null | undefined): string {
+function formatEuro(value: string | number | null | undefined): string {
     const amount = typeof value === 'string' ? Number.parseFloat(value) : (value ?? 0);
 
     return Number.isFinite(amount) ? new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(amount as number) : '—';
@@ -615,34 +650,40 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                 </div>
             </div>
 
-            <div v-if="isB2bVehicle && (b2bPendingOffer?.presentation || b2bDecidedOffer?.presentation)" class="relative w-full">
+            <div v-if="pendingPresentedOffer || decidedPresentedOffer" class="relative w-full">
                 <div class="flex flex-col rounded-[16px] border bg-white" style="border-color: #ececec">
                     <div class="px-6 pt-6">
                         <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">Reparaturangebot</p>
                         <p class="mt-1 text-[13px]" style="color: #64748b">
-                            Alle Beträge netto. Gegenüberstellung von Erstgutachten und freigegebener Reparatur.
+                            {{ presentedAmountsLabel }} Gegenüberstellung von Erstgutachten und freigegebener Reparatur.
+                        </p>
+                        <p v-if="presentedWorkshopName" class="mt-1 text-[13px] font-bold" style="color: #2e3e3f">
+                            Ausführende Werkstatt: {{ presentedWorkshopName }}
                         </p>
                     </div>
 
-                    <template v-for="offer in [b2bPendingOffer ?? b2bDecidedOffer]" :key="offer?.offerId">
+                    <template v-for="offer in [pendingPresentedOffer ?? decidedPresentedOffer]" :key="offer?.offerId">
                         <div v-if="offer?.presentation" class="flex flex-col px-6 pt-4 pb-6">
                             <div class="grid grid-cols-3 gap-3 max-[560px]:grid-cols-1">
                                 <div class="rounded-[13px] bg-[#f6f9f8] px-4 py-3">
-                                    <p class="text-[12px]" style="color: #64748b">Gutachten netto</p>
+                                    <p class="text-[12px]" style="color: #64748b">Gutachten {{ presentedAmountsUnit }}</p>
                                     <p class="mt-1 text-[16px] font-bold" style="color: #000">
-                                        {{ formatEuroNet(offer.presentation.appraisal_total_net) }}
+                                        {{ presentedAmount(offer.presentation, 'appraisal_total') }}
                                     </p>
                                 </div>
                                 <div class="rounded-[13px] bg-[#f6f9f8] px-4 py-3">
-                                    <p class="text-[12px]" style="color: #64748b">Reparatur netto</p>
+                                    <p class="text-[12px]" style="color: #64748b">Reparatur {{ presentedAmountsUnit }}</p>
                                     <p class="mt-1 text-[16px] font-bold" style="color: #000">
-                                        {{ formatEuroNet(offer.presentation.repair_total_net) }}
+                                        {{ presentedAmount(offer.presentation, 'repair_total') }}
+                                    </p>
+                                    <p v-if="offer.presentation.repair_total_gross" class="mt-0.5 text-[11.5px]" style="color: #9bb0af">
+                                        {{ formatEuro(offer.presentation.repair_total_net) }} netto
                                     </p>
                                 </div>
                                 <div class="rounded-[13px] px-4 py-3" style="background: rgba(1, 185, 144, 0.1)">
                                     <p class="text-[12px]" style="color: #00856a">Ihre Ersparnis</p>
                                     <p class="mt-1 text-[16px] font-bold" style="color: #00856a">
-                                        {{ formatEuroNet(offer.presentation.saving_net) }}
+                                        {{ presentedAmount(offer.presentation, 'saving') }}
                                     </p>
                                 </div>
                             </div>
@@ -683,13 +724,13 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                                                 </span>
                                             </td>
                                             <td class="py-2 pr-2 text-right text-[13px]" style="color: #64748b">
-                                                {{ formatEuroNet(line.appraisal_amount_net) }}
+                                                {{ presentedLineAmount(line, 'appraisal_amount') }}
                                             </td>
                                             <td class="py-2 pr-2 text-right text-[13px] font-bold" style="color: #000">
-                                                {{ formatEuroNet(line.repair_amount_net) }}
+                                                {{ presentedLineAmount(line, 'repair_amount') }}
                                             </td>
                                             <td class="py-2 text-right text-[13px] font-bold" style="color: #00856a">
-                                                {{ formatEuroNet(line.saving_net) }}
+                                                {{ presentedLineAmount(line, 'saving') }}
                                             </td>
                                         </tr>
                                     </tbody>

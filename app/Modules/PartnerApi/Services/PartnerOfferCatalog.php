@@ -6,7 +6,7 @@ use App\Modules\PartnerApi\Exceptions\PartnerApiException;
 use App\Modules\UserProfile\Offer\Models\LeasybackOffer;
 use App\Modules\UserProfile\Order\Models\B2bOfferPresentation;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
-use App\Modules\UserProfile\Order\Services\B2bOfferService;
+use App\Modules\UserProfile\Order\Services\RepairOfferService;
 use Illuminate\Support\Collection;
 
 /**
@@ -27,7 +27,7 @@ use Illuminate\Support\Collection;
  *    immutable snapshot lives.
  *
  * The **snapshot** is the point of the presentation row: `lines` is frozen at
- * publish by `B2bOfferService::snapshotOnPublish()` and never rewritten, so an
+ * publish by `RepairOfferService::snapshotOnPublish()` and never rewritten, so an
  * accepted offer keeps reporting exactly the positions and totals the customer
  * accepted even after the underlying appraisal positions are edited. This
  * class therefore reads `presentation->lines`, never the live
@@ -42,7 +42,7 @@ use Illuminate\Support\Collection;
 class PartnerOfferCatalog
 {
     /** @var list<string> */
-    private const CUSTOMER_FACING_STATUSES = ['published', 'selected', B2bOfferService::STATUS_REJECTED];
+    private const CUSTOMER_FACING_STATUSES = ['published', 'selected', RepairOfferService::STATUS_REJECTED];
 
     public function __construct(private readonly PartnerResourceLocator $locator) {}
 

@@ -41,13 +41,31 @@ const selectingOfferId = ref<string | null>(null);
 const sorted = computed(() => [...props.offers].sort((a, b) => a.offer_sequence - b.offer_sequence));
 const hasSelected = computed(() => props.offers.some((offer) => offer.offer_status === 'selected'));
 
-const totals = computed(() => sorted.value.map((offer) => toNumber(offer.final_total_gross)));
+/**
+ * "Günstigster" is advice about a decision the customer can still make, so it
+ * is computed over the offers they could still choose — published, and not past
+ * their validity date. A rejected offer, an already-closed sibling and an
+ * expired one are all shown in the table for context and none of them can win
+ * the badge.
+ *
+ * This used to compare every row in the table. Harmless while B2C offers were
+ * always published and never expired; wrong the moment a B2C offer could be
+ * rejected or carry a `valid_until`.
+ */
+const selectable = computed(() => sorted.value.filter((offer) => offer.offer_status === 'published' && !offer.presentation?.is_expired));
 
 const bestTotal = computed(() => {
-    const valid = totals.value.filter((value): value is number => value !== null);
+    const valid = selectable.value.map((offer) => toNumber(offer.final_total_gross)).filter((value): value is number => value !== null);
 
     return valid.length > 1 ? Math.min(...valid) : null;
 });
+
+/**
+ * Rows every offer leaves at zero are hidden rather than printed as a column of
+ * 0,00 €. A quotation-backed offer carries its whole amount in Reparaturkosten;
+ * the other three exist for the manual fallback, which fills them in.
+ */
+const visibleRows = computed(() => ROWS.filter((row) => sorted.value.some((offer) => (toNumber(offer[row.key] as string | number | null) ?? 0) !== 0)));
 
 function toNumber(value: string | number | null): number | null {
     if (value === null || value === '') {
@@ -78,7 +96,9 @@ function formatDate(value: string | null): string {
 }
 
 function isBest(offer: OfferData): boolean {
-    return bestTotal.value !== null && toNumber(offer.final_total_gross) === bestTotal.value;
+    return (
+        bestTotal.value !== null && selectable.value.includes(offer) && toNumber(offer.final_total_gross) === bestTotal.value
+    );
 }
 
 /**
@@ -173,7 +193,7 @@ function confirmSelection() {
                 </thead>
 
                 <tbody>
-                    <tr v-for="row in ROWS" :key="row.key" class="border-t border-[#f1f5f5]">
+                    <tr v-for="row in visibleRows" :key="row.key" class="border-t border-[#f1f5f5]">
                         <td class="px-5 py-2.5 text-[12.5px] text-[#00000080]">{{ row.label }}</td>
                         <td
                             v-for="offer in sorted"

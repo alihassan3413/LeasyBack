@@ -206,6 +206,18 @@ export interface AdminOrderList {
     data: AdminOrderRow[];
 }
 
+/** Who quoted, as of the moment the offer was built from their quotation. */
+export interface AdminOfferWorkshop {
+    quotation_id: string | null;
+    label: string | null;
+    company_name: string | null;
+    contact_person: string | null;
+    contact_email: string | null;
+    contact_phone: string | null;
+    earliest_repair_start: string | null;
+    processing_days: number | null;
+}
+
 /** Matches a `leasyback_offers` row (every status — Admin sees drafts/cancelled too, unlike the customer-facing endpoint). */
 export interface AdminOfferRow {
     offer_id: string;
@@ -213,8 +225,14 @@ export interface AdminOfferRow {
     auftragsnummer: string;
     offer_sequence: number;
     offer_status: 'draft' | 'published' | 'selected' | 'closed' | 'cancelled' | 'rejected';
-    /** B2B only — the frozen record of what was presented, absent on a B2C offer. */
+    /**
+     * The frozen record of what was presented. Null on a manually created
+     * fallback offer, in either channel — the card uses that to label an offer
+     * as workshop-backed or hand-entered.
+     */
     presentation?: B2bOfferPresentationData | null;
+    /** The full workshop contact snapshot. Admin-only; the customer gets the name alone. */
+    workshop?: AdminOfferWorkshop | null;
     repair_cost_net: string | number;
     repair_cost_gross: string | number;
     depreciation_value_net: string | number;

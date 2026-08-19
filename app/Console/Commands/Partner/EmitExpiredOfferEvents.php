@@ -4,7 +4,7 @@ namespace App\Console\Commands\Partner;
 
 use App\Models\LeasybackOffer;
 use App\Modules\UserProfile\Order\Models\B2bOfferPresentation;
-use App\Modules\UserProfile\Order\Services\B2bOfferService;
+use App\Modules\UserProfile\Order\Services\PartnerOfferAnnouncer;
 use Illuminate\Console\Command;
 
 /**
@@ -32,7 +32,7 @@ class EmitExpiredOfferEvents extends Command
 
     protected $description = 'Emit offer.expired for presented offers whose validity date has passed';
 
-    public function handle(B2bOfferService $offers): int
+    public function handle(PartnerOfferAnnouncer $announcer): int
     {
         $limit = max(1, (int) $this->option('limit'));
 
@@ -60,7 +60,7 @@ class EmitExpiredOfferEvents extends Command
                 continue;
             }
 
-            $offers->announceOffer('expired', $offer);
+            $announcer->announce('expired', $offer);
             $emitted++;
         }
 

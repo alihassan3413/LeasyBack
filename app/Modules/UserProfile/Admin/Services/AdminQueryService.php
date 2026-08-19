@@ -6,10 +6,10 @@ use App\Enums\OrderStatus;
 use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
 use App\Modules\UserProfile\Order\Services\AppraisalPositionService;
 use App\Modules\UserProfile\Order\Services\B2bBillingService;
-use App\Modules\UserProfile\Order\Services\B2bOfferService;
 use App\Modules\UserProfile\Order\Services\B2bOrderNoteService;
 use App\Modules\UserProfile\Order\Services\OrderCollectionService;
 use App\Modules\UserProfile\Order\Services\OrderTaskResolver;
+use App\Modules\UserProfile\Order\Services\RepairOfferService;
 use App\Modules\UserProfile\Order\Services\WorkshopQuotationService;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
@@ -26,7 +26,7 @@ class AdminQueryService
         private readonly OrderTaskResolver $orderTaskResolver,
         private readonly AppraisalPositionService $appraisalPositionService,
         private readonly WorkshopQuotationService $workshopQuotationService,
-        private readonly B2bOfferService $b2bOfferService,
+        private readonly RepairOfferService $repairOfferService,
         private readonly B2bBillingService $b2bBillingService,
         private readonly B2bOrderNoteService $b2bOrderNoteService,
     ) {}
@@ -503,15 +503,21 @@ class AdminQueryService
             ? null
             : $this->b2bOrderNoteService->forOrder($orderId);
 
-        if ($row->vehicle_belongs === 'B2B') {
-            $presentations = $this->b2bOfferService->forOffers(array_column($order['offers'], 'offer_id'));
+        // Both channels. `presentation` being null is how Admin tells a
+        // quotation-backed offer from one typed into the manual fallback, so it
+        // is attached everywhere rather than only where it used to be possible.
+        $offerIds = array_column($order['offers'], 'offer_id');
+        $presentations = $this->repairOfferService->forOffers($offerIds);
+        $workshops = $this->repairOfferService->workshopsForOffers($offerIds);
 
-            $order['offers'] = array_map(function (object $offer) use ($presentations) {
-                $offer->presentation = $presentations[$offer->offer_id] ?? null;
+        $order['offers'] = array_map(function (object $offer) use ($presentations, $workshops) {
+            $offer->presentation = $presentations[$offer->offer_id] ?? null;
+            // Admin gets the full contact snapshot; the customer payload
+            // deliberately reduces this to the company name.
+            $offer->workshop = $workshops[$offer->offer_id] ?? null;
 
-                return $offer;
-            }, $order['offers']);
-        }
+            return $offer;
+        }, $order['offers']);
 
         $order['tasks'] = $this->orderTaskResolver->forOrderDetail($order);
 

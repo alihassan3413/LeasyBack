@@ -8,7 +8,8 @@ use App\Models\LeasybackOrder;
 use App\Models\OfferAuditLog;
 use App\Models\OrderAuditLog;
 use App\Models\User;
-use App\Modules\UserProfile\Order\Services\B2bOfferService;
+use App\Modules\UserProfile\Order\Services\PartnerOfferAnnouncer;
+use App\Modules\UserProfile\Order\Services\RepairOfferService;
 use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
 use App\Notifications\NotificationPayload;
 use App\Services\Mail\OrderMailer;
@@ -24,7 +25,8 @@ class OfferService
         private readonly VehicleScopeService $vehicleScope,
         private readonly Notifier $notifier,
         private readonly OrderMailer $orderMailer,
-        private readonly B2bOfferService $b2bOfferService,
+        private readonly RepairOfferService $repairOfferService,
+        private readonly PartnerOfferAnnouncer $announcer,
     ) {}
 
     /**
@@ -67,18 +69,18 @@ class OfferService
                 'published_by_user_id' => $user->id,
             ]);
 
-            // Freezes what a B2B customer is about to see (§10). No-op for
-            // B2C, which has no b2b_offer_presentations row.
-            $this->b2bOfferService->snapshotOnPublish($offer);
+            // Freezes what the customer is about to see (§10). A no-op for a
+            // manually created offer, which has no presentation row to freeze.
+            $this->repairOfferService->snapshotOnPublish($offer);
 
             $this->auditOffer($offer, 'published', ['offer_status' => 'draft'], ['offer_status' => 'published'], $user->id);
 
             $published = $offer->fresh();
 
             // After the snapshot, so the event carries the frozen lines rather
-            // than the pre-publish draft. B2C emits nothing: no presentation
-            // row, no event.
-            $this->b2bOfferService->announceOffer('published', $published);
+            // than the pre-publish draft. The announcer decides on its own
+            // whether a partner should hear about this offer at all.
+            $this->announcer->announce('published', $published);
 
             return $published;
         });
@@ -114,7 +116,7 @@ class OfferService
             // because there is no separate state. An offer cancelled while
             // still a draft was never presented and emits nothing.
             if ($oldStatus === 'published') {
-                $this->b2bOfferService->announceOffer('updated', $cancelled);
+                $this->announcer->announce('updated', $cancelled);
             }
 
             return $cancelled;
@@ -199,17 +201,17 @@ class OfferService
             $this->fail(400, 'This offer is no longer available');
         }
 
-        // B2B offers may carry a validity date (§10). Enforced here rather
-        // than in the controller so the customer route and Admin's
-        // accept-on-behalf route are both covered by the one rule. A B2C
-        // offer has no presentation row, so expiredOn() is always null for it
-        // and this guard cannot change B2C behaviour.
+        // A quotation-backed offer may carry a validity date (§10). Enforced
+        // here rather than in the controller so the customer route and Admin's
+        // accept-on-behalf route are both covered by the one rule. A manually
+        // created offer has no presentation row, so expiredOn() is null for it
+        // and this guard leaves the fallback untouched.
         //
         // Checked after the decision read on purpose: an offer that was
         // accepted while still valid stays accepted, so a replay arriving
         // after the validity date is answered from the decision above rather
         // than refused here.
-        $expiredOn = $this->b2bOfferService->expiredOn($locked);
+        $expiredOn = $this->repairOfferService->expiredOn($locked);
 
         if ($expiredOn !== null) {
             $this->fail(422, sprintf(
@@ -263,7 +265,7 @@ class OfferService
                 // the table. Announced as `offer.updated` for the same
                 // reason a withdrawal is: the offer changed, it was not
                 // decided.
-                $this->b2bOfferService->announceOffer(
+                $this->announcer->announce(
                     'updated',
                     LeasybackOffer::where('offer_id', $siblingId)->first(),
                 );
@@ -287,7 +289,7 @@ class OfferService
             'changed_by_user_id' => $user->id,
         ]);
 
-        $this->b2bOfferService->announceOffer('accepted', $offer->fresh());
+        $this->announcer->announce('accepted', $offer->fresh());
 
         return [
             'offer' => $offer->fresh() ?? $offer,

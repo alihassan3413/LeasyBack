@@ -5,77 +5,44 @@ namespace App\Modules\UserProfile\Order\Services;
 use App\Models\LeasybackOffer;
 use App\Models\OfferAuditLog;
 use App\Models\User;
-use App\Models\Vehicle;
-use App\Modules\PartnerApi\Services\PartnerWebhookEvents;
+use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
 use App\Modules\UserProfile\Order\Models\AppraisalPosition;
 use App\Modules\UserProfile\Order\Models\B2bOfferPresentation;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Order\Models\WorkshopQuotation;
 use App\Modules\UserProfile\Order\Models\WorkshopQuotationItem;
+use App\Support\OfferPricingPolicy;
 use Carbon\CarbonInterface;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\DB;
 
 /**
- * The customer-facing B2B repair offer (§10).
+ * The customer-facing repair offer, built from a workshop quotation (§10). Both
+ * channels.
  *
  * `leasyback_offers` is reused as the offer record so publishing, selection,
  * the timeline stages and the audit trail keep working untouched; everything
- * B2B-specific lives on the 1:1 `b2b_offer_presentations` row.
+ * the quotation-backed presentation adds lives on the 1:1
+ * `b2b_offer_presentations` row.
+ *
+ * This was `B2bOfferService`, and it was doing three jobs at once: building an
+ * offer from a quotation, presenting and expiring it, and announcing it to
+ * partner webhooks. Only the third was ever channel-specific, and it now lives
+ * in PartnerOfferAnnouncer. What is left is shared, which is why the name no
+ * longer says B2B.
  *
  * Two rules this file exists to enforce:
- * - the presented lines are **snapshotted** at publish, so §10's "Admin must
- *   always see exactly what was presented" survives later position edits;
- * - the service fee (§13) is never part of an offer, and gross amounts (§9)
- *   are never computed or stored here.
+ * - the presented lines, totals, VAT rate and workshop identity are
+ *   **snapshotted** at publish, so §10's "Admin must always see exactly what
+ *   was presented" survives later edits to positions, quotations or config;
+ * - the service fee (§13) is never part of an offer, and whether a gross amount
+ *   exists at all is OfferPricingPolicy's decision, not this class's.
  */
-class B2bOfferService
+class RepairOfferService
 {
     public const STATUS_REJECTED = 'rejected';
 
-    public function __construct(private readonly PartnerWebhookEvents $webhooks) {}
-
-    /**
-     * Announce something that happened to a *presented* offer.
-     *
-     * Every offer webhook goes through here rather than being emitted at each
-     * call site, for one reason: an offer only exists for partners once it has
-     * a presentation row, and that check has to be in one place or a B2C offer
-     * — which never has one — would eventually leak through a new call site.
-     * No presentation, no event, no exception.
-     *
-     * The snapshot handed to the payload is the presentation's own frozen
-     * `lines`, which is why an accepted offer's webhook stays a record of what
-     * was accepted even after the underlying appraisal positions are edited.
-     *
-     * @param  'published'|'updated'|'accepted'|'rejected'|'expired'  $what
-     */
-    public function announceOffer(string $what, ?LeasybackOffer $offer): void
-    {
-        if ($offer === null) {
-            return;
-        }
-
-        $presentation = B2bOfferPresentation::where('offer_id', $offer->offer_id)->first();
-
-        if ($presentation === null) {
-            return;
-        }
-
-        $order = LeasybackOrder::where('id', $offer->order_id)->first();
-
-        if ($order === null) {
-            return;
-        }
-
-        match ($what) {
-            'published' => $this->webhooks->offerPublished($offer, $presentation, $order),
-            'updated' => $this->webhooks->offerUpdated($offer, $presentation, $order),
-            'accepted' => $this->webhooks->offerAccepted($offer, $presentation, $order),
-            'rejected' => $this->webhooks->offerRejected($offer, $presentation, $order),
-            'expired' => $this->webhooks->offerExpired($offer, $presentation, $order),
-        };
-    }
+    public function __construct(private readonly PartnerOfferAnnouncer $announcer) {}
 
     /**
      * @return array<string, mixed>
@@ -103,12 +70,16 @@ class B2bOfferService
      * Build a draft offer from a submitted workshop quotation. The customer
      * sees nothing until it is published.
      *
+     * The quotation is re-resolved here against `$order->id` rather than taken
+     * on trust from the request, so an id belonging to another order — or to
+     * another vehicle's order — finds nothing and is refused as unusable
+     * rather than quietly pricing this customer's car from someone else's
+     * quote.
+     *
      * @param  array<string, mixed>  $validated
      */
-    public function createFromQuotation(LeasybackOrder $order, Vehicle $vehicle, User $user, array $validated): LeasybackOffer
+    public function createFromQuotation(LeasybackOrder $order, User $user, array $validated): LeasybackOffer
     {
-        $this->assertB2b($vehicle);
-
         $quotation = WorkshopQuotation::where('id', $validated['workshop_quotation_id'])
             ->where('order_id', $order->id)
             ->first();
@@ -117,30 +88,19 @@ class B2bOfferService
             $this->fail(422, 'Nur eingegangene Werkstattangebote können als Kundenangebot verwendet werden.');
         }
 
+        $vatRate = OfferPricingPolicy::rateFor(TransitionOrderStatus::isB2bOrder($order));
         $lines = $this->buildLines($order->id, $quotation);
         $totals = $this->totals($lines);
 
-        return DB::transaction(function () use ($order, $user, $validated, $quotation, $lines, $totals) {
+        return DB::transaction(function () use ($order, $user, $validated, $quotation, $lines, $totals, $vatRate) {
             $sequence = (LeasybackOffer::where('order_id', $order->id)->max('offer_sequence') ?? 0) + 1;
 
-            // LeasybackOffer::saving() derives final_total_net by summing all
-            // four net columns, so exactly one of them may carry the B2B
-            // repair total or it would be counted twice. Every other amount
-            // is set to '0' explicitly rather than left null: the same hook
-            // runs bcadd() over them before the DB defaults could apply.
             $offer = LeasybackOffer::create([
                 'order_id' => $order->id,
                 'auftragsnummer' => $order->auftragsnummer,
                 'offer_sequence' => $sequence,
                 'offer_status' => 'draft',
-                'repair_cost_net' => $totals['repair_total_net'],
-                'depreciation_value_net' => '0',
-                'workshop_repair_quote_net' => '0',
-                'missing_parts_cost_net' => '0',
-                'repair_cost_gross' => '0',
-                'depreciation_value_gross' => '0',
-                'workshop_repair_quote_gross' => '0',
-                'missing_parts_cost_gross' => '0',
+                ...$this->offerAmounts($totals['repair_total_net'], $vatRate),
                 'created_by_user_id' => $user->id,
             ]);
 
@@ -150,6 +110,8 @@ class B2bOfferService
                 'workshop_quotation_id' => $quotation->id,
                 'lines' => $lines,
                 ...$totals,
+                'vat_rate' => $vatRate,
+                'workshop' => $this->workshopSnapshot($quotation),
                 'valid_until' => $validated['valid_until'] ?? null,
                 'customer_note' => $this->trimToNull($validated['customer_note'] ?? null),
                 'created_by_user_id' => $user->id,
@@ -162,7 +124,12 @@ class B2bOfferService
     /**
      * Freeze what the customer is about to see. Called when the offer moves to
      * `published`; from here the snapshot is never rewritten, so correcting a
-     * position afterwards cannot rewrite history.
+     * position, a quotation or the configured VAT rate afterwards cannot
+     * rewrite history.
+     *
+     * The re-derivation on this one pass is deliberate: between drafting and
+     * publishing, an admin may still correct the positions, and publishing is
+     * the moment those corrections stop counting.
      */
     public function snapshotOnPublish(LeasybackOffer $offer): void
     {
@@ -177,12 +144,19 @@ class B2bOfferService
             : WorkshopQuotation::find($presentation->workshop_quotation_id);
 
         $lines = $quotation === null ? ($presentation->lines ?? []) : $this->buildLines($presentation->order_id, $quotation);
+        $totals = $this->totals($lines);
 
         $presentation->update([
             'lines' => $lines,
-            ...$this->totals($lines),
+            ...$totals,
+            'workshop' => $quotation === null ? $presentation->workshop : $this->workshopSnapshot($quotation),
             'presented_at' => now(),
         ]);
+
+        // The offer's own headline amounts are re-derived from the frozen
+        // totals for the same reason, and through the presentation's stored
+        // rate rather than today's config.
+        $offer->update($this->offerAmounts($totals['repair_total_net'], $presentation->vat_rate === null ? null : (string) $presentation->vat_rate));
     }
 
     /**
@@ -214,7 +188,7 @@ class B2bOfferService
                 'customer_comment' => $this->trimToNull($validated['customer_comment'] ?? null),
             ]);
 
-            $this->announceOffer('rejected', $locked->fresh());
+            $this->announcer->announce('rejected', $locked->fresh());
 
             OfferAuditLog::create([
                 'auftragsnummer' => $locked->auftragsnummer,
@@ -303,8 +277,8 @@ class B2bOfferService
 
     /**
      * The date an offer's validity ran out, or null when it is still
-     * acceptable. A B2C offer has no presentation row and therefore never
-     * expires through this path, so B2C acceptance is unaffected.
+     * acceptable. A manually created offer has no presentation row and
+     * therefore never expires through this path.
      */
     public function expiredOn(LeasybackOffer $offer): ?CarbonInterface
     {
@@ -314,8 +288,16 @@ class B2bOfferService
     }
 
     /**
-     * The customer-visible shape. Carries no internal note, no service fee and
-     * no gross amount — see the class docblock.
+     * The customer-visible shape. Carries no internal note and no service fee.
+     *
+     * Gross amounts appear only where the presentation carries a rate, which is
+     * OfferPricingPolicy's decision recorded at creation — so a B2B payload has
+     * no gross keys at all rather than gross keys holding null, and cannot
+     * acquire any later.
+     *
+     * The workshop is reduced to its company name. A customer benefits from
+     * knowing who will do the work; the contact person, email and phone are
+     * operational data and stay in the Admin payload.
      *
      * @param  array<int, string>  $offerIds
      * @return array<string, array<string, mixed>>
@@ -331,10 +313,12 @@ class B2bOfferService
             ->mapWithKeys(fn (B2bOfferPresentation $presentation) => [
                 $presentation->offer_id => [
                     'workshop_quotation_id' => $presentation->workshop_quotation_id,
-                    'lines' => $presentation->lines ?? [],
+                    'workshop_name' => $presentation->workshopName(),
+                    'lines' => $this->presentedLines($presentation),
                     'appraisal_total_net' => (string) $presentation->appraisal_total_net,
                     'repair_total_net' => (string) $presentation->repair_total_net,
                     'saving_net' => (string) $presentation->saving_net,
+                    ...$this->grossTotals($presentation),
                     'valid_until' => $presentation->valid_until?->toDateString(),
                     'is_expired' => $presentation->isExpired(),
                     'customer_note' => $presentation->customer_note,
@@ -344,6 +328,116 @@ class B2bOfferService
                 ],
             ])
             ->all();
+    }
+
+    /**
+     * The workshop as Admin needs it — the full contact snapshot, so the order
+     * page can show who is to be commissioned without re-reading a quotation
+     * that may since have been revoked.
+     *
+     * @param  array<int, string>  $offerIds
+     * @return array<string, array<string, mixed>|null>
+     */
+    public function workshopsForOffers(array $offerIds): array
+    {
+        if ($offerIds === []) {
+            return [];
+        }
+
+        return B2bOfferPresentation::whereIn('offer_id', $offerIds)
+            ->get()
+            ->mapWithKeys(fn (B2bOfferPresentation $presentation) => [
+                $presentation->offer_id => $presentation->workshop,
+            ])
+            ->all();
+    }
+
+    /**
+     * The four net/gross column pairs on the offer row itself.
+     *
+     * LeasybackOffer::saving() derives final_total_net/gross by summing all
+     * four pairs, so exactly one of them may carry the repair total or it would
+     * be counted twice. Every other amount is set to '0' explicitly rather than
+     * left null: the same hook runs bcadd() over them before the DB defaults
+     * could apply.
+     *
+     * @return array<string, string>
+     */
+    private function offerAmounts(string $repairTotalNet, ?string $vatRate): array
+    {
+        return [
+            'repair_cost_net' => $repairTotalNet,
+            'repair_cost_gross' => OfferPricingPolicy::gross($repairTotalNet, $vatRate) ?? '0',
+            'depreciation_value_net' => '0',
+            'workshop_repair_quote_net' => '0',
+            'missing_parts_cost_net' => '0',
+            'depreciation_value_gross' => '0',
+            'workshop_repair_quote_gross' => '0',
+            'missing_parts_cost_gross' => '0',
+        ];
+    }
+
+    /**
+     * @return array<string, string|null>
+     */
+    private function grossTotals(B2bOfferPresentation $presentation): array
+    {
+        $rate = $presentation->vat_rate === null ? null : (string) $presentation->vat_rate;
+
+        if ($rate === null) {
+            return [];
+        }
+
+        return [
+            'vat_rate' => $rate,
+            'appraisal_total_gross' => OfferPricingPolicy::gross((string) $presentation->appraisal_total_net, $rate),
+            'repair_total_gross' => OfferPricingPolicy::gross((string) $presentation->repair_total_net, $rate),
+            'saving_gross' => OfferPricingPolicy::gross((string) $presentation->saving_net, $rate),
+        ];
+    }
+
+    /**
+     * The frozen lines, with a gross amount added per line where the channel
+     * shows gross. Derived from the row's own stored rate, never from config,
+     * so a published offer's lines cannot change value.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function presentedLines(B2bOfferPresentation $presentation): array
+    {
+        $rate = $presentation->vat_rate === null ? null : (string) $presentation->vat_rate;
+        $lines = $presentation->lines ?? [];
+
+        if ($rate === null) {
+            return $lines;
+        }
+
+        return array_map(fn (array $line) => [
+            ...$line,
+            'appraisal_amount_gross' => OfferPricingPolicy::gross($line['appraisal_amount_net'] ?? null, $rate),
+            'repair_amount_gross' => OfferPricingPolicy::gross($line['repair_amount_net'] ?? null, $rate),
+            'saving_gross' => OfferPricingPolicy::gross($line['saving_net'] ?? null, $rate),
+        ], $lines);
+    }
+
+    /**
+     * Who quoted, as of now. Copied onto the presentation so the answer survives
+     * the quotation row changing or being deleted.
+     *
+     * @return array<string, mixed>
+     */
+    private function workshopSnapshot(WorkshopQuotation $quotation): array
+    {
+        return [
+            'quotation_id' => $quotation->id,
+            'label' => $quotation->workshop_label,
+            'company_name' => $quotation->company_name,
+            'contact_person' => $quotation->contact_person,
+            'contact_email' => $quotation->contact_email,
+            'contact_phone' => $quotation->contact_phone,
+            'earliest_repair_start' => $quotation->earliest_repair_start?->toDateString(),
+            'processing_days' => $quotation->processing_days,
+        ];
     }
 
     /**
@@ -405,13 +499,6 @@ class B2bOfferService
             'repair_total_net' => $repair,
             'saving_net' => bcsub($appraisal, $repair, 2),
         ];
-    }
-
-    private function assertB2b(Vehicle $vehicle): void
-    {
-        if ($vehicle->vehicle_belongs !== 'B2B') {
-            $this->fail(404, 'Not found');
-        }
     }
 
     private function trimToNull(mixed $value): ?string

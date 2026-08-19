@@ -466,7 +466,13 @@ class WorkshopQuotationChannelTest extends TestCase
         $this->assertNull($payload['tasks']);
     }
 
-    public function test_building_a_customer_offer_from_a_b2c_quotation_is_still_refused(): void
+    /**
+     * This asserted a 404 when quotations were shared but offers were not. That
+     * boundary is gone — a B2C quotation now becomes a customer offer like any
+     * other — so what is pinned here is only that a submitted quotation reaches
+     * the offer route at all. QuotationBackedOfferTest owns the rest.
+     */
+    public function test_a_b2c_quotation_can_be_turned_into_a_customer_offer(): void
     {
         $order = $this->b2cOrderWithPositions();
         $token = $this->tokenFrom($this->invite($order));
@@ -475,9 +481,9 @@ class WorkshopQuotationChannelTest extends TestCase
 
         $this->actingAs($this->makeAdmin())
             ->post(route('admin.orders.b2b-offer.store', $order->id), ['workshop_quotation_id' => $quotation->id])
-            ->assertNotFound();
+            ->assertRedirect();
 
-        $this->assertSame(0, DB::table('leasyback_offers')->count());
+        $this->assertSame(1, DB::table('leasyback_offers')->count());
     }
 
     // ------------------------------------------------------------------- B2B

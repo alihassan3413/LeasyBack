@@ -6,7 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\LeasybackOrder;
 use App\Models\Vehicle;
 use App\Models\WorkshopQuotation;
-use App\Modules\UserProfile\Order\Services\B2bOfferService;
+use App\Modules\UserProfile\Order\Services\RepairOfferService;
 use App\Modules\UserProfile\Order\Services\WorkshopQuotationService;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\RedirectResponse;
@@ -16,7 +16,7 @@ class WorkshopQuotationController extends Controller
 {
     public function __construct(
         private readonly WorkshopQuotationService $workshopQuotationService,
-        private readonly B2bOfferService $b2bOfferService,
+        private readonly RepairOfferService $repairOfferService,
     ) {}
 
     /**
@@ -37,18 +37,22 @@ class WorkshopQuotationController extends Controller
     }
 
     /**
-     * Turn a submitted quotation into a draft customer offer (§10). It stays
-     * invisible to the customer until published through the existing
-     * admin.orders.offers.publish action.
+     * Turn a submitted quotation into a draft customer offer (§10), in either
+     * channel. It stays invisible to the customer until published through the
+     * existing admin.orders.offers.publish action.
+     *
+     * Whether the resulting offer carries gross amounts is decided by
+     * OfferPricingPolicy inside the service, not here — the controller's job is
+     * to resolve the order and hand over a validated request.
      */
     public function createOffer(Request $request, string $orderId): RedirectResponse
     {
-        [$order, $vehicle] = $this->b2bOrder($orderId);
+        $order = $this->order($orderId);
 
-        $validated = $request->validate(B2bOfferService::createRules());
+        $validated = $request->validate(RepairOfferService::createRules());
 
         try {
-            $this->b2bOfferService->createFromQuotation($order, $vehicle, $request->user(), $validated);
+            $this->repairOfferService->createFromQuotation($order, $request->user(), $validated);
         } catch (HttpResponseException $e) {
             $message = $e->getResponse()->getData(true)['error'] ?? 'Angebot konnte nicht erstellt werden.';
 
@@ -83,26 +87,5 @@ class WorkshopQuotationController extends Controller
         abort_unless(Vehicle::where('vehicle_id', $order->vehicle_id)->exists(), 404);
 
         return $order;
-    }
-
-    /**
-     * Building a customer offer out of a quotation is still B2B-only — §10's
-     * presentation, its net-only totals and its validity/reminder machinery are
-     * not yet defined for a private customer. Deliberately a separate resolver
-     * from order(): the quotation half of this controller is shared and the
-     * offer half is not, and collapsing them again would quietly open the offer
-     * route the next time someone touches the guard.
-     *
-     * @return array{0: LeasybackOrder, 1: Vehicle}
-     */
-    private function b2bOrder(string $orderId): array
-    {
-        $order = LeasybackOrder::find($orderId);
-        abort_unless($order !== null, 404);
-
-        $vehicle = Vehicle::where('vehicle_id', $order->vehicle_id)->first();
-        abort_unless($vehicle !== null && $vehicle->vehicle_belongs === 'B2B', 404);
-
-        return [$order, $vehicle];
     }
 }

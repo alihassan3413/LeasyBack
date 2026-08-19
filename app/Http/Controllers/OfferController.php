@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Controllers\Concerns\HandlesServiceValidationErrors;
 use App\Models\LeasybackOffer;
 use App\Modules\UserProfile\Offer\Services\OfferService;
-use App\Modules\UserProfile\Order\Services\B2bOfferService;
+use App\Modules\UserProfile\Order\Services\RepairOfferService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 
@@ -15,7 +15,7 @@ class OfferController extends Controller
 
     public function __construct(
         private readonly OfferService $offerService,
-        private readonly B2bOfferService $b2bOfferService,
+        private readonly RepairOfferService $repairOfferService,
     ) {}
 
     /**
@@ -69,11 +69,11 @@ class OfferController extends Controller
             abort(404);
         }
 
-        $validated = $request->validate(B2bOfferService::rejectRules());
+        $validated = $request->validate(RepairOfferService::rejectRules());
 
         return $this->withServiceErrorHandling(
             'offer',
-            fn () => $this->b2bOfferService->reject($offer, $user, $validated)
+            fn () => $this->repairOfferService->reject($offer, $user, $validated)
         ) ?? back()->with('success', 'Angebot wurde abgelehnt.');
     }
 }

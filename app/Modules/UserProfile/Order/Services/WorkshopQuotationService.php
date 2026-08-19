@@ -29,9 +29,10 @@ use Illuminate\Support\Str;
  * way to ask. The public submission route was already channel-blind; the Admin
  * side is no longer guarded on the vehicle being B2B either.
  *
- * What stays B2B is the step *after* this one: turning a submitted quotation
- * into a customer offer (B2bOfferService), which is where §10's presentation
- * and §9's net-only rule actually live.
+ * The step after this one — turning a submitted quotation into a customer offer
+ * (RepairOfferService) — is shared too. The one thing that genuinely differs by
+ * channel is whether that offer shows a gross price, and OfferPricingPolicy owns
+ * it; nothing about collecting the quote itself does.
  */
 class WorkshopQuotationService
 {

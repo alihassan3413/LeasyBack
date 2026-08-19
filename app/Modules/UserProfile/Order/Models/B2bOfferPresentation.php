@@ -7,13 +7,29 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Str;
 
 /**
- * The B2B face of one `leasyback_offers` row (§10). The offer record itself is
- * reused unchanged so publishing, selection, the timeline stages and the audit
- * trail keep working; this holds only what B2B adds.
+ * The quotation-backed face of one `leasyback_offers` row (§10), in either
+ * channel. The offer record itself is reused unchanged so publishing,
+ * selection, the timeline stages and the audit trail keep working; this holds
+ * what being built from a workshop quotation adds.
  *
- * `lines` is an immutable **snapshot** taken when the offer is published, not a
- * live join: §10 requires Admin to see exactly what was presented, and phase 8
- * positions stay editable afterwards. All amounts are net.
+ * Its presence is what distinguishes a real offer from the manual fallback: an
+ * offer an admin typed by hand has no row here, so "is this offer backed by a
+ * workshop quote" is a structural fact rather than a flag anyone can set.
+ *
+ * Everything here is an immutable **snapshot** taken when the offer is
+ * published, not a live join — §10 requires Admin to see exactly what was
+ * presented, and the positions, the quotation and the configured VAT rate all
+ * stay editable afterwards:
+ *
+ * - `lines` and the three net totals: the priced damage as it stood;
+ * - `vat_rate`: the rate that produced the gross the customer accepted. Null in
+ *   a channel that never shows gross (OfferPricingPolicy);
+ * - `workshop`: who was going to do the work. `workshop_quotation_id` still
+ *   points at the source row, but it is a live FK with nullOnDelete and cannot
+ *   answer that question on its own.
+ *
+ * Stored amounts are net. Gross is derived from `vat_rate` at read time, which
+ * is stable precisely because the rate is frozen here.
  */
 class B2bOfferPresentation extends Model
 {
@@ -33,6 +49,8 @@ class B2bOfferPresentation extends Model
         'appraisal_total_net',
         'repair_total_net',
         'saving_net',
+        'vat_rate',
+        'workshop',
         'valid_until',
         'customer_note',
         'presented_at',
@@ -52,6 +70,8 @@ class B2bOfferPresentation extends Model
             'appraisal_total_net' => 'decimal:2',
             'repair_total_net' => 'decimal:2',
             'saving_net' => 'decimal:2',
+            'vat_rate' => 'decimal:4',
+            'workshop' => 'array',
             'valid_until' => 'date',
             'presented_at' => 'datetime',
             'last_reminder_sent_at' => 'datetime',
@@ -89,5 +109,18 @@ class B2bOfferPresentation extends Model
     public function isExpired(): bool
     {
         return $this->valid_until !== null && $this->valid_until->lt(now()->startOfDay());
+    }
+
+    /**
+     * The repairing business as the customer should see it — its company name,
+     * falling back to the label Admin invited it under when it submitted
+     * without one. Never the contact person, email or phone: those are
+     * operational and belong to the Admin payload.
+     */
+    public function workshopName(): ?string
+    {
+        $workshop = $this->workshop ?? [];
+
+        return $workshop['company_name'] ?? $workshop['label'] ?? null;
     }
 }

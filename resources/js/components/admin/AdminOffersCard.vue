@@ -8,6 +8,11 @@
  * #01B990, the [10.5px] status pill) rather than the shared shadcn Card —
  * sitting beside the Halter and Dokumente cards, the generic component read
  * as a different product.
+ *
+ * Each offer is labelled with where its numbers came from. An offer built from
+ * a workshop quotation names the workshop; one typed into the fallback modal
+ * says so. The two are told apart by the presence of a presentation row, not by
+ * a flag — a hand-entered offer has no way to claim a source it does not have.
  */
 import CreateOfferModal from '@/components/admin/CreateOfferModal.vue';
 import type { AdminOfferRow } from '@/types/admin';
@@ -22,6 +27,16 @@ const createModalOpen = ref(false);
 const publishingId = ref<string | null>(null);
 const cancellingId = ref<string | null>(null);
 const confirmingCancelId = ref<string | null>(null);
+
+function provenance(offer: AdminOfferRow): { label: string; backed: boolean } {
+    if (offer.presentation == null) {
+        return { label: 'Manuell erfasst', backed: false };
+    }
+
+    const workshop = offer.workshop?.company_name ?? offer.workshop?.label ?? offer.presentation.workshop_name;
+
+    return { label: workshop ? `Werkstattangebot · ${workshop}` : 'Werkstattangebot', backed: true };
+}
 
 const STATUS_LABELS: Record<AdminOfferRow['offer_status'], string> = {
     draft: 'Entwurf',
@@ -113,6 +128,13 @@ function cancel(offer: AdminOfferRow) {
                         {{ STATUS_LABELS[offer.offer_status] }}
                     </span>
                 </div>
+
+                <p
+                    class="mt-2 inline-flex max-w-full items-center gap-1 truncate rounded-full px-2 py-0.5 text-[10.5px] font-bold"
+                    :class="provenance(offer).backed ? 'bg-[#4FA3A6]/12 text-[#2c7a7d]' : 'bg-[#f4f7f6] text-[#9bb0af]'"
+                >
+                    {{ provenance(offer).label }}
+                </p>
 
                 <div class="mt-3 flex items-baseline gap-2">
                     <p class="text-[22px] leading-none font-extrabold tracking-[-0.6px] text-[#10393b] tabular-nums">

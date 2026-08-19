@@ -82,7 +82,7 @@ class AppraisalPositionService
      * transaction.
      *
      * Deliberately no lifecycle gate: a published offer freezes its own snapshot
-     * (B2bOfferService::snapshotOnPublish), so a later correction here cannot
+     * (RepairOfferService::snapshotOnPublish), so a later correction here cannot
      * rewrite what a customer was shown, and an admin keeps being able to fix a
      * mistyped appraisal at any point in the case.
      *

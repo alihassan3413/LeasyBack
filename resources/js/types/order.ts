@@ -47,14 +47,22 @@ export interface OfferData {
     workshop_repair_quote_gross?: string | number | null;
     missing_parts_cost_gross?: string | number | null;
     final_total_gross?: string | number | null;
-    /** B2B only — the frozen record of what was presented to the customer. */
+    /**
+     * The frozen record of what was presented, in either channel. Null on a
+     * manually created fallback offer — which is exactly how the two are told
+     * apart, since only a quotation-backed offer has one.
+     */
     presentation?: B2bOfferPresentationData | null;
     additional_notes: string | null;
     published_at: string | null;
     selected_at: string | null;
 }
 
-/** One presented repair position. All amounts are net strings. */
+/**
+ * One presented repair position. Net amounts always; the gross trio is present
+ * only where the channel shows gross (OfferPricingPolicy), derived server-side
+ * from the rate frozen on the presentation.
+ */
 export interface B2bOfferPresentationLine {
     appraisal_position_id: string;
     component: string;
@@ -62,6 +70,9 @@ export interface B2bOfferPresentationLine {
     appraisal_amount_net: string;
     repair_amount_net: string | null;
     saving_net: string | null;
+    appraisal_amount_gross?: string | null;
+    repair_amount_gross?: string | null;
+    saving_gross?: string | null;
     repair_method: string | null;
     not_repairable: boolean;
     damage_image_document_ids: string[];
@@ -74,10 +85,17 @@ export interface B2bOfferPresentationLine {
 export interface B2bOfferPresentationData {
     /** The quotation this offer was built from — seeds the repair-appointment form. */
     workshop_quotation_id: string | null;
+    /** The repairing business, by company name. Contact details stay Admin-only. */
+    workshop_name: string | null;
     lines: B2bOfferPresentationLine[];
     appraisal_total_net: string;
     repair_total_net: string;
     saving_net: string;
+    /** Present only where the channel shows gross; the rate is the one frozen at publish. */
+    vat_rate?: string | null;
+    appraisal_total_gross?: string | null;
+    repair_total_gross?: string | null;
+    saving_gross?: string | null;
     valid_until: string | null;
     is_expired: boolean;
     customer_note: string | null;

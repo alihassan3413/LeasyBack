@@ -3,7 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Enums\NotificationType;
-use App\Modules\UserProfile\Order\Services\B2bOfferService;
+use App\Modules\UserProfile\Order\Services\RepairOfferService;
 use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
 use App\Notifications\NotificationPayload;
 use App\Services\Mail\OrderMailer;
@@ -14,7 +14,7 @@ use Illuminate\Console\Command;
  * b2b.txt §18: a reminder while customer action is required, at most every
  * 24 h, stopping immediately on acceptance, rejection, cancellation or expiry.
  *
- * All four stop conditions live in B2bOfferService::offersDueForReminder() as
+ * All four stop conditions live in RepairOfferService::offersDueForReminder() as
  * exclusions, so this command cannot send to an offer that is no longer
  * actionable. Spacing is enforced by stamping `last_reminder_sent_at`
  * immediately after each send, which is also what makes a second run inside
@@ -30,12 +30,12 @@ class SendB2bOfferReminders extends Command
     protected $description = 'Send 24h reminders for B2B repair offers still awaiting a customer decision';
 
     public function handle(
-        B2bOfferService $b2bOfferService,
+        RepairOfferService $repairOfferService,
         OrderMailer $orderMailer,
         Notifier $notifier,
         VehicleScopeService $vehicleScope,
     ): int {
-        $due = $b2bOfferService->offersDueForReminder();
+        $due = $repairOfferService->offersDueForReminder();
 
         if ($due === []) {
             $this->info('No B2B offers are due a reminder.');
@@ -65,7 +65,7 @@ class SendB2bOfferReminders extends Command
                 ),
             );
 
-            $b2bOfferService->markReminderSent($offer);
+            $repairOfferService->markReminderSent($offer);
             $sent++;
         }
 

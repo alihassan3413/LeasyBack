@@ -13,9 +13,9 @@ use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
 use App\Modules\UserProfile\Order\Models\B2bOfferPresentation;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Order\Models\OrderLogistics;
-use App\Modules\UserProfile\Order\Services\B2bOfferService;
 use App\Modules\UserProfile\Order\Services\OrderCollectionService;
 use App\Modules\UserProfile\Order\Services\OrderService;
+use App\Modules\UserProfile\Order\Services\PartnerOfferAnnouncer;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -318,7 +318,7 @@ class PartnerWebhookEmissionTest extends TestCase
             'presented_at' => now(),
         ]);
 
-        app(B2bOfferService::class)->announceOffer('published', $offer);
+        app(PartnerOfferAnnouncer::class)->announce('published', $offer);
 
         $event = PartnerWebhookEventRecord::where('type', 'offer.published')->firstOrFail();
 
