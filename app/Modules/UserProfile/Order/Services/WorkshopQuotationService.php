@@ -23,7 +23,15 @@ use Illuminate\Support\Str;
  * sha256 hash is persisted, and lookup failure modes are indistinguishable so
  * a caller cannot tell "unknown" from "expired" from "revoked".
  *
- * Every Admin path is guarded on the order's persisted vehicle being B2B.
+ * Both channels. A quotation is scoped to one order and reaches nothing but
+ * that order's positions, and "what would this repair cost" is the same
+ * question whoever the car belongs to — the workshop is never told, and has no
+ * way to ask. The public submission route was already channel-blind; the Admin
+ * side is no longer guarded on the vehicle being B2B either.
+ *
+ * What stays B2B is the step *after* this one: turning a submitted quotation
+ * into a customer offer (B2bOfferService), which is where §10's presentation
+ * and §9's net-only rule actually live.
  */
 class WorkshopQuotationService
 {
@@ -69,13 +77,16 @@ class WorkshopQuotationService
     }
 
     /**
+     * Issue one workshop's link. Every invitation is independent: a second
+     * workshop on the same order gets its own token, its own expiry and its own
+     * items, and neither can reach the other through anything this service
+     * exposes.
+     *
      * @param  array<string, mixed>  $validated
      * @return array{quotation: WorkshopQuotation, token: string, url: string}
      */
-    public function invite(LeasybackOrder $order, Vehicle $vehicle, User $user, array $validated): array
+    public function invite(LeasybackOrder $order, User $user, array $validated): array
     {
-        $this->assertB2b($vehicle);
-
         $token = Str::random(64);
         $ttlDays = (int) ($validated['ttl_days'] ?? self::DEFAULT_TTL_DAYS);
 
@@ -173,7 +184,12 @@ class WorkshopQuotationService
     /**
      * What the workshop sees behind the link. Deliberately minimal: the
      * vehicle it will repair and the positions to price. No customer identity,
-     * no internal notes, no order status, no other quotation.
+     * no internal notes, no order status, no other quotation — in particular no
+     * sibling workshop's prices, which is what makes inviting three workshops
+     * to the same order a real comparison rather than an auction.
+     *
+     * Built from `$quotation` alone. Nothing here is read from the request, so
+     * a tampered id in a payload cannot widen what comes back.
      *
      * @return array<string, mixed>
      */
@@ -212,6 +228,9 @@ class WorkshopQuotationService
      * Admin's comparison view: every quotation for the order, each expandable
      * to a per-position appraisal-vs-workshop comparison. Submitted quotations
      * stay listed after one has been presented or accepted (§9).
+     *
+     * Admin-only, and the one place sibling prices sit side by side — which is
+     * exactly why no workshop-facing method returns anything shaped like this.
      *
      * @return array<int, array<string, mixed>>
      */
@@ -288,13 +307,6 @@ class WorkshopQuotationService
         }
 
         return $total;
-    }
-
-    private function assertB2b(Vehicle $vehicle): void
-    {
-        if ($vehicle->vehicle_belongs !== 'B2B') {
-            $this->fail(404, 'Not found');
-        }
     }
 
     private function hash(string $token): string

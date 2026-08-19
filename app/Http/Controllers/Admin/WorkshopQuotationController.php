@@ -26,11 +26,11 @@ class WorkshopQuotationController extends Controller
      */
     public function store(Request $request, string $orderId): RedirectResponse
     {
-        [$order, $vehicle] = $this->b2bOrder($orderId);
+        $order = $this->order($orderId);
 
         $validated = $request->validate(WorkshopQuotationService::inviteRules());
 
-        $result = $this->workshopQuotationService->invite($order, $vehicle, $request->user(), $validated);
+        $result = $this->workshopQuotationService->invite($order, $request->user(), $validated);
 
         return back()->with('success', 'Werkstattlink wurde erstellt.')
             ->with('workshop_link', $result['url']);
@@ -63,7 +63,7 @@ class WorkshopQuotationController extends Controller
         $quotation = WorkshopQuotation::find($quotationId);
         abort_unless($quotation !== null, 404);
 
-        $this->b2bOrder($quotation->order_id);
+        $this->order($quotation->order_id);
 
         $this->workshopQuotationService->revoke($quotation, $request->user());
 
@@ -71,6 +71,28 @@ class WorkshopQuotationController extends Controller
     }
 
     /**
+     * An order that may hold workshop quotations — which is any order, in
+     * either channel. Asking a workshop what a repair costs is not a fact about
+     * who owns the car.
+     */
+    private function order(string $orderId): LeasybackOrder
+    {
+        $order = LeasybackOrder::find($orderId);
+        abort_unless($order !== null, 404);
+
+        abort_unless(Vehicle::where('vehicle_id', $order->vehicle_id)->exists(), 404);
+
+        return $order;
+    }
+
+    /**
+     * Building a customer offer out of a quotation is still B2B-only — §10's
+     * presentation, its net-only totals and its validity/reminder machinery are
+     * not yet defined for a private customer. Deliberately a separate resolver
+     * from order(): the quotation half of this controller is shared and the
+     * offer half is not, and collapsing them again would quietly open the offer
+     * route the next time someone touches the guard.
+     *
      * @return array{0: LeasybackOrder, 1: Vehicle}
      */
     private function b2bOrder(string $orderId): array

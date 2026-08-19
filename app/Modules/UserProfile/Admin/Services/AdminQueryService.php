@@ -489,9 +489,10 @@ class AdminQueryService
         $positions = $this->appraisalPositionService->forOrder($orderId);
         $order['appraisal_positions'] = $positions;
         $order['appraisal_totals'] = $this->appraisalPositionService->totals($positions);
-        $order['workshop_quotations'] = $row->vehicle_belongs !== 'B2B'
-            ? null
-            : $this->workshopQuotationService->forOrder($orderId);
+        // Quotations follow positions: both channels, and a list rather than
+        // null so the card can render its empty state and offer the first
+        // invitation instead of disappearing.
+        $order['workshop_quotations'] = $this->workshopQuotationService->forOrder($orderId);
         $order['billing'] = $row->vehicle_belongs !== 'B2B'
             ? null
             : $this->b2bBillingService->forOrder($orderId);

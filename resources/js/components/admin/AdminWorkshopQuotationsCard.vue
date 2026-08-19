@@ -1,13 +1,18 @@
 <script setup lang="ts">
 /**
- * Workshop quotations for one B2B order (b2b.txt §9): issue a revocable link,
- * then compare what came back against the appraisal, position by position.
+ * Workshop quotations for one order (b2b.txt §9), in either channel: issue a
+ * revocable link per workshop, then compare what came back against the
+ * appraisal, position by position.
  *
  * Submitted quotations stay listed after one has been presented or accepted,
  * as §9 requires — nothing here removes a row.
  *
  * The generated link is shown once, right after creation: only its hash is
  * stored, so it cannot be displayed again later.
+ *
+ * `canCreateOffer` is the one channel-dependent bit left: turning a quotation
+ * into a customer offer is still B2B-only, so the action is hidden rather than
+ * offered and then refused by a 404. It goes away once B2C offers land.
  */
 import RequiredMark from '@/components/form/RequiredMark.vue';
 import InputError from '@/components/InputError.vue';
@@ -18,7 +23,12 @@ import { computed, ref } from 'vue';
 import MdiContentCopy from '~icons/mdi/content-copy';
 import MdiLinkVariant from '~icons/mdi/link-variant';
 
-const props = defineProps<{ orderId: string; quotations: AdminWorkshopQuotation[]; hasPositions: boolean }>();
+const props = defineProps<{
+    orderId: string;
+    quotations: AdminWorkshopQuotation[];
+    hasPositions: boolean;
+    canCreateOffer: boolean;
+}>();
 
 const page = usePage();
 const expanded = ref<string | null>(null);
@@ -202,7 +212,7 @@ async function copyLink(link: string) {
                     </button>
 
                     <button
-                        v-if="quotation.status === 'submitted'"
+                        v-if="canCreateOffer && quotation.status === 'submitted'"
                         type="button"
                         :disabled="offerForm.processing"
                         class="text-[11.5px] font-bold text-[#10393b] hover:opacity-70 disabled:opacity-50"

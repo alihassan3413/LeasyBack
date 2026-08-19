@@ -293,13 +293,16 @@ class RepairPositionsTest extends TestCase
 
     /**
      * Unblocking positions must not drag the rest of the B2B page across with
-     * them: quotations, billing and notes stay B2B-only in this task.
+     * them: billing, notes and collection stay B2B-only.
+     *
+     * Workshop quotations were on this list too and have since been shared on
+     * purpose — a quotation is what a position is *for* — so they moved to
+     * WorkshopQuotationChannelTest, which owns that boundary now.
      */
     public function test_unblocking_positions_does_not_expose_other_b2b_sections_to_b2c(): void
     {
         $payload = $this->orderPayload($this->b2cOrder());
 
-        $this->assertNull($payload['workshop_quotations']);
         $this->assertNull($payload['billing']);
         $this->assertNull($payload['notes']);
         $this->assertNull($payload['collection']);

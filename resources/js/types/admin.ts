@@ -293,8 +293,8 @@ export interface AdminOrderDetail extends AdminOrderRow {
     /** Both channels — an order with no positions yet sends an empty list, not null. */
     appraisal_positions: AdminAppraisalPosition[];
     appraisal_totals: AdminAppraisalTotals;
-    /** B2B only — null on a B2C order, which has no workshop quotation workflow. */
-    workshop_quotations: AdminWorkshopQuotation[] | null;
+    /** Both channels — an order with no invitations yet sends an empty list, not null. */
+    workshop_quotations: AdminWorkshopQuotation[];
     /** B2B only — null on a B2C order, which has no internal billing record. */
     billing: AdminOrderBilling | null;
     /** Both audiences. null for a B2C order, which has no note surface. */

@@ -8,14 +8,19 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Str;
 
 /**
- * One workshop's invitation to quote on a B2B order, and its submission.
+ * One workshop's invitation to quote on an order, and its submission. Either
+ * channel — `order_id` is the only ownership key, and the `b2b_` table prefix
+ * is a leftover from where this was first built rather than a description of
+ * what it holds.
  *
  * The public link's secret is never stored: only `token_hash` is kept, exactly
  * as `b2b_invitations` does it. State is derived from the timestamps rather
  * than duplicated into a status column, so a revoked-and-expired row cannot
  * disagree with itself.
  *
- * All amounts are net (§9 forbids gross in the B2B quotation process).
+ * Amounts are net throughout. That is what a workshop quotes in, not a
+ * statement about which customer eventually sees the number — §9's no-gross
+ * rule is about the B2B *offer*, and lives in the offer layer.
  */
 class WorkshopQuotation extends Model
 {

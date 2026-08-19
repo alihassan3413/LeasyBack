@@ -89,7 +89,7 @@ const showBilling = computed(() => BILLING_STATUSES.has(props.order.order_status
 const offerSourceQuotation = computed(() => {
     const quotationId = props.order.offers.find((offer) => offer.presentation)?.presentation?.workshop_quotation_id;
 
-    return (quotationId && props.order.workshop_quotations?.find((quotation) => quotation.id === quotationId)) || null;
+    return (quotationId && props.order.workshop_quotations.find((quotation) => quotation.id === quotationId)) || null;
 });
 
 const timelineHeaderLabel = computed(
@@ -353,10 +353,10 @@ function formatDateTime(value: string | null): string {
                     -->
                     <div id="order-section-angebote" class="flex flex-col gap-4">
                         <AdminWorkshopQuotationsCard
-                            v-if="order.vehicle_belongs === 'B2B' && order.workshop_quotations"
                             :order-id="order.id"
                             :quotations="order.workshop_quotations"
                             :has-positions="!!order.appraisal_positions.length"
+                            :can-create-offer="order.vehicle_belongs === 'B2B'"
                         />
 
                         <AdminOffersCard :order-id="order.id" :offers="order.offers" />
