@@ -483,9 +483,12 @@ class AdminQueryService
             ? null
             : ($this->orderCollectionService->forOrders([$row->auftragsnummer], true)[$row->auftragsnummer] ?? null);
 
-        $positions = $row->vehicle_belongs !== 'B2B' ? [] : $this->appraisalPositionService->forOrder($orderId);
-        $order['appraisal_positions'] = $row->vehicle_belongs !== 'B2B' ? null : $positions;
-        $order['appraisal_totals'] = $row->vehicle_belongs !== 'B2B' ? null : $this->appraisalPositionService->totals($positions);
+        // Positions are repair-domain data, not company data, so both channels
+        // get them — and get them as a list rather than null, which is what
+        // lets the card render its empty state instead of disappearing.
+        $positions = $this->appraisalPositionService->forOrder($orderId);
+        $order['appraisal_positions'] = $positions;
+        $order['appraisal_totals'] = $this->appraisalPositionService->totals($positions);
         $order['workshop_quotations'] = $row->vehicle_belongs !== 'B2B'
             ? null
             : $this->workshopQuotationService->forOrder($orderId);

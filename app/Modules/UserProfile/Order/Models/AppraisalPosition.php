@@ -7,12 +7,20 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Str;
 
 /**
- * One repair position of a B2B order's **initial** appraisal (Gutachten).
- * Nachgutachten positions are deliberately not stored here — §17 excludes the
- * final appraisal from the saving calculation, so mixing the two in one table
- * would make that exclusion a query detail rather than a structural fact.
+ * One repair position of an order's **initial** appraisal (Gutachten), in
+ * either channel. Nachgutachten positions are deliberately not stored here —
+ * §17 excludes the final appraisal from the saving calculation, so mixing the
+ * two in one table would make that exclusion a query detail rather than a
+ * structural fact.
  *
- * All amounts are net (§9 forbids gross anywhere in the B2B quotation process).
+ * The `b2b_` table prefix is a leftover from where this was first built and no
+ * longer describes what it holds; renaming it is its own change, not a rider on
+ * a behaviour one. Nothing in the row is company-scoped: `order_id` is the only
+ * ownership key, and it is the same key for a private customer's car.
+ *
+ * All amounts are stored net. §9's rule that a *B2B customer* is never shown a
+ * gross price is about presentation and belongs to the offer layer; it is not a
+ * statement about what this table may contain.
  */
 class AppraisalPosition extends Model
 {

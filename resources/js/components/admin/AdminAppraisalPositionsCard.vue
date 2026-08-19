@@ -4,11 +4,12 @@
  * submitted at once and reconciled server-side, so adding, editing, reordering
  * and removing rows are all the same save.
  *
- * Amounts are net only — §9 forbids gross anywhere in the B2B quotation
- * process, so no gross column exists here or in the payload.
+ * Amounts are net only, in both channels: net is what the workshop quotes
+ * against, and the gross a customer eventually sees is the offer layer's job.
  *
- * Rendered only for B2B orders; the endpoint 404s for a B2C order regardless
- * of what this card offers.
+ * Rendered for B2B and B2C alike. The damage images offered are the order's own
+ * report documents, and the server re-derives that list rather than trusting
+ * the ids posted back.
  */
 import RequiredMark from '@/components/form/RequiredMark.vue';
 import InputError from '@/components/InputError.vue';

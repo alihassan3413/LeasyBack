@@ -290,9 +290,9 @@ export interface AdminOrderDetail extends AdminOrderRow {
     vehicle_belongs: 'B2B' | 'B2C';
     collection: OrderCollectionData | null;
     tasks: AdminOrderTasks | null;
-    /** B2B only — null on a B2C order, which has no appraisal-position workflow. */
-    appraisal_positions: AdminAppraisalPosition[] | null;
-    appraisal_totals: AdminAppraisalTotals | null;
+    /** Both channels — an order with no positions yet sends an empty list, not null. */
+    appraisal_positions: AdminAppraisalPosition[];
+    appraisal_totals: AdminAppraisalTotals;
     /** B2B only — null on a B2C order, which has no workshop quotation workflow. */
     workshop_quotations: AdminWorkshopQuotation[] | null;
     /** B2B only — null on a B2C order, which has no internal billing record. */

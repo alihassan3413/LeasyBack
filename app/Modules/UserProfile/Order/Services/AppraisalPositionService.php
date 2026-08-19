@@ -3,30 +3,39 @@
 namespace App\Modules\UserProfile\Order\Services;
 
 use App\Models\User;
-use App\Models\Vehicle;
 use App\Modules\UserProfile\Order\Models\AppraisalPosition;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 /**
- * B2B-only repair positions of an order's initial appraisal (§8). The whole
- * set is submitted at once and reconciled against what is stored: rows keep
- * their id across edits, new rows are inserted and omitted rows are deleted,
- * all inside one transaction.
+ * The repair positions of an order's initial appraisal (§8). The whole set is
+ * submitted at once and reconciled against what is stored: rows keep their id
+ * across edits, new rows are inserted and omitted rows are deleted, all inside
+ * one transaction.
  *
- * Every write path is guarded on the order's persisted vehicle being B2B, and
- * positions are attached to the Admin order payload only — nothing here
- * reaches a customer response in this phase.
+ * Positions are channel-agnostic. They were built for B2B and guarded on the
+ * vehicle being B2B, but nothing in the model or this service is company-aware:
+ * every row is scoped to one order, and "this panel is damaged and costs this
+ * much to repair" is the same fact for a fleet car and a private one. The guard
+ * was scope, not a business rule, so it is gone.
+ *
+ * What is genuinely channel-specific — the net-only presentation of §9, the
+ * workshop quotation flow, billing — keeps its own guards where it lives.
+ *
+ * Positions are attached to the Admin order payload only; nothing here reaches
+ * a customer response.
  */
 class AppraisalPositionService
 {
     /**
-     * Values are entered by hand. The TÜV SÜD pull cannot supply them: it is
-     * scoped to `leasyback_partner = 'tuvsud'` orders, which a B2B collection
-     * order never is, and the TIM ingest stores documents only — no amounts.
-     * `source` exists so a later extractor can mark its rows and the UI can
-     * show which ones an admin has since corrected.
+     * Values are entered by hand in both channels, for different reasons. A B2B
+     * collection order is never `leasyback_partner = 'tuvsud'`, so the TÜV SÜD
+     * pull does not apply to it at all; a B2C order is, but that pull ingests
+     * documents only — PDFs and images, no amounts. Either way nothing
+     * machine-readable reaches this table yet. `source` exists so a later
+     * extractor can mark its rows and the UI can show which ones an admin has
+     * since corrected.
      *
      * @param  array<int, string>  $allowedDocumentIds
      * @return array<string, mixed>
@@ -51,25 +60,36 @@ class AppraisalPositionService
      * may reference — a document belonging to another order can never be
      * attached, whatever the request contains.
      *
+     * Both columns are matched, not just `auftragsnummer`. VehicleReportService
+     * takes the order number and the vehicle id as independent inputs and never
+     * checks that they agree, so a document row *can* carry this order's number
+     * against a different vehicle. Matching the vehicle too keeps such a row out
+     * of a position's damage images, and costs one indexed column.
+     *
      * @return array<int, string>
      */
     public function allowedDocumentIds(LeasybackOrder $order): array
     {
         return DB::table('vehicle_report_documents')
             ->where('auftragsnummer', $order->auftragsnummer)
+            ->where('vehicle_id', $order->vehicle_id)
             ->pluck('id')
             ->all();
     }
 
     /**
+     * Reconcile the order's positions against the submitted set, in one
+     * transaction.
+     *
+     * Deliberately no lifecycle gate: a published offer freezes its own snapshot
+     * (B2bOfferService::snapshotOnPublish), so a later correction here cannot
+     * rewrite what a customer was shown, and an admin keeps being able to fix a
+     * mistyped appraisal at any point in the case.
+     *
      * @param  array<string, mixed>  $validated
      */
-    public function sync(LeasybackOrder $order, Vehicle $vehicle, User $user, array $validated): void
+    public function sync(LeasybackOrder $order, User $user, array $validated): void
     {
-        if ($vehicle->vehicle_belongs !== 'B2B') {
-            return;
-        }
-
         $submitted = array_values($validated['positions'] ?? []);
 
         DB::transaction(function () use ($order, $user, $submitted) {

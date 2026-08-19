@@ -356,7 +356,7 @@ function formatDateTime(value: string | null): string {
                             v-if="order.vehicle_belongs === 'B2B' && order.workshop_quotations"
                             :order-id="order.id"
                             :quotations="order.workshop_quotations"
-                            :has-positions="!!order.appraisal_positions?.length"
+                            :has-positions="!!order.appraisal_positions.length"
                         />
 
                         <AdminOffersCard :order-id="order.id" :offers="order.offers" />
@@ -409,7 +409,6 @@ function formatDateTime(value: string | null): string {
                     </div>
 
                     <AdminAppraisalPositionsCard
-                        v-if="order.vehicle_belongs === 'B2B' && order.appraisal_positions"
                         :order-id="order.id"
                         :positions="order.appraisal_positions"
                         :totals="order.appraisal_totals"
