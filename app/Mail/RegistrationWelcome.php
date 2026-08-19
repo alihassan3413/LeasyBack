@@ -53,10 +53,8 @@ class RegistrationWelcome extends Mailable implements ShouldQueue
     private function resolveUserName(): ?string
     {
         $name = trim((string) $this->user->name);
-        $email = trim((string) $this->user->email);
-        $emailLocalPart = explode('@', $email)[0];
 
-        if ($name === '' || strcasecmp($name, $email) === 0 || strcasecmp($name, $emailLocalPart) === 0) {
+        if ($name === '' || str_contains($name, '@')) {
             return null;
         }
 
