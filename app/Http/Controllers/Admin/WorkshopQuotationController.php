@@ -32,7 +32,16 @@ class WorkshopQuotationController extends Controller
 
         $result = $this->workshopQuotationService->invite($order, $request->user(), $validated);
 
-        return back()->with('success', 'Werkstattlink wurde erstellt.')
+        // The link is flashed regardless of how the send went. When the email
+        // failed it is the fallback an admin sends by hand; when no address was
+        // given it was always the plan. It cannot be shown again later — only
+        // the hash is stored — so this response is the one chance to copy it.
+        return back()
+            ->with('success', match ($result['notified']) {
+                true => sprintf('Anfrage an %s gesendet.', $result['quotation']->invited_email),
+                false => 'Anfrage erstellt, E-Mail konnte nicht gesendet werden. Bitte Link manuell senden.',
+                default => 'Werkstattlink wurde erstellt. Bitte Link manuell senden.',
+            })
             ->with('workshop_link', $result['url']);
     }
 

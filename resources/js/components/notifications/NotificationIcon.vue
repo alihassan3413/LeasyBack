@@ -7,6 +7,7 @@ import MdiFileDocumentOutline from '~icons/mdi/file-document-outline';
 import MdiMessageTextOutline from '~icons/mdi/message-text-outline';
 import MdiProgressClock from '~icons/mdi/progress-clock';
 import MdiTagOutline from '~icons/mdi/tag-outline';
+import MdiWrenchOutline from '~icons/mdi/wrench-outline';
 
 const props = defineProps<{ name: string; variant: string }>();
 
@@ -14,6 +15,7 @@ const ICONS: Record<string, unknown> = {
     'progress-clock': MdiProgressClock,
     'check-decagram': MdiCheckDecagram,
     'tag-outline': MdiTagOutline,
+    'wrench-outline': MdiWrenchOutline,
     'file-document-outline': MdiFileDocumentOutline,
     'account-alert-outline': MdiAccountAlertOutline,
     'message-text-outline': MdiMessageTextOutline,
