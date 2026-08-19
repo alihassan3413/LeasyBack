@@ -76,7 +76,9 @@ function reload(overrides: Record<string, string | undefined> = {}) {
     );
 }
 
-const debouncedReload = useDebounceFn(() => reload(), 300);
+/* 350ms: each keystroke that fires re-renders the whole table, which is the
+   dominant cost on a phone. */
+const debouncedReload = useDebounceFn(() => reload(), 350);
 
 watch(search, debouncedReload);
 
@@ -186,13 +188,24 @@ watch(
 
     <AdminLayout>
         <template #header>
-            <div class="flex min-w-0 flex-1 items-center gap-4">
+            <div class="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-2">
                 <h1 class="shrink-0 text-[16px] font-extrabold tracking-[-0.3px] text-[#10393b]">Fahrzeugverwaltung</h1>
 
-                <div class="admin-search ml-auto">
+                <div class="admin-search basis-full md:ml-auto md:basis-0">
                     <IconMdiMagnify class="size-4 shrink-0" />
 
-                    <input v-model="search" type="search" placeholder="Kennzeichen, VIN, Marke…" class="admin-search-input" />
+                    <input
+                        v-model="search"
+                        type="search"
+                        placeholder="Kennzeichen, VIN, Marke…"
+                        class="admin-search-input"
+                        autocomplete="off"
+                        autocapitalize="off"
+                        autocorrect="off"
+                        spellcheck="false"
+                        enterkeyhint="search"
+                        aria-label="Suche"
+                    />
 
                     <button v-if="search" type="button" class="search-clear" title="Suche zurücksetzen" @click="clearSearch">
                         <IconMdiClose class="size-3.5" />
@@ -201,9 +214,9 @@ watch(
             </div>
         </template>
 
-        <div class="flex h-full flex-col gap-5">
+        <div class="flex flex-col gap-5 md:h-full">
             <section
-                class="flex min-h-0 flex-1 flex-col rounded-[24px] border border-[#eef3f2] bg-white p-3 sm:p-6"
+                class="flex flex-col rounded-[24px] border border-[#eef3f2] bg-white p-3 sm:p-6 md:min-h-0 md:flex-1"
                 style="box-shadow: 0 6px 22px rgba(16, 57, 59, 0.04)"
             >
                 <div class="mb-5 flex shrink-0 flex-wrap items-start justify-between gap-4">
@@ -227,7 +240,7 @@ watch(
                         </div>
                     </div>
 
-                    <div class="flex gap-0.5 rounded-[12px] bg-[#f4f7f6] p-[3px]">
+                    <div class="flex min-w-0 flex-wrap gap-0.5 rounded-[12px] bg-[#f4f7f6] p-[3px]">
                         <button
                             v-for="option in ownerTypeOptions"
                             :key="option.value"
@@ -245,12 +258,14 @@ watch(
                     </div>
                 </div>
 
-                <div class="mb-4 flex shrink-0 flex-wrap gap-1.5">
+                <!-- 14 status chips wrap to seven rows on a phone and push the table off
+                     screen, so below `sm` they become one swipeable row instead. -->
+                <div class="filter-rail mb-4 flex min-w-0 shrink-0 gap-1.5 sm:flex-wrap">
                     <button
                         v-for="option in ADMIN_ORDER_STATUS_FILTERS"
                         :key="option.value"
                         type="button"
-                        class="rounded-full px-3.5 py-1.5 text-[12px] font-bold transition-all"
+                        class="shrink-0 rounded-full px-3.5 py-1.5 text-[12px] font-bold whitespace-nowrap transition-all"
                         :class="
                             statusFilter === option.value
                                 ? 'bg-[#10393b] text-white shadow-[0_3px_10px_rgba(16,57,59,0.18)]'
@@ -262,16 +277,22 @@ watch(
                     </button>
                 </div>
 
-                <div class="min-h-0 flex-1 overflow-auto rounded-[18px] border border-[#eef3f2]">
-                    <table class="w-full min-w-[860px] border-collapse">
-                        <thead class="sticky top-0 z-10">
+                <!--
+                    Below `md` the card grows with its content and the shell
+                    scrolls; `flex-1` inside a `h-dvh` column collapsed this to
+                    zero height once the filters wrapped, which is why the table
+                    disappeared under the status filters on phones.
+                -->
+                <div class="w-full overflow-x-auto rounded-[18px] border border-[#eef3f2] md:min-h-0 md:flex-1 md:overflow-y-auto">
+                    <table class="w-full border-collapse sm:min-w-[860px]">
+                        <thead class="z-10 md:sticky md:top-0">
                             <tr class="bg-[#f8faf9]">
                                 <th class="admin-th">Fahrzeug</th>
-                                <th class="admin-th">Kennzeichen / VIN</th>
-                                <th class="admin-th">Kunde</th>
-                                <th class="admin-th">Auftragsstatus</th>
-                                <th class="admin-th">Leasingende</th>
-                                <th class="w-28 border-b border-[#eef3f2]"></th>
+                                <th class="admin-th hidden sm:table-cell">Kennzeichen / VIN</th>
+                                <th class="admin-th hidden md:table-cell">Kunde</th>
+                                <th class="admin-th hidden sm:table-cell">Auftragsstatus</th>
+                                <th class="admin-th hidden md:table-cell">Leasingende</th>
+                                <th class="w-[86px] border-b border-[#eef3f2] sm:w-28"></th>
                             </tr>
                         </thead>
 
@@ -294,7 +315,7 @@ watch(
                                     :class="expandedId === vehicle.vehicle_id ? 'bg-[#f6f9f8]' : ''"
                                     @click="toggleExpand(vehicle)"
                                 >
-                                    <td class="px-5 py-3.5">
+                                    <td class="px-3 py-3.5 sm:px-5">
                                         <div class="flex items-center gap-3">
                                             <div
                                                 class="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-[#ef8450]/10 text-[#ef8450]"
@@ -309,20 +330,43 @@ watch(
                                                 <div class="mt-0.5 text-[11px] text-[#9bb0af]">
                                                     {{ vehicle.vehicle_belongs === 'B2B' ? 'Firmenkunde' : 'Privatkunde' }}
                                                 </div>
+                                                <!--
+                                                    Below `sm` the Kennzeichen and Auftragsstatus columns are
+                                                    folded away rather than scrolled to; they reappear here so a
+                                                    phone still shows the plate and where the order stands.
+                                                -->
+                                                <div class="mt-0.5 sm:hidden">
+                                                    <div class="truncate font-mono text-[11px] font-bold text-[#10393b]">
+                                                        {{ vehicle.license_plate }}
+                                                    </div>
+
+                                                    <span
+                                                        class="mt-1.5 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold"
+                                                        :style="{
+                                                            background: getStatus(vehicle.current_order_status).background,
+                                                            color: getStatus(vehicle.current_order_status).color,
+                                                        }"
+                                                    >
+                                                        <span class="h-[5px] w-[5px] shrink-0 rounded-full bg-current"></span>
+                                                        {{ getStatus(vehicle.current_order_status).label }}
+                                                    </span>
+                                                </div>
                                             </div>
                                         </div>
                                     </td>
 
-                                    <td class="px-5 py-3.5">
+                                    <td class="hidden px-3 py-3.5 sm:table-cell sm:px-5">
                                         <div class="font-mono text-[13px] font-bold text-[#10393b]">{{ vehicle.license_plate }}</div>
                                         <div class="mt-0.5 truncate font-mono text-[11px] text-[#9bb0af]">{{ vehicle.vin || '—' }}</div>
                                     </td>
 
-                                    <td class="max-w-[220px] truncate px-5 py-3.5 text-[13px] text-[#5a6e6c]">{{ ownerLabel(vehicle) }}</td>
+                                    <td class="hidden max-w-[220px] truncate px-3 py-3.5 text-[13px] text-[#5a6e6c] sm:px-5 md:table-cell">
+                                        {{ ownerLabel(vehicle) }}
+                                    </td>
 
-                                    <td class="px-5 py-3.5">
+                                    <td class="hidden px-3 py-3.5 sm:table-cell sm:px-5">
                                         <span
-                                            class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold"
+                                            class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold whitespace-nowrap"
                                             :style="{
                                                 background: getStatus(vehicle.current_order_status).background,
                                                 color: getStatus(vehicle.current_order_status).color,
@@ -337,11 +381,11 @@ watch(
                                         </div>
                                     </td>
 
-                                    <td class="px-5 py-3.5 text-[12.5px] text-[#9bb0af] tabular-nums">
+                                    <td class="hidden px-3 py-3.5 text-[12.5px] text-[#9bb0af] tabular-nums sm:px-5 md:table-cell">
                                         {{ formatGermanDate(vehicle.leasing_end_date) }}
                                     </td>
 
-                                    <td class="px-3 py-3.5">
+                                    <td class="px-2 py-3.5 sm:px-3">
                                         <div class="flex items-center justify-end gap-1" @click.stop>
                                             <AdminOrderActionsMenu
                                                 :vehicle-id="vehicle.vehicle_id"
@@ -398,10 +442,10 @@ watch(
                     </table>
                 </div>
 
-                <div class="mt-4 flex shrink-0 items-center justify-between">
+                <div class="mt-4 flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2">
                     <span class="text-[12px] font-medium text-[#9bb0af]">Seite {{ page }} von {{ totalPages }}</span>
 
-                    <div class="flex gap-1">
+                    <div class="flex flex-wrap items-center justify-end gap-1">
                         <button type="button" class="lb-pg" :disabled="page <= 1" @click="goToPage(page - 1)">←</button>
 
                         <button

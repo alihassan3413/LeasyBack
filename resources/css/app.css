@@ -109,6 +109,7 @@
 @layer components {
     .admin-th {
         border-bottom: 1px solid #eef3f2;
+        background: #f8faf9;
         padding: 14px 20px;
         text-align: left;
         color: #9bb0af;
@@ -118,10 +119,18 @@
         text-transform: uppercase;
     }
 
+    @media (max-width: 639px) {
+        .admin-th {
+            padding: 12px;
+            font-size: 10px;
+            letter-spacing: 0.08em;
+        }
+    }
+
     .admin-search {
         display: flex;
+        width: 100%;
         min-width: 0;
-        max-width: 320px;
         flex: 1;
         align-items: center;
         gap: 8px;
@@ -158,6 +167,23 @@
         display: none;
     }
 
+    /*
+     * 16px below `md`: mobile Chrome/Safari zoom the whole page in when a
+     * focused input's font-size is under 16px, which is what made the admin
+     * search feel laggy and misaligned while typing.
+     */
+    @media (max-width: 767px) {
+        .admin-search-input {
+            font-size: 16px;
+        }
+    }
+
+    @media (min-width: 768px) {
+        .admin-search {
+            max-width: 320px;
+        }
+    }
+
     .search-clear {
         display: flex;
         width: 24px;
@@ -175,6 +201,27 @@
     .search-clear:hover {
         background: #ffffff;
         color: #10393b;
+    }
+
+    /*
+     * A chip row that scrolls sideways on small screens instead of wrapping.
+     * Callers re-enable wrapping from `sm` up with `sm:flex-wrap`.
+     */
+    .filter-rail {
+        overflow-x: auto;
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior-x: contain;
+    }
+
+    .filter-rail::-webkit-scrollbar {
+        display: none;
+    }
+
+    @media (min-width: 640px) {
+        .filter-rail {
+            overflow-x: visible;
+        }
     }
 
     .lb-pg {

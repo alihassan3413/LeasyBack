@@ -27,15 +27,21 @@ function close() {
 <template>
     <Dialog :open="open" @update:open="(value) => emit('update:open', value)">
         <DialogContent
-            class="gap-0 overflow-visible rounded-none border-none bg-transparent p-0 shadow-none"
-            :style="{ width: '100%', maxWidth: `${width}px` }"
+            class="max-h-[92dvh] max-w-[calc(100vw-1rem)] gap-0 overflow-visible rounded-none border-none bg-transparent p-0 shadow-none"
+            :style="{ width: '100%', maxWidth: `min(${width}px, calc(100vw - 2rem))` }"
             :show-close-button="false"
         >
-            <div class="relative px-3 md:px-0">
+            <div class="relative">
+                <!--
+                    The dismiss button hangs off the card's corner. On phones the
+                    dialog already spans the viewport, so a negative offset put it
+                    off-screen — it only overhangs from `md` up.
+                -->
                 <button
                     type="button"
                     @click="close"
-                    class="absolute -top-1 -right-1 z-10 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500 text-white shadow-md transition-colors hover:bg-emerald-600 md:-top-1 md:-right-1 md:h-14 md:w-14"
+                    class="absolute top-1 right-1 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-emerald-500 text-white shadow-md transition-colors hover:bg-emerald-600 md:-top-1 md:-right-1 md:h-14 md:w-14"
+                    aria-label="Schließen"
                 >
                     <MdiClose class="size-6 md:size-8" />
                 </button>
@@ -45,7 +51,7 @@ function close() {
                     style="filter: drop-shadow(0 10px 30px rgba(0, 0, 0, 0.15))"
                 >
                     <div class="mb-3 px-2 pt-1">
-                        <DialogTitle class="pr-8 text-[18px] leading-normal font-bold text-black md:pr-0 md:text-[22px]">
+                        <DialogTitle class="pr-12 text-[18px] leading-normal font-bold text-black md:pr-0 md:text-[22px]">
                             {{ title }}
                         </DialogTitle>
                         <DialogDescription
@@ -56,11 +62,11 @@ function close() {
                         </DialogDescription>
                     </div>
 
-                    <div class="max-h-[65vh] overflow-x-visible overflow-y-auto">
+                    <div class="max-h-[62dvh] overflow-x-hidden overflow-y-auto md:max-h-[65vh]">
                         <slot />
                     </div>
 
-                    <div v-if="$slots.footer" class="mt-8 flex justify-center gap-3">
+                    <div v-if="$slots.footer" class="mt-8 flex flex-wrap justify-center gap-3">
                         <slot name="footer" />
                     </div>
                 </div>

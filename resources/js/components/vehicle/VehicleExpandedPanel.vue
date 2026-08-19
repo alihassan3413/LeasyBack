@@ -95,7 +95,10 @@ const documents = computed<PanelDocument[]>(() => {
         id: doc.document_id,
         documentType: doc.document_type ?? '',
         title: doc.original_file_name ?? '',
-        url: null,
+        // The payload already carries a signed URL for customer-uploaded
+        // documents (VehicleService::hydrateVehicles()); dropping it here left
+        // the row with a delete button and no way to open the file.
+        url: doc.url,
         isReport: false,
     }));
 

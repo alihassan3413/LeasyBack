@@ -55,6 +55,30 @@ class VehicleDashboardControllerTest extends TestCase
     }
 
     /**
+     * The customer's document rows offer "open/download" purely from this
+     * signed URL — without it the dashboard panel can only offer a delete
+     * button, with no way to read back what was uploaded.
+     */
+    public function test_dashboard_documents_carry_a_signed_url_to_open_them(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create(['b2c_user_id' => $owner->id]);
+        VehicleDocument::factory()->create(['vehicle_id' => $vehicle->vehicle_id, 'document_type' => 'Leasingvertrag']);
+
+        $this->actingAs($owner)
+            ->get(route('dashboard'))
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->whereNot('vehicles.0.documents.0.url', null)
+            );
+
+        $this->actingAs($owner)
+            ->get(route('vehicles.show', $vehicle->vehicle_id))
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->whereNot('vehicle.documents.0.url', null)
+            );
+    }
+
+    /**
      * A cancelled order used to be filtered out of the customer's dashboard
      * entirely, so an order Admin had cancelled simply disappeared — no
      * timeline, no documents, no explanation — while Admin still saw the full

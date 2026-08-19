@@ -23,7 +23,11 @@ function stop() {
 </script>
 
 <template>
-    <div v-if="active" class="pointer-events-none fixed inset-x-0 bottom-4 z-[80] flex justify-center px-4">
+    <!-- Lifted clear of the B2C mobile tab bar (and the iOS home indicator). -->
+    <div
+        v-if="active"
+        class="pointer-events-none fixed inset-x-0 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-[80] flex justify-center px-4 md:bottom-4"
+    >
         <div
             class="pointer-events-auto flex max-w-full items-center gap-3 rounded-full py-2 pr-2 pl-4"
             style="background: #10393b; box-shadow: 0 12px 32px rgba(16, 57, 59, 0.32)"

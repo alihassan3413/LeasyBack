@@ -105,6 +105,18 @@ const filterButtonLabel = computed(() => activeStatusLabel.value || activeMember
                 </div>
 
                 <div class="max-h-64 overflow-y-auto pb-2">
+                    <!-- Mirrors "Alle Mitglieder" below: an explicit way back to the
+                         unfiltered list, rather than only re-clicking the active status. -->
+                    <button
+                        type="button"
+                        class="flex w-full items-center justify-between px-4 py-2 text-left text-sm transition hover:bg-gray-50"
+                        :class="status === '' ? 'font-semibold text-[#10393b]' : 'text-gray-600'"
+                        @click="emit('update:status', '')"
+                    >
+                        <span>Alle Status</span>
+                        <span v-if="status === ''" class="size-2 rounded-full bg-[#01B990]"></span>
+                    </button>
+
                     <button
                         v-for="option in VEHICLE_STATUS_FILTER_OPTIONS"
                         :key="option.value"

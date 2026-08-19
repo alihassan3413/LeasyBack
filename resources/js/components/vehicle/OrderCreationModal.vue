@@ -189,12 +189,12 @@ function submit() {
         :width="isB2bOrder ? 720 : 920"
         @update:open="(value) => emit('update:open', value)"
     >
-        <form class="px-2" @submit.prevent="submit">
+        <form class="min-w-0 px-2" @submit.prevent="submit">
             <InputError class="mb-3" :message="form.errors.appointment" />
 
-            <div v-if="!isB2bOrder" class="grid grid-cols-1 gap-6 md:grid-cols-2 md:items-stretch">
-                <div class="flex h-full flex-col gap-3">
-                    <div class="grid grid-cols-2 gap-x-3">
+            <div v-if="!isB2bOrder" class="grid min-w-0 grid-cols-1 gap-6 md:grid-cols-2 md:items-stretch">
+                <div class="flex h-full min-w-0 flex-col gap-3">
+                    <div class="grid grid-cols-1 gap-x-3 gap-y-3 sm:grid-cols-2">
                         <div class="flex flex-col gap-1">
                             <label class="text-sm font-semibold text-black">Bundesland</label>
                             <SearchableSelectField
@@ -224,7 +224,7 @@ function submit() {
                         <InputError :message="form.errors.station_id" />
                     </div>
 
-                    <div class="grid grid-cols-2 gap-x-3">
+                    <div class="grid grid-cols-1 gap-x-3 gap-y-3 sm:grid-cols-2">
                         <div class="flex flex-col gap-1">
                             <label class="text-sm font-semibold text-black">Datum<RequiredMark /></label>
                             <CalendarDateField v-model="form.date" :min-days-ahead="3" block-weekends :invalid="!!form.errors.termin" />
@@ -247,7 +247,7 @@ function submit() {
                         >
                             <textarea
                                 v-model="form.remarks"
-                                class="h-full w-full resize-none bg-transparent text-sm outline-none"
+                                class="h-full w-full resize-none bg-transparent text-base outline-none md:text-sm"
                                 placeholder="Bemerkungen hinzufügen..."
                             />
                         </div>

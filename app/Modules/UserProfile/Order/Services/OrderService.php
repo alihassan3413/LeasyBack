@@ -11,6 +11,7 @@ use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Vehicle\Services\VehicleService;
 use App\Services\Mail\OrderMailer;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -53,14 +54,12 @@ class OrderService
             $this->fail(422, 'collection orders are only available for B2B vehicles');
         }
 
-        if ($this->vehicleService->hasUnfinishedOrder($vehicle->vehicle_id)) {
-            $this->fail(409, 'vehicle previous order not completed yet');
-        }
+        $this->assertNoActiveOrder($vehicle);
 
         $auftragsnummer = $this->reserveOrderNumber($vehicle, $user);
 
         $order = DB::transaction(function () use ($vehicle, $auftragsnummer, $user, $validated) {
-            $order = LeasybackOrder::create([
+            $order = $this->insertOrder([
                 'vehicle_id' => $vehicle->vehicle_id,
                 'auftragsnummer' => $auftragsnummer,
                 'leasyback_partner' => self::B2B_PARTNER,
@@ -97,9 +96,7 @@ class OrderService
             $this->fail(422, 'B2B vehicles use the collection order flow');
         }
 
-        if ($this->vehicleService->hasUnfinishedOrder($vehicle->vehicle_id)) {
-            $this->fail(409, 'vehicle previous order not completed yet');
-        }
+        $this->assertNoActiveOrder($vehicle);
 
         $station = InspectionStation::where('station_id', $validated['station_id'])
             ->where('provider', 'tuvsud')
@@ -145,7 +142,7 @@ class OrderService
 
         if ($user->user_type->value === 'Firmenkunde') {
             $order = DB::transaction(function () use ($vehicle, $auftragsnummer, $requestPayload, $user, $validated) {
-                $order = LeasybackOrder::create([
+                $order = $this->insertOrder([
                     'vehicle_id' => $vehicle->vehicle_id,
                     'auftragsnummer' => $auftragsnummer,
                     'leasyback_partner' => 'tuvsud',
@@ -177,7 +174,7 @@ class OrderService
         $respJson = $response->json() ?? ['ok' => false, 'status' => $status];
 
         $order = DB::transaction(function () use ($vehicle, $auftragsnummer, $requestPayload, $status, $respJson, $user, $validated) {
-            $order = LeasybackOrder::create([
+            $order = $this->insertOrder([
                 'vehicle_id' => $vehicle->vehicle_id,
                 'auftragsnummer' => $auftragsnummer,
                 'leasyback_partner' => 'tuvsud',
@@ -211,6 +208,8 @@ class OrderService
             $this->fail(422, 'B2B vehicles use the collection order flow');
         }
 
+        $this->assertNoActiveOrder($vehicle);
+
         $auftragsnummer = $this->reserveOrderNumber($vehicle, $user);
         $station = InspectionStation::find($validated['station_id']);
 
@@ -231,7 +230,7 @@ class OrderService
         ];
 
         $order = DB::transaction(function () use ($vehicle, $auftragsnummer, $validated, $requestPayload, $user) {
-            $order = LeasybackOrder::create([
+            $order = $this->insertOrder([
                 'vehicle_id' => $vehicle->vehicle_id,
                 'auftragsnummer' => $auftragsnummer,
                 'leasyback_partner' => $validated['provider'],
@@ -342,6 +341,55 @@ class OrderService
 
         return Vehicle::where('vehicle_id', $order->vehicle_id)->value('vehicle_belongs') === 'B2B'
             && $order->leasyback_partner === self::B2B_PARTNER;
+    }
+
+    /**
+     * The one expression of "a vehicle has at most one active order", applied
+     * by every creation path and to both channels.
+     *
+     * This pre-check exists to produce a useful 409 in the ordinary case —
+     * before a reference is reserved and before an external booking call goes
+     * out. It cannot be the whole guarantee: two requests can both read "no
+     * active order" before either writes, and the deployment target is sqlite,
+     * where lockForUpdate() compiles to nothing. insertOrder() closes that
+     * window on the unique index.
+     */
+    private function assertNoActiveOrder(Vehicle $vehicle): void
+    {
+        if ($this->vehicleService->hasUnfinishedOrder($vehicle->vehicle_id)) {
+            $this->failActiveOrderExists();
+        }
+    }
+
+    /**
+     * The single writer of `leasyback_orders`, so the race the pre-check
+     * cannot cover has exactly one place to surface.
+     *
+     * A caller that loses the race hits the unique index on
+     * `active_vehicle_id` and gets back the same 409 the pre-check produces,
+     * so no caller can tell a lost race from a plain duplicate — and the
+     * Partner API keeps mapping it to `order_already_open` unchanged. Any
+     * other unique violation on this table (`auftragsnummer`) is a real bug
+     * and is left to surface as one.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    private function insertOrder(array $attributes): LeasybackOrder
+    {
+        try {
+            return LeasybackOrder::create($attributes);
+        } catch (UniqueConstraintViolationException $e) {
+            if (! str_contains($e->getMessage(), 'active_vehicle_id')) {
+                throw $e;
+            }
+
+            $this->failActiveOrderExists();
+        }
+    }
+
+    private function failActiveOrderExists(): never
+    {
+        $this->fail(409, 'vehicle previous order not completed yet');
     }
 
     /**

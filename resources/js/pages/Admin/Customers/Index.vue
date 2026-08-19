@@ -50,7 +50,9 @@ function reload(overrides: Record<string, string | undefined> = {}) {
     );
 }
 
-const debouncedReload = useDebounceFn(() => reload(), 300);
+/* 350ms: each keystroke that fires re-renders the whole table, which is the
+   dominant cost on a phone. */
+const debouncedReload = useDebounceFn(() => reload(), 350);
 
 watch(search, debouncedReload);
 
@@ -146,13 +148,24 @@ function openCreateVehicle(customer: AdminCustomerListItem) {
 
     <AdminLayout>
         <template #header>
-            <div class="flex min-w-0 flex-1 items-center gap-4">
+            <div class="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-2">
                 <h1 class="shrink-0 text-[16px] font-extrabold tracking-[-0.3px] text-[#10393b]">Kundenverwaltung</h1>
 
-                <div class="admin-search ml-auto">
+                <div class="admin-search basis-full md:ml-auto md:basis-0">
                     <IconMdiMagnify class="size-4 shrink-0" />
 
-                    <input v-model="search" type="search" placeholder="Name, E-Mail, Stadt…" class="admin-search-input" />
+                    <input
+                        v-model="search"
+                        type="search"
+                        placeholder="Name, E-Mail, Stadt…"
+                        class="admin-search-input"
+                        autocomplete="off"
+                        autocapitalize="off"
+                        autocorrect="off"
+                        spellcheck="false"
+                        enterkeyhint="search"
+                        aria-label="Suche"
+                    />
 
                     <button v-if="search" type="button" class="search-clear" title="Suche zurücksetzen" @click="clearSearch">
                         <IconMdiClose class="size-3.5" />
@@ -161,9 +174,9 @@ function openCreateVehicle(customer: AdminCustomerListItem) {
             </div>
         </template>
 
-        <div class="flex h-full flex-col gap-5">
+        <div class="flex flex-col gap-5 md:h-full">
             <section
-                class="flex min-h-0 flex-1 flex-col rounded-[24px] border border-[#eef3f2] bg-white p-3 sm:p-6"
+                class="flex flex-col rounded-[24px] border border-[#eef3f2] bg-white p-3 sm:p-6 md:min-h-0 md:flex-1"
                 style="box-shadow: 0 6px 22px rgba(16, 57, 59, 0.04)"
             >
                 <div class="mb-5 flex shrink-0 flex-wrap items-start justify-between gap-4">
@@ -171,9 +184,7 @@ function openCreateVehicle(customer: AdminCustomerListItem) {
                         <h2 class="text-[20px] font-extrabold tracking-[-0.4px] text-[#10393b]">{{ pageTitle }}</h2>
 
                         <div class="mt-1.5 flex flex-wrap items-center gap-2">
-                            <p class="text-[12px] font-medium text-[#9bb0af]">
-                                {{ customers.total }} Kunden{{ hasQuery ? ' gefunden' : ' gesamt' }}
-                            </p>
+                            <p class="text-[12px] font-medium text-[#9bb0af]">{{ customers.total }} Kunden{{ hasQuery ? ' gefunden' : ' gesamt' }}</p>
                             <span class="h-[3px] w-[3px] rounded-full bg-[#d3dedd]"></span>
                             <span class="rounded-full bg-[#01B990]/10 px-2.5 py-1 text-[11px] font-bold text-[#00856a]">
                                 {{ customers.total_active }} Aktiv
@@ -184,13 +195,15 @@ function openCreateVehicle(customer: AdminCustomerListItem) {
                         </div>
                     </div>
 
-                    <div class="flex flex-wrap items-center gap-2">
-                        <div class="flex gap-0.5 rounded-[12px] bg-[#f4f7f6] p-[3px]">
+                    <div class="flex w-full min-w-0 flex-wrap items-center gap-2 md:w-auto">
+                        <div class="flex min-w-0 flex-wrap gap-0.5 rounded-[12px] bg-[#f4f7f6] p-[3px]">
                             <button
                                 type="button"
                                 class="rounded-[9px] px-4 py-1.5 text-[12.5px] font-bold transition-all"
                                 :class="
-                                    type === 'b2c' ? 'bg-white text-[#10393b] shadow-[0_1px_5px_rgba(16,57,59,0.1)]' : 'text-[#6f8585] hover:text-[#10393b]'
+                                    type === 'b2c'
+                                        ? 'bg-white text-[#10393b] shadow-[0_1px_5px_rgba(16,57,59,0.1)]'
+                                        : 'text-[#6f8585] hover:text-[#10393b]'
                                 "
                                 @click="switchType('b2c')"
                             >
@@ -201,7 +214,9 @@ function openCreateVehicle(customer: AdminCustomerListItem) {
                                 type="button"
                                 class="rounded-[9px] px-4 py-1.5 text-[12.5px] font-bold transition-all"
                                 :class="
-                                    type === 'b2b' ? 'bg-white text-[#10393b] shadow-[0_1px_5px_rgba(16,57,59,0.1)]' : 'text-[#6f8585] hover:text-[#10393b]'
+                                    type === 'b2b'
+                                        ? 'bg-white text-[#10393b] shadow-[0_1px_5px_rgba(16,57,59,0.1)]'
+                                        : 'text-[#6f8585] hover:text-[#10393b]'
                                 "
                                 @click="switchType('b2b')"
                             >
@@ -209,14 +224,14 @@ function openCreateVehicle(customer: AdminCustomerListItem) {
                             </button>
                         </div>
 
-                        <span class="h-6 w-px bg-[#eef3f2]"></span>
+                        <span class="hidden h-6 w-px bg-[#eef3f2] sm:block"></span>
 
-                        <div class="flex gap-1.5">
+                        <div class="filter-rail flex min-w-0 gap-1.5 sm:flex-wrap">
                             <button
                                 v-for="option in statusFilterOptions"
                                 :key="option.value"
                                 type="button"
-                                class="rounded-full px-3.5 py-1.5 text-[12px] font-bold transition-all"
+                                class="shrink-0 rounded-full px-3.5 py-1.5 text-[12px] font-bold whitespace-nowrap transition-all"
                                 :class="
                                     statusFilter === option.value
                                         ? 'bg-[#10393b] text-white shadow-[0_3px_10px_rgba(16,57,59,0.18)]'
@@ -230,17 +245,23 @@ function openCreateVehicle(customer: AdminCustomerListItem) {
                     </div>
                 </div>
 
-                <div class="min-h-0 flex-1 overflow-auto rounded-[18px] border border-[#eef3f2]">
-                    <table class="w-full min-w-[760px] border-collapse">
-                        <thead class="sticky top-0 z-10">
+                <!--
+                    Below `md` the card grows with its content and the shell
+                    scrolls; `flex-1` inside a `h-dvh` column collapsed this to
+                    zero height once the filters wrapped, which is why the table
+                    disappeared under the status filters on phones.
+                -->
+                <div class="w-full overflow-x-auto rounded-[18px] border border-[#eef3f2] md:min-h-0 md:flex-1 md:overflow-y-auto">
+                    <table class="w-full border-collapse sm:min-w-[760px]">
+                        <thead class="z-10 md:sticky md:top-0">
                             <tr class="bg-[#f8faf9]">
                                 <th class="admin-th">Kunde</th>
-                                <th class="admin-th">E-Mail</th>
-                                <th class="admin-th">Stadt</th>
-                                <th class="admin-th">Land</th>
-                                <th class="admin-th">Status</th>
-                                <th class="admin-th">Beigetreten</th>
-                                <th class="w-12 border-b border-[#eef3f2]"></th>
+                                <th class="admin-th hidden sm:table-cell">E-Mail</th>
+                                <th class="admin-th hidden md:table-cell">Stadt</th>
+                                <th class="admin-th hidden md:table-cell">Land</th>
+                                <th class="admin-th hidden sm:table-cell">Status</th>
+                                <th class="admin-th hidden md:table-cell">Beigetreten</th>
+                                <th class="w-[76px] border-b border-[#eef3f2] sm:w-12"></th>
                             </tr>
                         </thead>
 
@@ -263,7 +284,7 @@ function openCreateVehicle(customer: AdminCustomerListItem) {
                                 class="group cursor-pointer border-b border-[#eef3f2] transition-colors hover:bg-[#f6f9f8]"
                                 @click="openDetail(customer)"
                             >
-                                <td class="px-5 py-3.5">
+                                <td class="px-3 py-3.5 sm:px-5">
                                     <div class="flex items-center gap-3">
                                         <div
                                             class="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-[12px] font-extrabold text-white"
@@ -272,20 +293,31 @@ function openCreateVehicle(customer: AdminCustomerListItem) {
                                             {{ userInitials(customer) }}
                                         </div>
 
-                                        <div>
-                                            <div class="text-[13.5px] font-bold text-[#10393b]">{{ displayName(customer) }}</div>
-                                            <div class="mt-0.5 text-[11px] text-[#9bb0af]">ID {{ ownerId(customer) }}</div>
+                                        <div class="min-w-0">
+                                            <div class="truncate text-[13.5px] font-bold text-[#10393b]">{{ displayName(customer) }}</div>
+                                            <!-- Stands in for the E-Mail column, which is hidden at this width. -->
+                                            <div class="mt-0.5 truncate text-[11px] text-[#5a6e6c] sm:hidden">{{ customer.user_email }}</div>
+                                            <div class="mt-0.5 truncate text-[11px] text-[#9bb0af]">ID {{ ownerId(customer) }}</div>
+
+                                            <!-- Stands in for the Status column, which is hidden at this width. -->
+                                            <span
+                                                class="mt-1.5 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold sm:hidden"
+                                                :class="customer.is_active ? 'bg-[#01B990]/10 text-[#00856a]' : 'bg-[#ef8450]/10 text-[#c0622e]'"
+                                            >
+                                                <span class="h-[5px] w-[5px] shrink-0 rounded-full bg-current"></span>
+                                                {{ customer.is_active ? 'Aktiv' : 'Inaktiv' }}
+                                            </span>
                                         </div>
                                     </div>
                                 </td>
 
-                                <td class="px-5 py-3.5 text-[13px] text-[#5a6e6c]">{{ customer.user_email }}</td>
-                                <td class="px-5 py-3.5 text-[13px] text-[#5a6e6c]">{{ customer.city || '—' }}</td>
-                                <td class="px-5 py-3.5 text-[13px] text-[#5a6e6c]">{{ customer.country || '—' }}</td>
+                                <td class="hidden px-3 py-3.5 text-[13px] text-[#5a6e6c] sm:table-cell sm:px-5">{{ customer.user_email }}</td>
+                                <td class="hidden px-3 py-3.5 text-[13px] text-[#5a6e6c] sm:px-5 md:table-cell">{{ customer.city || '—' }}</td>
+                                <td class="hidden px-3 py-3.5 text-[13px] text-[#5a6e6c] sm:px-5 md:table-cell">{{ customer.country || '—' }}</td>
 
-                                <td class="px-5 py-3.5">
+                                <td class="hidden px-3 py-3.5 sm:table-cell sm:px-5">
                                     <span
-                                        class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold"
+                                        class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold whitespace-nowrap"
                                         :class="customer.is_active ? 'bg-[#01B990]/10 text-[#00856a]' : 'bg-[#ef8450]/10 text-[#c0622e]'"
                                     >
                                         <span class="h-[5px] w-[5px] rounded-full bg-current"></span>
@@ -293,14 +325,16 @@ function openCreateVehicle(customer: AdminCustomerListItem) {
                                     </span>
                                 </td>
 
-                                <td class="px-5 py-3.5 text-[12.5px] text-[#9bb0af] tabular-nums">{{ formatGermanDate(customer.created_at) }}</td>
+                                <td class="hidden px-3 py-3.5 text-[12.5px] text-[#9bb0af] tabular-nums sm:px-5 md:table-cell">
+                                    {{ formatGermanDate(customer.created_at) }}
+                                </td>
 
-                                <td class="px-3 py-3.5">
-                                    <div class="flex items-center gap-1">
+                                <td class="px-2 py-3.5 sm:px-3">
+                                    <div class="flex items-center justify-end gap-1">
                                         <button
                                             v-if="customer.is_active"
                                             type="button"
-                                            class="flex h-8 w-8 items-center justify-center rounded-[9px] text-[#bcccca] transition-all hover:bg-[#10393b] hover:text-white"
+                                            class="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] text-[#bcccca] transition-all hover:bg-[#10393b] hover:text-white"
                                             title="Als dieser Kunde anmelden"
                                             @click.stop="impersonate(customer)"
                                         >
@@ -309,7 +343,7 @@ function openCreateVehicle(customer: AdminCustomerListItem) {
 
                                         <button
                                             type="button"
-                                            class="flex h-8 w-8 items-center justify-center rounded-[9px] text-[#bcccca] transition-all hover:bg-[#EF8450] hover:text-white"
+                                            class="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] text-[#bcccca] transition-all hover:bg-[#EF8450] hover:text-white"
                                             title="Fahrzeug erstellen"
                                             @click.stop="openCreateVehicle(customer)"
                                         >
@@ -318,8 +352,9 @@ function openCreateVehicle(customer: AdminCustomerListItem) {
                                             </svg>
                                         </button>
 
+                                        <!-- Purely decorative affordance; dropped where width is scarce. -->
                                         <span
-                                            class="flex h-8 w-8 items-center justify-center rounded-[9px] text-[#bcccca] transition-all group-hover:bg-[#10393b] group-hover:text-white"
+                                            class="hidden h-8 w-8 items-center justify-center rounded-[9px] text-[#bcccca] transition-all group-hover:bg-[#10393b] group-hover:text-white sm:flex"
                                         >
                                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                                 <path d="M7 17L17 7M17 7H8M17 7v9" />
@@ -332,10 +367,10 @@ function openCreateVehicle(customer: AdminCustomerListItem) {
                     </table>
                 </div>
 
-                <div class="mt-4 flex shrink-0 items-center justify-between">
+                <div class="mt-4 flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2">
                     <span class="text-[12px] font-medium text-[#9bb0af]">Seite {{ page }} von {{ totalPages }}</span>
 
-                    <div class="flex gap-1">
+                    <div class="flex flex-wrap items-center justify-end gap-1">
                         <button type="button" class="lb-pg" :disabled="page <= 1" @click="goToPage(page - 1)">←</button>
 
                         <button
@@ -355,128 +390,13 @@ function openCreateVehicle(customer: AdminCustomerListItem) {
             </section>
         </div>
 
-        <CreateVehicleModal
-            v-if="createVehicleOwner"
-            v-model:open="createVehicleOpen"
-            :type="type"
-            :owner-id="ownerId(createVehicleOwner)"
-        />
+        <CreateVehicleModal v-if="createVehicleOwner" v-model:open="createVehicleOpen" :type="type" :owner-id="ownerId(createVehicleOwner)" />
     </AdminLayout>
 </template>
 
 <style scoped>
-.admin-th {
-    border-bottom: 1px solid #eef3f2;
-    padding: 14px 20px;
-    text-align: left;
-    color: #9bb0af;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-}
-
-.admin-search {
-    display: flex;
-    min-width: 0;
-    flex: 1;
-    max-width: 320px;
-    align-items: center;
-    gap: 8px;
-    border: 1px solid #e9efee;
-    border-radius: 999px;
-    background: #f4f7f6;
-    padding: 7px 14px;
-    color: #6f8585;
-    transition:
-        border-color 150ms ease,
-        background 150ms ease;
-}
-
-.admin-search:focus-within {
-    border-color: #01b990;
-    background: #ffffff;
-}
-
-.admin-search-input {
-    min-width: 0;
-    flex: 1;
-    border: 0;
-    outline: 0;
-    background: transparent;
-    color: #1a2e2f;
-    font-size: 13px;
-}
-
-.admin-search-input::-webkit-search-cancel-button {
-    display: none;
-}
-
-.admin-search-input::placeholder {
-    color: #9bb0af;
-}
-
-.search-clear {
-    display: flex;
-    width: 24px;
-    height: 24px;
-    align-items: center;
-    justify-content: center;
-    border-radius: 999px;
-    color: #9bb0af;
-    transition:
-        background 150ms ease,
-        color 150ms ease;
-}
-
-.search-clear:hover {
-    background: #ffffff;
-    color: #10393b;
-}
-
-.lb-pg {
-    display: flex;
-    width: 32px;
-    height: 32px;
-    align-items: center;
-    justify-content: center;
-    border: 1px solid #eef3f2;
-    border-radius: 8px;
-    color: #6f8585;
-    font-size: 12.5px;
-    font-weight: 700;
-    transition:
-        border-color 150ms ease,
-        background 150ms ease,
-        color 150ms ease;
-}
-
-.lb-pg:hover:not(:disabled) {
-    border-color: #10393b;
-    color: #10393b;
-}
-
-.lb-pg:disabled {
-    cursor: not-allowed;
-    opacity: 0.35;
-}
-
-.lb-pg-active {
-    border-color: #10393b;
-    background: #10393b;
-    color: #ffffff;
-}
-
-.lb-pg-active:hover:not(:disabled) {
-    color: #ffffff;
-}
-
-.lb-pg-dot {
-    cursor: default;
-    border-color: transparent;
-    color: #9bb0af;
-}
-
+/* .admin-th / .admin-search / .lb-pg live in resources/css/app.css — shared by
+   every Admin/*\/Index.vue. They used to be duplicated here and drifted. */
 button:not(:disabled) {
     cursor: pointer;
 }

@@ -38,6 +38,17 @@ class PartnerOrderEndpointTest extends TestCase
     /**
      * @return array<string, string>
      */
+    /**
+     * Close every order the way the application does — one model at a time, so
+     * LeasybackOrder::saving() releases each row's claim on its vehicle's
+     * active-order slot. A `query()->update()` here would skip that hook and
+     * leave the vehicle looking permanently busy.
+     */
+    private function closeAllOrders(): void
+    {
+        LeasybackOrder::query()->get()->each->update(['order_status' => 'completed']);
+    }
+
     private function withKey(string $token, string $key = 'order-1'): array
     {
         return [...$this->bearer($token), 'Idempotency-Key' => $key];
@@ -145,7 +156,11 @@ class PartnerOrderEndpointTest extends TestCase
         // + date and unique application-wide; OrderNumberGenerator now takes
         // the next sequence instead, so a legitimate same-day re-order is a
         // create, not a conflict.
-        LeasybackOrder::query()->update(['order_status' => 'completed']);
+        //
+        // Closed one model at a time rather than with a mass update: the row's
+        // claim on its vehicle's active-order slot is derived in
+        // LeasybackOrder::saving(), which a query-builder update skips.
+        $this->closeAllOrders();
 
         $second = $this->withHeaders($this->withKey($token, 'order-2'))
             ->postJson(route('partner.v1.vehicles.orders.store', $vehicle->vehicle_id), $this->validPayload())
@@ -167,7 +182,7 @@ class PartnerOrderEndpointTest extends TestCase
             ->postJson(route('partner.v1.vehicles.orders.store', $vehicle->vehicle_id), $this->validPayload())
             ->assertCreated();
 
-        LeasybackOrder::query()->update(['order_status' => 'completed']);
+        $this->closeAllOrders();
 
         $this->travel(1)->day();
 
@@ -272,7 +287,13 @@ class PartnerOrderEndpointTest extends TestCase
         $vehicle = Vehicle::factory()->forB2b($client->b2b_id)->create();
         $other = Vehicle::factory()->forB2b($client->b2b_id)->create();
 
-        LeasybackOrder::factory()->count(2)->create(['vehicle_id' => $vehicle->vehicle_id]);
+        // One closed, one open: a vehicle may only ever hold one active order,
+        // so a two-order history is necessarily a closed one plus a live one.
+        LeasybackOrder::factory()->create([
+            'vehicle_id' => $vehicle->vehicle_id,
+            'order_status' => 'completed',
+        ]);
+        LeasybackOrder::factory()->create(['vehicle_id' => $vehicle->vehicle_id]);
         LeasybackOrder::factory()->create(['vehicle_id' => $other->vehicle_id]);
 
         $this->withHeaders($this->bearer($token))
