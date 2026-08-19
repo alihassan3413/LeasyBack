@@ -149,7 +149,7 @@ function openDetail(order: AdminOrderRow) {
                                 {{ orders.total_confirmed }} Bestätigt
                             </span>
                             <span class="rounded-full bg-[#10393b]/[0.08] px-2.5 py-1 text-[11px] font-bold text-[#10393b]">
-                                {{ orders.total_delivered }} Geliefert
+                                {{ orders.total_delivered }} Abgeschlossen
                             </span>
                         </div>
                     </div>

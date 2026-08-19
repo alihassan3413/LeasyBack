@@ -14,7 +14,7 @@ const ORDER_STATUS_DISPLAY: Record<string, VehicleStatusDisplay> = {
     workshop: { label: 'In der Werkstatt', variant: 'warning' },
     reinspection: { label: 'Nachbegutachtung', variant: 'warning' },
     reworkshop: { label: 'Erneut in der Werkstatt', variant: 'warning' },
-    delivered: { label: 'Abgeschlossen', variant: 'success' },
+    delivered: { label: 'Abholbereit', variant: 'warning' },
     vehicle_collected: { label: 'Fahrzeug abgeholt', variant: 'default' },
     workshop_commissioned: { label: 'Werkstatt beauftragt', variant: 'warning' },
     repair_completed: { label: 'Reparatur abgeschlossen', variant: 'warning' },
@@ -37,7 +37,7 @@ export function getVehicleStatusDisplay(latestOrderStatus: string | null | undef
 }
 
 export function isVehicleCompleted(latestOrderStatus: string | null | undefined): boolean {
-    return latestOrderStatus === 'delivered' || latestOrderStatus === 'completed';
+    return latestOrderStatus === 'completed';
 }
 
 /**
@@ -55,7 +55,7 @@ export const ORDER_STATUS_LABELS: Record<string, string> = {
     workshop: 'In Werkstatt',
     reinspection: 'Nachprüfung',
     reworkshop: 'Erneut in Werkstatt',
-    delivered: 'Geliefert',
+    delivered: 'Abholbereit',
     vehicle_collected: 'Fahrzeug abgeholt',
     workshop_commissioned: 'Werkstatt beauftragt',
     repair_completed: 'Reparatur abgeschlossen',

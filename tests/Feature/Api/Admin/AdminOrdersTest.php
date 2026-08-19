@@ -31,9 +31,13 @@ class AdminOrdersTest extends TestCase
     public function test_admin_can_list_orders_filtered_by_valid_status(): void
     {
         $admin = User::factory()->create(['user_type' => UserType::Admin]);
-        $vehicle = Vehicle::factory()->create();
-        LeasybackOrder::factory()->withStatus(OrderStatus::Confirmed)->create(['vehicle_id' => $vehicle->vehicle_id]);
-        LeasybackOrder::factory()->withStatus(OrderStatus::Delivered)->create(['vehicle_id' => $vehicle->vehicle_id]);
+        // Two vehicles, not two orders on one: a car awaiting collection still
+        // holds its active-order slot, so `delivered` and `confirmed` can no
+        // longer sit on the same vehicle at once.
+        LeasybackOrder::factory()->withStatus(OrderStatus::Confirmed)
+            ->create(['vehicle_id' => Vehicle::factory()->create()->vehicle_id]);
+        LeasybackOrder::factory()->withStatus(OrderStatus::Delivered)
+            ->create(['vehicle_id' => Vehicle::factory()->create()->vehicle_id]);
 
         $response = $this->withHeaders($this->bearer($admin))
             ->getJson('/admin/list/orders?order_status=confirmed');

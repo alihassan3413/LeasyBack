@@ -6,7 +6,8 @@ export type CustomerOrderStage =
     | 'offer_approved'
     | 'in_repair'
     | 'followup_completed'
-    | 'vehicle_ready';
+    | 'vehicle_ready'
+    | 'case_closed';
 
 export const CUSTOMER_ORDER_STAGE_SEQUENCE: readonly CustomerOrderStage[] = [
     'requested',
@@ -17,11 +18,22 @@ export const CUSTOMER_ORDER_STAGE_SEQUENCE: readonly CustomerOrderStage[] = [
     'in_repair',
     'followup_completed',
     'vehicle_ready',
+    'case_closed',
 ];
 
 const PAYMENT_GATED_STAGE: CustomerOrderStage = 'vehicle_ready';
 
 export const CUSTOMER_PAYMENT_FEATURE_ENABLED = false;
+
+/**
+ * Collection is gated on payment only once payment exists. The gate used to be
+ * unconditional, so `vehicle_ready` was pinned to "future" forever — the
+ * customer got an "Ihr Fahrzeug ist abholbereit" email while the timeline still
+ * showed collection as something that had not happened yet.
+ */
+function isForcedFuture(stage: CustomerOrderStage | B2bOrderStage): boolean {
+    return CUSTOMER_PAYMENT_FEATURE_ENABLED && stage === PAYMENT_GATED_STAGE;
+}
 
 export type B2bOrderStage =
     | 'order_received'
@@ -283,6 +295,7 @@ const STAGE_SHORT_LABEL: Record<CustomerOrderStage, string> = {
     in_repair: 'In Reparaturphase',
     followup_completed: 'Nachgutachten abgeschlossen',
     vehicle_ready: 'Fahrzeug abholbereit',
+    case_closed: 'Vorgang abgeschlossen',
 };
 
 const STAGE_TOOLTIP: Record<CustomerOrderStage, string> = {
@@ -293,7 +306,8 @@ const STAGE_TOOLTIP: Record<CustomerOrderStage, string> = {
     offer_approved: 'Sie haben ein Reparaturangebot freigegeben. Die Reparatur wird nun vorbereitet.',
     in_repair: 'Ihr Fahrzeug befindet sich aktuell in der Reparatur bei der Partnerwerkstatt.',
     followup_completed: 'Die Nachbegutachtung nach der Reparatur wurde abgeschlossen. Gutachten und Rechnung stehen bereit.',
-    vehicle_ready: 'Ihr Fahrzeug ist zur Abholung bereit, sobald die Zahlung bestätigt wurde.',
+    vehicle_ready: 'Ihr Fahrzeug ist fertig und steht bei der Werkstatt zur Abholung bereit.',
+    case_closed: 'Sie haben Ihr Fahrzeug abgeholt. Der Vorgang ist abgeschlossen — es steht nichts mehr aus.',
 };
 
 const B2B_STAGE_SHORT_LABEL: Record<B2bOrderStage, string> = {
@@ -465,7 +479,8 @@ const CLOSING_STATUSES = new Set(['vehicle_returned', 'invoice_processed']);
 const TERMINAL_STATUSES = new Set(['cancelled']);
 
 function resolveProgressIndex(status: string, relevantOffer: CustomerOrderOffer | null, hasFollowupReport: boolean): number | null {
-    if (status === 'completed') return 7;
+    if (status === 'completed') return 8;
+    if (status === 'delivered') return 7;
     if (CLOSING_STATUSES.has(status)) return 6;
     if (hasFollowupReport) return 6;
     if (REPAIR_PHASE_STATUSES.has(status)) return 5;
@@ -501,9 +516,17 @@ function getStageDate(
         case 'in_repair':
             return findHistoryDate(ctx.statusHistory, REPAIR_PHASE_STATUSES, status);
         case 'followup_completed':
-            return nachgutachtenDoc?.created_at ?? findHistoryDate(ctx.statusHistory, new Set(['delivered', 'completed', ...CLOSING_STATUSES]), status);
+            // The follow-up inspection's own moment. It used to borrow the
+            // date of `delivered`/`completed`, which put the wrong timestamp on
+            // the step as soon as those became distinct events.
+            return (
+                nachgutachtenDoc?.created_at ??
+                findHistoryDate(ctx.statusHistory, new Set(['reinspection', ...CLOSING_STATUSES]), status)
+            );
         case 'vehicle_ready':
-            return '';
+            return findHistoryDate(ctx.statusHistory, new Set(['delivered']));
+        case 'case_closed':
+            return findHistoryDate(ctx.statusHistory, new Set(['completed']));
     }
 }
 
@@ -575,6 +598,9 @@ function buildStep(
             break;
         case 'vehicle_ready':
             subtitle = 'Ihr Fahrzeug kann nun abgeholt werden.\nHier können Sie Ihre Rechnung einsehen';
+            break;
+        case 'case_closed':
+            subtitle = 'Der Vorgang ist abgeschlossen.\nAlle Unterlagen bleiben hier für Sie verfügbar';
             break;
     }
 
@@ -799,7 +825,7 @@ export function getCustomerOrderFlowSteps(ctx: CustomerOrderFlowInput): Customer
     let nextAssigned = false;
 
     return CUSTOMER_ORDER_STAGE_SEQUENCE.map((stage, index) => {
-        const forcedFuture = stage === PAYMENT_GATED_STAGE;
+        const forcedFuture = isForcedFuture(stage);
         const completed = !forcedFuture && index < progressIndex;
         const isCurrent = !forcedFuture && index === progressIndex;
         const isUpcoming = forcedFuture || index > progressIndex;

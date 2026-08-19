@@ -59,9 +59,39 @@ class TransitionOrderStatus
         'confirmed' => ['inspected', 'cancelled'],
         'inspected' => ['workshop', 'cancelled'],
         'workshop' => ['reinspection', 'cancelled'],
+
+        /*
+         * `reinspection` means the follow-up inspection has been *performed* —
+         * FinalInspectionCompletedMail says so to the customer, and the
+         * provider callback's own event name is `reinspection_completed`. What
+         * it deliberately does not say is the outcome: that is the branch taken
+         * from here. Back to `reworkshop` means the repair did not hold, and
+         * `delivered` means it did. The finding itself lives where findings
+         * live — the Nachgutachten in `vehicle_report_documents` — so no status
+         * carries report data.
+         */
         'reinspection' => ['reworkshop', 'delivered', 'cancelled'],
-        'reworkshop' => ['cancelled'],
-        'delivered' => [],
+
+        /*
+         * The loop back to `reinspection`, and the reason this map changed:
+         * `reworkshop` used to offer only `cancelled`, so a car that failed its
+         * follow-up inspection could never be finished — the single way out of
+         * a second repair was to cancel a case the customer had already paid a
+         * workshop for. The cycle is deliberately unbounded: how many times a
+         * repair has to be redone is a fact about the car, not a number this
+         * table should cap.
+         */
+        'reworkshop' => ['reinspection', 'cancelled'],
+
+        /*
+         * `delivered` is "ready for collection", not "finished" — it is what
+         * sends VehicleReadyForPickupMail. The car is still at the workshop and
+         * the case is still open, so it is not terminal and not closed; see
+         * OrderStatus::closedValues(). Collection is what closes a B2C case.
+         */
+        'delivered' => ['completed', 'cancelled'],
+
+        'completed' => [],
         'cancelled' => [],
         'discarded' => [],
     ];

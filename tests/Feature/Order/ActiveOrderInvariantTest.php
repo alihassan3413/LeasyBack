@@ -156,11 +156,14 @@ class ActiveOrderInvariantTest extends TestCase
 
         $this->assertSame($vehicle->vehicle_id, $this->slotClaim($order));
 
+        // `delivered` means the car is ready to collect, not that the case is
+        // over, so it keeps its claim — the vehicle is not free for a new
+        // order until someone has actually picked the car up.
         $order->update(['order_status' => OrderStatus::Delivered->value]);
-        $this->assertNull($this->slotClaim($order));
-
-        $order->update(['order_status' => OrderStatus::Confirmed->value]);
         $this->assertSame($vehicle->vehicle_id, $this->slotClaim($order));
+
+        $order->update(['order_status' => OrderStatus::Completed->value]);
+        $this->assertNull($this->slotClaim($order));
     }
 
     // ------------------------------------------------------ releasing the slot

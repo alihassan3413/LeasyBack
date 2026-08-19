@@ -15,7 +15,10 @@ class OrderStatusLabel
         'workshop' => 'In Werkstatt',
         'reinspection' => 'Nachprüfung',
         'reworkshop' => 'Erneut in Werkstatt',
-        'delivered' => 'Abgeschlossen',
+        // "Ready for collection", not "finished" — this is the status that
+        // sends VehicleReadyForPickupMail. It read 'Abgeschlossen' here while
+        // the frontend read 'Geliefert', and neither was what it means.
+        'delivered' => 'Abholbereit',
         'vehicle_collected' => 'Fahrzeug abgeholt',
         'workshop_commissioned' => 'Werkstatt beauftragt',
         'repair_completed' => 'Reparatur abgeschlossen',

@@ -34,6 +34,11 @@ enum OrderStatus: string
     /**
      * Statuses that only a B2B return order may ever hold.
      *
+     * `completed` is deliberately absent: it is the successful terminal of
+     * both channels now that a B2C case can genuinely close. What stays
+     * B2B-only is the billing gate in front of it (see
+     * TransitionOrderStatus::guardBillingBeforeCompletion), not the status.
+     *
      * @return array<string>
      */
     public static function b2bOnlyValues(): array
@@ -44,13 +49,13 @@ enum OrderStatus: string
             self::RepairCompleted->value,
             self::VehicleReturned->value,
             self::InvoiceProcessed->value,
-            self::Completed->value,
         ];
     }
 
     /**
-     * Statuses that only a B2C order may ever hold. `delivered` is the B2C
-     * "ready for customer pickup" terminal; a B2B order ends at `completed`.
+     * Statuses that only a B2C order may ever hold. `delivered` is the point
+     * where a private customer's car is ready to collect from the workshop —
+     * B2B has no equivalent, because there LeasyBack moves the vehicle itself.
      *
      * @return array<string>
      */
@@ -63,22 +68,27 @@ enum OrderStatus: string
     }
 
     /**
-     * Statuses that close an order successfully — `delivered` is the B2C
-     * terminal, `completed` the B2B one. A subset of closedValues(), which
-     * also covers the unsuccessful terminals.
+     * Statuses that close an order successfully.
+     *
+     * `completed` is now the single successful terminal in both channels.
+     * `delivered` used to be listed here as the B2C one, which was wrong in a
+     * way that mattered: it means "ready for collection", so a car still
+     * standing at the workshop counted as a finished case — it released the
+     * vehicle's active-order claim and let a second order be booked for a car
+     * the customer had not picked up yet.
      *
      * @return array<string>
      */
     public static function completedValues(): array
     {
         return [
-            self::Delivered->value,
             self::Completed->value,
         ];
     }
 
     /**
-     * Statuses that close an order for good, in either channel.
+     * Statuses that close an order for good, in either channel — nothing is
+     * pending from the customer, the workshop, an inspector or LeasyBack.
      *
      * @return array<string>
      */

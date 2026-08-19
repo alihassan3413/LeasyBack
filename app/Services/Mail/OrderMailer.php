@@ -35,8 +35,9 @@ class OrderMailer
         'reworkshop' => VehicleInRepairMail::class,
         'reinspection' => FinalInspectionCompletedMail::class,
         'delivered' => VehicleReadyForPickupMail::class,
-        // B2B-only terminal (§18 "order completed"). `delivered` remains the
-        // B2C terminal above, so this entry cannot affect a B2C order.
+        // The successful terminal of both channels. For B2B it lands after
+        // billing; for B2C it lands when the customer has collected the car,
+        // which is the point at which nothing is pending from anyone.
         'completed' => OrderCompletedMail::class,
     ];
 

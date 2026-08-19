@@ -193,7 +193,7 @@ class OrderNumberGeneratorTest extends TestCase
         // Closed before the second, exactly as the B2B case above does: a
         // vehicle may hold only one active order, so "two references for one
         // vehicle" is only reachable across a completed first order.
-        $first->update(['order_status' => 'delivered']);
+        $first->update(['order_status' => 'completed']);
 
         $second = app(OrderService::class)->createOtherOrder($vehicle, $customer, $this->otherProviderPayload());
 
