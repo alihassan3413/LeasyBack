@@ -65,14 +65,18 @@ class OfferController extends Controller
         abort_unless($request->user()->can('selectOnBehalf', $offer), 403);
 
         try {
-            $this->offerService->selectOffer($offer, $request->user(), onBehalfOfCustomer: true);
+            $result = $this->offerService->selectOffer($offer, $request->user(), onBehalfOfCustomer: true);
         } catch (HttpResponseException $e) {
             $message = $e->getResponse()->getData(true)['error'] ?? 'Angebot konnte nicht angenommen werden.';
 
             return back()->withErrors(['offer' => $message])->with('error', $message);
         }
 
-        return back()->with('success', 'Angebot wurde im Auftrag des Kunden angenommen.');
+        // Covers the admin arriving second on a decision the customer already
+        // made — the same offer, so nothing to do and nothing to undo.
+        return back()->with('success', $result['already_selected']
+            ? 'Dieses Angebot war bereits angenommen.'
+            : 'Angebot wurde im Auftrag des Kunden angenommen.');
     }
 
     public function cancel(Request $request, string $offerId): RedirectResponse

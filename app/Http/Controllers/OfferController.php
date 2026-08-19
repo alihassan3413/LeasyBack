@@ -34,10 +34,25 @@ class OfferController extends Controller
             abort(404);
         }
 
-        return $this->withServiceErrorHandling(
+        $result = null;
+
+        $denied = $this->withServiceErrorHandling(
             'offer',
-            fn () => $this->offerService->selectOffer($offer, $user)
-        ) ?? back()->with('success', 'Angebot wurde ausgewählt.');
+            function () use ($offer, $user, &$result) {
+                $result = $this->offerService->selectOffer($offer, $user);
+            }
+        );
+
+        if ($denied) {
+            return $denied;
+        }
+
+        // A replay — double-click, browser retry, back-and-resubmit — reaches
+        // the same successful state, and says so rather than claiming a second
+        // acceptance just happened.
+        return back()->with('success', $result['already_selected']
+            ? 'Dieses Angebot ist bereits angenommen.'
+            : 'Angebot wurde ausgewählt.');
     }
 
     /**

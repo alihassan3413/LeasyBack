@@ -175,10 +175,16 @@ class OfferController extends Controller
             return $e->getResponse();
         }
 
+        // A replayed call answers 200 with the decision that already stands,
+        // so a client retrying after a dropped response converges instead of
+        // seeing an error for a request that actually succeeded.
         return response()->json([
-            'message' => 'Offer selected successfully',
+            'message' => $result['already_selected']
+                ? 'Offer was already selected'
+                : 'Offer selected successfully',
             'selected_offer' => $result['offer'],
             'other_offers_closed' => $result['closed_count'],
+            'already_selected' => $result['already_selected'],
         ]);
     }
 }

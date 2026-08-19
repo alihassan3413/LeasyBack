@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import { AppModal, AppModalButton } from '@/components/ui/modal';
 import type { OfferData } from '@/types/order';
 import { router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 import MdiCheck from '~icons/mdi/check';
+import MdiInformationOutline from '~icons/mdi/information-outline';
 import MdiTrendingDown from '~icons/mdi/trending-down';
 
 const props = withDefaults(
@@ -79,10 +81,37 @@ function isBest(offer: OfferData): boolean {
     return bestTotal.value !== null && toNumber(offer.final_total_gross) === bestTotal.value;
 }
 
-function selectOffer(offer: OfferData) {
+/**
+ * Accepting is binding and closes every competing offer, so it is confirmed
+ * rather than fired straight off the table button — the same reason the admin
+ * side confirms a charge. The dialog names the offer and the amount, so the
+ * decision being confirmed is the one the customer thinks they are making.
+ */
+const pendingOffer = ref<OfferData | null>(null);
+
+function askToSelect(offer: OfferData) {
+    pendingOffer.value = offer;
+}
+
+function confirmSelection() {
+    const offer = pendingOffer.value;
+
+    if (!offer || selectingOfferId.value !== null) {
+        return;
+    }
+
     selectingOfferId.value = offer.offer_id;
 
-    const options = { preserveScroll: true, onFinish: () => (selectingOfferId.value = null) };
+    const options = {
+        preserveScroll: true,
+        // Closed on finish rather than on success: a conflict redirects back
+        // with fresh offers, and leaving the dialog open over a table that has
+        // just changed underneath would invite a second wrong click.
+        onFinish: () => {
+            selectingOfferId.value = null;
+            pendingOffer.value = null;
+        },
+    };
 
     if (props.admin) {
         router.patch(route('admin.orders.offers.select', offer.offer_id), {}, options);
@@ -194,7 +223,7 @@ function selectOffer(offer: OfferData) {
                                 class="h-9 w-full rounded-full px-4 text-[13px] font-semibold text-white shadow-lg transition-all duration-200 disabled:cursor-not-allowed"
                                 :style="selectingOfferId ? 'background: #D9D9D9;' : 'background: #EF8450;'"
                                 :disabled="selectingOfferId !== null"
-                                @click="selectOffer(offer)"
+                                @click="askToSelect(offer)"
                             >
                                 {{ selectingOfferId === offer.offer_id ? 'Wird gewählt…' : 'Annehmen' }}
                             </button>
@@ -203,5 +232,45 @@ function selectOffer(offer: OfferData) {
                 </tbody>
             </table>
         </div>
+
+        <AppModal
+            :open="pendingOffer !== null"
+            :title="admin ? 'Angebot im Auftrag des Kunden annehmen' : 'Angebot verbindlich annehmen'"
+            :description="
+                admin
+                    ? 'Die Annahme wird im Namen des Kunden protokolliert und kann nicht zurückgenommen werden.'
+                    : 'Ihre Auswahl ist verbindlich und kann nicht zurückgenommen werden.'
+            "
+            :width="520"
+            @update:open="(value) => !value && selectingOfferId === null && (pendingOffer = null)"
+        >
+            <div v-if="pendingOffer" class="flex flex-col gap-4 px-2 pb-1">
+                <div class="rounded-[14px] border border-[#e6eded] bg-[#fbfdfd] px-4 py-3.5">
+                    <p class="text-[12px] text-[#00000080]">Angebot {{ pendingOffer.offer_sequence }}</p>
+                    <p class="mt-1 text-[22px] leading-none font-extrabold text-[#10393b] tabular-nums">
+                        {{ currency(pendingOffer.final_total_gross) }}
+                    </p>
+                    <p v-if="pendingOffer.final_total_net" class="mt-1 text-[12px] text-[#9aacac]">
+                        {{ currency(pendingOffer.final_total_net) }} netto
+                    </p>
+                </div>
+
+                <div class="flex items-start gap-2.5 text-[13px] leading-normal text-[#00000099]">
+                    <MdiInformationOutline class="mt-0.5 shrink-0 text-[16px] text-[#9aacac]" />
+                    <p v-if="sorted.length > 1">
+                        Mit der Annahme werden die {{ sorted.length - 1 }} übrigen {{ sorted.length - 1 === 1 ? 'Angebot' : 'Angebote' }} für diesen
+                        Auftrag geschlossen.
+                    </p>
+                    <p v-else>Nach der Annahme beauftragen wir die Werkstatt für Sie.</p>
+                </div>
+            </div>
+
+            <template #footer>
+                <AppModalButton variant="secondary" :disabled="selectingOfferId !== null" @click="pendingOffer = null"> Abbrechen </AppModalButton>
+                <AppModalButton :disabled="selectingOfferId !== null" @click="confirmSelection">
+                    {{ selectingOfferId !== null ? 'Wird gewählt…' : 'Verbindlich annehmen' }}
+                </AppModalButton>
+            </template>
+        </AppModal>
     </section>
 </template>
