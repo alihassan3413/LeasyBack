@@ -17,6 +17,7 @@ declare global {
   const Link: typeof import('@inertiajs/vue3').Link
   const ONBOARDING_VIDEO_POSTER_URL: typeof import('../lib/onboarding').ONBOARDING_VIDEO_POSTER_URL
   const ONBOARDING_VIDEO_URL: typeof import('../lib/onboarding').ONBOARDING_VIDEO_URL
+  const ORDER_STATUS_LABELS: typeof import('../lib/vehicleStatus').ORDER_STATUS_LABELS
   const PLATE_MAX_TOTAL: typeof import('../lib/licensePlate').PLATE_MAX_TOTAL
   const PLATE_MESSAGES: typeof import('../lib/licensePlate').PLATE_MESSAGES
   const REPORT_DOCUMENT_TYPES: typeof import('../lib/documentTypes').REPORT_DOCUMENT_TYPES
@@ -196,6 +197,7 @@ declare module 'vue' {
     readonly Link: UnwrapRef<typeof import('@inertiajs/vue3')['Link']>
     readonly ONBOARDING_VIDEO_POSTER_URL: UnwrapRef<typeof import('../lib/onboarding')['ONBOARDING_VIDEO_POSTER_URL']>
     readonly ONBOARDING_VIDEO_URL: UnwrapRef<typeof import('../lib/onboarding')['ONBOARDING_VIDEO_URL']>
+    readonly ORDER_STATUS_LABELS: UnwrapRef<typeof import('../lib/vehicleStatus')['ORDER_STATUS_LABELS']>
     readonly PLATE_MAX_TOTAL: UnwrapRef<typeof import('../lib/licensePlate')['PLATE_MAX_TOTAL']>
     readonly PLATE_MESSAGES: UnwrapRef<typeof import('../lib/licensePlate')['PLATE_MESSAGES']>
     readonly REPORT_DOCUMENT_TYPES: UnwrapRef<typeof import('../lib/documentTypes')['REPORT_DOCUMENT_TYPES']>

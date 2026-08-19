@@ -40,8 +40,14 @@ export function isVehicleCompleted(latestOrderStatus: string | null | undefined)
     return latestOrderStatus === 'delivered' || latestOrderStatus === 'completed';
 }
 
-/** German order-status wording used across the dashboard, matching leasyback_web's lib/status.ts. */
-const ORDER_STATUS_LABELS: Record<string, string> = {
+/**
+ * The single source of truth for raw `order_status` wording, shared by every
+ * surface that shows one — customer and Admin alike. Admin owns its own pill
+ * colours (lib/adminStatus.ts) but must not own a second copy of these labels:
+ * that duplication is what let `order_placed` read "Angefragt" in Admin while
+ * the customer saw "Bestellt" for the same order (QA Bug 11).
+ */
+export const ORDER_STATUS_LABELS: Record<string, string> = {
     order_requested: 'Anfrage gesendet',
     order_placed: 'Bestellt',
     confirmed: 'Bestätigt',
