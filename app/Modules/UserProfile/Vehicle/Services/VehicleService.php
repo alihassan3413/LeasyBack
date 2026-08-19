@@ -104,6 +104,12 @@ class VehicleService
      * Update a vehicle's own fields (never its owner or license plate).
      * Ownership authorization is the caller's job (VehiclePolicy) — this
      * assumes the caller is already allowed to update $vehicle.
+     *
+     * A field the payload omits is left alone; a field it carries is written,
+     * `null` included. Dropping nulls here meant "Das genaue Datum des
+     * Leasingendes liegt mir aktuell nicht vor" could never take an
+     * already-saved date back off the vehicle — the edit looked accepted and
+     * the old value came straight back on the next render.
      */
     public function updateVehicle(Vehicle $vehicle, array $validated, User $user): Vehicle
     {
@@ -113,7 +119,7 @@ class VehicleService
             $fleet = $this->b2bFleetAttributes($validated, $vehicle->vehicle_belongs, $vehicle->b2b_id, $user);
             $plain = Arr::except($validated, [...Vehicle::B2B_ONLY_ATTRIBUTES, 'collection_address']);
 
-            $vehicle->update([...array_filter($plain, fn ($value) => $value !== null), ...$fleet]);
+            $vehicle->update([...self::blanksAsNull($plain), ...$fleet]);
 
             VehicleAuditLog::create([
                 'vehicle_id' => $vehicle->vehicle_id,
@@ -178,8 +184,7 @@ class VehicleService
 
         foreach (['mileage', 'contract_number', 'cost_centre', 'driver_name', 'driver_contact'] as $field) {
             if (array_key_exists($field, $validated)) {
-                $value = $validated[$field];
-                $attributes[$field] = is_string($value) && trim($value) === '' ? null : $value;
+                $attributes[$field] = self::blankAsNull($validated[$field]);
             }
         }
 
@@ -192,6 +197,24 @@ class VehicleService
         }
 
         return $attributes;
+    }
+
+    /**
+     * A cleared field arrives as `null` from the API and as `''` from a form
+     * input, and both mean "there is no value" — the column stores `null` for
+     * either, so an emptied field reads back as empty everywhere.
+     *
+     * @param  array<string, mixed>  $attributes
+     * @return array<string, mixed>
+     */
+    private static function blanksAsNull(array $attributes): array
+    {
+        return array_map(self::blankAsNull(...), $attributes);
+    }
+
+    private static function blankAsNull(mixed $value): mixed
+    {
+        return is_string($value) && trim($value) === '' ? null : $value;
     }
 
     /**

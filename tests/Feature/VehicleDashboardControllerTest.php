@@ -172,6 +172,86 @@ class VehicleDashboardControllerTest extends TestCase
         $this->assertSame('Volkswagen', $vehicle->fresh()->make);
     }
 
+    /**
+     * Ticking "Das genaue Datum des Leasingendes liegt mir aktuell nicht vor"
+     * sends an explicit null for the field. That has to reach the column: the
+     * update used to drop nulls, so the old date came straight back into the
+     * vehicle card and the edit looked like it had been ignored.
+     */
+    public function test_owner_can_clear_leasing_end_date_and_leasinggeber(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create([
+            'b2c_user_id' => $owner->id,
+            'vehicle_belongs' => 'B2C',
+            'leasing_end_date' => '2026-01-01',
+            'leasinggeber' => 'Alte Bank',
+        ]);
+
+        $this->actingAs($owner)
+            ->from(route('dashboard'))
+            ->patch(route('vehicles.update', $vehicle->vehicle_id), [
+                'leasing_end_date' => null,
+                'leasinggeber' => null,
+            ])
+            ->assertRedirect(route('dashboard'));
+
+        $fresh = $vehicle->fresh();
+        $this->assertNull($fresh->leasing_end_date);
+        $this->assertNull($fresh->leasinggeber);
+
+        $this->actingAs($owner)
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('vehicles.0.leasing_end_date', null)
+                ->where('vehicles.0.leasinggeber', null)
+            );
+    }
+
+    /**
+     * An emptied text input arrives as "" rather than null, and means the same
+     * thing — otherwise the field reads back as set and the "liegt mir nicht
+     * vor" checkbox would not come back ticked on the next edit.
+     */
+    public function test_owner_can_clear_leasinggeber_with_an_empty_string(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create([
+            'b2c_user_id' => $owner->id,
+            'vehicle_belongs' => 'B2C',
+            'leasinggeber' => 'Alte Bank',
+        ]);
+
+        $this->actingAs($owner)
+            ->from(route('dashboard'))
+            ->patch(route('vehicles.update', $vehicle->vehicle_id), ['leasinggeber' => ''])
+            ->assertRedirect(route('dashboard'));
+
+        $this->assertNull($vehicle->fresh()->leasinggeber);
+    }
+
+    public function test_update_leaves_omitted_fields_alone(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create([
+            'b2c_user_id' => $owner->id,
+            'vehicle_belongs' => 'B2C',
+            'leasing_end_date' => '2026-01-01',
+            'leasinggeber' => 'Alte Bank',
+        ]);
+
+        $this->actingAs($owner)
+            ->from(route('dashboard'))
+            ->patch(route('vehicles.update', $vehicle->vehicle_id), ['make' => 'Volkswagen'])
+            ->assertRedirect(route('dashboard'));
+
+        $fresh = $vehicle->fresh();
+        $this->assertSame('Volkswagen', $fresh->make);
+        $this->assertSame('2026-01-01', $fresh->leasing_end_date->format('Y-m-d'));
+        $this->assertSame('Alte Bank', $fresh->leasinggeber);
+    }
+
     public function test_non_owner_cannot_update_vehicle(): void
     {
         $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
