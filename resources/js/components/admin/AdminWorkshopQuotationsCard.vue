@@ -10,9 +10,10 @@
  * The generated link is shown once, right after creation: only its hash is
  * stored, so it cannot be displayed again later.
  *
- * `canCreateOffer` is the one channel-dependent bit left: turning a quotation
- * into a customer offer is still B2B-only, so the action is hidden rather than
- * offered and then refused by a 404. It goes away once B2C offers land.
+ * Nothing here is channel-dependent any more. Turning a submitted quotation
+ * into a customer offer used to be hidden for B2C because the endpoint refused
+ * it; the quotation-backed offer flow serves both channels, so the action is
+ * offered wherever there is a submitted quotation to take.
  */
 import RequiredMark from '@/components/form/RequiredMark.vue';
 import InputError from '@/components/InputError.vue';
@@ -27,7 +28,6 @@ const props = defineProps<{
     orderId: string;
     quotations: AdminWorkshopQuotation[];
     hasPositions: boolean;
-    canCreateOffer: boolean;
 }>();
 
 const page = usePage();
@@ -212,7 +212,7 @@ async function copyLink(link: string) {
                     </button>
 
                     <button
-                        v-if="canCreateOffer && quotation.status === 'submitted'"
+                        v-if="quotation.status === 'submitted'"
                         type="button"
                         :disabled="offerForm.processing"
                         class="text-[11.5px] font-bold text-[#10393b] hover:opacity-70 disabled:opacity-50"

@@ -1,10 +1,15 @@
 <script setup lang="ts">
 /**
- * The Admin work queue for one B2B order, rendered from
+ * The Admin work queue for one order — B2B or B2C — rendered from
  * OrderTaskResolver::forOrderDetail(). Nothing is decided here — the card
- * only emphasises the single `next` action the backend derived and lists the
- * satisfied steps as compact history, so what an admin sees can never drift
- * from the order data.
+ * only emphasises the single `next` step the backend derived and lists the
+ * satisfied ones as compact history, so what an admin sees can never drift
+ * from the order data, and neither channel needs its own card.
+ *
+ * The badge reads from `actor`, so a step that is genuinely someone else's move
+ * says whose rather than presenting as an Admin to-do. A waiting step may still
+ * carry an action — recording an outcome when it arrives is Admin work — so the
+ * button follows `action`, not the badge.
  *
  * This is Admin-only internal information and lives outside the shared
  * customer timeline; no part of it reaches a customer payload.
@@ -73,8 +78,17 @@ function formatDate(value: string | null): string {
     return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
+const WAITING_LABEL: Record<string, string> = {
+    customer: 'Wartet auf Kunde',
+    workshop: 'Wartet auf Werkstatt',
+};
+
 function stateLabel(task: AdminOrderTask | null): string {
-    return task?.state === 'waiting' ? 'Wartet' : 'Offen';
+    if (task?.state !== 'waiting') {
+        return 'Offen';
+    }
+
+    return WAITING_LABEL[task.actor] ?? 'Wartet';
 }
 </script>
 

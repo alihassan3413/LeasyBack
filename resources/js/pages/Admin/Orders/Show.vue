@@ -325,7 +325,7 @@ function formatDateTime(value: string | null): string {
                         </OrderStatusTimeline>
                     </div>
 
-                    <AdminOrderTasksCard v-if="order.tasks" :tasks="order.tasks" />
+                    <AdminOrderTasksCard :tasks="order.tasks" />
 
                     <OrderMessages :order-id="order.id" :auftragsnummer="order.auftragsnummer" container-class="content-card overflow-hidden p-0" />
 
@@ -357,7 +357,12 @@ function formatDateTime(value: string | null): string {
                         together. Both channels: the commission card works out for itself
                         whether this order has a workshop to commission.
                     -->
-                    <AdminWorkshopCommissionCard v-if="showCommissionCard" :order-id="order.id" :commission="order.workshop_commission" />
+                    <AdminWorkshopCommissionCard
+                        v-if="showCommissionCard"
+                        id="order-section-beauftragung"
+                        :order-id="order.id"
+                        :commission="order.workshop_commission"
+                    />
 
                     <AdminRepairAppointmentCard
                         v-if="showRepairAppointment"
@@ -379,8 +384,7 @@ function formatDateTime(value: string | null): string {
                             :order-id="order.id"
                             :quotations="order.workshop_quotations"
                             :has-positions="!!order.appraisal_positions.length"
-                            :can-create-offer="order.vehicle_belongs === 'B2B'"
-                        />
+                                                    />
 
                         <AdminOffersCard :order-id="order.id" :offers="order.offers" />
                     </div>
@@ -432,6 +436,7 @@ function formatDateTime(value: string | null): string {
                     </div>
 
                     <AdminAppraisalPositionsCard
+                        id="order-section-positionen"
                         :order-id="order.id"
                         :positions="order.appraisal_positions"
                         :totals="order.appraisal_totals"

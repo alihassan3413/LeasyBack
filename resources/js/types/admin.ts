@@ -285,12 +285,22 @@ export interface AdminOrderTaskAction {
     label: string;
 }
 
-/** The single emphasised open action OrderTaskResolver derives for a B2B order. */
+/**
+ * The single emphasised open step OrderTaskResolver derives for an order, in
+ * either channel.
+ *
+ * `state` says whether anything is open; `actor` says whose move it is. The two
+ * together are what distinguish an Admin to-do from a wait on the customer and
+ * a wait on the workshop — a waiting step may still carry an action (recording
+ * the outcome when it arrives), so the badge is driven by `actor`, not by
+ * whether `action` happens to be set.
+ */
 export interface AdminOrderTask {
     key: string;
     title: string;
     description: string;
     state: 'open' | 'waiting';
+    actor: 'admin' | 'customer' | 'workshop';
     date: string | null;
     date_label: string;
     section: string;
@@ -306,7 +316,7 @@ export interface AdminOrderTaskHistoryEntry {
     state: 'done';
 }
 
-/** Matches OrderTaskResolver::forOrderDetail(); null for every B2C order. */
+/** Matches OrderTaskResolver::forOrderDetail(). Both channels, never null. */
 export interface AdminOrderTasks {
     next: AdminOrderTask | null;
     history: AdminOrderTaskHistoryEntry[];
@@ -323,7 +333,7 @@ export interface AdminOrderDetail extends AdminOrderRow {
     vehicle_belongs: 'B2B' | 'B2C';
     collection: OrderCollectionData | null;
     workshop_commission: AdminWorkshopCommission;
-    tasks: AdminOrderTasks | null;
+    tasks: AdminOrderTasks;
     /** Both channels — an order with no positions yet sends an empty list, not null. */
     appraisal_positions: AdminAppraisalPosition[];
     appraisal_totals: AdminAppraisalTotals;

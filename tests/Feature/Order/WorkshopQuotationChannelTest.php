@@ -463,7 +463,10 @@ class WorkshopQuotationChannelTest extends TestCase
         $this->assertNull($payload['billing']);
         $this->assertNull($payload['notes']);
         $this->assertNull($payload['collection']);
-        $this->assertNull($payload['tasks']);
+
+        // Tasks are no longer on this list: the resolver answers for both
+        // channels now. OrderTaskResolverTest owns that boundary.
+        $this->assertNotNull($payload['tasks']);
     }
 
     /**

@@ -306,7 +306,12 @@ class RepairPositionsTest extends TestCase
         $this->assertNull($payload['billing']);
         $this->assertNull($payload['notes']);
         $this->assertNull($payload['collection']);
-        $this->assertNull($payload['tasks']);
+
+        // The task queue used to be on this list and has since been generalized
+        // on purpose — Admin needs a next step in both channels. What stays true
+        // is that it never offers a B2B-only one. OrderTaskResolverTest owns it.
+        $this->assertNotNull($payload['tasks']);
+        $this->assertNotContains('confirm_collection', array_column($payload['tasks']['history'], 'key'));
     }
 
     // ------------------------------------------------------------------ B2B
