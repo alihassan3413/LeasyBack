@@ -304,9 +304,36 @@ function hasRejectedOffer(ctx: CustomerOrderFlowInput): boolean {
     return (ctx.offers ?? []).some((offer) => offer.offer_status === 'rejected');
 }
 
+/**
+ * Whether a stage actually happened, for the two rungs the order status alone
+ * cannot vouch for.
+ *
+ * The timeline derives one index from the status and then marks every earlier
+ * rung as complete, which is sound for stages the status itself proves — an
+ * order cannot be `workshop` without having been confirmed and inspected. It is
+ * not sound for the offer rungs. `inspected → workshop` is a deliberate,
+ * supported jump for repairs agreed outside the system, and taking it used to
+ * tick "Reparaturangebote zur Freigabe" and "Angebotsfreigabe erteilt" on an
+ * order that never had an offer at all — the second one even claiming "Ihr
+ * ausgewähltes Angebot wird nun vorbereitet." to a customer who had chosen
+ * nothing. Those two rungs are therefore proved by the offers themselves.
+ */
+function stageHappened(stage: CustomerOrderStage, ctx: CustomerOrderFlowInput): boolean {
+    const offers = ctx.offers ?? [];
+
+    switch (stage) {
+        case 'offers_published':
+            return offers.length > 0;
+        case 'offer_approved':
+            return offers.some((offer) => offer.offer_status === 'selected');
+        default:
+            return true;
+    }
+}
+
 function offerApprovedSubtitle(offer: CustomerOrderOffer | null): string {
     if (!offer) {
-        return 'Ihr ausgewähltes Angebot wird nun vorbereitet.';
+        return '';
     }
 
     const reference = offer.offer_sequence ? `Angebot ${String(offer.offer_sequence).padStart(2, '0')}` : 'Ihr Angebot';
@@ -614,6 +641,8 @@ function buildStep(
         isCancelled: boolean;
         isRejected: boolean;
         cancelledBy?: string | null;
+        /** Passed over: the order moved beyond this rung without taking it. */
+        skipped?: boolean;
     },
 ): CustomerOrderFlowStep {
     const termin = ctx.besichtigungsort?.termin;
@@ -683,6 +712,13 @@ function buildStep(
         case 'case_closed':
             subtitle = 'Der Vorgang ist abgeschlossen.\nAlle Unterlagen bleiben hier für Sie verfügbar';
             break;
+    }
+
+    // A rung the order went past without taking. Its normal wording is an
+    // instruction ("Bitte geben Sie ein Angebot Ihrer Wahl frei"), which reads
+    // as an outstanding demand on a step that is never coming.
+    if (state.skipped) {
+        subtitle = 'Für diesen Auftrag wurde kein Kundenangebot erstellt — die Reparatur wurde direkt abgestimmt.';
     }
 
     // A cancelled order used to keep the stage's own wording, so the only cue
@@ -912,7 +948,13 @@ export function getCustomerOrderFlowSteps(ctx: CustomerOrderFlowInput): Customer
 
     return CUSTOMER_ORDER_STAGE_SEQUENCE.map((stage, index) => {
         const forcedFuture = isForcedFuture(stage);
-        const completed = !forcedFuture && index < progressIndex;
+        const reached = !forcedFuture && index < progressIndex;
+
+        // Reached, but with nothing to show for it — the repair was arranged
+        // without ever going through an offer. Neither ticked nor pending: it is
+        // a step this order did not take.
+        const skipped = reached && !stageHappened(stage, ctx);
+        const completed = reached && !skipped;
         const isCurrent = !forcedFuture && index === progressIndex;
         const isUpcoming = forcedFuture || index > progressIndex;
         const isNext = isUpcoming && !nextAssigned;
@@ -930,6 +972,7 @@ export function getCustomerOrderFlowSteps(ctx: CustomerOrderFlowInput): Customer
             isNext,
             isCancelled: false,
             isRejected: false,
+            skipped,
         });
     });
 }
