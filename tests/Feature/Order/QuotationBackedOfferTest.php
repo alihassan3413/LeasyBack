@@ -584,6 +584,70 @@ class QuotationBackedOfferTest extends TestCase
     }
 
     /**
+     * The payload shape both offer panels resolve from, pinned because the
+     * order of this list is a trap rather than information.
+     *
+     * A customer keeps seeing an offer they rejected, and offers arrive sorted
+     * by `offer_sequence` — so once someone rejects one and accepts the next,
+     * the rejected offer is *first* and the accepted one is second. Anything
+     * that picks "the decided offer" by position rather than by status lands on
+     * the wrong one: the customer panel showed the rejected offer, its workshop
+     * and its prices, and Admin's repair-appointment form was seeded with the
+     * losing workshop's dates.
+     *
+     * Both now resolve by status. If this ordering is ever changed, that is a
+     * deliberate decision and this test is where it gets noticed.
+     */
+    public function test_a_rejected_offer_precedes_the_accepted_one_in_the_payload(): void
+    {
+        $order = $this->b2cOrder(['500.00']);
+        $owner = $this->ownerOf($order);
+
+        $rejected = $this->publishOffer($order, $this->quotedBy($order, ['400.00'], 'Abgelehnt GmbH'));
+        $this->actingAs($owner)->from('/dashboard')
+            ->post(route('offers.reject', $rejected->offer_id))
+            ->assertSessionHasNoErrors();
+
+        $accepted = $this->publishOffer($order, $this->quotedBy($order, ['300.00'], 'Angenommen GmbH'));
+        $this->actingAs($owner)->from('/dashboard')
+            ->post(route('offers.select', $accepted->offer_id))
+            ->assertSessionHasNoErrors();
+
+        $offers = $this->customerOffers($order);
+
+        $this->assertCount(2, $offers, 'the customer keeps seeing both offers');
+        $this->assertSame(['rejected', 'selected'], array_column($offers, 'offer_status'));
+
+        // The accepted offer is the second entry — resolving by position would
+        // reach for the rejected one.
+        $this->assertSame($accepted->offer_id, $offers[1]['offer_id']);
+        $this->assertSame('Angenommen GmbH', $offers[1]['presentation']['workshop_name']);
+        $this->assertSame('Abgelehnt GmbH', $offers[0]['presentation']['workshop_name']);
+
+        $this->assertCount(1, array_filter($offers, fn (array $offer) => $offer['offer_status'] === 'selected'));
+    }
+
+    /**
+     * Every customer-visible offer on this order, in payload order.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function customerOffers(LeasybackOrder $order): array
+    {
+        $page = $this->actingAs($this->ownerOf($order))->get('/dashboard')->viewData('page');
+
+        foreach ($page['props']['vehicles'] ?? [] as $vehicle) {
+            foreach ($vehicle['orders'] ?? [] as $payloadOrder) {
+                if (($payloadOrder['id'] ?? null) === $order->id) {
+                    return json_decode((string) json_encode($payloadOrder['offers'] ?? []), true);
+                }
+            }
+        }
+
+        $this->fail('order not found in the customer payload');
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function customerOffer(LeasybackOrder $order): array

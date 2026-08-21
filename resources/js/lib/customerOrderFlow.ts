@@ -294,6 +294,16 @@ function repairScheduleSubtitle(collection: CustomerOrderCollection | null | und
         .join('\n');
 }
 
+/**
+ * Whether the customer has turned an offer down. Both channels need it and for
+ * the same reason: a rejection leaves no live offer, so the timeline falls back
+ * to the stage before the offer existed and would otherwise read as though
+ * nothing had happened.
+ */
+function hasRejectedOffer(ctx: CustomerOrderFlowInput): boolean {
+    return (ctx.offers ?? []).some((offer) => offer.offer_status === 'rejected');
+}
+
 function offerApprovedSubtitle(offer: CustomerOrderOffer | null): string {
     if (!offer) {
         return 'Ihr ausgewähltes Angebot wird nun vorbereitet.';
@@ -483,9 +493,7 @@ function b2bStageSubtitle(
                 return '';
             }
 
-            const rejected = (ctx.offers ?? []).some((offer) => offer.offer_status === 'rejected');
-
-            return rejected
+            return hasRejectedOffer(ctx)
                 ? 'Sie haben das letzte Angebot abgelehnt. Leasyback holt ein neues Werkstattangebot ein.'
                 : 'Leasyback holt auf Basis des Gutachtens Werkstattangebote ein.';
         }
@@ -631,7 +639,15 @@ function buildStep(
             }
             break;
         case 'inspection_completed':
-            subtitle = 'Hier können Sie Ihr Gutachten einsehen';
+            // Rejecting an offer leaves no live offer, so the timeline lands
+            // back here — and used to say only "view your report", as though
+            // the customer had never decided anything. B2C has no separate
+            // "obtaining quotations" rung to carry the news the way B2B does,
+            // so this stage carries it while it is the current one.
+            subtitle =
+                state.isCurrent && hasRejectedOffer(ctx)
+                    ? 'Sie haben das letzte Angebot abgelehnt. Leasyback erstellt Ihnen ein neues Angebot.'
+                    : 'Hier können Sie Ihr Gutachten einsehen';
             break;
         case 'offers_published':
             subtitle = 'Bitte geben Sie ein Angebot Ihrer Wahl innerhalb von 72 Stunden frei';
@@ -647,11 +663,22 @@ function buildStep(
                 repairScheduleSubtitle(ctx.collection) ||
                 'Nach der Reparatur erfolgt automatisch eine Nachbegutachtung durch den Gutachter';
             break;
+        // Both of these promised an invoice unconditionally, and one of them
+        // promised paying it. The invoice link renders only where a Rechnung is
+        // actually attached, and there is no payment feature at all — the
+        // timeline's own pay control is permanently disabled — so a customer
+        // with neither was being told to do two impossible things. Mention the
+        // invoice where there is one; say nothing about paying until there is
+        // something to pay with.
         case 'followup_completed':
-            subtitle = 'Hier können Sie Ihr Gutachten einsehen\nRechnung einsehen und bezahlen';
+            subtitle = rechnungDoc
+                ? 'Hier können Sie Ihr Gutachten und Ihre Rechnung einsehen'
+                : 'Hier können Sie Ihr Gutachten einsehen';
             break;
         case 'vehicle_ready':
-            subtitle = 'Ihr Fahrzeug kann nun abgeholt werden.\nHier können Sie Ihre Rechnung einsehen';
+            subtitle = rechnungDoc
+                ? 'Ihr Fahrzeug kann nun abgeholt werden.\nHier können Sie Ihre Rechnung einsehen'
+                : 'Ihr Fahrzeug kann nun abgeholt werden.';
             break;
         case 'case_closed':
             subtitle = 'Der Vorgang ist abgeschlossen.\nAlle Unterlagen bleiben hier für Sie verfügbar';

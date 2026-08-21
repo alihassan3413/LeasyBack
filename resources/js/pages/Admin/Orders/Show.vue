@@ -100,9 +100,22 @@ const BILLING_STATUSES = new Set(['vehicle_returned', 'invoice_processed', 'comp
 
 const showBilling = computed(() => BILLING_STATUSES.has(props.order.order_status) || !!props.order.billing?.is_processed);
 
-/** The quotation the presented offer was built from — seeds the appointment form. */
+/**
+ * The quotation behind the offer that is actually going ahead — it seeds the
+ * repair appointment form with that workshop's earliest start and duration.
+ *
+ * Resolved from the accepted offer, then a published one, and from nothing at
+ * all otherwise. Taking the first offer that merely *had* a presentation meant
+ * that once a customer rejected one and accepted the next, the form was
+ * pre-filled with dates from the workshop that lost — plausible enough for an
+ * admin to accept without noticing. A rejected-only order seeds nothing,
+ * because no workshop has been agreed.
+ */
 const offerSourceQuotation = computed(() => {
-    const quotationId = props.order.offers.find((offer) => offer.presentation)?.presentation?.workshop_quotation_id;
+    const presented = props.order.offers.filter((offer) => offer.presentation);
+    const source =
+        presented.find((offer) => offer.offer_status === 'selected') ?? presented.find((offer) => offer.offer_status === 'published') ?? null;
+    const quotationId = source?.presentation?.workshop_quotation_id;
 
     return (quotationId && props.order.workshop_quotations.find((quotation) => quotation.id === quotationId)) || null;
 });

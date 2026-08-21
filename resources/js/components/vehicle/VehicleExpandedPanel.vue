@@ -307,8 +307,22 @@ const presentedWorkshopName = computed(
 
 const pendingPresentedOffer = computed(() => presentedOffers.value.find((offer) => offer.status === 'published') ?? null);
 
+/**
+ * The offer this panel speaks for once a decision exists.
+ *
+ * An accepted offer always wins over a rejected one, and the order matters
+ * because both stay in the payload — a customer keeps seeing what they turned
+ * down. Offers arrive sorted by `offer_sequence`, so a single `find()` across
+ * both states returned whichever was created *first*: reject offer 1, accept
+ * offer 2, and the panel showed offer 1 marked "Abgelehnt", along with the
+ * losing workshop's name and prices. Among rejections the most recent one is
+ * the one the customer just acted on, hence the last rather than the first.
+ */
 const decidedPresentedOffer = computed(
-    () => presentedOffers.value.find((offer) => offer.status === 'selected' || offer.status === 'rejected') ?? null,
+    () =>
+        presentedOffers.value.find((offer) => offer.status === 'selected') ??
+        presentedOffers.value.findLast((offer) => offer.status === 'rejected') ??
+        null,
 );
 
 /** Gross is shown exactly where the payload carries it — the server's decision, not the component's. */
