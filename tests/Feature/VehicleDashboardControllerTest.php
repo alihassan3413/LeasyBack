@@ -9,6 +9,7 @@ use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Order\Models\OrderStatusUpdate;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle;
 use App\Modules\UserProfile\Vehicle\Models\VehicleDocument;
+use App\Modules\UserProfile\Vehicle\Models\VehicleReportDocument;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Inertia\Testing\AssertableInertia;
@@ -436,6 +437,47 @@ class VehicleDashboardControllerTest extends TestCase
             ->assertOk()
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->where('vehicles.0.leasing_end_date', '2026-03-13')
+            );
+    }
+
+    /**
+     * The customer timeline decides which stages are complete partly from the
+     * report documents it is given — a published Nachgutachten is what marks
+     * the reinspection stage done, because B2C has no order status that says
+     * so. That makes "the customer is never handed a draft" a guarantee the
+     * timeline leans on, not just a privacy nicety: a report an admin has
+     * uploaded but not released must not light up a stage, and must not be
+     * downloadable either.
+     *
+     * Admin deliberately does receive drafts (see
+     * VehicleControllerTest::test_admin_sees_unpublished_report_documents_with_their_state),
+     * which is why the flow builder filters on `published` rather than trusting
+     * whatever payload it is rendered from.
+     */
+    public function test_the_customer_payload_never_carries_an_unpublished_report(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create(['b2c_user_id' => $owner->id]);
+        $order = LeasybackOrder::factory()->create([
+            'vehicle_id' => $vehicle->vehicle_id,
+            'order_status' => 'inspected',
+        ]);
+
+        foreach ([['gutachten', true], ['nachgutachten', false]] as [$type, $published]) {
+            VehicleReportDocument::factory()->create([
+                'auftragsnummer' => $order->auftragsnummer,
+                'vehicle_id' => $vehicle->vehicle_id,
+                'document_type' => $type,
+                'published' => $published,
+            ]);
+        }
+
+        $this->actingAs($owner)
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->has('vehicles.0.orders.0.report_documents', 1)
+                ->where('vehicles.0.orders.0.report_documents.0.document_type', 'gutachten')
             );
     }
 }

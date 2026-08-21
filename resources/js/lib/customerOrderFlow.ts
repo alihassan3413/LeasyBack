@@ -511,7 +511,24 @@ function resolveProgressIndex(status: string, relevantOffer: CustomerOrderOffer 
     if (status === 'completed') return 9;
     if (status === 'delivered') return 8;
     if (CLOSING_STATUSES.has(status)) return 7;
-    if (hasFollowupReport) return 7;
+
+    /*
+     * The follow-up report is what completes the reinspection stage, because a
+     * B2C order has no status that says so: CLOSING_STATUSES above are
+     * vehicle_returned and invoice_processed, both B2B-only, so without this
+     * the stage could never show as reached in this channel at all.
+     *
+     * The gate on `reinspection` is the whole point. Read unconditionally — as
+     * it was — the mere existence of a Nachgutachten dragged the timeline to
+     * this rung from wherever the order really stood, marking the offer, the
+     * commissioning and the repair as completed on an order that had done none
+     * of them. It also kept the rung lit after a failed reinspection sent the
+     * car back to `reworkshop`, where the report exists but no longer describes
+     * the finished state; falling through to REPAIR_PHASE_STATUSES is right
+     * there, because the car is in the workshop again.
+     */
+    if (hasFollowupReport && status === 'reinspection') return 7;
+
     if (REPAIR_PHASE_STATUSES.has(status)) return 6;
     if (status === COMMISSIONED_STATUS) return 5;
     if (relevantOffer?.offer_status === 'selected') return 4;
@@ -816,7 +833,12 @@ export function getCustomerOrderFlowSteps(ctx: CustomerOrderFlowInput): Customer
 
     const status = (ctx.orderStatus ?? '').trim();
     const offers = ctx.offers ?? [];
-    const reportDocuments = ctx.reportDocuments ?? [];
+    // Published only, matching getB2bOrderFlowSteps(). An unpublished report is
+    // a draft the customer cannot see, so it must not advance their timeline —
+    // and Admin renders these same steps from a payload that *does* carry
+    // drafts, which is where the unfiltered read showed a stage as reached on
+    // the strength of a document nobody had released yet.
+    const reportDocuments = (ctx.reportDocuments ?? []).filter((doc) => doc.published !== false);
     const relevantOffer = pickRelevantOffer(offers);
     const gutachtenDoc = findLatestDoc(reportDocuments, 'gutachten');
     const nachgutachtenDoc = findLatestDoc(reportDocuments, 'nachgutachten');
