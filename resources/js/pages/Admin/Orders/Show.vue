@@ -442,22 +442,6 @@ function formatDateTime(value: string | null): string {
                         :source-quotation="offerSourceQuotation"
                     />
 
-                    <!--
-                        The workshop quotations and the customer offers stay one masonry
-                        item: they are the two halves of the same step (a quotation is
-                        what an offer is built from), and `order-section-angebote` — the
-                        anchor the task card scrolls to — covers both.
-                    -->
-                    <div id="order-section-angebote" class="flex flex-col gap-4">
-                        <AdminWorkshopQuotationsCard
-                            :order-id="order.id"
-                            :quotations="order.workshop_quotations"
-                            :has-positions="!!order.appraisal_positions.length"
-                        />
-
-                        <AdminOffersCard ref="offersCard" :order-id="order.id" :offers="order.offers" />
-                    </div>
-
                     <div id="order-section-dokumente" class="content-card">
                         <div class="mb-4">
                             <h2 class="text-[17px] font-extrabold tracking-[-0.3px] text-[#10393b]">Gutachten &amp; Rechnungen</h2>
@@ -511,6 +495,29 @@ function formatDateTime(value: string | null): string {
                         :totals="order.appraisal_totals"
                         :report-documents="order.report_documents"
                     />
+                </section>
+
+                <!--
+                    Quotations and offers are the two halves of one step — a quotation is
+                    what an offer is built from — so they stay under a single
+                    `order-section-angebote` anchor, which is what the task card scrolls
+                    to.
+
+                    They sit outside the masonry above, side by side. Inside it they were
+                    one unbreakable column item, and a multi-column layout clips an item
+                    taller than its column instead of pushing it down: a handful of
+                    quotations plus an open comparison plus a few offers, and the bottom
+                    of the card simply vanished. Full width also gives the comparison
+                    table its `min-w-[420px]` without forcing a sideways scroll.
+                -->
+                <section id="order-section-angebote" class="mt-4 grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+                    <AdminWorkshopQuotationsCard
+                        :order-id="order.id"
+                        :quotations="order.workshop_quotations"
+                        :has-positions="!!order.appraisal_positions.length"
+                    />
+
+                    <AdminOffersCard ref="offersCard" :order-id="order.id" :offers="order.offers" :quotations="order.workshop_quotations" />
                 </section>
 
                 <section class="content-card mt-2">

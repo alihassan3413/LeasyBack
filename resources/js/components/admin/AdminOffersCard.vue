@@ -15,13 +15,17 @@
  * a flag — a hand-entered offer has no way to claim a source it does not have.
  */
 import CreateOfferModal from '@/components/admin/CreateOfferModal.vue';
-import type { AdminOfferRow } from '@/types/admin';
+import type { AdminOfferRow, AdminWorkshopQuotation } from '@/types/admin';
 import { router } from '@inertiajs/vue3';
 import { ref } from 'vue';
 import MdiPlus from '~icons/mdi/plus';
 import MdiTagOutline from '~icons/mdi/tag-outline';
 
-defineProps<{ orderId: string; offers: AdminOfferRow[] }>();
+/**
+ * `quotations` is passed straight through to the create modal, so creating an
+ * offer can start from a workshop's prices instead of an empty form.
+ */
+withDefaults(defineProps<{ orderId: string; offers: AdminOfferRow[]; quotations?: AdminWorkshopQuotation[] }>(), { quotations: () => [] });
 
 const createModalOpen = ref(false);
 
@@ -218,7 +222,7 @@ function cancel(offer: AdminOfferRow) {
         </div>
     </div>
 
-    <CreateOfferModal v-model:open="createModalOpen" :order-id="orderId" />
+    <CreateOfferModal v-model:open="createModalOpen" :order-id="orderId" :quotations="quotations" />
 </template>
 
 <style scoped>

@@ -15,14 +15,16 @@
  * it; the quotation-backed offer flow serves both channels, so the action is
  * offered wherever there is a submitted quotation to take.
  */
+import WorkshopQuotationComparison from '@/components/admin/WorkshopQuotationComparison.vue';
 import RequiredMark from '@/components/form/RequiredMark.vue';
 import InputError from '@/components/InputError.vue';
 import { Input } from '@/components/ui/input';
 import type { AdminWorkshopQuotation } from '@/types/admin';
 import { router, useForm, usePage } from '@inertiajs/vue3';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import MdiContentCopy from '~icons/mdi/content-copy';
 import MdiLinkVariant from '~icons/mdi/link-variant';
+import MdiPlus from '~icons/mdi/plus';
 
 const props = defineProps<{
     orderId: string;
@@ -44,6 +46,20 @@ const form = useForm({
 const offerForm = useForm({ workshop_quotation_id: '', valid_until: '', customer_note: '' });
 
 const issuedLink = computed(() => (page.props.flash as Record<string, string | undefined> | undefined)?.workshop_link ?? null);
+
+/**
+ * The invite form is collapsed by default. It used to sit permanently above
+ * the quotations, so the thing an admin comes here to read — what the
+ * workshops actually quoted — started halfway down the card, and the list ran
+ * off the bottom of the column.
+ */
+const inviteOpen = ref(false);
+
+// A freshly issued link is displayed once and never again, so a reload that
+// lands on a collapsed card must still put it in front of the admin.
+watch(issuedLink, (link) => (inviteOpen.value = inviteOpen.value || !!link), { immediate: true });
+
+const submittedCount = computed(() => props.quotations.filter((quotation) => quotation.status === 'submitted').length);
 
 const statusStyles: Record<string, { label: string; class: string }> = {
     invited: { label: 'Offen', class: 'bg-[#f4f7f6] text-[#6f8585]' },
@@ -112,8 +128,19 @@ async function copyLink(link: string) {
             </span>
             <div class="min-w-0 flex-1">
                 <h2 class="text-[15px] font-extrabold tracking-[-0.3px] text-[#10393b]">Werkstattangebote</h2>
-                <p class="mt-0.5 text-[11.5px] font-medium text-[#9bb0af]">{{ quotations.length }} Anfragen · Nettopreise</p>
+                <p class="mt-0.5 text-[11.5px] font-medium text-[#9bb0af]">
+                    {{ submittedCount }} von {{ quotations.length }} beantwortet · Nettopreise
+                </p>
             </div>
+
+            <button
+                type="button"
+                class="flex shrink-0 items-center gap-1.5 rounded-[13px] border border-[#e9efee] bg-white px-3 py-1.5 text-[12px] font-bold text-[#10393b] transition-all hover:border-[#10393b] hover:bg-[#f4f7f6]"
+                @click="inviteOpen = !inviteOpen"
+            >
+                <MdiPlus class="size-3.5" />
+                {{ inviteOpen ? 'Schließen' : 'Anfragen' }}
+            </button>
         </div>
 
         <div v-if="issuedLink" class="mb-4 rounded-[13px] border border-[#01B990]/30 bg-[#01B990]/5 p-3">
@@ -135,7 +162,7 @@ async function copyLink(link: string) {
             Erfassen Sie zuerst die Gutachtenpositionen — eine Werkstatt kann sonst nichts bepreisen.
         </p>
 
-        <form class="mb-4 flex flex-col gap-2 rounded-[13px] border border-[#e9efee] p-3" @submit.prevent="submit">
+        <form v-if="inviteOpen" class="mb-4 flex flex-col gap-2 rounded-[13px] border border-[#e9efee] p-3" @submit.prevent="submit">
             <div class="flex flex-col gap-1">
                 <label class="text-[12px] font-bold text-[#10393b]">Werkstatt<RequiredMark /></label>
                 <Input v-model="form.workshop_label" placeholder="Name der Werkstatt" />
@@ -171,7 +198,7 @@ async function copyLink(link: string) {
 
         <p v-if="!quotations.length" class="py-6 text-center text-[12.5px] text-[#9bb0af]">Noch keine Werkstattanfragen.</p>
 
-        <div v-else class="flex flex-col gap-2">
+        <div v-else class="-mr-1 flex max-h-[520px] flex-col gap-2 overflow-y-auto pr-1">
             <div v-for="quotation in quotations" :key="quotation.id" class="rounded-[13px] border border-[#e9efee]">
                 <div class="flex items-center gap-2 p-3">
                     <div class="min-w-0 flex-1">
@@ -227,60 +254,7 @@ async function copyLink(link: string) {
                 </div>
 
                 <div v-if="expanded === quotation.id" class="border-t border-[#f2f6f5] p-3">
-                    <div v-if="quotation.contact_person || quotation.contact_email" class="mb-3 text-[11.5px] text-[#6f8585]">
-                        {{ quotation.contact_person }} · {{ quotation.contact_email }}
-                        <template v-if="quotation.contact_phone"> · {{ quotation.contact_phone }}</template>
-                    </div>
-
-                    <p v-if="quotation.cannot_repair_note" class="mb-3 rounded-[9px] bg-[#c0392b]/5 px-2.5 py-2 text-[11.5px] text-[#c0392b]">
-                        {{ quotation.cannot_repair_note }}
-                    </p>
-
-                    <div class="overflow-x-auto">
-                        <table class="w-full min-w-[420px] border-collapse text-left">
-                            <thead>
-                                <tr class="border-b border-[#e9efee]">
-                                    <th class="py-1.5 pr-2 text-[11px] font-bold text-[#9bb0af]">Position</th>
-                                    <th class="py-1.5 pr-2 text-right text-[11px] font-bold text-[#9bb0af]">Gutachten</th>
-                                    <th class="py-1.5 pr-2 text-right text-[11px] font-bold text-[#9bb0af]">Werkstatt</th>
-                                    <th class="py-1.5 text-right text-[11px] font-bold text-[#9bb0af]">Differenz</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr v-for="row in quotation.comparison" :key="row.appraisal_position_id" class="border-b border-[#f6f9f8]">
-                                    <td class="py-1.5 pr-2 text-[11.5px] text-[#10393b]">
-                                        {{ row.component }}
-                                        <span v-if="row.not_repairable" class="text-[10.5px] font-bold text-[#c0392b]"> · n. instandsetzbar</span>
-                                        <span v-if="row.repair_method" class="block text-[10.5px] text-[#9bb0af]">{{ row.repair_method }}</span>
-                                    </td>
-                                    <td class="py-1.5 pr-2 text-right text-[11.5px] text-[#6f8585]">{{ formatEuro(row.appraisal_amount_net) }}</td>
-                                    <td class="py-1.5 pr-2 text-right text-[11.5px] font-bold text-[#10393b]">
-                                        {{ formatEuro(row.workshop_amount_net) }}
-                                    </td>
-                                    <td
-                                        class="py-1.5 text-right text-[11.5px] font-bold"
-                                        :class="
-                                            row.difference_net && Number.parseFloat(row.difference_net) >= 0 ? 'text-[#00856a]' : 'text-[#c0392b]'
-                                        "
-                                    >
-                                        {{ formatEuro(row.difference_net) }}
-                                    </td>
-                                </tr>
-                            </tbody>
-                            <tfoot>
-                                <tr>
-                                    <td class="py-2 pr-2 text-[11.5px] font-extrabold text-[#10393b]">Summe</td>
-                                    <td class="py-2 pr-2 text-right text-[11.5px] font-bold text-[#6f8585]">
-                                        {{ formatEuro(quotation.appraisal_total_net) }}
-                                    </td>
-                                    <td class="py-2 pr-2 text-right text-[11.5px] font-extrabold text-[#10393b]">
-                                        {{ formatEuro(quotation.total_net) }}
-                                    </td>
-                                    <td class="py-2 text-right text-[11.5px] font-extrabold text-[#00856a]"></td>
-                                </tr>
-                            </tfoot>
-                        </table>
-                    </div>
+                    <WorkshopQuotationComparison :quotation="quotation" />
                 </div>
             </div>
         </div>

@@ -329,5 +329,6 @@ declare module 'vue' {
     VehicleRow: typeof import('./../components/vehicle/VehicleRow.vue')['default']
     VehicleStep: typeof import('./../components/onboarding/VehicleStep.vue')['default']
     VehicleToolbar: typeof import('./../components/vehicle/VehicleToolbar.vue')['default']
+    WorkshopQuotationComparison: typeof import('./../components/admin/WorkshopQuotationComparison.vue')['default']
   }
 }
