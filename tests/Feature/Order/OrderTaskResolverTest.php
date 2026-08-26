@@ -11,6 +11,7 @@ use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Order\Models\WorkshopQuotation;
 use App\Modules\UserProfile\Order\Services\OrderTaskResolver;
 use App\Modules\UserProfile\Order\Services\WorkshopQuotationService;
+use App\Modules\UserProfile\Payment\Models\OrderPaymentMethod;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle;
 use App\Modules\UserProfile\Vehicle\Models\VehicleReportDocument;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -663,10 +664,18 @@ class OrderTaskResolverTest extends TestCase
             'model' => 'Passat',
         ]);
 
-        return LeasybackOrder::factory()->create([
+        $order = LeasybackOrder::factory()->create([
             'vehicle_id' => $vehicle->vehicle_id,
             'order_status' => $status,
         ]);
+
+        // A B2C customer stores a card when booking, so the repair charge on
+        // `delivered` settles and the journey reaches `confirm_pickup`. Without
+        // one the order correctly stops at `await_repair_payment` instead —
+        // covered separately in the payment suite.
+        OrderPaymentMethod::factory()->saved()->create(['order_id' => $order->id]);
+
+        return $order;
     }
 
     private function b2bOrder(string $status): LeasybackOrder

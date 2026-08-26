@@ -82,6 +82,17 @@ class OrderMailer
     }
 
     /**
+     * Sent when the repair payment settles, not when the order reaches
+     * `delivered` — a B2C car is only collectable once it is paid for, so
+     * PaymentService owns this mail and `delivered` is suppressed in
+     * TransitionOrderStatus to keep it to one sender.
+     */
+    public function vehicleReadyForPickup(LeasybackOrder $order, ?Vehicle $vehicle = null): void
+    {
+        $this->sendToCustomer($order, $vehicle ?? $order->vehicle, VehicleReadyForPickupMail::class);
+    }
+
+    /**
      * The §18 "customer action required" reminder. Only ever sent by
      * SendB2bOfferReminders, which owns the 24 h spacing and the stop
      * conditions — nothing else may call this, or the spacing is meaningless.

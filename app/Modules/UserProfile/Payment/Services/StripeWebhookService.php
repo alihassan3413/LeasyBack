@@ -3,7 +3,10 @@
 namespace App\Modules\UserProfile\Payment\Services;
 
 use App\Models\LeasybackOrder;
+use App\Modules\UserProfile\Payment\Data\StripePaymentIntentResult;
 use App\Modules\UserProfile\Payment\Data\StripeSetupIntentResult;
+use App\Modules\UserProfile\Payment\Enums\PaymentStatus;
+use App\Modules\UserProfile\Payment\Models\OrderPaymentIntent;
 use App\Modules\UserProfile\Payment\Models\OrderPaymentMethod;
 use Illuminate\Support\Facades\Log;
 
@@ -21,6 +24,7 @@ class StripeWebhookService
     public function __construct(
         private readonly PaymentMethodService $paymentMethods,
         private readonly PaymentIdentityGuard $identityGuard,
+        private readonly PaymentService $payments,
     ) {}
 
     /**
@@ -35,8 +39,77 @@ class StripeWebhookService
             'setup_intent.succeeded' => $this->onSetupIntentSucceeded($object),
             'setup_intent.setup_failed' => $this->onSetupIntentFailed($object),
             'payment_method.detached' => $this->onPaymentMethodDetached($object),
+            'payment_intent.succeeded',
+            'payment_intent.payment_failed',
+            'payment_intent.requires_action',
+            'payment_intent.processing',
+            'payment_intent.canceled' => $this->onPaymentIntentEvent($type, $object),
             default => null,
         };
+    }
+
+    /**
+     * @param  array<string, mixed>  $object
+     */
+    private function onPaymentIntentEvent(string $type, array $object): void
+    {
+        $paymentIntentId = (string) ($object['id'] ?? '');
+
+        if ($paymentIntentId === '') {
+            return;
+        }
+
+        $intent = OrderPaymentIntent::where('payment_intent_id', $paymentIntentId)->first();
+
+        if ($intent === null) {
+            Log::info('Ignoring a Stripe event for an unknown payment intent.', [
+                'payment_intent_id' => $paymentIntentId,
+                'type' => $type,
+            ]);
+
+            return;
+        }
+
+        $order = $intent->payment === null ? null : LeasybackOrder::find($intent->payment->order_id);
+
+        if ($order === null) {
+            return;
+        }
+
+        $permitted = $this->identityGuard->permits(
+            $order,
+            $this->idOf($object['customer'] ?? null),
+            $this->metadataOf($object),
+            $type,
+        );
+
+        if (! $permitted) {
+            return;
+        }
+
+        $error = $object['last_payment_error'] ?? null;
+
+        $observed = new StripePaymentIntentResult(
+            id: $paymentIntentId,
+            status: (string) ($object['status'] ?? ''),
+            amount: (int) ($object['amount'] ?? 0),
+            currency: (string) ($object['currency'] ?? 'eur'),
+            customerId: $this->idOf($object['customer'] ?? null),
+            paymentMethodId: $this->idOf($object['payment_method'] ?? null),
+            failureCode: is_array($error) ? ($error['code'] ?? null) : null,
+            failureMessage: is_array($error) ? ($error['message'] ?? null) : null,
+            metadata: $this->metadataOf($object),
+        );
+
+        /*
+         * `payment_intent.payment_failed` carries an object whose status is
+         * `requires_payment_method` — Stripe's way of saying "re-confirm this
+         * one" — so the event name, not the object status, is what identifies
+         * a decline.
+         */
+        $forced = $type === 'payment_intent.payment_failed' ? PaymentStatus::Failed : null;
+
+        $this->payments->applyIntentState($observed, $forced);
     }
 
     /**

@@ -13,6 +13,7 @@ enum NotificationType: string
     case DocumentPublished = 'document.published';
     case AccountStatusChanged = 'account.status_changed';
     case MessageReceived = 'message.received';
+    case PaymentActionRequired = 'payment.action_required';
     case Generic = 'generic';
 
     public function variant(): string
@@ -21,7 +22,8 @@ enum NotificationType: string
             self::OrderStatusChanged, self::MessageReceived, self::Generic => 'info',
             self::OrderApproved, self::OfferPublished, self::WorkshopQuotationReceived,
             self::ReportPublished, self::DocumentPublished => 'success',
-            self::AccountStatusChanged, self::CustomerActionRequired => 'warning',
+            self::AccountStatusChanged, self::CustomerActionRequired,
+            self::PaymentActionRequired => 'warning',
         };
     }
 
@@ -36,6 +38,7 @@ enum NotificationType: string
             self::AccountStatusChanged => 'account-alert-outline',
             self::CustomerActionRequired => 'alert-circle-outline',
             self::MessageReceived => 'message-text-outline',
+            self::PaymentActionRequired => 'credit-card-outline',
             self::Generic => 'bell-outline',
         };
     }

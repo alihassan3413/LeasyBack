@@ -14,6 +14,8 @@ use App\Modules\UserProfile\Order\Models\LogisticsAddressProfile;
 use App\Modules\UserProfile\Order\Services\B2bOrderNoteService;
 use App\Modules\UserProfile\Order\Services\OrderCollectionService;
 use App\Modules\UserProfile\Order\Services\RepairOfferService;
+use App\Modules\UserProfile\Payment\Enums\PaymentPurpose;
+use App\Modules\UserProfile\Payment\Enums\PaymentStatus;
 use App\Modules\UserProfile\Payment\Models\OrderPaymentMethod;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -591,6 +593,12 @@ class VehicleService
             ->get()
             ->keyBy('order_id');
 
+        $repairPaymentsByOrder = DB::table('order_payments')
+            ->whereIn('order_id', $orderIds)
+            ->where('purpose', PaymentPurpose::Repair->value)
+            ->get()
+            ->keyBy('order_id');
+
         $statusUpdatesByOrder = DB::table('leasyback_order_status_updates')
             ->whereIn('auftragsnummer', $auftragsnummern)
             ->orderByDesc('created_at')
@@ -733,7 +741,12 @@ class VehicleService
                     // B2C only, mirroring how `notes` stays B2B: there is no
                     // customer-card flow in the B2B channel.
                     ...($isB2bOffer ? [] : [
-                        'payment' => $this->orderPaymentState($order, $mandatesByOrder->get($order->id), $viewer),
+                        'payment' => $this->orderPaymentState(
+                            $order,
+                            $mandatesByOrder->get($order->id),
+                            $repairPaymentsByOrder->get($order->id),
+                            $viewer,
+                        ),
                     ]),
                     'collection' => $orderCollections[$order->auftragsnummer] ?? null,
                     // Order notes stay B2B — §16 gives company users the right
@@ -814,9 +827,10 @@ class VehicleService
      * a customer's vehicle never sees a prompt aimed at the customer.
      *
      * @param  object|null  $mandate  Absent for an order that never reached the payment step.
-     * @return array{requires_setup: bool, status: string, card: ?array{brand: ?string, last4: ?string, exp_month: ?int, exp_year: ?int}}
+     * @param  object|null  $repairPayment  Absent until the order reaches `delivered`.
+     * @return array{requires_setup: bool, status: string, card: ?array{brand: ?string, last4: ?string, exp_month: ?int, exp_year: ?int}, repair: ?array{status: string, amount_cents: int, currency: string, paid_at: ?string, blocks_pickup: bool}}
      */
-    private function orderPaymentState(object $order, ?object $mandate, ?User $viewer): array
+    private function orderPaymentState(object $order, ?object $mandate, ?object $repairPayment, ?User $viewer): array
     {
         $usable = $mandate !== null
             && $mandate->status === OrderPaymentMethod::STATUS_SAVED
@@ -836,6 +850,13 @@ class VehicleService
                 'exp_month' => $mandate->pm_exp_month === null ? null : (int) $mandate->pm_exp_month,
                 'exp_year' => $mandate->pm_exp_year === null ? null : (int) $mandate->pm_exp_year,
             ] : null,
+            'repair' => $repairPayment === null ? null : [
+                'status' => $repairPayment->status,
+                'amount_cents' => (int) $repairPayment->amount_cents,
+                'currency' => $repairPayment->currency,
+                'paid_at' => $repairPayment->paid_at,
+                'blocks_pickup' => ! (PaymentStatus::tryFrom($repairPayment->status)?->satisfiesReleaseGate() ?? false),
+            ],
         ];
     }
 

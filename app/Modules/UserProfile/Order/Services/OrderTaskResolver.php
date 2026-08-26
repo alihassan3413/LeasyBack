@@ -191,6 +191,10 @@ class OrderTaskResolver
             'repair_start_date' => $order['collection']['confirmed_repair_start_date'] ?? null,
             'processing_days' => $order['collection']['estimated_processing_days'] ?? null,
             'billing_processed' => (bool) ($order['billing']['is_processed'] ?? false),
+            // Absent for an order that never reached `delivered`, which is the
+            // same as "nothing is outstanding" for task purposes.
+            'repair_payment_blocks' => (bool) ($order['repair_payment']['blocks_pickup'] ?? false),
+            'repair_payment_status' => $order['repair_payment']['status'] ?? null,
             'billing_processed_at' => $order['billing']['processed_at'] ?? null,
             'position_count' => count((array) ($order['appraisal_positions'] ?? [])),
             // "Still able to produce an answer": an invitation that expired or
@@ -682,13 +686,31 @@ class OrderTaskResolver
                 // both outcomes are offered side by side.
                 action: $this->statusAction($orderId, 'delivered', 'Bestanden — abholbereit melden'),
             ),
+            /*
+             * No action: there is nothing for Admin to click yet, and offering
+             * `confirm_pickup` here would break this tree's own contract that
+             * every offered action actually executes — the completion gate
+             * refuses an unpaid repair.
+             */
+            $this->definition(
+                key: 'await_repair_payment',
+                title: 'Zahlungseingang abwarten',
+                description: 'Die Reparaturkosten sind noch nicht bezahlt. Das Fahrzeug kann erst nach Zahlungseingang übergeben werden.',
+                section: self::SECTION_STATUS,
+                done: $rank >= 8 || ! $context['repair_payment_blocks'],
+                open: $rank === 7 && $context['repair_payment_blocks'],
+                date: $dates['delivered'] ?? null,
+                dateLabel: 'Abholbereit seit',
+                action: null,
+                actor: self::ACTOR_CUSTOMER,
+            ),
             $this->definition(
                 key: 'confirm_pickup',
                 title: 'Fahrzeugabholung bestätigen',
                 description: 'Das Fahrzeug ist abholbereit und der Kunde ist informiert. Bestätigen Sie die erfolgte Abholung — damit ist der Vorgang abgeschlossen.',
                 section: self::SECTION_STATUS,
                 done: $rank >= 8,
-                open: $rank === 7,
+                open: $rank === 7 && ! $context['repair_payment_blocks'],
                 date: $dates['delivered'] ?? null,
                 dateLabel: 'Abholbereit seit',
                 action: $this->statusAction($orderId, 'completed', 'Abholung bestätigen'),

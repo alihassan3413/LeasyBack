@@ -9,6 +9,9 @@ use App\Modules\PartnerApi\Services\PartnerWebhookEvents;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Order\Models\OrderBilling;
 use App\Modules\UserProfile\Order\Models\OrderStatusUpdate;
+use App\Modules\UserProfile\Payment\Enums\PaymentPurpose;
+use App\Modules\UserProfile\Payment\Models\OrderPayment;
+use App\Modules\UserProfile\Payment\Services\RepairPaymentService;
 use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
 use App\Notifications\NotificationPayload;
 use App\Services\Mail\OrderMailer;
@@ -48,6 +51,7 @@ class TransitionOrderStatus
         private readonly Notifier $notifier,
         private readonly OrderMailer $orderMailer,
         private readonly PartnerWebhookEvents $webhooks,
+        private readonly RepairPaymentService $repairPayments,
     ) {}
 
     /**
@@ -164,6 +168,7 @@ class TransitionOrderStatus
 
             $this->guardChannel($toStatus, $isB2b);
             $this->guardBillingBeforeCompletion($locked, $toStatus, $isB2b);
+            $this->guardPaymentBeforeCompletion($locked, $toStatus, $isB2b);
 
             if ($fromStatus === $toStatus) {
                 if ($additionalAttributes !== []) {
@@ -210,7 +215,13 @@ class TransitionOrderStatus
         });
 
         if ($realTransition) {
-            $this->notifyStatusChange($result);
+            // Runs before the status mail so it can claim ownership of the
+            // "ready for pickup" message: a B2C car is only collectable once
+            // its repair is paid for, and exactly one sender may say so.
+            $paymentOwnsPickupMail = $toStatus === OrderStatus::Delivered->value
+                && $this->repairPayments->startForDeliveredOrder($result, self::isB2bOrder($result));
+
+            $this->notifyStatusChange($result, $paymentOwnsPickupMail);
         }
 
         return $result;
@@ -221,7 +232,7 @@ class TransitionOrderStatus
      * failed status transition (the DB write already committed by the
      * time this runs).
      */
-    private function notifyStatusChange(LeasybackOrder $order): void
+    private function notifyStatusChange(LeasybackOrder $order, bool $suppressStatusMail = false): void
     {
         $vehicle = $order->vehicle;
         if ($vehicle === null) {
@@ -238,6 +249,10 @@ class TransitionOrderStatus
                 ['auftragsnummer' => $order->auftragsnummer, 'status' => $order->order_status],
             ),
         );
+
+        if ($suppressStatusMail) {
+            return;
+        }
 
         $this->orderMailer->statusUpdated($order, $vehicle);
     }
@@ -278,6 +293,44 @@ class TransitionOrderStatus
 
         throw ValidationException::withMessages([
             'order_status' => 'Der Auftrag kann nicht abgeschlossen werden, solange die Abrechnung nicht als verarbeitet markiert ist.',
+        ]);
+    }
+
+    /**
+     * The B2C counterpart of the billing gate: a car is not collectable until
+     * its repair has been paid for.
+     *
+     * Inside the locked transaction, in the sole writer of `order_status`, so
+     * no controller or task action can route around it.
+     *
+     * A missing payment row does not open the gate by itself — an order that
+     * reached `delivered` under this code always has one, so absence is only
+     * safe when nothing was owed. That is re-derived from the accepted offer
+     * rather than assumed, which keeps a hand-inserted or legacy order from
+     * completing an unpaid repair.
+     */
+    private function guardPaymentBeforeCompletion(LeasybackOrder $order, string $toStatus, bool $isB2b): void
+    {
+        if ($isB2b || $toStatus !== OrderStatus::Completed->value) {
+            return;
+        }
+
+        $payment = OrderPayment::where('order_id', $order->id)
+            ->where('purpose', PaymentPurpose::Repair->value)
+            ->first();
+
+        if ($payment === null) {
+            $owed = $this->repairPayments->grossCents($this->repairPayments->selectedOffer($order)) > 0;
+
+            if (! $owed) {
+                return;
+            }
+        } elseif ($payment->status->satisfiesReleaseGate()) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'order_status' => 'Das Fahrzeug kann erst nach Zahlungseingang der Reparaturkosten abgeholt werden.',
         ]);
     }
 

@@ -13,6 +13,8 @@ use App\Modules\UserProfile\Order\Services\OrderTaskResolver;
 use App\Modules\UserProfile\Order\Services\RepairOfferService;
 use App\Modules\UserProfile\Order\Services\WorkshopCommissionService;
 use App\Modules\UserProfile\Order\Services\WorkshopQuotationService;
+use App\Modules\UserProfile\Payment\Enums\PaymentPurpose;
+use App\Modules\UserProfile\Payment\Models\OrderPayment;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\Request;
@@ -505,6 +507,13 @@ class AdminQueryService
             ? null
             : $this->b2bBillingService->forOrder($orderId);
 
+        // The B2C counterpart of billing. Null for B2B, and null for a B2C
+        // order that has not reached `delivered` — the charge is only opened
+        // once repairs are complete.
+        $order['repair_payment'] = $row->vehicle_belongs === 'B2B'
+            ? null
+            : $this->repairPaymentSummary($orderId);
+
         // Admin sees both audiences; each row carries its own `visibility` so
         // the card can label an internal note as internal (§16).
         $order['notes'] = $row->vehicle_belongs !== 'B2B'
@@ -932,5 +941,27 @@ class AdminQueryService
         ])['user_type'];
 
         return trim($type);
+    }
+
+    /**
+     * @return array{status: string, amount_cents: int, currency: string, paid_at: ?string, blocks_pickup: bool}|null
+     */
+    private function repairPaymentSummary(string $orderId): ?array
+    {
+        $payment = OrderPayment::where('order_id', $orderId)
+            ->where('purpose', PaymentPurpose::Repair->value)
+            ->first();
+
+        if ($payment === null) {
+            return null;
+        }
+
+        return [
+            'status' => $payment->status->value,
+            'amount_cents' => $payment->amount_cents,
+            'currency' => $payment->currency,
+            'paid_at' => $payment->paid_at?->toIso8601String(),
+            'blocks_pickup' => $payment->blocksRelease(),
+        ];
     }
 }
