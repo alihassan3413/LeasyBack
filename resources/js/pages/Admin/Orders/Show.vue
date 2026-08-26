@@ -16,9 +16,9 @@ import { getAdminDashboardStatus as getStatus } from '@/lib/adminStatus';
 import { getCustomerOrderFlowSteps, getCustomerOrderHeadline } from '@/lib/customerOrderFlow';
 import { toOrderTimelineEntries } from '@/lib/timeline';
 import { getOrderStatusLabel } from '@/lib/vehicleStatus';
-import type { AdminOrderDetail } from '@/types/admin';
+import type { AdminOrderDetail, AdminOrderTaskAction } from '@/types/admin';
 import { Head, Link } from '@inertiajs/vue3';
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 
 const props = defineProps<{ order: AdminOrderDetail }>();
 
@@ -91,6 +91,52 @@ const showCommissionCard = computed(
 const showRepairAppointment = computed(
     () => REPAIR_APPOINTMENT_STATUSES.has(props.order.order_status) || !!props.order.collection?.confirmed_repair_start_date,
 );
+
+const actionsMenu = ref<InstanceType<typeof AdminOrderActionsMenu> | null>(null);
+const offersCard = ref<InstanceType<typeof AdminOffersCard> | null>(null);
+
+/**
+ * Where a task's `modal` action is carried out. Keyed by the resolver's UI
+ * handler names, so adding a task means adding a definition on the server and —
+ * only if it needs a new kind of UI — one entry here. Every handler drives a
+ * component that already exists; none of them duplicates a workflow.
+ */
+const TASK_MODAL_HANDLERS: Record<string, (preset: Record<string, string>) => void> = {
+    upload_report: (preset) => actionsMenu.value?.openUpload(preset.document_type ?? 'gutachten'),
+    create_offer: () => offersCard.value?.openCreate() ?? actionsMenu.value?.openCreateOffer(),
+};
+
+function focusSection(section: string) {
+    const target = document.getElementById(`order-section-${section}`);
+
+    if (!target) {
+        return;
+    }
+
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    target.classList.add('task-target');
+    window.setTimeout(() => target.classList.remove('task-target'), 1600);
+
+    // Put the cursor in the form rather than only showing it — that is the
+    // difference between "here is the section" and "here is the task".
+    const field = target.querySelector<HTMLElement>(
+        'input:not([type=hidden]):not([disabled]), select:not([disabled]), textarea:not([disabled]), [role=combobox]',
+    );
+
+    field?.focus({ preventScroll: true });
+}
+
+function handleTaskAction(action: AdminOrderTaskAction) {
+    if (action.type === 'inline') {
+        focusSection(action.key);
+
+        return;
+    }
+
+    if (action.type === 'modal') {
+        TASK_MODAL_HANDLERS[action.key]?.(action.payload ?? {});
+    }
+}
 
 /**
  * Billing becomes relevant once the vehicle is back with the leasing company,
@@ -179,6 +225,7 @@ function formatDateTime(value: string | null): string {
                         vehicle, not inside an existing order, so that entry stays disabled.
                     -->
                     <AdminOrderActionsMenu
+                        ref="actionsMenu"
                         :order-id="order.id"
                         :auftragsnummer="order.auftragsnummer"
                         :vehicle-id="order.vehicle_id"
@@ -338,7 +385,7 @@ function formatDateTime(value: string | null): string {
                         </OrderStatusTimeline>
                     </div>
 
-                    <AdminOrderTasksCard :tasks="order.tasks" />
+                    <AdminOrderTasksCard :tasks="order.tasks" @action="handleTaskAction" />
 
                     <OrderMessages :order-id="order.id" :auftragsnummer="order.auftragsnummer" container-class="content-card overflow-hidden p-0" />
 
@@ -399,7 +446,7 @@ function formatDateTime(value: string | null): string {
                             :has-positions="!!order.appraisal_positions.length"
                         />
 
-                        <AdminOffersCard :order-id="order.id" :offers="order.offers" />
+                        <AdminOffersCard ref="offersCard" :order-id="order.id" :offers="order.offers" />
                     </div>
 
                     <div id="order-section-dokumente" class="content-card">

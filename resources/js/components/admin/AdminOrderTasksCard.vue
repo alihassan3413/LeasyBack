@@ -16,12 +16,19 @@
  */
 import type { AdminOrderTask, AdminOrderTaskAction, AdminOrderTasks } from '@/types/admin';
 import { router } from '@inertiajs/vue3';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import MdiCheckCircleOutline from '~icons/mdi/check-circle-outline';
 import MdiClipboardCheckOutline from '~icons/mdi/clipboard-check-outline';
 import MdiClockOutline from '~icons/mdi/clock-outline';
 
 const props = defineProps<{ tasks: AdminOrderTasks }>();
+
+/**
+ * `modal` and `inline` actions are handed up rather than handled here: the card
+ * knows what a task wants done, the page knows which component does it. Adding
+ * a task therefore never means editing this component.
+ */
+const emit = defineEmits<{ (e: 'action', action: AdminOrderTaskAction): void }>();
 
 const busy = ref(false);
 const historyOpen = ref(false);
@@ -55,8 +62,21 @@ function runNextAction() {
         return;
     }
 
+    if (action.type !== 'request') {
+        emit('action', action);
+
+        return;
+    }
+
+    if (!action.url) {
+        return;
+    }
+
     busy.value = true;
 
+    // preserveScroll keeps the admin where they were; the reload the response
+    // triggers re-resolves the tasks, so the finished step disappears and the
+    // next one takes its place without a manual refresh.
     const options = { preserveScroll: true, onFinish: () => (busy.value = false) };
 
     if (action.method === 'post') {
@@ -67,6 +87,12 @@ function runNextAction() {
 
     router.patch(action.url, action.payload, options);
 }
+
+/**
+ * An `inline` action already scrolls to the section, so a second button doing
+ * the same thing is noise. Everything else keeps it as secondary navigation.
+ */
+const showSectionLink = computed(() => props.tasks.next?.action?.type !== 'inline');
 
 function formatDate(value: string | null): string {
     if (!value) {
@@ -133,14 +159,6 @@ function stateLabel(task: AdminOrderTask | null): string {
 
             <div class="mt-3.5 flex flex-wrap items-center gap-2 border-t border-[#f2f6f5] pt-3.5">
                 <button
-                    type="button"
-                    class="rounded-[11px] border border-[#e9efee] bg-white px-3.5 py-2 text-[12.5px] font-bold text-[#10393b] transition-all hover:border-[#10393b] hover:bg-[#f4f7f6]"
-                    @click="focusNextSection"
-                >
-                    Zum Abschnitt
-                </button>
-
-                <button
                     v-if="props.tasks.next.action"
                     type="button"
                     :disabled="busy"
@@ -148,6 +166,15 @@ function stateLabel(task: AdminOrderTask | null): string {
                     @click="runNextAction"
                 >
                     {{ busy ? 'Wird ausgeführt …' : props.tasks.next.action.label }}
+                </button>
+
+                <button
+                    v-if="showSectionLink"
+                    type="button"
+                    class="rounded-[11px] border border-[#e9efee] bg-white px-3.5 py-2 text-[12.5px] font-bold text-[#10393b] transition-all hover:border-[#10393b] hover:bg-[#f4f7f6]"
+                    @click="focusNextSection"
+                >
+                    Zum Abschnitt
                 </button>
             </div>
         </div>

@@ -278,9 +278,22 @@ export interface AdminOrderStatusUpdate {
 }
 
 /** Matches one OrderTaskResolver action — the endpoint the task can fire directly. */
+/**
+ * How the tasks card should carry out a task's primary action.
+ *
+ * `request` fires the HTTP call itself. `modal` and `inline` are handed to the
+ * Admin page's handler registry, keyed by `key`, so a new task never needs a
+ * branch inside the card. A task with no action is informational.
+ */
+export type AdminOrderTaskActionType = 'request' | 'modal' | 'inline';
+
 export interface AdminOrderTaskAction {
-    method: 'post' | 'patch';
-    url: string;
+    type: AdminOrderTaskActionType;
+    /** Route name for `request`, a UI handler name for `modal`, a section for `inline`. */
+    key: string;
+    method: 'post' | 'patch' | null;
+    url: string | null;
+    /** Request body for `request`; modal preset for `modal`. */
     payload: Record<string, string>;
     label: string;
 }

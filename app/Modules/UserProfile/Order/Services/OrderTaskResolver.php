@@ -48,6 +48,28 @@ class OrderTaskResolver
     public const SECTION_COMMISSION = 'beauftragung';
 
     /**
+     * How the card should carry out a task's primary action.
+     *
+     * `request` fires an HTTP call directly (the pre-existing behaviour).
+     * `modal` opens an existing modal preconfigured from `payload`.
+     * `inline` focuses the form already on the page, named by `key` (a section).
+     * A task with no action at all is informational — someone else's move.
+     */
+    public const ACTION_REQUEST = 'request';
+
+    public const ACTION_MODAL = 'modal';
+
+    public const ACTION_INLINE = 'inline';
+
+    /**
+     * UI handler keys for `modal` actions. Values are contract, not labels:
+     * the Admin page's registry maps these to components.
+     */
+    public const UI_UPLOAD_REPORT = 'upload_report';
+
+    public const UI_CREATE_OFFER = 'create_offer';
+
+    /**
      * Who the step is waiting on. `state` says whether anything is open at all;
      * `actor` says whose move it is, which is what keeps a "waiting on the
      * customer" step from reading like an Admin to-do.
@@ -254,7 +276,7 @@ class OrderTaskResolver
                 // an empty PATCH and could only ever produce a validation
                 // error. "Zum Abschnitt" is what its "Abholung öffnen" label
                 // actually promised.
-                action: null,
+                action: $this->inlineAction(self::SECTION_COLLECTION, 'Abholtermin eintragen'),
             ),
             $this->definition(
                 key: 'release_order',
@@ -298,7 +320,7 @@ class OrderTaskResolver
                 open: $rank === 3 && $context['gutachten'] === null,
                 date: $context['gutachten']['created_at'] ?? $dates['vehicle_collected'] ?? null,
                 dateLabel: 'Abgeholt am',
-                action: null,
+                action: $this->modalAction(self::UI_UPLOAD_REPORT, 'Erstgutachten hochladen', ['document_type' => DocumentType::Gutachten->value, 'title' => 'Erstgutachten hochladen']),
             ),
             $this->definition(
                 key: 'complete_initial_appraisal',
@@ -320,7 +342,7 @@ class OrderTaskResolver
                 open: $rank === 4 && ! $context['has_submitted_quotation'],
                 date: $context['gutachten']['created_at'] ?? $dates['inspected'] ?? null,
                 dateLabel: 'Begutachtung abgeschlossen',
-                action: null,
+                action: $this->inlineAction(self::SECTION_OFFERS, 'Werkstatt einladen'),
             ),
             $this->definition(
                 key: 'prepare_customer_offer',
@@ -331,7 +353,7 @@ class OrderTaskResolver
                 open: $rank === 4 && $context['has_offer'] && $context['published_offer'] === null && $context['selected_offer'] === null,
                 date: $context['draft_offer']['created_at'] ?? null,
                 dateLabel: 'Entwurf vom',
-                action: null,
+                action: $this->modalAction(self::UI_CREATE_OFFER, 'Angebot erstellen'),
             ),
             $this->definition(
                 key: 'await_customer_approval',
@@ -373,7 +395,7 @@ class OrderTaskResolver
                 dateLabel: $context['repair_start_date'] !== null ? 'Bestätigter Reparaturbeginn' : 'Beauftragt am',
                 // No action, for the same reason as confirm_collection: the
                 // appointment endpoint requires a date.
-                action: null,
+                action: $this->inlineAction(self::SECTION_REPAIR, 'Termin eintragen'),
             ),
             $this->definition(
                 key: 'monitor_repair',
@@ -397,7 +419,7 @@ class OrderTaskResolver
                 open: $rank === 7 && $context['nachgutachten'] === null,
                 date: $context['nachgutachten']['created_at'] ?? $dates['repair_completed'] ?? null,
                 dateLabel: 'Reparatur abgeschlossen am',
-                action: null,
+                action: $this->modalAction(self::UI_UPLOAD_REPORT, 'Nachgutachten hochladen', ['document_type' => DocumentType::Nachgutachten->value, 'title' => 'Nachgutachten hochladen']),
             ),
             $this->definition(
                 key: 'complete_final_appraisal',
@@ -438,7 +460,7 @@ class OrderTaskResolver
                 dateLabel: 'Zurückgegeben am',
                 // No action, for the same reason as confirm_collection: the
                 // billing endpoint requires the invoice data.
-                action: null,
+                action: $this->inlineAction(self::SECTION_BILLING, 'Abrechnung erfassen'),
             ),
             $this->definition(
                 key: 'mark_invoice_processed',
@@ -514,7 +536,7 @@ class OrderTaskResolver
                 open: $rank === 2 && $context['gutachten'] === null,
                 date: $context['gutachten']['created_at'] ?? $dates['confirmed'] ?? null,
                 dateLabel: 'Termin bestätigt am',
-                action: null,
+                action: $this->modalAction(self::UI_UPLOAD_REPORT, 'Erstgutachten hochladen', ['document_type' => DocumentType::Gutachten->value, 'title' => 'Erstgutachten hochladen']),
             ),
             $this->definition(
                 key: 'complete_initial_appraisal',
@@ -536,7 +558,7 @@ class OrderTaskResolver
                 open: $rank === 3,
                 date: $dates['inspected'] ?? $context['gutachten']['created_at'] ?? null,
                 dateLabel: 'Begutachtung abgeschlossen',
-                action: null,
+                action: $this->inlineAction(self::SECTION_POSITIONS, 'Positionen erfassen'),
             ),
             $this->definition(
                 key: 'request_workshop_quotations',
@@ -552,7 +574,7 @@ class OrderTaskResolver
                 open: $rank === 3 && $context['position_count'] > 0,
                 date: $dates['inspected'] ?? null,
                 dateLabel: 'Begutachtung abgeschlossen',
-                action: null,
+                action: $this->inlineAction(self::SECTION_OFFERS, 'Werkstatt einladen'),
             ),
             $this->definition(
                 key: 'await_workshop_quotations',
@@ -576,7 +598,7 @@ class OrderTaskResolver
                 open: $rank === 3 && $context['has_submitted_quotation'],
                 date: null,
                 dateLabel: 'Werkstattangebot eingegangen',
-                action: null,
+                action: $this->modalAction(self::UI_CREATE_OFFER, 'Angebot erstellen'),
             ),
             $this->definition(
                 key: 'publish_customer_offer',
@@ -640,7 +662,7 @@ class OrderTaskResolver
                 open: $rank === 4,
                 date: $context['repair_start_date'] ?? $dates['workshop_commissioned'] ?? null,
                 dateLabel: $context['repair_start_date'] !== null ? 'Bestätigter Reparaturbeginn' : 'Beauftragt am',
-                action: null,
+                action: $this->inlineAction(self::SECTION_REPAIR, 'Termin eintragen'),
             ),
             $this->definition(
                 key: 'await_repair',
@@ -670,7 +692,7 @@ class OrderTaskResolver
                 open: $rank === 6 && $context['nachgutachten'] === null,
                 date: $context['nachgutachten']['created_at'] ?? $dates['reinspection'] ?? null,
                 dateLabel: 'Nachprüfung erfasst am',
-                action: null,
+                action: $this->modalAction(self::UI_UPLOAD_REPORT, 'Nachgutachten hochladen', ['document_type' => DocumentType::Nachgutachten->value, 'title' => 'Nachgutachten hochladen']),
             ),
             $this->definition(
                 key: 'evaluate_reinspection',
@@ -794,9 +816,52 @@ class OrderTaskResolver
         }
 
         return [
+            'type' => self::ACTION_REQUEST,
+            'key' => $routeName,
             'method' => $method,
             'url' => route($routeName, $orderId),
             'payload' => $payload,
+            'label' => $label,
+        ];
+    }
+
+    /**
+     * Open an existing modal, already configured for this task.
+     *
+     * `key` names a UI handler rather than a component, so the resolver stays
+     * free of frontend structure and the mapping lives in one registry on the
+     * Admin page instead of a branch per task in the card.
+     *
+     * @param  array<string, mixed>  $preset
+     * @return array<string, mixed>
+     */
+    private function modalAction(string $key, string $label, array $preset = []): array
+    {
+        return [
+            'type' => self::ACTION_MODAL,
+            'key' => $key,
+            'method' => null,
+            'url' => null,
+            'payload' => $preset,
+            'label' => $label,
+        ];
+    }
+
+    /**
+     * Take the admin to the form that already exists on this page and put the
+     * cursor in it. No new workflow — the same fields, reached in one click
+     * instead of a scroll and a hunt.
+     *
+     * @return array<string, mixed>
+     */
+    private function inlineAction(string $section, string $label): array
+    {
+        return [
+            'type' => self::ACTION_INLINE,
+            'key' => $section,
+            'method' => null,
+            'url' => null,
+            'payload' => [],
             'label' => $label,
         ];
     }
@@ -814,6 +879,8 @@ class OrderTaskResolver
         }
 
         return [
+            'type' => self::ACTION_REQUEST,
+            'key' => $routeName,
             'method' => $method,
             'url' => route($routeName, $offerId),
             'payload' => [],

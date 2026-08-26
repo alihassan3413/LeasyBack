@@ -128,20 +128,44 @@ function pullDocuments() {
 
 const createOfferOpen = ref(false);
 const uploadOpen = ref(false);
-const uploadVariant = ref<'gutachten' | 'rechnung'>('gutachten');
+const uploadVariant = ref<UploadVariant>('gutachten');
 const cancelDialogOpen = ref(false);
 const busy = ref(false);
 
-const uploadPreset = computed(() =>
-    uploadVariant.value === 'rechnung'
-        ? { documentType: 'rechnung', title: 'Rechnung hochladen', description: `Rechnung für Auftrag ${props.auftragsnummer} hochladen.` }
-        : { documentType: 'gutachten', title: 'Gutachten hochladen', description: `Gutachten für Auftrag ${props.auftragsnummer} hochladen.` },
-);
+type UploadVariant = 'gutachten' | 'nachgutachten' | 'rechnung';
 
-function openUpload(variant: 'gutachten' | 'rechnung') {
+/**
+ * `nachgutachten` was previously unreachable from this menu: both report
+ * uploads opened titled "Gutachten hochladen" preset to `gutachten`, so the
+ * follow-up report could only be filed correctly by noticing the type dropdown
+ * inside the modal — and filing it wrong leaves upload_final_appraisal open
+ * with no visible cause.
+ */
+const UPLOAD_VARIANTS: Record<UploadVariant, { documentType: string; title: string }> = {
+    gutachten: { documentType: 'gutachten', title: 'Erstgutachten hochladen' },
+    nachgutachten: { documentType: 'nachgutachten', title: 'Nachgutachten hochladen' },
+    rechnung: { documentType: 'rechnung', title: 'Rechnung hochladen' },
+};
+
+const uploadPreset = computed(() => {
+    const variant = UPLOAD_VARIANTS[uploadVariant.value] ?? UPLOAD_VARIANTS.gutachten;
+
+    return { ...variant, description: `${variant.title} für Auftrag ${props.auftragsnummer}.` };
+});
+
+function openUpload(variant: UploadVariant) {
     uploadVariant.value = variant;
     uploadOpen.value = true;
 }
+
+/**
+ * Driven by the tasks card so a task opens the modal it actually means,
+ * already configured — rather than duplicating the uploader next to the card.
+ */
+defineExpose({
+    openUpload,
+    openCreateOffer: () => (createOfferOpen.value = true),
+});
 
 function transitionTo(status: string) {
     if (!props.orderId) {
@@ -241,7 +265,12 @@ function statusLabel(status: string): string {
 
             <DropdownMenuItem :disabled="!hasOrder" @select="openUpload('gutachten')">
                 <IconMdiFileUploadOutline />
-                Bericht hochladen
+                Erstgutachten hochladen
+            </DropdownMenuItem>
+
+            <DropdownMenuItem :disabled="!hasOrder" @select="openUpload('nachgutachten')">
+                <IconMdiFileUploadOutline />
+                Nachgutachten hochladen
             </DropdownMenuItem>
 
             <DropdownMenuItem :disabled="!hasOrder" @select="openUpload('rechnung')">

@@ -24,6 +24,9 @@ import MdiTagOutline from '~icons/mdi/tag-outline';
 defineProps<{ orderId: string; offers: AdminOfferRow[] }>();
 
 const createModalOpen = ref(false);
+
+/** Driven by the tasks card, so a task opens this card's own modal. */
+defineExpose({ openCreate: () => (createModalOpen.value = true) });
 const publishingId = ref<string | null>(null);
 const cancellingId = ref<string | null>(null);
 const confirmingCancelId = ref<string | null>(null);
