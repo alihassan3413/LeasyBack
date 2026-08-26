@@ -3,18 +3,10 @@
 namespace App\Modules\UserProfile\Payment\Services;
 
 use App\Enums\OrderStatus;
-/*
- * The App\Models shim, not the canonical module class, and deliberately so:
- * AuthServiceProvider registers OrderPolicy against `App\Models\LeasybackOrder`,
- * and Gate resolves a policy by the instance's own class and its parents. A
- * module-class instance is not an instance of the shim (the shim extends it,
- * not the reverse), so `can('pay', $order)` on one would find no policy at all
- * and silently deny. Every controller in this codebase loads orders the same
- * way for the same reason.
- */
-use App\Models\LeasybackOrder;
+use App\Models\LeasybackOrder as OrderRecord;
 use App\Models\User;
 use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
+use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 
 /**
  * "May **this user** act on this order's payments?"
@@ -40,7 +32,7 @@ class PaymentAuthorizer
      */
     public function resolveOrderFor(User $user, string $orderId): ?LeasybackOrder
     {
-        $order = LeasybackOrder::find($orderId);
+        $order = OrderRecord::find($orderId);
 
         if ($order === null || ! $this->allows($user, $order)) {
             return null;
@@ -49,11 +41,24 @@ class PaymentAuthorizer
         return $order;
     }
 
+    /**
+     * Type-hinted against the canonical module class so callers holding either
+     * shape can pass one, but the policy is asked about an `App\Models` shim:
+     * AuthServiceProvider registers OrderPolicy on the shim, and Gate resolves
+     * by the instance's own class and parents — a module-class instance is not
+     * an instance of the shim, so asking about one silently denies.
+     */
     public function allows(User $user, LeasybackOrder $order): bool
     {
-        return $user->can('pay', $order)
-            && $this->isB2cOrder($order)
-            && $this->isOpen($order);
+        $record = $order instanceof OrderRecord ? $order : OrderRecord::find($order->id);
+
+        if ($record === null) {
+            return false;
+        }
+
+        return $user->can('pay', $record)
+            && $this->isB2cOrder($record)
+            && $this->isOpen($record);
     }
 
     /**

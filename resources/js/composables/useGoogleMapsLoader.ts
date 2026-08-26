@@ -37,9 +37,7 @@ export function loadGoogleMaps(): Promise<any> {
         };
 
         const script = document.createElement('script');
-        script.src =
-            `https://maps.googleapis.com/maps/api/js?key=${API_KEY}` +
-            `&v=weekly&loading=async&language=de&region=DE&callback=${CALLBACK}`;
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${API_KEY}` + `&v=weekly&loading=async&language=de&region=DE&callback=${CALLBACK}`;
         script.async = true;
         script.onerror = () => {
             loadPromise = null;

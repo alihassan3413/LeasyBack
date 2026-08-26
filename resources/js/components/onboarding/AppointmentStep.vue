@@ -16,6 +16,7 @@ import { router, useForm } from '@inertiajs/vue3';
 import { computed } from 'vue';
 
 export interface OnboardingOrder {
+    id: string;
     auftragsnummer: string;
     order_status: string;
 }

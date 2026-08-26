@@ -397,7 +397,7 @@ function formatDateTime(value: string | null): string {
                             :order-id="order.id"
                             :quotations="order.workshop_quotations"
                             :has-positions="!!order.appraisal_positions.length"
-                                                    />
+                        />
 
                         <AdminOffersCard :order-id="order.id" :offers="order.offers" />
                     </div>

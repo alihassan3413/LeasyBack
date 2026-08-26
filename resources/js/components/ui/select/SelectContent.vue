@@ -33,13 +33,17 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits);
             "
         >
             <SelectScrollUpButton />
+            <!--
+                No `h-[var(--reka-select-trigger-height)]` here, despite it being
+                in the shadcn source this was copied from: that var is the
+                *trigger's* height, so it pinned the list to one 40px row and
+                made long option sets (the 23 appointment slots) effectively
+                unreadable. The viewport already carries `flex: 1` and
+                `overflow: hidden auto` inline from reka, and SelectContent's
+                `max-h-96` caps it, so it sizes and scrolls correctly unset.
+            -->
             <SelectViewport
-                :class="
-                    cn(
-                        'p-1',
-                        position === 'popper' && 'h-[var(--reka-select-trigger-height)] w-full min-w-[var(--reka-select-trigger-width)] scroll-my-1',
-                    )
-                "
+                :class="cn('p-1', position === 'popper' && 'w-full min-w-[var(--reka-select-trigger-width)] scroll-my-1')"
             >
                 <slot />
             </SelectViewport>

@@ -29,6 +29,21 @@ class PaymentMethodController extends Controller
     ) {}
 
     /**
+     * Mandate state, so the payment step can skip itself when a usable card
+     * is already on file.
+     */
+    public function show(Request $request, string $orderId): JsonResponse
+    {
+        $order = $this->authorizer->resolveOrderFor($request->user(), $orderId);
+
+        if ($order === null) {
+            abort(404);
+        }
+
+        return response()->json($this->paymentMethods->summaryFor($order));
+    }
+
+    /**
      * Open a SetupIntent so the browser can collect a card. Charges nothing.
      */
     public function createIntent(Request $request, string $orderId): JsonResponse

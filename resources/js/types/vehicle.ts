@@ -72,6 +72,18 @@ export interface VehicleOrderData {
      * applies the visibility scope and takes no flag that could widen it.
      */
     notes?: CustomerOrderNote[];
+    /** B2C orders only — the B2B channel has no customer-card flow. */
+    payment?: OrderPaymentState | null;
+}
+
+export interface OrderPaymentState {
+    /**
+     * True only when the viewer can actually act on it: never for Admin, who
+     * is refused by OrderPolicy::pay, and never for a closed order.
+     */
+    requires_setup: boolean;
+    status: string;
+    card: { brand: string | null; last4: string | null; exp_month: number | null; exp_year: number | null } | null;
 }
 
 /**

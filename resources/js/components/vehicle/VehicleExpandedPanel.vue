@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AdminReportDocumentsList, { type AdminPanelReportDocument } from '@/components/admin/AdminReportDocumentsList.vue';
+import PaymentMethodStep from '@/components/payment/PaymentMethodStep.vue';
 import OrderStatusTimeline from '@/components/shared/OrderStatusTimeline.vue';
 import { AppModal } from '@/components/ui/modal';
 import AddVehicleModal from '@/components/vehicle/AddVehicleModal.vue';
@@ -195,6 +196,30 @@ const groupedDocuments = computed(() => {
 
 const firstOrder = computed(() => props.vehicle.orders[0] ?? null);
 
+/**
+ * The recovery path for an order whose mandate was never set up — most often
+ * one Admin created on the customer's behalf, since Admin is never shown the
+ * payment step. Surfaced as a persistent banner rather than an auto-opening
+ * modal, so it can be read and returned to rather than dismissed by reflex.
+ *
+ * `requires_setup` is decided server-side and is already false for Admin and
+ * for closed orders, so this needs no viewer check of its own.
+ */
+const paymentSetupOrder = computed(() => props.vehicle.orders.find((order) => order.payment?.requires_setup) ?? null);
+
+const paymentModalOpen = ref(false);
+
+function openPaymentSetup() {
+    paymentModalOpen.value = true;
+}
+
+function onPaymentComplete() {
+    paymentModalOpen.value = false;
+    // Re-fetch so the banner disappears from the server's answer rather than
+    // from local state that could disagree with it.
+    router.reload({ preserveScroll: true });
+}
+
 const besichtigungsort = computed(() => firstOrder.value?.request_payload?.besichtigungsort ?? null);
 
 const terminFormatted = computed(() => {
@@ -291,19 +316,13 @@ const presentedOffers = computed(() => offersData.value.filter((offer) => offer.
  * gross totals only in a channel that shows them (OfferPricingPolicy), so the
  * wording and the numbers can never disagree.
  */
-const showsGross = computed(
-    () => (pendingPresentedOffer.value ?? decidedPresentedOffer.value)?.presentation?.repair_total_gross != null,
-);
+const showsGross = computed(() => (pendingPresentedOffer.value ?? decidedPresentedOffer.value)?.presentation?.repair_total_gross != null);
 
 const presentedAmountsUnit = computed(() => (showsGross.value ? 'brutto' : 'netto'));
 
-const presentedAmountsLabel = computed(() =>
-    showsGross.value ? 'Alle Beträge brutto, inkl. MwSt.' : 'Alle Beträge netto.',
-);
+const presentedAmountsLabel = computed(() => (showsGross.value ? 'Alle Beträge brutto, inkl. MwSt.' : 'Alle Beträge netto.'));
 
-const presentedWorkshopName = computed(
-    () => (pendingPresentedOffer.value ?? decidedPresentedOffer.value)?.presentation?.workshop_name ?? null,
-);
+const presentedWorkshopName = computed(() => (pendingPresentedOffer.value ?? decidedPresentedOffer.value)?.presentation?.workshop_name ?? null);
 
 const pendingPresentedOffer = computed(() => presentedOffers.value.find((offer) => offer.status === 'published') ?? null);
 
@@ -576,6 +595,40 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
 
 <template>
     <VehiclePanelShell :embedded="embedded">
+        <div v-if="paymentSetupOrder" class="bg-[#EFEFEF] px-4 pt-4">
+            <div class="flex flex-col gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div class="flex items-start gap-3">
+                    <IconMdiCreditCardOutline class="mt-0.5 size-5 shrink-0 text-amber-700" />
+                    <div>
+                        <p class="text-[15px] font-bold text-amber-900">Zahlungsmethode erforderlich</p>
+                        <p class="text-sm text-amber-900/90">
+                            Für Auftrag {{ paymentSetupOrder.auftragsnummer }} ist noch keine Zahlungsmethode hinterlegt. Es wird jetzt nichts
+                            abgebucht.
+                        </p>
+                    </div>
+                </div>
+                <button
+                    type="button"
+                    class="bg-brand-green hover:bg-brand-green/90 shrink-0 rounded-[5px] px-6 py-2.5 text-sm font-bold text-white"
+                    @click="openPaymentSetup"
+                >
+                    Jetzt hinterlegen
+                </button>
+            </div>
+        </div>
+
+        <AppModal
+            :open="paymentModalOpen"
+            title="Zahlungsmethode hinterlegen"
+            description="Hinterlegen Sie eine Zahlungsmethode als Sicherheit für den Prozess."
+            :width="620"
+            @update:open="(value) => (paymentModalOpen = value)"
+        >
+            <div v-if="paymentSetupOrder" class="min-w-0 px-2">
+                <PaymentMethodStep :order-id="paymentSetupOrder.id" @complete="onPaymentComplete" />
+            </div>
+        </AppModal>
+
         <div class="columns-1 gap-4 bg-[#EFEFEF] p-4 *:mb-4 *:break-inside-avoid md:columns-2 2xl:columns-3">
             <div class="flex w-full flex-col overflow-hidden rounded-3xl border bg-white" style="border-color: #ececec">
                 <OrderStatusTimeline
@@ -702,7 +755,11 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                                 </div>
                             </div>
 
-                            <p v-if="offer.presentation.customer_note" class="mt-4 rounded-[13px] bg-[#f9fbfa] px-4 py-3 text-[13px]" style="color: #2e3e3f">
+                            <p
+                                v-if="offer.presentation.customer_note"
+                                class="mt-4 rounded-[13px] bg-[#f9fbfa] px-4 py-3 text-[13px]"
+                                style="color: #2e3e3f"
+                            >
                                 {{ offer.presentation.customer_note }}
                             </p>
 
@@ -1071,9 +1128,7 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                         <div v-if="index > 0" class="h-px bg-gray-200"></div>
                         <div class="py-4">
                             <p class="text-[16px] whitespace-pre-line" style="color: #000">{{ note.body }}</p>
-                            <p class="mt-2 text-[14px]" style="color: #64748b">
-                                {{ note.author_name }} · {{ formatDate(note.created_at) }}
-                            </p>
+                            <p class="mt-2 text-[14px]" style="color: #64748b">{{ note.author_name }} · {{ formatDate(note.created_at) }}</p>
                         </div>
                     </template>
                 </div>

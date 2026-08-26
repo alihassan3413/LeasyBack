@@ -112,9 +112,7 @@ function isActive(filter: string | null): boolean {
                 </li>
             </ul>
 
-            <p v-else class="text-muted-foreground mt-3 text-sm">
-                Sobald Sie Fahrzeuge anlegen, sehen Sie hier, wie weit deren Rückgaben sind.
-            </p>
+            <p v-else class="text-muted-foreground mt-3 text-sm">Sobald Sie Fahrzeuge anlegen, sehen Sie hier, wie weit deren Rückgaben sind.</p>
         </section>
 
         <!-- ── RÜCKGABEN ── -->
@@ -141,11 +139,7 @@ function isActive(filter: string | null): boolean {
             <div
                 class="bg-muted mt-5 h-2.5 w-full overflow-hidden rounded-full"
                 role="img"
-                :aria-label="
-                    totalOrders === 0
-                        ? 'Noch keine Aufträge'
-                        : `${completedOrders} von ${totalOrders} Aufträgen abgeschlossen`
-                "
+                :aria-label="totalOrders === 0 ? 'Noch keine Aufträge' : `${completedOrders} von ${totalOrders} Aufträgen abgeschlossen`"
             >
                 <span class="bg-brand-teal block h-full rounded-full transition-[width] duration-300" :style="{ width: `${completionPercent}%` }" />
             </div>
@@ -164,10 +158,7 @@ function isActive(filter: string | null): boolean {
                         <span class="text-muted-foreground flex-1 truncate text-sm">{{ row.label }}</span>
 
                         <span class="size-2 shrink-0 rounded-full" :class="row.dotClass" aria-hidden="true" />
-                        <span
-                            class="text-sm font-semibold tabular-nums"
-                            :class="row.value === 0 ? 'text-muted-foreground/50' : 'text-brand-teal'"
-                        >
+                        <span class="text-sm font-semibold tabular-nums" :class="row.value === 0 ? 'text-muted-foreground/50' : 'text-brand-teal'">
                             {{ row.value }}
                         </span>
                     </Link>

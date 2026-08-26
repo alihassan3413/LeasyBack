@@ -73,11 +73,7 @@ function commission() {
 
 function resend() {
     busy.value = true;
-    router.post(
-        route('admin.orders.commission-workshop.resend', props.orderId),
-        {},
-        { preserveScroll: true, onFinish: () => (busy.value = false) },
-    );
+    router.post(route('admin.orders.commission-workshop.resend', props.orderId), {}, { preserveScroll: true, onFinish: () => (busy.value = false) });
 }
 </script>
 

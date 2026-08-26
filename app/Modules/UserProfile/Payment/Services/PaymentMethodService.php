@@ -176,6 +176,45 @@ class PaymentMethodService
     }
 
     /**
+     * What the payment step needs to decide whether to ask for a card.
+     *
+     * @return array{status: string, usable: bool, verified: bool, authorized: bool, card: ?array{brand: ?string, last4: ?string, exp_month: ?int, exp_year: ?int}}
+     */
+    public function summaryFor(LeasybackOrder $order): array
+    {
+        $mandate = OrderPaymentMethod::where('order_id', $order->id)->first();
+
+        return [
+            'status' => $mandate?->status ?? OrderPaymentMethod::STATUS_AWAITING_METHOD,
+            'usable' => (bool) $mandate?->isUsable(),
+            'verified' => $mandate?->verified_at !== null,
+            'authorized' => $mandate?->offsession_authorized_at !== null,
+            'card' => $mandate?->payment_method_id === null ? null : [
+                'brand' => $mandate->pm_brand,
+                'last4' => $mandate->pm_last4,
+                'exp_month' => $mandate->pm_exp_month,
+                'exp_year' => $mandate->pm_exp_year,
+            ],
+        ];
+    }
+
+    /**
+     * Whether this actor should be sent to the payment step for this order.
+     *
+     * False for an Admin creating on a customer's behalf (OrderPolicy::pay
+     * denies them), for B2B, for a closed order, and when a usable mandate
+     * already exists.
+     */
+    public function requiresSetup(LeasybackOrder $order, User $actor): bool
+    {
+        if (! $this->authorizer->allows($actor, $order)) {
+            return false;
+        }
+
+        return ! OrderPaymentMethod::where('order_id', $order->id)->first()?->isUsable();
+    }
+
+    /**
      * The mandate row for an order, created on demand.
      *
      * Orders predating this feature have no row, and one is created lazily

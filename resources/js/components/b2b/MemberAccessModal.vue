@@ -4,10 +4,10 @@
  * may do" — the fields are identical apart from the email address, and
  * keeping them in one place is what stops the two forms drifting apart.
  */
-import FormField from '@/components/form/FormField.vue';
 import MemberAccessFields from '@/components/b2b/MemberAccessFields.vue';
-import InputError from '@/components/InputError.vue';
+import FormField from '@/components/form/FormField.vue';
 import type { SelectFieldOption } from '@/components/form/SelectField.vue';
+import InputError from '@/components/InputError.vue';
 import { Input } from '@/components/ui/input';
 import { AppModal, AppModalButton } from '@/components/ui/modal';
 import type { B2bMemberAccessFormData, B2bMemberRow, B2bPermissionGroup } from '@/types/b2b';

@@ -18,6 +18,10 @@ use Illuminate\Support\Facades\Route;
  * without an authenticated user to hang them on.
  */
 Route::middleware(['auth', 'active', 'verified'])->group(function () {
+    Route::get('orders/{orderId}/payment-method', [PaymentMethodController::class, 'show'])
+        ->whereUuid('orderId')
+        ->name('payments.method.show');
+
     Route::post('orders/{orderId}/payment-method/setup-intent', [PaymentMethodController::class, 'createIntent'])
         ->whereUuid('orderId')
         ->name('payments.method.intent');

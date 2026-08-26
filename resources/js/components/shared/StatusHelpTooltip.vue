@@ -61,7 +61,7 @@ function handleTriggerClick() {
                     :disabled="isDisabled"
                     :aria-label="label"
                     :aria-expanded="isOpen"
-                    class="inline-flex size-6 shrink-0 items-center justify-center rounded-full text-[#8a9a9a] outline-none transition-colors hover:bg-[#01b990]/10 hover:text-[#01b990] focus-visible:ring-2 focus-visible:ring-[#01b990]/50 focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-40 data-[state=open]:bg-[#01b990]/10 data-[state=open]:text-[#01b990]"
+                    class="inline-flex size-6 shrink-0 items-center justify-center rounded-full text-[#8a9a9a] transition-colors outline-none hover:bg-[#01b990]/10 hover:text-[#01b990] focus-visible:ring-2 focus-visible:ring-[#01b990]/50 focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-40 data-[state=open]:bg-[#01b990]/10 data-[state=open]:text-[#01b990]"
                     @click="handleTriggerClick"
                 >
                     <IconMdiHelpCircleOutline class="size-4" aria-hidden="true" />

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import FleetOverview from '@/components/b2b/FleetOverview.vue';
 import OnboardingModal from '@/components/dashboard/OnboardingModal.vue';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import AddVehicleModal from '@/components/vehicle/AddVehicleModal.vue';
@@ -8,17 +9,16 @@ import SortableTableHead from '@/components/vehicle/SortableTableHead.vue';
 import VehicleExpandedPanel from '@/components/vehicle/VehicleExpandedPanel.vue';
 import VehiclePagination, { type PaginationMeta } from '@/components/vehicle/VehiclePagination.vue';
 import VehicleRow from '@/components/vehicle/VehicleRow.vue';
+import type { MemberFilterOption } from '@/components/vehicle/VehicleToolbar.vue';
 import VehicleToolbar from '@/components/vehicle/VehicleToolbar.vue';
+import { useB2bPermissions } from '@/composables/useB2bPermissions';
 import { useOnboarding } from '@/composables/useOnboarding';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { canStartNewOrder } from '@/lib/customerOrderFlow';
 import { ONBOARDING_VIDEO_POSTER_URL, ONBOARDING_VIDEO_URL } from '@/lib/onboarding';
 import { getOrderStatusLabel, isVehicleCompleted } from '@/lib/vehicleStatus';
-import FleetOverview from '@/components/b2b/FleetOverview.vue';
-import { useB2bPermissions } from '@/composables/useB2bPermissions';
 import { type SharedData } from '@/types';
 import type { B2bAnalytics } from '@/types/b2b';
-import type { MemberFilterOption } from '@/components/vehicle/VehicleToolbar.vue';
 import type { StationData } from '@/types/order';
 import type { VehicleData } from '@/types/vehicle';
 import { Head, router, usePage } from '@inertiajs/vue3';

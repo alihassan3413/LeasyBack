@@ -3,12 +3,9 @@ import { ref } from 'vue';
 
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undefined;
 
-const supported =
-    typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && Boolean(VAPID_PUBLIC_KEY);
+const supported = typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && Boolean(VAPID_PUBLIC_KEY);
 
-const permission = ref<NotificationPermission>(
-    typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'denied',
-);
+const permission = ref<NotificationPermission>(typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'denied');
 const subscribed = ref(false);
 const busy = ref(false);
 

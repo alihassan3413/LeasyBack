@@ -110,12 +110,7 @@ function stateLabel(task: AdminOrderTask | null): string {
             :class="props.tasks.next.state === 'waiting' ? 'border-[#e9efee] bg-[#f8faf9]' : 'border-[#ef8450]/30 bg-[#ef8450]/5'"
         >
             <div class="flex items-start justify-between gap-3">
-                <button
-                    type="button"
-                    class="min-w-0 flex-1 text-left"
-                    :title="`Zum Abschnitt springen`"
-                    @click="focusNextSection"
-                >
+                <button type="button" class="min-w-0 flex-1 text-left" :title="`Zum Abschnitt springen`" @click="focusNextSection">
                     <p class="text-[14px] font-extrabold tracking-[-0.2px] text-[#10393b] hover:opacity-70">
                         {{ props.tasks.next.title }}
                     </p>

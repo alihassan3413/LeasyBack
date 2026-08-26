@@ -65,7 +65,9 @@ const bestTotal = computed(() => {
  * 0,00 €. A quotation-backed offer carries its whole amount in Reparaturkosten;
  * the other three exist for the manual fallback, which fills them in.
  */
-const visibleRows = computed(() => ROWS.filter((row) => sorted.value.some((offer) => (toNumber(offer[row.key] as string | number | null) ?? 0) !== 0)));
+const visibleRows = computed(() =>
+    ROWS.filter((row) => sorted.value.some((offer) => (toNumber(offer[row.key] as string | number | null) ?? 0) !== 0)),
+);
 
 function toNumber(value: string | number | null): number | null {
     if (value === null || value === '') {
@@ -96,9 +98,7 @@ function formatDate(value: string | null): string {
 }
 
 function isBest(offer: OfferData): boolean {
-    return (
-        bestTotal.value !== null && selectable.value.includes(offer) && toNumber(offer.final_total_gross) === bestTotal.value
-    );
+    return bestTotal.value !== null && selectable.value.includes(offer) && toNumber(offer.final_total_gross) === bestTotal.value;
 }
 
 /**

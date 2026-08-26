@@ -138,13 +138,7 @@ function formatDateTime(value: string | null): string {
                         {{ note.visibility === 'customer' ? 'Kunde sichtbar' : 'Intern' }}
                     </span>
                     <span class="text-xs text-[#6f8585]">{{ note.author_name }} · {{ formatDateTime(note.created_at) }}</span>
-                    <button
-                        type="button"
-                        class="ml-auto text-xs text-red-600 hover:underline"
-                        @click="remove(note)"
-                    >
-                        Löschen
-                    </button>
+                    <button type="button" class="ml-auto text-xs text-red-600 hover:underline" @click="remove(note)">Löschen</button>
                 </div>
                 <p class="text-sm whitespace-pre-line text-[#10393b]">{{ note.body }}</p>
             </div>

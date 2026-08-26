@@ -259,10 +259,7 @@ function collectionAddressSubtitle(collection: CustomerOrderCollection): string 
         return '';
     }
 
-    return [
-        [address.street, address.number].filter(Boolean).join(' '),
-        [address.zip_code, address.city].filter(Boolean).join(' '),
-    ]
+    return [[address.street, address.number].filter(Boolean).join(' '), [address.zip_code, address.city].filter(Boolean).join(' ')]
         .filter(Boolean)
         .join('\n');
 }
@@ -286,10 +283,7 @@ function repairScheduleSubtitle(collection: CustomerOrderCollection | null | und
     const start = collection?.confirmed_repair_start_date;
     const days = collection?.estimated_processing_days;
 
-    return [
-        start ? `Reparaturbeginn: ${formatGermanDate(start)}` : '',
-        days != null ? `Voraussichtliche Dauer: ${days} Arbeitstage` : '',
-    ]
+    return [start ? `Reparaturbeginn: ${formatGermanDate(start)}` : '', days != null ? `Voraussichtliche Dauer: ${days} Arbeitstage` : '']
         .filter(Boolean)
         .join('\n');
 }
@@ -474,12 +468,7 @@ function b2bStageDate(
     }
 }
 
-function b2bStageSubtitle(
-    stage: B2bOrderStage,
-    ctx: CustomerOrderFlowInput,
-    relevantOffer: CustomerOrderOffer | null,
-    isCurrent: boolean,
-): string {
+function b2bStageSubtitle(stage: B2bOrderStage, ctx: CustomerOrderFlowInput, relevantOffer: CustomerOrderOffer | null, isCurrent: boolean): string {
     const collection = ctx.collection ?? null;
 
     switch (stage) {
@@ -603,10 +592,7 @@ function getStageDate(
             // The follow-up inspection's own moment. It used to borrow the
             // date of `delivered`/`completed`, which put the wrong timestamp on
             // the step as soon as those became distinct events.
-            return (
-                nachgutachtenDoc?.created_at ??
-                findHistoryDate(ctx.statusHistory, new Set(['reinspection', ...CLOSING_STATUSES]), status)
-            );
+            return nachgutachtenDoc?.created_at ?? findHistoryDate(ctx.statusHistory, new Set(['reinspection', ...CLOSING_STATUSES]), status);
         case 'vehicle_ready':
             return findHistoryDate(ctx.statusHistory, new Set(['delivered']));
         case 'case_closed':
@@ -688,9 +674,7 @@ function buildStep(
             subtitle = repairScheduleSubtitle(ctx.collection) || 'Die Werkstatt stimmt nun einen Reparaturtermin ab';
             break;
         case 'in_repair':
-            subtitle =
-                repairScheduleSubtitle(ctx.collection) ||
-                'Nach der Reparatur erfolgt automatisch eine Nachbegutachtung durch den Gutachter';
+            subtitle = repairScheduleSubtitle(ctx.collection) || 'Nach der Reparatur erfolgt automatisch eine Nachbegutachtung durch den Gutachter';
             break;
         // Both of these promised an invoice unconditionally, and one of them
         // promised paying it. The invoice link renders only where a Rechnung is
@@ -700,9 +684,7 @@ function buildStep(
         // invoice where there is one; say nothing about paying until there is
         // something to pay with.
         case 'followup_completed':
-            subtitle = rechnungDoc
-                ? 'Hier können Sie Ihr Gutachten und Ihre Rechnung einsehen'
-                : 'Hier können Sie Ihr Gutachten einsehen';
+            subtitle = rechnungDoc ? 'Hier können Sie Ihr Gutachten und Ihre Rechnung einsehen' : 'Hier können Sie Ihr Gutachten einsehen';
             break;
         case 'vehicle_ready':
             subtitle = rechnungDoc
@@ -794,9 +776,7 @@ function buildB2bStep(
         label,
         shortLabel: state.isCancelled ? 'Auftrag storniert' : B2B_STAGE_SHORT_LABEL[stage],
         subtitle,
-        tooltipDescription: state.isCancelled
-            ? 'Dieser Auftrag wurde storniert und wird nicht weiter bearbeitet.'
-            : B2B_STAGE_TOOLTIP[stage],
+        tooltipDescription: state.isCancelled ? 'Dieser Auftrag wurde storniert und wird nicht weiter bearbeitet.' : B2B_STAGE_TOOLTIP[stage],
         datetime: state.datetime,
         completed: state.completed,
         isCurrent: state.isCurrent,
@@ -832,10 +812,7 @@ function getB2bOrderFlowSteps(ctx: CustomerOrderFlowInput): CustomerOrderFlowSte
     if (TERMINAL_STATUSES.has(status)) {
         const terminalEntry = ctx.statusHistory.find((entry) => entry.new_status === status);
         const priorStatus = (terminalEntry?.old_status ?? '').trim();
-        const priorIndex = Math.min(
-            resolveB2bProgressIndex(priorStatus, relevantOffer) ?? 0,
-            B2B_ORDER_STAGE_SEQUENCE.length - 1,
-        );
+        const priorIndex = Math.min(resolveB2bProgressIndex(priorStatus, relevantOffer) ?? 0, B2B_ORDER_STAGE_SEQUENCE.length - 1);
         const terminalDate = terminalEntry?.created_at ?? '';
         const priorCtx: CustomerOrderFlowInput = { ...ctx, orderStatus: priorStatus };
 

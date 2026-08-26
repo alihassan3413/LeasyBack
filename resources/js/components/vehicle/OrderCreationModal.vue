@@ -6,13 +6,15 @@ import StationMap from '@/components/form/StationMap.vue';
 import StationSelectField from '@/components/form/StationSelectField.vue';
 import TimeSelectField from '@/components/form/TimeSelectField.vue';
 import InputError from '@/components/InputError.vue';
+import PaymentMethodStep from '@/components/payment/PaymentMethodStep.vue';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { AppModal, AppModalButton } from '@/components/ui/modal';
+import type { SharedData } from '@/types';
 import type { StationData } from '@/types/order';
 import type { VehicleCollectionAddress } from '@/types/vehicle';
-import { useForm } from '@inertiajs/vue3';
+import { router, useForm, usePage } from '@inertiajs/vue3';
 import { computed, ref, useId, watch } from 'vue';
 
 /**
@@ -150,11 +152,28 @@ watch(
         form.collection_address = vehicleCollectionAddress();
         selectedBundesland.value = '';
         selectedOrt.value = '';
+        paymentOrderId.value = null;
     },
 );
 
+/**
+ * Set once booking succeeds and the server says this order still needs a card,
+ * which turns the modal into the payment step. Null for B2B, for Admin booking
+ * on a customer's behalf, and when a usable mandate already exists — those all
+ * close straight away, exactly as before.
+ */
+const page = usePage<SharedData>();
+const paymentOrderId = ref<string | null>(null);
+
 function close() {
+    paymentOrderId.value = null;
     emit('update:open', false);
+}
+
+/** The card is stored; refresh so the new order appears with its real state. */
+function finishAfterPayment() {
+    close();
+    router.reload({ preserveScroll: true });
 }
 
 function submit() {
@@ -172,7 +191,17 @@ function submit() {
               },
     ).post(route('orders.store', props.vehicleId), {
         preserveScroll: true,
-        onSuccess: close,
+        onSuccess: () => {
+            const created = page.props.flash?.order_created;
+
+            if (created?.requires_payment_method) {
+                paymentOrderId.value = created.order_id;
+
+                return;
+            }
+
+            close();
+        },
     });
 }
 </script>
@@ -180,16 +209,22 @@ function submit() {
 <template>
     <AppModal
         :open="open"
-        :title="isB2bOrder ? 'Abholung beauftragen' : 'Auftrag erstellen'"
+        :title="paymentOrderId ? 'Zahlungsmethode hinterlegen' : isB2bOrder ? 'Abholung beauftragen' : 'Auftrag erstellen'"
         :description="
-            isB2bOrder
-                ? 'Bitte geben Sie Wunschtermin und Abholadresse an. Ihre Anfrage wird von Leasyback geprüft.'
-                : 'Bitte füllen Sie alle Details im unten stehenden Formular aus.'
+            paymentOrderId
+                ? 'Ihr Termin ist gebucht. Hinterlegen Sie zum Abschluss eine Zahlungsmethode als Sicherheit für den Prozess.'
+                : isB2bOrder
+                  ? 'Bitte geben Sie Wunschtermin und Abholadresse an. Ihre Anfrage wird von Leasyback geprüft.'
+                  : 'Bitte füllen Sie alle Details im unten stehenden Formular aus.'
         "
-        :width="isB2bOrder ? 720 : 920"
+        :width="paymentOrderId ? 620 : isB2bOrder ? 720 : 920"
         @update:open="(value) => emit('update:open', value)"
     >
-        <form class="min-w-0 px-2" @submit.prevent="submit">
+        <div v-if="paymentOrderId" class="min-w-0 px-2">
+            <PaymentMethodStep :order-id="paymentOrderId" @complete="finishAfterPayment" />
+        </div>
+
+        <form v-else class="min-w-0 px-2" @submit.prevent="submit">
             <InputError class="mb-3" :message="form.errors.appointment" />
 
             <div v-if="!isB2bOrder" class="grid min-w-0 grid-cols-1 gap-6 md:grid-cols-2 md:items-stretch">
@@ -345,7 +380,7 @@ function submit() {
             </div>
         </form>
 
-        <template #footer>
+        <template v-if="!paymentOrderId" #footer>
             <AppModalButton :disabled="!canSubmit || form.processing" @click="submit">
                 {{ form.processing ? 'Lädt...' : 'Bestätigen' }}
             </AppModalButton>

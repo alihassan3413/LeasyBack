@@ -14,6 +14,7 @@ use App\Modules\UserProfile\Order\Models\LogisticsAddressProfile;
 use App\Modules\UserProfile\Order\Services\B2bOrderNoteService;
 use App\Modules\UserProfile\Order\Services\OrderCollectionService;
 use App\Modules\UserProfile\Order\Services\RepairOfferService;
+use App\Modules\UserProfile\Payment\Models\OrderPaymentMethod;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\UploadedFile;
@@ -496,7 +497,7 @@ class VehicleService
             ->paginate(perPage: $perPage, page: $page);
 
         return [
-            'data' => $this->hydrateVehicles(collect($paginator->items())),
+            'data' => $this->hydrateVehicles(collect($paginator->items()), $viewer),
             'meta' => [
                 'current_page' => $paginator->currentPage(),
                 'last_page' => $paginator->lastPage(),
@@ -516,7 +517,7 @@ class VehicleService
             $query->where('v.vehicle_id', $vehicleId);
         }
 
-        return $this->hydrateVehicles($this->applyVehicleFilters($query, $filters)->get());
+        return $this->hydrateVehicles($this->applyVehicleFilters($query, $filters)->get(), $viewer);
     }
 
     /**
@@ -559,7 +560,7 @@ class VehicleService
      * @param  Collection<int, object>  $vehicles
      * @return list<array<string, mixed>>
      */
-    private function hydrateVehicles(Collection $vehicles): array
+    private function hydrateVehicles(Collection $vehicles, ?User $viewer = null): array
     {
         if ($vehicles->isEmpty()) {
             return [];
@@ -581,6 +582,14 @@ class VehicleService
 
         $auftragsnummern = $ordersByVehicle->flatten(1)->pluck('auftragsnummer')->unique()->all();
         $orderIds = $ordersByVehicle->flatten(1)->pluck('id')->all();
+
+        // Batched, because an order that has never reached the payment step has
+        // no row at all — the absence *is* `awaiting_method`, so this is a left
+        // join in spirit and every lookup below must tolerate a miss.
+        $mandatesByOrder = DB::table('order_payment_methods')
+            ->whereIn('order_id', $orderIds)
+            ->get()
+            ->keyBy('order_id');
 
         $statusUpdatesByOrder = DB::table('leasyback_order_status_updates')
             ->whereIn('auftragsnummer', $auftragsnummern)
@@ -721,6 +730,11 @@ class VehicleService
                     ->toArray();
 
                 $ordersArr[] = [
+                    // B2C only, mirroring how `notes` stays B2B: there is no
+                    // customer-card flow in the B2B channel.
+                    ...($isB2bOffer ? [] : [
+                        'payment' => $this->orderPaymentState($order, $mandatesByOrder->get($order->id), $viewer),
+                    ]),
                     'collection' => $orderCollections[$order->auftragsnummer] ?? null,
                     // Order notes stay B2B — §16 gives company users the right
                     // to see them, and there is no B2C equivalent.
@@ -790,6 +804,41 @@ class VehicleService
      * the column holds: rows written before the `date:Y-m-d` cast still carry
      * "2026-03-13 00:00:00", which the field rendered as "13 00:00:00.03.2026".
      */
+    /**
+     * Whether this B2C order still needs a payment method, and what is on file.
+     *
+     * `requires_setup` is deliberately not "the mandate is unusable": it is
+     * also false for anyone who could not act on it anyway — Admin, who is
+     * refused by OrderPolicy::pay because storing a card on a customer's
+     * behalf would record a consent that never happened — so an Admin viewing
+     * a customer's vehicle never sees a prompt aimed at the customer.
+     *
+     * @param  object|null  $mandate  Absent for an order that never reached the payment step.
+     * @return array{requires_setup: bool, status: string, card: ?array{brand: ?string, last4: ?string, exp_month: ?int, exp_year: ?int}}
+     */
+    private function orderPaymentState(object $order, ?object $mandate, ?User $viewer): array
+    {
+        $usable = $mandate !== null
+            && $mandate->status === OrderPaymentMethod::STATUS_SAVED
+            && $mandate->verified_at !== null
+            && $mandate->offsession_authorized_at !== null
+            && ! empty($mandate->payment_method_id);
+
+        $orderIsOpen = ! in_array($order->order_status, OrderStatus::closedValues(), true);
+        $viewerMayAct = $viewer !== null && ! $viewer->isAdmin();
+
+        return [
+            'requires_setup' => $viewerMayAct && $orderIsOpen && ! $usable,
+            'status' => $mandate->status ?? OrderPaymentMethod::STATUS_AWAITING_METHOD,
+            'card' => $usable ? [
+                'brand' => $mandate->pm_brand,
+                'last4' => $mandate->pm_last4,
+                'exp_month' => $mandate->pm_exp_month === null ? null : (int) $mandate->pm_exp_month,
+                'exp_year' => $mandate->pm_exp_year === null ? null : (int) $mandate->pm_exp_year,
+            ] : null,
+        ];
+    }
+
     public static function asDateString(mixed $value): ?string
     {
         if ($value === null || $value === '') {

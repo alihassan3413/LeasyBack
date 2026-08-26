@@ -330,7 +330,12 @@ function openCustomer(user: AdminPanelUser) {
                         </div>
                     </button>
 
-                    <button type="button" class="dashboard-card" :class="{ 'dashboard-card-active': activePanel === 'users' }" @click="activatePanel('users')">
+                    <button
+                        type="button"
+                        class="dashboard-card"
+                        :class="{ 'dashboard-card-active': activePanel === 'users' }"
+                        @click="activatePanel('users')"
+                    >
                         <div v-if="activePanel === 'users'" class="absolute -top-24 -right-20 h-64 w-64 rounded-full bg-white/15 blur-2xl"></div>
 
                         <div class="relative z-10 flex h-full flex-col">
@@ -695,7 +700,9 @@ function openCustomer(user: AdminPanelUser) {
                             </div>
 
                             <div v-else class="flex flex-col gap-1">
-                                <div v-if="panelOrders.length === 0" class="py-12 text-center text-[13px] text-[#9bb0af]">Keine Aufträge gefunden.</div>
+                                <div v-if="panelOrders.length === 0" class="py-12 text-center text-[13px] text-[#9bb0af]">
+                                    Keine Aufträge gefunden.
+                                </div>
 
                                 <div
                                     v-for="order in panelOrders"
@@ -731,7 +738,9 @@ function openCustomer(user: AdminPanelUser) {
                                             {{ getStatus(order.order_status).label }}
                                         </span>
 
-                                        <span class="hidden text-[11px] text-[#9bb0af] tabular-nums lg:block">{{ formatGermanDate(order.created_at) }}</span>
+                                        <span class="hidden text-[11px] text-[#9bb0af] tabular-nums lg:block">{{
+                                            formatGermanDate(order.created_at)
+                                        }}</span>
                                     </div>
                                 </div>
                             </div>

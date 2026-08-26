@@ -33,6 +33,15 @@ export interface FlashBag {
     workshop_link?: string | null;
     /** Per-row outcome of a bulk vehicle import (phase 15). */
     vehicle_import?: VehicleImportResult | null;
+    /** Set once after booking, so the caller knows which order to attach a card to. */
+    order_created?: OrderCreatedFlash | null;
+}
+
+export interface OrderCreatedFlash {
+    order_id: string;
+    auftragsnummer: string;
+    /** Decided server-side: false for B2B, for Admin acting on a customer's behalf, and when a usable mandate already exists. */
+    requires_payment_method: boolean;
 }
 
 export interface SharedData {
@@ -43,6 +52,8 @@ export interface SharedData {
     /** Set only for an admin who has taken over a customer session — never for the customer themselves. */
     impersonation: { active: boolean; admin_name: string | null };
     notifications: { unread_count: number };
+    /** Publishable key only. Null when payments are not configured in this environment. */
+    stripe: { key: string | null };
     ziggy: {
         location: string;
         url: string;

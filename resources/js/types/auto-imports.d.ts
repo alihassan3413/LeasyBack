@@ -13,6 +13,7 @@ declare global {
   const DOCUMENT_TYPE_LABELS: typeof import('../lib/documentTypes').DOCUMENT_TYPE_LABELS
   const EffectScope: typeof import('vue').EffectScope
   const Head: typeof import('@inertiajs/vue3').Head
+  const HttpError: typeof import('../lib/http').HttpError
   const INVOICE_DOCUMENT_TYPE: typeof import('../lib/documentTypes').INVOICE_DOCUMENT_TYPE
   const Link: typeof import('@inertiajs/vue3').Link
   const ONBOARDING_VIDEO_POSTER_URL: typeof import('../lib/onboarding').ONBOARDING_VIDEO_POSTER_URL
@@ -171,6 +172,9 @@ declare global {
   export type { ErrorIllustrationVariant, ErrorPageCopy } from '../lib/errorPages'
   import('../lib/errorPages')
   // @ts-ignore
+  export type { HttpError } from '../lib/http'
+  import('../lib/http')
+  // @ts-ignore
   export type { OrderFlowStep } from '../lib/orderFlow'
   import('../lib/orderFlow')
   // @ts-ignore
@@ -193,6 +197,7 @@ declare module 'vue' {
     readonly DOCUMENT_TYPE_LABELS: UnwrapRef<typeof import('../lib/documentTypes')['DOCUMENT_TYPE_LABELS']>
     readonly EffectScope: UnwrapRef<typeof import('vue')['EffectScope']>
     readonly Head: UnwrapRef<typeof import('@inertiajs/vue3')['Head']>
+    readonly HttpError: UnwrapRef<typeof import('../lib/http')['HttpError']>
     readonly INVOICE_DOCUMENT_TYPE: UnwrapRef<typeof import('../lib/documentTypes')['INVOICE_DOCUMENT_TYPE']>
     readonly Link: UnwrapRef<typeof import('@inertiajs/vue3')['Link']>
     readonly ONBOARDING_VIDEO_POSTER_URL: UnwrapRef<typeof import('../lib/onboarding')['ONBOARDING_VIDEO_POSTER_URL']>

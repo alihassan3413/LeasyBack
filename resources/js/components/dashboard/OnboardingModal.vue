@@ -42,7 +42,10 @@ function close(): void {
                     class="relative px-5 pt-7 pb-5 text-center sm:px-9 sm:pt-8 sm:pb-6"
                     style="background: linear-gradient(160deg, #10393b 0%, #16514f 55%, #1c6360 100%)"
                 >
-                    <div class="pointer-events-none absolute -top-12 -right-10 h-40 w-40 rounded-full opacity-30 blur-2xl" style="background: #01b990" />
+                    <div
+                        class="pointer-events-none absolute -top-12 -right-10 h-40 w-40 rounded-full opacity-30 blur-2xl"
+                        style="background: #01b990"
+                    />
                     <div class="pointer-events-none absolute top-6 -left-12 h-32 w-32 rounded-full opacity-20 blur-2xl" style="background: #ef8450" />
 
                     <DialogClose

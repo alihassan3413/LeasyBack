@@ -11,13 +11,7 @@ import FormField from '@/components/form/FormField.vue';
 import SelectField, { type SelectFieldOption } from '@/components/form/SelectField.vue';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import type {
-    B2bMemberAccessFormData,
-    B2bPermissionGroup,
-    B2bPermissionValue,
-    B2bRoleValue,
-    B2bVehicleScopeValue,
-} from '@/types/b2b';
+import type { B2bMemberAccessFormData, B2bPermissionGroup, B2bPermissionValue, B2bRoleValue, B2bVehicleScopeValue } from '@/types/b2b';
 import { computed, useId } from 'vue';
 
 const props = defineProps<{
@@ -41,9 +35,7 @@ const uid = useId();
 const isOwner = computed(() => props.modelValue.role === 'owner');
 const controlsDisabled = computed(() => props.disabled || isOwner.value);
 
-const availableRoles = computed(() =>
-    props.canAssignOwner ? props.roleOptions : props.roleOptions.filter((option) => option.value !== 'owner'),
-);
+const availableRoles = computed(() => (props.canAssignOwner ? props.roleOptions : props.roleOptions.filter((option) => option.value !== 'owner')));
 
 function patch(changes: Partial<B2bMemberAccessFormData>) {
     emit('update:modelValue', { ...props.modelValue, ...changes });
@@ -126,9 +118,7 @@ function dependenciesOf(permission: B2bPermissionValue): B2bPermissionValue[] {
 
         <div>
             <p class="text-[14px] font-bold text-[#10393b]">Berechtigungen</p>
-            <p v-if="isOwner" class="mt-1 text-[12px] text-gray-500">
-                Inhaber haben immer vollen Zugriff auf alle Bereiche des Unternehmens.
-            </p>
+            <p v-if="isOwner" class="mt-1 text-[12px] text-gray-500">Inhaber haben immer vollen Zugriff auf alle Bereiche des Unternehmens.</p>
             <p v-else class="mt-1 text-[12px] text-gray-500">
                 Abhängige Rechte werden automatisch mit aktiviert – wer Fahrzeuge anlegen darf, muss sie auch sehen können.
             </p>
@@ -136,18 +126,10 @@ function dependenciesOf(permission: B2bPermissionValue): B2bPermissionValue[] {
             <p v-if="errors?.permissions" class="text-destructive mt-1 text-sm">{{ errors.permissions }}</p>
 
             <div class="mt-3 space-y-3">
-                <fieldset
-                    v-for="group in catalog"
-                    :key="group.group"
-                    class="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm"
-                >
+                <fieldset v-for="group in catalog" :key="group.group" class="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
                     <legend class="sr-only">{{ group.group }}</legend>
 
-                    <p
-                        class="px-4 text-[13px] font-bold text-white"
-                        style="background-color: #01b990; line-height: 36px"
-                        aria-hidden="true"
-                    >
+                    <p class="px-4 text-[13px] font-bold text-white" style="background-color: #01b990; line-height: 36px" aria-hidden="true">
                         {{ group.group }}
                     </p>
 

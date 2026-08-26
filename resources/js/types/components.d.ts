@@ -230,6 +230,7 @@ declare module 'vue' {
     OrderStatusTimeline: typeof import('./../components/shared/OrderStatusTimeline.vue')['default']
     PasswordInput: typeof import('./../components/ui/password-input/PasswordInput.vue')['default']
     PasswordRequirements: typeof import('./../components/auth/PasswordRequirements.vue')['default']
+    PaymentMethodStep: typeof import('./../components/payment/PaymentMethodStep.vue')['default']
     PhoneNumberFieldset: typeof import('./../components/form/PhoneNumberFieldset.vue')['default']
     PlaceholderPattern: typeof import('./../components/PlaceholderPattern.vue')['default']
     Popover: typeof import('./../components/ui/popover/Popover.vue')['default']

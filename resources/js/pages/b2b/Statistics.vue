@@ -58,9 +58,7 @@ const headlineStats = computed(() => [
         key: 'processing',
         label: 'Ø Bearbeitungsdauer',
         value:
-            props.statistics.processing_time.average_days === null
-                ? DASH
-                : `${decimal.format(props.statistics.processing_time.average_days)} Tage`,
+            props.statistics.processing_time.average_days === null ? DASH : `${decimal.format(props.statistics.processing_time.average_days)} Tage`,
         icon: MdiCalendarMonthOutline,
     },
 ]);
@@ -162,16 +160,16 @@ const hasAcceptedOffers = computed(() => savings.value.orders_counted > 0);
                                 : 'Noch keine freigegebenen Angebote'
                         "
                     >
-                        <span class="bg-brand-green block h-full rounded-full transition-[width] duration-300" :style="{ width: `${savingShare}%` }" />
+                        <span
+                            class="bg-brand-green block h-full rounded-full transition-[width] duration-300"
+                            :style="{ width: `${savingShare}%` }"
+                        />
                     </div>
 
                     <ul v-if="hasAcceptedOffers" class="border-border mt-4 space-y-px border-t pt-2">
                         <li v-for="row in savingRows" :key="row.key" class="flex items-center gap-2.5 px-2 py-2">
                             <span class="text-muted-foreground flex-1 truncate text-sm">{{ row.label }}</span>
-                            <span
-                                class="text-sm tabular-nums"
-                                :class="row.emphasis ? 'text-brand-teal font-bold' : 'text-brand-teal font-semibold'"
-                            >
+                            <span class="text-sm tabular-nums" :class="row.emphasis ? 'text-brand-teal font-bold' : 'text-brand-teal font-semibold'">
                                 {{ row.value }}
                             </span>
                         </li>
@@ -182,10 +180,9 @@ const hasAcceptedOffers = computed(() => savings.value.orders_counted > 0);
                     </p>
 
                     <p v-if="hasAcceptedOffers" class="text-muted-foreground mt-3 text-xs">
-                        Basis: {{ savings.orders_counted }}
-                        {{ savings.orders_counted === 1 ? 'Auftrag' : 'Aufträge' }} mit freigegebenem Angebot,
-                        {{ savings.vehicles_counted }} {{ savings.vehicles_counted === 1 ? 'Fahrzeug' : 'Fahrzeuge' }}. Ein
-                        Nachgutachten fließt nicht in diese Berechnung ein.
+                        Basis: {{ savings.orders_counted }} {{ savings.orders_counted === 1 ? 'Auftrag' : 'Aufträge' }} mit freigegebenem Angebot,
+                        {{ savings.vehicles_counted }} {{ savings.vehicles_counted === 1 ? 'Fahrzeug' : 'Fahrzeuge' }}. Ein Nachgutachten fließt nicht
+                        in diese Berechnung ein.
                     </p>
                 </section>
 
@@ -264,11 +261,7 @@ const hasAcceptedOffers = computed(() => savings.value.orders_counted > 0);
                         class="text-3xl leading-none font-bold tabular-nums"
                         :class="statistics.processing_time.average_days === null ? 'text-muted-foreground/50' : 'text-brand-teal'"
                     >
-                        {{
-                            statistics.processing_time.average_days === null
-                                ? DASH
-                                : decimal.format(statistics.processing_time.average_days)
-                        }}
+                        {{ statistics.processing_time.average_days === null ? DASH : decimal.format(statistics.processing_time.average_days) }}
                     </span>
                     <span class="text-muted-foreground text-sm">Tage im Durchschnitt</span>
                 </p>
@@ -276,8 +269,8 @@ const hasAcceptedOffers = computed(() => savings.value.orders_counted > 0);
                 <p class="text-muted-foreground mt-3 text-xs">
                     Gemessen vom Anlegen des Auftrags bis zum Abschluss, über
                     {{ statistics.processing_time.measured_orders }}
-                    {{ statistics.processing_time.measured_orders === 1 ? 'abgeschlossenen Auftrag' : 'abgeschlossene Aufträge' }}.
-                    Laufende Aufträge sind nicht enthalten.
+                    {{ statistics.processing_time.measured_orders === 1 ? 'abgeschlossenen Auftrag' : 'abgeschlossene Aufträge' }}. Laufende Aufträge
+                    sind nicht enthalten.
                 </p>
             </section>
         </div>

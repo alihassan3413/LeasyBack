@@ -118,6 +118,7 @@ class HandleInertiaRequests extends Middleware
                 'warning' => $request->session()->get('warning'),
                 'workshop_link' => $request->session()->get('workshop_link'),
                 'vehicle_import' => $request->session()->get('vehicle_import'),
+                'order_created' => $request->session()->get('order_created'),
             ],
         ]);
     }

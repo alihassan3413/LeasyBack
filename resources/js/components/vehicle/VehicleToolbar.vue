@@ -38,13 +38,9 @@ const showMemberFilter = computed(() => props.memberOptions.length > 1);
 
 const activeFilterCount = computed(() => (props.status ? 1 : 0) + (props.createdBy && showMemberFilter.value ? 1 : 0));
 
-const activeStatusLabel = computed(
-    () => VEHICLE_STATUS_FILTER_OPTIONS.find((option) => option.value === props.status)?.label ?? '',
-);
+const activeStatusLabel = computed(() => VEHICLE_STATUS_FILTER_OPTIONS.find((option) => option.value === props.status)?.label ?? '');
 
-const activeMemberLabel = computed(
-    () => props.memberOptions.find((option) => String(option.value) === props.createdBy)?.label ?? '',
-);
+const activeMemberLabel = computed(() => props.memberOptions.find((option) => String(option.value) === props.createdBy)?.label ?? '');
 
 const filterButtonLabel = computed(() => activeStatusLabel.value || activeMemberLabel.value || 'Filter');
 </script>

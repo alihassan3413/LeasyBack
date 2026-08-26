@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import CompanySwitcher from '@/components/b2b/CompanySwitcher.vue';
+import { useB2bPermissions } from '@/composables/useB2bPermissions';
+import { useSessionGuard } from '@/composables/useSessionGuard';
 import type { SharedData, User } from '@/types';
 import type { UserType } from '@/types/auth';
 import type { B2bPermissionValue } from '@/types/b2b';
-import { useB2bPermissions } from '@/composables/useB2bPermissions';
-import { useSessionGuard } from '@/composables/useSessionGuard';
 import { router, usePage } from '@inertiajs/vue3';
 import { computed, ref, type Component } from 'vue';
 import MdiAccountGroupOutline from '~icons/mdi/account-group-outline';

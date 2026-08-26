@@ -6,6 +6,7 @@ use App\Http\Controllers\Concerns\HandlesServiceValidationErrors;
 use App\Models\InspectionStation;
 use App\Modules\UserProfile\Order\Services\OrderCollectionService;
 use App\Modules\UserProfile\Order\Services\OrderService;
+use App\Modules\UserProfile\Payment\Support\OrderCreatedFlash;
 use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -17,6 +18,7 @@ class OrderController extends Controller
     public function __construct(
         private readonly VehicleScopeService $scope,
         private readonly OrderService $orderService,
+        private readonly OrderCreatedFlash $orderCreated,
     ) {}
 
     /**
@@ -54,11 +56,23 @@ class OrderController extends Controller
 
         $station = InspectionStation::find($validated['station_id']);
 
-        return $this->withServiceErrorHandling(
+        $order = null;
+
+        $denied = $this->withServiceErrorHandling(
             'order',
-            fn () => $station->provider === 'tuvsud'
-                ? $this->orderService->createTuvsudOrder($vehicle, $user, $validated)
-                : $this->orderService->createOtherOrder($vehicle, $user, [...$validated, 'provider' => $station->provider])
-        ) ?? back()->with('success', 'Termin wurde gebucht.');
+            function () use ($station, $vehicle, $user, $validated, &$order) {
+                $order = $station->provider === 'tuvsud'
+                    ? $this->orderService->createTuvsudOrder($vehicle, $user, $validated)
+                    : $this->orderService->createOtherOrder($vehicle, $user, [...$validated, 'provider' => $station->provider]);
+            }
+        );
+
+        if ($denied) {
+            return $denied;
+        }
+
+        return back()
+            ->with('success', 'Termin wurde gebucht.')
+            ->with('order_created', $this->orderCreated->for($order, $user));
     }
 }

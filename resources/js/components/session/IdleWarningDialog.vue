@@ -35,7 +35,11 @@ const urgent = computed(() => secondsRemaining.value <= 10);
                                 stroke-linecap="round"
                                 :stroke-dasharray="CIRCUMFERENCE"
                                 :stroke-dashoffset="dashOffset"
-                                style="transition: stroke-dashoffset 0.5s linear, stroke 0.3s ease"
+                                style="
+                                    transition:
+                                        stroke-dashoffset 0.5s linear,
+                                        stroke 0.3s ease;
+                                "
                             />
                         </svg>
 
