@@ -213,13 +213,24 @@ class PaymentService
     }
 
     /**
+     * One order's obligation of a given kind, if it has been opened.
+     *
+     * At most one can exist — `UNIQUE (order_id, purpose)` — so this needs no
+     * ordering to be deterministic.
+     */
+    public function paymentFor(string $orderId, PaymentPurpose $purpose): ?OrderPayment
+    {
+        return OrderPayment::where('order_id', $orderId)
+            ->where('purpose', $purpose->value)
+            ->first();
+    }
+
+    /**
      * The repair payment for an order, if one has been opened.
      */
     public function repairPaymentFor(string $orderId): ?OrderPayment
     {
-        return OrderPayment::where('order_id', $orderId)
-            ->where('purpose', PaymentPurpose::Repair->value)
-            ->first();
+        return $this->paymentFor($orderId, PaymentPurpose::Repair);
     }
 
     public function authorizer(): PaymentAuthorizer

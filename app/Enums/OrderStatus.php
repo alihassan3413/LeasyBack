@@ -113,4 +113,31 @@ enum OrderStatus: string
     {
         return array_values(array_diff(self::values(), self::closedValues()));
     }
+
+    /**
+     * Whether a customer may still cancel their own order at this point.
+     *
+     * Stricter than "not closed", and deliberately so. `delivered` means the
+     * repairs are finished, the workshop has been instructed and paid, and the
+     * repair charge has already been opened — the service was delivered in
+     * full. Offering to cancel there would take a €200 fee for undoing nothing,
+     * on top of a repair the customer already owes.
+     *
+     * `vehicle_returned` and `invoice_processed` are the B2B equivalents. They
+     * cannot be reached by a B2C order and cancellation is B2C-only, so they
+     * are named here for completeness rather than because either can occur.
+     */
+    public static function isCustomerCancellable(?string $status): bool
+    {
+        if ($status === null) {
+            return false;
+        }
+
+        return ! in_array($status, [
+            ...self::closedValues(),
+            self::Delivered->value,
+            self::VehicleReturned->value,
+            self::InvoiceProcessed->value,
+        ], true);
+    }
 }

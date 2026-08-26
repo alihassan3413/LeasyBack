@@ -37,6 +37,17 @@ class FakeStripeGateway implements StripeGateway
     public ?StripeGatewayException $nextFailure = null;
 
     /**
+     * Results returned by createPaymentIntent(), consumed in order.
+     *
+     * A confirmed create otherwise always succeeds, which cannot express the
+     * outcomes that matter most for an off-session charge: a decline, an
+     * authentication challenge, or a payment still settling.
+     *
+     * @var list<StripePaymentIntentResult>
+     */
+    public array $createResults = [];
+
+    /**
      * Results returned by confirmPaymentIntent(), consumed in order.
      *
      * Without this a confirmation can only ever succeed, which cannot express
@@ -119,6 +130,12 @@ class FakeStripeGateway implements StripeGateway
             'confirm', 'offSession', 'idempotencyKey', 'metadata',
         ));
         $this->maybeFail();
+
+        if ($this->createResults !== []) {
+            $queued = array_shift($this->createResults);
+
+            return $this->paymentIntents[$queued->id] = $queued;
+        }
 
         $id = 'pi_fake'.(++$this->sequence);
 

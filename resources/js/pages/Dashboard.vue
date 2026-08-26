@@ -6,7 +6,7 @@ import AddVehicleModal from '@/components/vehicle/AddVehicleModal.vue';
 import ImportVehiclesModal from '@/components/vehicle/ImportVehiclesModal.vue';
 import OrderCreationModal from '@/components/vehicle/OrderCreationModal.vue';
 import SortableTableHead from '@/components/vehicle/SortableTableHead.vue';
-import VehicleExpandedPanel from '@/components/vehicle/VehicleExpandedPanel.vue';
+import VehicleMobileCard from '@/components/vehicle/VehicleMobileCard.vue';
 import VehiclePagination, { type PaginationMeta } from '@/components/vehicle/VehiclePagination.vue';
 import VehicleRow from '@/components/vehicle/VehicleRow.vue';
 import type { MemberFilterOption } from '@/components/vehicle/VehicleToolbar.vue';
@@ -14,9 +14,8 @@ import VehicleToolbar from '@/components/vehicle/VehicleToolbar.vue';
 import { useB2bPermissions } from '@/composables/useB2bPermissions';
 import { useOnboarding } from '@/composables/useOnboarding';
 import AppLayout from '@/layouts/AppLayout.vue';
-import { canStartNewOrder } from '@/lib/customerOrderFlow';
 import { ONBOARDING_VIDEO_POSTER_URL, ONBOARDING_VIDEO_URL } from '@/lib/onboarding';
-import { getOrderStatusLabel, isVehicleCompleted } from '@/lib/vehicleStatus';
+import { isVehicleCompleted } from '@/lib/vehicleStatus';
 import { type SharedData } from '@/types';
 import type { B2bAnalytics } from '@/types/b2b';
 import type { StationData } from '@/types/order';
@@ -128,33 +127,6 @@ const orderVehicle = ref<VehicleData | null>(null);
 function startProcess(vehicle: VehicleData) {
     orderVehicle.value = vehicle;
     orderModalOpen.value = true;
-}
-
-function getVehicleStatus(vehicle: VehicleData) {
-    const current = vehicle.orders[0];
-
-    if (!current) {
-        return { label: 'Eingeplant', dotColor: '#ef8450' };
-    }
-
-    return {
-        label: getOrderStatusLabel(current.order_status, current.payment?.repair_stage),
-        dotColor: current.order_status === 'cancelled' ? '#EF4444' : '#01B990',
-    };
-}
-
-function formatDate(value: string | null): string {
-    if (!value) {
-        return '';
-    }
-
-    const date = new Date(value);
-
-    if (Number.isNaN(date.getTime())) {
-        return '';
-    }
-
-    return date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
 const page = usePage<SharedData>();
@@ -272,7 +244,6 @@ onMounted(() => {
                                 :key="vehicle.vehicle_id"
                                 :vehicle="vehicle"
                                 :is-expanded="expandedId === vehicle.vehicle_id"
-                                :completed="false"
                                 :stations="stations"
                                 @toggle="handleToggle(vehicle)"
                             />
@@ -290,7 +261,6 @@ onMounted(() => {
                                 :key="vehicle.vehicle_id"
                                 :vehicle="vehicle"
                                 :is-expanded="expandedId === vehicle.vehicle_id"
-                                :completed="true"
                                 :stations="stations"
                                 @toggle="handleToggle(vehicle)"
                             />
@@ -303,54 +273,14 @@ onMounted(() => {
                         {{ hasQuery ? 'Keine Fahrzeuge gefunden.' : 'Noch keine Fahrzeuge angelegt.' }}
                     </p>
 
-                    <div
+                    <VehicleMobileCard
                         v-for="vehicle in activeVehicles"
                         :key="vehicle.vehicle_id"
-                        class="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm"
-                    >
-                        <div class="cursor-pointer p-4" :class="expandedId === vehicle.vehicle_id ? 'bg-gray-50' : ''" @click="handleToggle(vehicle)">
-                            <div class="flex items-start justify-between">
-                                <div class="flex flex-col gap-1">
-                                    <div class="flex items-center gap-2">
-                                        <span class="text-[16px] font-bold text-[#10393b]">{{ vehicle.license_plate }}</span>
-                                    </div>
-                                    <span class="text-[14px] text-gray-600">{{ vehicle.make }} {{ vehicle.model }}</span>
-                                </div>
-                                <div class="flex items-center gap-1">
-                                    <span class="h-3 w-3 rounded-full" :style="{ backgroundColor: getVehicleStatus(vehicle).dotColor }"></span>
-                                    <span class="ml-1 text-[12px] text-gray-600">{{ getVehicleStatus(vehicle).label }}</span>
-                                    <button
-                                        class="ml-1 transition-transform focus:outline-none"
-                                        :class="expandedId === vehicle.vehicle_id ? 'rotate-180' : ''"
-                                    >
-                                        <IconIcRoundArrowDropDown class="text-[24px] text-gray-400" />
-                                    </button>
-                                </div>
-                            </div>
-                            <div class="mt-3 flex flex-wrap gap-3 text-[12px] text-gray-500">
-                                <div class="flex items-center gap-1">
-                                    <IconMdiCalendarOutline class="h-4 w-4" />
-                                    <span>Leasingende: {{ formatDate(vehicle.leasing_end_date) }}</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <VehicleExpandedPanel v-if="expandedId === vehicle.vehicle_id" :vehicle="vehicle" />
-
-                        <div
-                            v-if="canStartNewOrder(vehicle.orders) && can('orders.create')"
-                            class="flex items-center justify-between border-t border-gray-100 px-4 py-3"
-                        >
-                            <button
-                                class="flex items-center gap-2 rounded-lg px-3 py-2 font-medium text-white"
-                                style="background-color: #ef8450"
-                                @click.stop="startProcess(vehicle)"
-                            >
-                                <IconSolarPlayBold class="h-5 w-5" />
-                                <span class="text-[14px]">Vorgang starten</span>
-                            </button>
-                        </div>
-                    </div>
+                        :vehicle="vehicle"
+                        :expanded="expandedId === vehicle.vehicle_id"
+                        @toggle="handleToggle(vehicle)"
+                        @start-process="startProcess(vehicle)"
+                    />
 
                     <div v-if="completedVehicles.length" class="mt-6">
                         <div class="flex items-center gap-2 rounded-lg px-4 py-3" style="background-color: #01b990">
@@ -358,22 +288,19 @@ onMounted(() => {
                         </div>
                     </div>
 
-                    <div
+                    <!--
+                        The same card as above, deliberately. A finished order is
+                        still the one place a customer finds their Gutachten and
+                        their Rechnung, so it opens exactly like an active one.
+                    -->
+                    <VehicleMobileCard
                         v-for="vehicle in completedVehicles"
                         :key="vehicle.vehicle_id"
-                        class="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm"
-                    >
-                        <div class="cursor-pointer p-4">
-                            <div class="flex items-start justify-between">
-                                <div class="flex flex-col gap-1">
-                                    <div class="flex items-center gap-2">
-                                        <span class="text-[16px] font-bold text-[#10393b]">{{ vehicle.license_plate }}</span>
-                                    </div>
-                                    <span class="text-[14px] text-gray-600">{{ vehicle.make }} {{ vehicle.model }}</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                        :vehicle="vehicle"
+                        :expanded="expandedId === vehicle.vehicle_id"
+                        @toggle="handleToggle(vehicle)"
+                        @start-process="startProcess(vehicle)"
+                    />
                 </div>
 
                 <VehiclePagination :meta="pagination" @change="goToPage" />

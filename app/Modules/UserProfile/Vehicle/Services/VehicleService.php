@@ -600,6 +600,15 @@ class VehicleService
             ->get()
             ->keyBy('order_id');
 
+        // The cancellation fee is a separate obligation with its own row, its
+        // own Stripe intents and its own outcome — never a state of the repair
+        // charge, which may well be paid on the same order.
+        $cancellationFeesByOrder = DB::table('order_payments')
+            ->whereIn('order_id', $orderIds)
+            ->where('purpose', PaymentPurpose::CancellationFee->value)
+            ->get()
+            ->keyBy('order_id');
+
         $statusUpdatesByOrder = DB::table('leasyback_order_status_updates')
             ->whereIn('auftragsnummer', $auftragsnummern)
             ->orderByDesc('created_at')
@@ -746,6 +755,7 @@ class VehicleService
                             $order,
                             $mandatesByOrder->get($order->id),
                             $repairPaymentsByOrder->get($order->id),
+                            $cancellationFeesByOrder->get($order->id),
                             $viewer,
                         ),
                     ]),
@@ -829,9 +839,10 @@ class VehicleService
      *
      * @param  object|null  $mandate  Absent for an order that never reached the payment step.
      * @param  object|null  $repairPayment  Absent until the order reaches `delivered`.
-     * @return array{requires_setup: bool, status: string, card: ?array{brand: ?string, last4: ?string, exp_month: ?int, exp_year: ?int}, repair_stage: string, repair: ?array{status: string, amount_cents: int, currency: string, paid_at: ?string, blocks_pickup: bool, payable: bool}}
+     * @param  object|null  $cancellationFee  Absent unless the customer cancelled the order themselves.
+     * @return array{requires_setup: bool, status: string, card: ?array{brand: ?string, last4: ?string, exp_month: ?int, exp_year: ?int}, repair_stage: string, repair: ?array{status: string, amount_cents: int, currency: string, paid_at: ?string, blocks_pickup: bool, payable: bool}, cancellation_fee: ?array{status: string, amount_cents: int, currency: string, paid_at: ?string, payable: bool}}
      */
-    private function orderPaymentState(object $order, ?object $mandate, ?object $repairPayment, ?User $viewer): array
+    private function orderPaymentState(object $order, ?object $mandate, ?object $repairPayment, ?object $cancellationFee, ?User $viewer): array
     {
         $usable = $mandate !== null
             && $mandate->status === OrderPaymentMethod::STATUS_SAVED
@@ -870,6 +881,19 @@ class VehicleService
                 'payable' => $viewerMayAct
                     && (int) $repairPayment->amount_cents > 0
                     && (PaymentStatus::tryFrom($repairPayment->status)?->needsCustomerAction() ?? false),
+            ],
+            // Deliberately alongside `repair`, never merged into it: an order
+            // can owe both, and one settling says nothing about the other.
+            // It carries no `blocks_pickup` because it blocks nothing — the
+            // order it belongs to is already terminal.
+            'cancellation_fee' => $cancellationFee === null ? null : [
+                'status' => $cancellationFee->status,
+                'amount_cents' => (int) $cancellationFee->amount_cents,
+                'currency' => $cancellationFee->currency,
+                'paid_at' => $cancellationFee->paid_at,
+                'payable' => $viewerMayAct
+                    && (int) $cancellationFee->amount_cents > 0
+                    && (PaymentStatus::tryFrom($cancellationFee->status)?->needsCustomerAction() ?? false),
             ],
         ];
     }

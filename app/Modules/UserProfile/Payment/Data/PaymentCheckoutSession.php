@@ -15,7 +15,7 @@ namespace App\Modules\UserProfile\Payment\Data;
  * The client secret is never persisted: it is read from Stripe when it is
  * handed out and lives no longer than the request.
  */
-final readonly class RepairCheckoutSession
+final readonly class PaymentCheckoutSession
 {
     /** Complete an outstanding 3DS challenge on this intent. No card field. */
     public const MODE_AUTHENTICATE = 'authenticate';

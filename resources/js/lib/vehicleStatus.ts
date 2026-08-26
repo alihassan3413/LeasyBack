@@ -44,6 +44,20 @@ export function isVehicleCompleted(latestOrderStatus: string | null | undefined)
 }
 
 /**
+ * Statuses past which a customer can no longer call their own order off.
+ *
+ * Mirrors OrderStatus::isCustomerCancellable(), which is the authority — this
+ * copy only decides whether to *offer* the action, and the server refuses it
+ * either way. `delivered` is in the list because the repairs are finished and
+ * already charged by then: cancelling would take a fee for undoing nothing.
+ */
+const UNCANCELLABLE_ORDER_STATUSES = new Set(['completed', 'cancelled', 'discarded', 'delivered', 'vehicle_returned', 'invoice_processed']);
+
+export function isCustomerCancellable(orderStatus: string | null | undefined): boolean {
+    return !!orderStatus && !UNCANCELLABLE_ORDER_STATUSES.has(orderStatus);
+}
+
+/**
  * The single source of truth for raw `order_status` wording, shared by every
  * surface that shows one — customer and Admin alike. Admin owns its own pill
  * colours (lib/adminStatus.ts) but must not own a second copy of these labels:

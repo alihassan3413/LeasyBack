@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { TableCell, TableRow } from '@/components/ui/table';
 import OrderCreationModal from '@/components/vehicle/OrderCreationModal.vue';
+import VehicleActionsMenu from '@/components/vehicle/VehicleActionsMenu.vue';
 import VehicleExpandedPanel from '@/components/vehicle/VehicleExpandedPanel.vue';
 import { useB2bPermissions } from '@/composables/useB2bPermissions';
 import { canStartNewOrder } from '@/lib/customerOrderFlow';
@@ -13,7 +14,6 @@ import { computed, ref } from 'vue';
 const props = defineProps<{
     vehicle: VehicleData;
     isExpanded: boolean;
-    completed: boolean;
     stations: StationData[];
 }>();
 
@@ -54,11 +54,13 @@ function formatDate(value: string | null): string {
     return date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
+/**
+ * A finished order used to refuse to open at all — the row swallowed the click
+ * and the panel was suppressed. It is still the one place the customer finds
+ * their Gutachten and their Rechnung, so there was nothing to protect and a
+ * whole section of the dashboard that simply did not respond.
+ */
 function handleClick() {
-    if (props.completed) {
-        return;
-    }
-
     emit('toggle');
 }
 
@@ -106,6 +108,8 @@ function startProcess() {
                     <IconSolarPlayBold class="h-5 w-5" style="color: rgb(239, 132, 80)" />
                 </button>
 
+                <VehicleActionsMenu :vehicle="vehicle" />
+
                 <button class="transition-transform focus:outline-none" :class="isExpanded ? 'rotate-180' : ''">
                     <IconIcRoundArrowDropDown class="text-[32px] text-gray-400 transition-transform duration-200" />
                 </button>
@@ -113,7 +117,7 @@ function startProcess() {
         </TableCell>
     </TableRow>
 
-    <VehicleExpandedPanel v-if="isExpanded && !completed" :vehicle="vehicle" />
+    <VehicleExpandedPanel v-if="isExpanded" :vehicle="vehicle" />
 
     <OrderCreationModal v-model:open="orderModalOpen" :vehicle-id="vehicle.vehicle_id" :stations="stations" :vehicle="vehicle" />
 </template>

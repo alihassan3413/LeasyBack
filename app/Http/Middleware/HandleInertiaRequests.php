@@ -111,6 +111,14 @@ class HandleInertiaRequests extends Middleware
             'stripe' => [
                 'key' => config('services.stripe.key') ?: null,
             ],
+            // The fee named in the cancellation confirmation the customer has
+            // to agree to. Shared rather than hardcoded in the copy for the
+            // reason config/payments.php gives for holding it at all: the
+            // amount must not become a literal at a call site, least of all in
+            // the sentence someone is agreeing to.
+            'payments' => [
+                'cancellation_fee_cents' => (int) config('payments.cancellation_fee_cents'),
+            ],
             'flash' => [
                 'success' => $request->session()->get('success'),
                 'error' => $request->session()->get('error'),

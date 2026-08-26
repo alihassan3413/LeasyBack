@@ -93,6 +93,21 @@ export interface OrderPaymentState {
     repair_stage: RepairPaymentStage;
     /** Absent until the order reaches `delivered` and a charge is opened. */
     repair?: OrderRepairPaymentState | null;
+    /**
+     * Absent unless the customer cancelled the order themselves. A separate
+     * obligation from `repair` — an order can carry both, and one settling
+     * says nothing about the other.
+     */
+    cancellation_fee?: OrderCancellationFeeState | null;
+}
+
+export interface OrderCancellationFeeState {
+    status: string;
+    amount_cents: number;
+    currency: string;
+    paid_at: string | null;
+    /** Whether this viewer can settle it now — already false for Admin. */
+    payable: boolean;
 }
 
 export interface OrderRepairPaymentState {

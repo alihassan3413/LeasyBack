@@ -51,6 +51,7 @@ declare global {
   const http: typeof import('../lib/http').http
   const initializeTheme: typeof import('../composables/useAppearance').initializeTheme
   const inject: typeof import('vue').inject
+  const isCustomerCancellable: typeof import('../lib/vehicleStatus').isCustomerCancellable
   const isGoogleMapsConfigured: typeof import('../composables/useGoogleMapsLoader').isGoogleMapsConfigured
   const isProxy: typeof import('vue').isProxy
   const isReactive: typeof import('vue').isReactive
@@ -236,6 +237,7 @@ declare module 'vue' {
     readonly http: UnwrapRef<typeof import('../lib/http')['http']>
     readonly initializeTheme: UnwrapRef<typeof import('../composables/useAppearance')['initializeTheme']>
     readonly inject: UnwrapRef<typeof import('vue')['inject']>
+    readonly isCustomerCancellable: UnwrapRef<typeof import('../lib/vehicleStatus')['isCustomerCancellable']>
     readonly isGoogleMapsConfigured: UnwrapRef<typeof import('../composables/useGoogleMapsLoader')['isGoogleMapsConfigured']>
     readonly isProxy: UnwrapRef<typeof import('vue')['isProxy']>
     readonly isReactive: UnwrapRef<typeof import('vue')['isReactive']>

@@ -3,7 +3,7 @@ import InputError from '@/components/InputError.vue';
 import { Button } from '@/components/ui/button';
 import { HttpError, http } from '@/lib/http';
 import type { SharedData } from '@/types';
-import { formatCard, formatEuro, type RepairCheckoutSession, type RepairPaymentState } from '@/types/payment';
+import { formatCard, formatEuro, type PaymentCheckoutSession, type PaymentObligationState } from '@/types/payment';
 import { usePage } from '@inertiajs/vue3';
 import type { Stripe, StripeElements } from '@stripe/stripe-js';
 import { loadStripe } from '@stripe/stripe-js';
@@ -11,7 +11,11 @@ import { CheckCircle2, CreditCard } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 
 /**
- * Settling a repair charge the automatic off-session attempt could not finish.
+ * Settling one obligation the automatic off-session attempt could not finish —
+ * a repair charge, or a cancellation fee.
+ *
+ * Purpose-agnostic on purpose: the two are settled the same way, and the only
+ * difference the browser ever sees is which pair of endpoints it calls.
  *
  * The counterpart to PaymentMethodStep.vue and built the same way: the browser
  * confirms with Stripe, but nothing is called done until the server has re-read
@@ -21,7 +25,16 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
  * Which of the two gestures is shown is the server's decision, not this
  * component's — see RepairCheckoutSession.mode.
  */
-const props = defineProps<{ orderId: string }>();
+const props = withDefaults(defineProps<{ orderId: string; purpose?: 'repair' | 'cancellation-fee' }>(), { purpose: 'repair' });
+
+/** The route names differ only by the purpose segment. */
+const routes = computed(() => ({
+    show: `payments.${props.purpose}.show`,
+    intent: `payments.${props.purpose}.intent`,
+    sync: `payments.${props.purpose}.sync`,
+}));
+
+const heading = computed(() => (props.purpose === 'cancellation-fee' ? 'Stornogebühr' : 'Reparaturkosten'));
 
 const emit = defineEmits<{ paid: [] }>();
 
@@ -30,7 +43,7 @@ const page = usePage<SharedData>();
 const phase = ref<'checking' | 'authenticate' | 'collecting' | 'paid' | 'unavailable'>('checking');
 const error = ref<string | null>(null);
 const submitting = ref(false);
-const state = ref<RepairPaymentState | null>(null);
+const state = ref<PaymentObligationState | null>(null);
 
 const cardElementRef = ref<HTMLDivElement | null>(null);
 let stripe: Stripe | null = null;
@@ -51,7 +64,7 @@ onMounted(async () => {
 onBeforeUnmount(() => elements?.getElement('payment')?.destroy());
 
 async function start(): Promise<void> {
-    const current = await http.get<RepairPaymentState>(route('payments.repair.show', props.orderId));
+    const current = await http.get<PaymentObligationState>(route(routes.value.show, props.orderId));
 
     state.value = current;
 
@@ -79,7 +92,7 @@ async function start(): Promise<void> {
 
     // The server picks the intent and the gesture. No intent id is sent up:
     // it is resolved from the order's own repair payment.
-    const session = await http.post<RepairCheckoutSession>(route('payments.repair.intent', props.orderId));
+    const session = await http.post<PaymentCheckoutSession>(route(routes.value.intent, props.orderId));
 
     clientSecret = session.client_secret;
     stripe = await loadStripe(publishableKey);
@@ -142,7 +155,7 @@ async function submit(): Promise<void> {
 }
 
 async function settle(): Promise<void> {
-    const synced = await http.post<RepairPaymentState>(route('payments.repair.sync', props.orderId));
+    const synced = await http.post<PaymentObligationState>(route(routes.value.sync, props.orderId));
 
     state.value = synced;
 
@@ -171,7 +184,7 @@ function failWith(e: unknown, fallback: string): void {
         <div v-if="state?.exists" class="flex items-start gap-3 rounded-md border p-4">
             <CreditCard class="mt-0.5 size-5 shrink-0 text-[#01b990]" aria-hidden="true" />
             <div class="space-y-0.5">
-                <p class="text-sm font-semibold text-black dark:text-white">Reparaturkosten: {{ amountLabel }}</p>
+                <p class="text-sm font-semibold text-black dark:text-white">{{ heading }}: {{ amountLabel }}</p>
                 <p v-if="savedCard" class="text-muted-foreground text-sm">Hinterlegte Zahlungsmethode: {{ savedCard }}</p>
             </div>
         </div>
@@ -180,7 +193,13 @@ function failWith(e: unknown, fallback: string): void {
 
         <div v-else-if="phase === 'paid'" class="flex items-center gap-3 rounded-md border border-emerald-200 bg-emerald-50 p-4">
             <CheckCircle2 class="size-5 shrink-0 text-emerald-600" aria-hidden="true" />
-            <p class="text-sm font-semibold text-emerald-900">Zahlung erfolgreich. Ihr Fahrzeug kann jetzt übergeben werden.</p>
+            <p class="text-sm font-semibold text-emerald-900">
+                {{
+                    props.purpose === 'cancellation-fee'
+                        ? 'Zahlung erfolgreich. Die Stornogebühr ist beglichen.'
+                        : 'Zahlung erfolgreich. Ihr Fahrzeug kann jetzt übergeben werden.'
+                }}
+            </p>
         </div>
 
         <p v-else-if="phase === 'authenticate'" class="text-sm text-black dark:text-white">

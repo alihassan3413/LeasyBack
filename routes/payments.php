@@ -1,7 +1,8 @@
 <?php
 
+use App\Modules\UserProfile\Payment\Http\Controllers\OrderCancellationController;
+use App\Modules\UserProfile\Payment\Http\Controllers\OrderPaymentController;
 use App\Modules\UserProfile\Payment\Http\Controllers\PaymentMethodController;
-use App\Modules\UserProfile\Payment\Http\Controllers\RepairPaymentController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -32,23 +33,42 @@ Route::middleware(['auth', 'active', 'verified'])->group(function () {
         ->name('payments.method.confirm');
 
     /*
-     * Settling a repair charge by hand, after the automatic off-session
-     * attempt came back needing the customer — a 3DS challenge, or a card
+     * Settling one obligation by hand, after the automatic off-session attempt
+     * came back needing the customer — an authentication challenge, or a card
      * that was declined.
      *
-     * None of the three takes a PaymentIntent id: the intent is resolved from
-     * the order's own repair payment, so there is no parameter through which
+     * The purpose is a route *default*, not a URL or payload parameter: one
+     * controller serves both, but which obligation a given URL settles is fixed
+     * by the route table, so no request can point the repair endpoint at a
+     * cancellation fee or the reverse.
+     *
+     * None of the six takes a PaymentIntent id either — the intent is resolved
+     * from the order's own obligation, so there is no parameter through which
      * another customer's intent could be named.
      */
-    Route::get('orders/{orderId}/payments/repair', [RepairPaymentController::class, 'show'])
-        ->whereUuid('orderId')
-        ->name('payments.repair.show');
+    foreach (['repair' => 'repair', 'cancellation-fee' => 'cancellation_fee'] as $slug => $purpose) {
+        Route::get("orders/{orderId}/payments/{$slug}", [OrderPaymentController::class, 'show'])
+            ->whereUuid('orderId')
+            ->defaults('purpose', $purpose)
+            ->name("payments.{$slug}.show");
 
-    Route::post('orders/{orderId}/payments/repair/intent', [RepairPaymentController::class, 'intent'])
-        ->whereUuid('orderId')
-        ->name('payments.repair.intent');
+        Route::post("orders/{orderId}/payments/{$slug}/intent", [OrderPaymentController::class, 'intent'])
+            ->whereUuid('orderId')
+            ->defaults('purpose', $purpose)
+            ->name("payments.{$slug}.intent");
 
-    Route::post('orders/{orderId}/payments/repair/sync', [RepairPaymentController::class, 'sync'])
+        Route::post("orders/{orderId}/payments/{$slug}/sync", [OrderPaymentController::class, 'sync'])
+            ->whereUuid('orderId')
+            ->defaults('purpose', $purpose)
+            ->name("payments.{$slug}.sync");
+    }
+
+    /*
+     * The customer's own cancellation, and the only path that levies the €200
+     * fee. Admin cancels through `admin.orders.status`, which never reaches
+     * this controller.
+     */
+    Route::post('orders/{orderId}/cancel', [OrderCancellationController::class, 'store'])
         ->whereUuid('orderId')
-        ->name('payments.repair.sync');
+        ->name('orders.cancel');
 });

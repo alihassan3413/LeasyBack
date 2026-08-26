@@ -26,8 +26,9 @@ export interface ConfirmMandateResponse {
     card: PaymentCardSummary;
 }
 
-/** What is owed on a repair charge, and whether the customer can act on it. */
-export interface RepairPaymentState {
+/** What is owed on one obligation, and whether the customer can act on it. */
+export interface PaymentObligationState {
+    purpose: 'repair' | 'cancellation_fee';
     exists: boolean;
     status: string | null;
     /** German, server-rendered — the client never maps a status to wording. */
@@ -45,10 +46,10 @@ export interface RepairPaymentState {
  * no card field is shown, because asking for one would invite a second card
  * for a charge that is already authorized. `collect` needs a card.
  */
-export type RepairCheckoutMode = 'authenticate' | 'collect';
+export type PaymentCheckoutMode = 'authenticate' | 'collect';
 
-export interface RepairCheckoutSession {
-    mode: RepairCheckoutMode;
+export interface PaymentCheckoutSession {
+    mode: PaymentCheckoutMode;
     client_secret: string;
     payment_intent_id: string;
     amount_cents: number;

@@ -513,7 +513,14 @@ class AdminQueryService
         // once repairs are complete.
         $order['repair_payment'] = $row->vehicle_belongs === 'B2B'
             ? null
-            : $this->repairPaymentSummary($orderId);
+            : $this->paymentSummary($orderId, PaymentPurpose::Repair);
+
+        // Listed separately, never folded into `repair_payment`: an order can
+        // owe both, and a customer who cancels after their repair was charged
+        // has two independent obligations with two independent outcomes.
+        $order['cancellation_fee'] = $row->vehicle_belongs === 'B2B'
+            ? null
+            : $this->paymentSummary($orderId, PaymentPurpose::CancellationFee);
 
         /*
          * The derived stage Admin presents `delivered` as. Emitted alongside
@@ -960,10 +967,10 @@ class AdminQueryService
     /**
      * @return array{status: string, amount_cents: int, currency: string, paid_at: ?string, blocks_pickup: bool}|null
      */
-    private function repairPaymentSummary(string $orderId): ?array
+    private function paymentSummary(string $orderId, PaymentPurpose $purpose): ?array
     {
         $payment = OrderPayment::where('order_id', $orderId)
-            ->where('purpose', PaymentPurpose::Repair->value)
+            ->where('purpose', $purpose->value)
             ->first();
 
         if ($payment === null) {
@@ -971,10 +978,13 @@ class AdminQueryService
         }
 
         return [
+            'purpose' => $payment->purpose->value,
             'status' => $payment->status->value,
             'amount_cents' => $payment->amount_cents,
             'currency' => $payment->currency,
             'paid_at' => $payment->paid_at?->toIso8601String(),
+            // False for a cancellation fee by construction — it is owed on an
+            // order that is already terminal, so there is no vehicle to hold.
             'blocks_pickup' => $payment->blocksRelease(),
         ];
     }

@@ -54,6 +54,8 @@ export interface SharedData {
     notifications: { unread_count: number };
     /** Publishable key only. Null when payments are not configured in this environment. */
     stripe: { key: string | null };
+    /** Product amounts the UI has to name. Server-held so no copy hardcodes one. */
+    payments: { cancellation_fee_cents: number };
     ziggy: {
         location: string;
         url: string;

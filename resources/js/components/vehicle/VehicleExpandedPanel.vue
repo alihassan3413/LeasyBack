@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import AdminReportDocumentsList, { type AdminPanelReportDocument } from '@/components/admin/AdminReportDocumentsList.vue';
+import PaymentCheckoutPanel from '@/components/payment/PaymentCheckoutPanel.vue';
 import PaymentMethodStep from '@/components/payment/PaymentMethodStep.vue';
-import RepairPaymentPanel from '@/components/payment/RepairPaymentPanel.vue';
 import OrderStatusTimeline from '@/components/shared/OrderStatusTimeline.vue';
 import { AppModal } from '@/components/ui/modal';
 import AddVehicleModal from '@/components/vehicle/AddVehicleModal.vue';
@@ -239,6 +239,20 @@ function onRepairPaid() {
     router.reload({ preserveScroll: true });
 }
 
+/**
+ * An outstanding cancellation fee. Separate from the repair charge in every
+ * respect — an order can owe both — so it gets its own banner, its own modal
+ * and its own pair of endpoints.
+ */
+const cancellationFeeOrder = computed(() => props.vehicle.orders.find((order) => order.payment?.cancellation_fee?.payable) ?? null);
+
+const feeModalOpen = ref(false);
+
+function onFeePaid() {
+    feeModalOpen.value = false;
+    router.reload({ preserveScroll: true });
+}
+
 const besichtigungsort = computed(() => firstOrder.value?.request_payload?.besichtigungsort ?? null);
 
 const terminFormatted = computed(() => {
@@ -414,6 +428,26 @@ function formatEuro(value: string | number | null | undefined): string {
 }
 
 const hasRealOffers = computed(() => offersData.value.length > 0);
+
+/**
+ * Why there is nothing to show, which depends on where the order stands.
+ *
+ * "Keine Angebote" alone reads as a fault; on an order that has not been
+ * inspected yet, no offers is simply the correct state.
+ */
+const noOffersHint = computed(() => {
+    const status = firstOrder.value?.order_status ?? '';
+
+    if (status === 'cancelled' || status === 'discarded') {
+        return 'Für diesen Auftrag wurden keine Angebote erstellt.';
+    }
+
+    if (['order_requested', 'order_placed', 'confirmed'].includes(status)) {
+        return 'Nach der Erstbegutachtung erhalten Sie hier Ihre Reparaturangebote.';
+    }
+
+    return 'Sobald Reparaturangebote vorliegen, sehen Sie sie hier.';
+});
 
 /**
  * The side-by-side comparison lived only on the customer's vehicle detail
@@ -688,7 +722,41 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
             @update:open="(value) => (repairPaymentModalOpen = value)"
         >
             <div v-if="repairPaymentOrder" class="min-w-0 px-2">
-                <RepairPaymentPanel :order-id="repairPaymentOrder.id" @paid="onRepairPaid" />
+                <PaymentCheckoutPanel :order-id="repairPaymentOrder.id" purpose="repair" @paid="onRepairPaid" />
+            </div>
+        </AppModal>
+
+        <div v-if="cancellationFeeOrder" class="bg-[#EFEFEF] px-4 pt-4">
+            <div class="flex flex-col gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div class="flex items-start gap-3">
+                    <IconMdiCreditCardOutline class="mt-0.5 size-5 shrink-0 text-amber-700" />
+                    <div>
+                        <p class="text-[15px] font-bold text-amber-900">Stornogebühr offen</p>
+                        <p class="text-sm text-amber-900/90">
+                            Auftrag {{ cancellationFeeOrder.auftragsnummer }} wurde storniert. Es steht eine Stornogebühr von
+                            {{ formatEuro(cancellationFeeOrder.payment!.cancellation_fee!.amount_cents / 100) }} offen.
+                        </p>
+                    </div>
+                </div>
+                <button
+                    type="button"
+                    class="bg-brand-green hover:bg-brand-green/90 shrink-0 rounded-[5px] px-6 py-2.5 text-sm font-bold text-white"
+                    @click="feeModalOpen = true"
+                >
+                    Jetzt bezahlen
+                </button>
+            </div>
+        </div>
+
+        <AppModal
+            :open="feeModalOpen"
+            title="Stornogebühr bezahlen"
+            description="Schließen Sie die Zahlung der Stornogebühr ab."
+            :width="620"
+            @update:open="(value) => (feeModalOpen = value)"
+        >
+            <div v-if="cancellationFeeOrder" class="min-w-0 px-2">
+                <PaymentCheckoutPanel :order-id="cancellationFeeOrder.id" purpose="cancellation-fee" @paid="onFeePaid" />
             </div>
         </AppModal>
 
@@ -924,11 +992,8 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                 </div>
             </div>
 
-            <div class="relative w-full">
-                <div
-                    class="flex flex-col rounded-[16px] border bg-white"
-                    :style="hasRealOffers ? 'border-color: #ececec' : 'border-color: #ececec; opacity: 0.5'"
-                >
+            <div class="w-full">
+                <div class="flex flex-col rounded-[16px] border bg-white" style="border-color: #ececec">
                     <div class="flex items-center justify-between gap-3 px-6 py-6">
                         <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">Angebote</p>
 
@@ -943,7 +1008,22 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                         </button>
                     </div>
 
-                    <div class="flex flex-col gap-5 px-6">
+                    <!--
+                        A real empty state rather than the card's own skeleton
+                        dimmed to half opacity behind a floating pill: with no
+                        offers there was nothing to dim, so it rendered as a
+                        tall grey void with a disabled "accept" button under it
+                        and a label hovering in the middle of the emptiness.
+                    -->
+                    <div v-if="!hasRealOffers" class="flex flex-col items-center gap-2 px-6 pt-2 pb-8 text-center">
+                        <IconMdiTagOutline class="size-7" style="color: #d3dbdb" />
+                        <p class="text-[14px] font-bold" style="color: #2e3e3f">Noch keine Angebote</p>
+                        <p class="max-w-[280px] text-[12.5px] leading-snug" style="color: #8f9ba7">
+                            {{ noOffersHint }}
+                        </p>
+                    </div>
+
+                    <div v-else class="flex flex-col gap-5 px-6">
                         <div v-for="offer in offersData" :key="offer.id" class="flex flex-col gap-2">
                             <div
                                 class="flex items-center gap-4 rounded-[50px] border px-4 py-2"
@@ -1031,7 +1111,9 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                         </div>
                     </div>
 
-                    <div class="mt-6 px-6 pb-6">
+                    <!-- Only where there is an offer to accept. A permanently
+                         disabled call to action is not information. -->
+                    <div v-if="hasRealOffers" class="mt-6 px-6 pb-6">
                         <button
                             v-if="admin"
                             type="button"
@@ -1062,11 +1144,6 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                                 {{ acceptedOffer.cost.toLocaleString('de-DE') }} €
                             </span>
                         </div>
-                    </div>
-                </div>
-                <div v-if="!hasRealOffers" class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
-                    <div class="rounded-full bg-white/80 px-6 py-3 shadow-lg">
-                        <p class="text-[18px] font-bold" style="color: #ef8450">Keine Angebote</p>
                     </div>
                 </div>
             </div>
@@ -1286,11 +1363,8 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
             </div>
         </div>
 
-        <div class="relative">
-            <div
-                class="flex flex-col rounded-[16px] border bg-white"
-                :style="hasRealOffers ? 'border-color: #ececec' : 'border-color: #ececec; opacity: 0.5'"
-            >
+        <div>
+            <div class="flex flex-col rounded-[16px] border bg-white" style="border-color: #ececec">
                 <div class="flex items-center justify-between gap-3 px-4 py-4">
                     <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">Angebote</p>
 
@@ -1305,7 +1379,13 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                     </button>
                 </div>
 
-                <div class="flex flex-col gap-3 px-4">
+                <div v-if="!hasRealOffers" class="flex flex-col items-center gap-2 px-4 pb-6 text-center">
+                    <IconMdiTagOutline class="size-6" style="color: #d3dbdb" />
+                    <p class="text-[13.5px] font-bold" style="color: #2e3e3f">Noch keine Angebote</p>
+                    <p class="text-[12px] leading-snug" style="color: #8f9ba7">{{ noOffersHint }}</p>
+                </div>
+
+                <div v-else class="flex flex-col gap-3 px-4">
                     <div v-for="offer in offersData" :key="offer.id" class="flex flex-col gap-2">
                         <div
                             class="flex items-center gap-3 rounded-[20px] border px-3 py-3"
@@ -1405,11 +1485,6 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                             {{ acceptedOffer.cost.toLocaleString('de-DE') }} €
                         </span>
                     </div>
-                </div>
-            </div>
-            <div v-if="!hasRealOffers" class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
-                <div class="rounded-full bg-white/80 px-4 py-2 shadow-lg">
-                    <p class="text-[16px] font-bold" style="color: #ef8450">Keine Angebote</p>
                 </div>
             </div>
         </div>

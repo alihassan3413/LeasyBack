@@ -17,7 +17,7 @@ use App\Modules\UserProfile\Payment\Enums\PaymentStatus;
 use App\Modules\UserProfile\Payment\Models\OrderPayment;
 use App\Modules\UserProfile\Payment\Models\OrderPaymentIntent;
 use App\Modules\UserProfile\Payment\Models\OrderPaymentMethod;
-use App\Modules\UserProfile\Payment\Services\RepairPaymentCheckout;
+use App\Modules\UserProfile\Payment\Services\OrderPaymentCheckout;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Collection;
@@ -474,7 +474,7 @@ class RepairPaymentRecoveryTest extends TestCase
          * second must find the intent the first opened and reuse it rather than
          * computing the same next sequence again.
          */
-        $checkout = app(RepairPaymentCheckout::class);
+        $checkout = app(OrderPaymentCheckout::class);
 
         $first = $checkout->prepare($order);
         $second = $checkout->prepare($order);

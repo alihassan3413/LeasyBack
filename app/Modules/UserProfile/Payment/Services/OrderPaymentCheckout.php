@@ -4,9 +4,10 @@ namespace App\Modules\UserProfile\Payment\Services;
 
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Payment\Contracts\StripeGateway;
-use App\Modules\UserProfile\Payment\Data\RepairCheckoutSession;
+use App\Modules\UserProfile\Payment\Data\PaymentCheckoutSession;
 use App\Modules\UserProfile\Payment\Data\StripePaymentIntentResult;
 use App\Modules\UserProfile\Payment\Enums\PaymentInitiator;
+use App\Modules\UserProfile\Payment\Enums\PaymentPurpose;
 use App\Modules\UserProfile\Payment\Exceptions\StripeGatewayException;
 use App\Modules\UserProfile\Payment\Models\OrderPayment;
 use App\Modules\UserProfile\Payment\Models\OrderPaymentIntent;
@@ -16,8 +17,13 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
- * The customer's way back into a repair charge that the automatic off-session
- * attempt could not finish — an authentication challenge, or a declined card.
+ * The customer's way back into a charge the automatic off-session attempt could
+ * not finish — an authentication challenge, or a declined card.
+ *
+ * Purpose-agnostic: a repair total and a cancellation fee are settled the same
+ * way, by the same rules, and the only thing that differs is which obligation
+ * is being looked up. Giving the fee its own copy of this would have meant a
+ * second retry policy to keep in step with the first.
  *
  * Deliberately not part of RepairPaymentService, which TransitionOrderStatus
  * constructs on every status change: this needs the Stripe gateway, and
@@ -33,7 +39,7 @@ use Illuminate\Support\Facades\Log;
  * Client secrets are read from Stripe when they are handed out and are never
  * persisted and never logged.
  */
-class RepairPaymentCheckout
+class OrderPaymentCheckout
 {
     /**
      * Stripe's reason code for an off-session charge that the issuer would
@@ -58,13 +64,14 @@ class RepairPaymentCheckout
      *
      * @return array{exists: bool, status: ?string, label: ?string, amount_cents: int, amount: string, currency: string, payable: bool, settled: bool, card: ?array{brand: ?string, last4: ?string, exp_month: ?int, exp_year: ?int}}
      */
-    public function state(LeasybackOrder $order): array
+    public function state(LeasybackOrder $order, PaymentPurpose $purpose = PaymentPurpose::Repair): array
     {
-        $payment = $this->payments->repairPaymentFor($order->id);
+        $payment = $this->payments->paymentFor($order->id, $purpose);
         $card = $this->cardOf($this->repairPayments->mandateFor($order));
 
         if ($payment === null) {
             return [
+                'purpose' => $purpose->value,
                 'exists' => false,
                 'status' => null,
                 'label' => null,
@@ -78,6 +85,7 @@ class RepairPaymentCheckout
         }
 
         return [
+            'purpose' => $purpose->value,
             'exists' => true,
             'status' => $payment->status->value,
             'label' => $payment->status->label(),
@@ -102,9 +110,9 @@ class RepairPaymentCheckout
      * defence, not the first: it only helps if both requests agree on the
      * sequence, which is exactly what the lock guarantees.
      */
-    public function prepare(LeasybackOrder $order): RepairCheckoutSession
+    public function prepare(LeasybackOrder $order, PaymentPurpose $purpose = PaymentPurpose::Repair): PaymentCheckoutSession
     {
-        $payment = $this->payments->repairPaymentFor($order->id);
+        $payment = $this->payments->paymentFor($order->id, $purpose);
 
         if ($payment === null || ! self::isPayable($payment)) {
             $this->refuse();
@@ -127,7 +135,7 @@ class RepairPaymentCheckout
                 : $this->resolveExisting($order, $locked, $intent);
         });
 
-        if ($outcome instanceof RepairCheckoutSession) {
+        if ($outcome instanceof PaymentCheckoutSession) {
             return $outcome;
         }
 
@@ -155,16 +163,16 @@ class RepairPaymentCheckout
      *
      * @return array<string, mixed>
      */
-    public function sync(LeasybackOrder $order): array
+    public function sync(LeasybackOrder $order, PaymentPurpose $purpose = PaymentPurpose::Repair): array
     {
-        $payment = $this->payments->repairPaymentFor($order->id);
+        $payment = $this->payments->paymentFor($order->id, $purpose);
         $intent = $payment?->currentIntent();
 
         if ($intent !== null) {
             $this->payments->applyIntentState($this->retrieve($intent->payment_intent_id));
         }
 
-        return $this->state($order);
+        return $this->state($order, $purpose);
     }
 
     /**
@@ -188,7 +196,7 @@ class RepairPaymentCheckout
         LeasybackOrder $order,
         OrderPayment $payment,
         OrderPaymentIntent $intent,
-    ): RepairCheckoutSession|StripePaymentIntentResult|null {
+    ): PaymentCheckoutSession|StripePaymentIntentResult|null {
         // Stripe is the authority on what state this intent is really in.
         // Trusting the local mirror would mean handing out a secret for an
         // intent that has already settled, and taking the money twice.
@@ -234,7 +242,7 @@ class RepairPaymentCheckout
         OrderPayment $payment,
         OrderPaymentIntent $intent,
         StripePaymentIntentResult $observed,
-    ): RepairCheckoutSession|StripePaymentIntentResult|false {
+    ): PaymentCheckoutSession|StripePaymentIntentResult|false {
         if ($observed->hasSucceeded() || $observed->status === OrderPaymentIntent::STRIPE_PROCESSING) {
             return $observed;
         }
@@ -350,14 +358,14 @@ class RepairPaymentCheckout
         OrderPayment $payment,
         OrderPaymentIntent $intent,
         StripePaymentIntentResult $observed,
-    ): RepairCheckoutSession {
+    ): PaymentCheckoutSession {
         if ($observed->clientSecret === null) {
             $this->fail('Die Zahlung konnte nicht geladen werden. Bitte versuchen Sie es später erneut.');
         }
 
         $mode = $observed->status === OrderPaymentIntent::STRIPE_REQUIRES_ACTION
-            ? RepairCheckoutSession::MODE_AUTHENTICATE
-            : RepairCheckoutSession::MODE_COLLECT;
+            ? PaymentCheckoutSession::MODE_AUTHENTICATE
+            : PaymentCheckoutSession::MODE_COLLECT;
 
         /*
          * Counted only for a collect: that hands out a secret the customer
@@ -370,13 +378,13 @@ class RepairPaymentCheckout
          */
         $attributes = ['status' => $observed->status, 'last_initiator' => PaymentInitiator::Customer];
 
-        if ($mode === RepairCheckoutSession::MODE_COLLECT) {
+        if ($mode === PaymentCheckoutSession::MODE_COLLECT) {
             $attributes['confirmation_count'] = $intent->confirmation_count + 1;
         }
 
         $intent->forceFill($attributes)->save();
 
-        return new RepairCheckoutSession(
+        return new PaymentCheckoutSession(
             mode: $mode,
             clientSecret: $observed->clientSecret,
             paymentIntentId: $intent->payment_intent_id,
@@ -393,7 +401,7 @@ class RepairPaymentCheckout
      * no mandate was chargeable off-session. The customer paying by hand is a
      * real answer to both.
      */
-    private function open(LeasybackOrder $order, OrderPayment $payment): RepairCheckoutSession
+    private function open(LeasybackOrder $order, OrderPayment $payment): PaymentCheckoutSession
     {
         $owner = $this->authorizer->ownerOf($order);
 
@@ -405,7 +413,7 @@ class RepairPaymentCheckout
             ?: $this->paymentMethods->ensureStripeCustomer($owner);
 
         $sequence = $payment->intent_count + 1;
-        $offer = $this->repairPayments->selectedOffer($order);
+        $offer = $payment->purpose === PaymentPurpose::Repair ? $this->repairPayments->selectedOffer($order) : null;
 
         // Raised before the call, for the reason the off-session job raises its
         // counters first: a crash mid-request must not leave this sequence
@@ -424,17 +432,18 @@ class RepairPaymentCheckout
                 paymentMethodId: null,
                 confirm: false,
                 offSession: false,
-                idempotencyKey: sprintf('%s:repair:%d:1', $payment->id, $sequence),
+                idempotencyKey: sprintf('%s:%s:%d:1', $payment->id, $payment->purpose->value, $sequence),
                 metadata: array_filter([
                     'order_id' => $order->id,
                     'offer_id' => $offer?->offer_id,
                     'auftragsnummer' => (string) $order->auftragsnummer,
-                    'purpose' => 'repair',
+                    'purpose' => $payment->purpose->value,
                 ]),
             );
         } catch (StripeGatewayException $e) {
-            Log::warning('Could not open an on-session repair intent.', [
+            Log::warning('Could not open an on-session intent.', [
                 'payment_id' => $payment->id,
+                'purpose' => $payment->purpose->value,
                 'auftragsnummer' => $order->auftragsnummer,
                 'stripe_code' => $e->stripeCode,
             ]);
@@ -456,8 +465,8 @@ class RepairPaymentCheckout
             'created_at_stripe' => $result->createdAt,
         ]);
 
-        return new RepairCheckoutSession(
-            mode: RepairCheckoutSession::MODE_COLLECT,
+        return new PaymentCheckoutSession(
+            mode: PaymentCheckoutSession::MODE_COLLECT,
             clientSecret: $result->clientSecret,
             paymentIntentId: $result->id,
             amountCents: $payment->amount_cents,
@@ -475,7 +484,7 @@ class RepairPaymentCheckout
         try {
             return $this->stripe->retrievePaymentIntent($paymentIntentId);
         } catch (StripeGatewayException $e) {
-            Log::warning('Could not read a repair payment intent from Stripe.', [
+            Log::warning('Could not read a payment intent from Stripe.', [
                 'payment_intent_id' => $paymentIntentId,
                 'stripe_code' => $e->stripeCode,
             ]);

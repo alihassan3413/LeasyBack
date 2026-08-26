@@ -42,6 +42,52 @@ class PaymentAuthorizer
     }
 
     /**
+     * Resolve an order whose *existing* obligations this user may settle.
+     *
+     * Identical to resolveOrderFor() but without the open-order check. A
+     * cancellation fee is owed precisely because the order was cancelled, so
+     * requiring it to be open would make the fee uncollectable by the only
+     * person who can pay it. Whether there is anything to settle is the
+     * payment's own question, answered by OrderPaymentCheckout::isPayable().
+     */
+    public function resolveOrderForSettlement(User $user, string $orderId): ?LeasybackOrder
+    {
+        $order = OrderRecord::find($orderId);
+
+        if ($order === null || ! $user->can('pay', $order) || ! $this->isB2cOrder($order)) {
+            return null;
+        }
+
+        return $order;
+    }
+
+    /**
+     * May this user cancel this order themselves?
+     *
+     * Owner-only, B2C-only, and still early enough to be worth cancelling.
+     * Admin is refused by OrderPolicy::cancel: Admin cancels through
+     * `admin.orders.status`, which is audited as an Admin action and
+     * deliberately levies no customer fee.
+     *
+     * Note this is stricter than isOpen() — see
+     * OrderStatus::isCustomerCancellable(). An order at `delivered` is not
+     * closed, but its repairs are done and paid for, so there is nothing left
+     * to call off.
+     */
+    public function allowsCancellation(User $user, LeasybackOrder $order): bool
+    {
+        $record = $order instanceof OrderRecord ? $order : OrderRecord::find($order->id);
+
+        if ($record === null) {
+            return false;
+        }
+
+        return $user->can('cancel', $record)
+            && $this->isB2cOrder($record)
+            && OrderStatus::isCustomerCancellable($record->order_status);
+    }
+
+    /**
      * Type-hinted against the canonical module class so callers holding either
      * shape can pass one, but the policy is asked about an `App\Models` shim:
      * AuthServiceProvider registers OrderPolicy on the shim, and Gate resolves
