@@ -26,6 +26,39 @@ export interface ConfirmMandateResponse {
     card: PaymentCardSummary;
 }
 
+/** What is owed on a repair charge, and whether the customer can act on it. */
+export interface RepairPaymentState {
+    exists: boolean;
+    status: string | null;
+    /** German, server-rendered — the client never maps a status to wording. */
+    label: string | null;
+    amount_cents: number;
+    amount: string;
+    currency: string;
+    payable: boolean;
+    settled: boolean;
+    card: PaymentCardSummary | null;
+}
+
+/**
+ * `authenticate` completes a challenge on an intent that already has a card:
+ * no card field is shown, because asking for one would invite a second card
+ * for a charge that is already authorized. `collect` needs a card.
+ */
+export type RepairCheckoutMode = 'authenticate' | 'collect';
+
+export interface RepairCheckoutSession {
+    mode: RepairCheckoutMode;
+    client_secret: string;
+    payment_intent_id: string;
+    amount_cents: number;
+    currency: string;
+}
+
+export function formatEuro(amount: string | number): string {
+    return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(Number(amount));
+}
+
 const BRAND_LABELS: Record<string, string> = {
     visa: 'Visa',
     mastercard: 'Mastercard',

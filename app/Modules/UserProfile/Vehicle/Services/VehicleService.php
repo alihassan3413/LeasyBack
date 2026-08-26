@@ -17,6 +17,7 @@ use App\Modules\UserProfile\Order\Services\RepairOfferService;
 use App\Modules\UserProfile\Payment\Enums\PaymentPurpose;
 use App\Modules\UserProfile\Payment\Enums\PaymentStatus;
 use App\Modules\UserProfile\Payment\Models\OrderPaymentMethod;
+use App\Support\RepairPaymentPresentation;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\UploadedFile;
@@ -828,7 +829,7 @@ class VehicleService
      *
      * @param  object|null  $mandate  Absent for an order that never reached the payment step.
      * @param  object|null  $repairPayment  Absent until the order reaches `delivered`.
-     * @return array{requires_setup: bool, status: string, card: ?array{brand: ?string, last4: ?string, exp_month: ?int, exp_year: ?int}, repair: ?array{status: string, amount_cents: int, currency: string, paid_at: ?string, blocks_pickup: bool}}
+     * @return array{requires_setup: bool, status: string, card: ?array{brand: ?string, last4: ?string, exp_month: ?int, exp_year: ?int}, repair_stage: string, repair: ?array{status: string, amount_cents: int, currency: string, paid_at: ?string, blocks_pickup: bool, payable: bool}}
      */
     private function orderPaymentState(object $order, ?object $mandate, ?object $repairPayment, ?User $viewer): array
     {
@@ -850,12 +851,25 @@ class VehicleService
                 'exp_month' => $mandate->pm_exp_month === null ? null : (int) $mandate->pm_exp_month,
                 'exp_year' => $mandate->pm_exp_year === null ? null : (int) $mandate->pm_exp_year,
             ] : null,
+            // Derived, never stored: `delivered` is reached before the money
+            // arrives because reaching it triggers the charge, so the status
+            // alone cannot say whether the car may be collected.
+            // The whole `payment` block is emitted for B2C orders only, so the
+            // channel is already settled by the time this runs.
+            'repair_stage' => RepairPaymentPresentation::stageFor($order->order_status, $repairPayment?->status),
             'repair' => $repairPayment === null ? null : [
                 'status' => $repairPayment->status,
                 'amount_cents' => (int) $repairPayment->amount_cents,
                 'currency' => $repairPayment->currency,
                 'paid_at' => $repairPayment->paid_at,
                 'blocks_pickup' => ! (PaymentStatus::tryFrom($repairPayment->status)?->satisfiesReleaseGate() ?? false),
+                // Whether *this viewer* can settle it now. Viewer-gated for
+                // the same reason `requires_setup` is: Admin is refused by
+                // OrderPolicy::pay, and must never be shown a pay button that
+                // would have them authenticate a customer's card.
+                'payable' => $viewerMayAct
+                    && (int) $repairPayment->amount_cents > 0
+                    && (PaymentStatus::tryFrom($repairPayment->status)?->needsCustomerAction() ?? false),
             ],
         ];
     }

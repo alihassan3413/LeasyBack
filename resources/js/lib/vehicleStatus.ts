@@ -28,12 +28,15 @@ const ORDER_STATUS_DISPLAY: Record<string, VehicleStatusDisplay> = {
 const NOT_STARTED: VehicleStatusDisplay = { label: 'Eingeplant', variant: 'warning' };
 
 /** A vehicle with no orders yet shows "Eingeplant"; otherwise its latest order's status. */
-export function getVehicleStatusDisplay(latestOrderStatus: string | null | undefined): VehicleStatusDisplay {
+export function getVehicleStatusDisplay(latestOrderStatus: string | null | undefined, repairStage?: string | null): VehicleStatusDisplay {
     if (!latestOrderStatus) {
         return NOT_STARTED;
     }
 
-    return ORDER_STATUS_DISPLAY[latestOrderStatus] ?? { label: latestOrderStatus, variant: 'secondary' };
+    const display = ORDER_STATUS_DISPLAY[latestOrderStatus] ?? { label: latestOrderStatus, variant: 'secondary' as const };
+    const derived = getOrderStatusLabel(latestOrderStatus, repairStage);
+
+    return derived === display.label ? display : { label: derived, variant: 'warning' };
 }
 
 export function isVehicleCompleted(latestOrderStatus: string | null | undefined): boolean {
@@ -76,9 +79,31 @@ export const VEHICLE_STATUS_FILTER_OPTIONS: { value: string; label: string }[] =
         .map(([value, display]) => ({ value, label: display.label })),
 ];
 
-export function getOrderStatusLabel(status: string | null | undefined): string {
+/**
+ * Wording for the derived stages that override a raw status.
+ *
+ * `delivered` alone says "Abholbereit", which is false while the repair charge
+ * is outstanding — the completion gate refuses pickup, and the customer is
+ * being shown a pay-now banner at the same time. The stage is computed
+ * server-side (App\Support\RepairPaymentPresentation) so every surface that
+ * overrides here overrides on the same fact.
+ */
+const REPAIR_STAGE_LABELS: Record<string, string> = {
+    awaiting_payment: 'Zahlung erforderlich',
+    payment_processing: 'Zahlung wird verarbeitet',
+};
+
+export function getOrderStatusLabel(status: string | null | undefined, repairStage?: string | null): string {
     if (!status) {
         return 'Unbekannt';
+    }
+
+    if (status === 'delivered' && repairStage) {
+        const derived = REPAIR_STAGE_LABELS[repairStage];
+
+        if (derived) {
+            return derived;
+        }
     }
 
     return ORDER_STATUS_LABELS[status] ?? status.replace(/_/g, ' ');

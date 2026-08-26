@@ -1,3 +1,4 @@
+import type { RepairPaymentStage } from '@/lib/customerOrderFlow';
 import type { B2bOfferPresentationData, OrderCollectionData } from './order';
 import type { OrderRequestPayload, VehicleCollectionAddress } from './vehicle';
 
@@ -354,8 +355,26 @@ export interface AdminOrderDetail extends AdminOrderRow {
     workshop_quotations: AdminWorkshopQuotation[];
     /** B2B only — null on a B2C order, which has no internal billing record. */
     billing: AdminOrderBilling | null;
+    /** The B2C counterpart of `billing`. Null for B2B, and until `delivered`. */
+    repair_payment: AdminRepairPayment | null;
+    /**
+     * How `delivered` should be presented — derived server-side from the order
+     * status and the repair charge, and identical to the value the customer's
+     * payload carries. Always present, including when there is no charge.
+     */
+    repair_payment_stage: RepairPaymentStage;
     /** Both audiences. null for a B2C order, which has no note surface. */
     notes: AdminOrderNote[] | null;
+}
+
+/** B2C repair charge, as Admin sees it. Admin can read it but never settle it. */
+export interface AdminRepairPayment {
+    status: string;
+    amount_cents: number;
+    currency: string;
+    paid_at: string | null;
+    /** Mirrors the completion gate: true means `delivered → completed` is refused. */
+    blocks_pickup: boolean;
 }
 
 /**

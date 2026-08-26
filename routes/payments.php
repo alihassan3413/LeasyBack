@@ -1,6 +1,7 @@
 <?php
 
 use App\Modules\UserProfile\Payment\Http\Controllers\PaymentMethodController;
+use App\Modules\UserProfile\Payment\Http\Controllers\RepairPaymentController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -29,4 +30,25 @@ Route::middleware(['auth', 'active', 'verified'])->group(function () {
     Route::post('orders/{orderId}/payment-method/confirm', [PaymentMethodController::class, 'confirm'])
         ->whereUuid('orderId')
         ->name('payments.method.confirm');
+
+    /*
+     * Settling a repair charge by hand, after the automatic off-session
+     * attempt came back needing the customer — a 3DS challenge, or a card
+     * that was declined.
+     *
+     * None of the three takes a PaymentIntent id: the intent is resolved from
+     * the order's own repair payment, so there is no parameter through which
+     * another customer's intent could be named.
+     */
+    Route::get('orders/{orderId}/payments/repair', [RepairPaymentController::class, 'show'])
+        ->whereUuid('orderId')
+        ->name('payments.repair.show');
+
+    Route::post('orders/{orderId}/payments/repair/intent', [RepairPaymentController::class, 'intent'])
+        ->whereUuid('orderId')
+        ->name('payments.repair.intent');
+
+    Route::post('orders/{orderId}/payments/repair/sync', [RepairPaymentController::class, 'sync'])
+        ->whereUuid('orderId')
+        ->name('payments.repair.sync');
 });

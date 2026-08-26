@@ -58,6 +58,12 @@ export interface OrderTimelineEntry {
     invoiceUrl?: string;
     showPaymentAction?: boolean;
     tooltipDescription?: string;
+    /**
+     * Not merely "not reached yet" but "held": collection is waiting on a
+     * repair payment, not on anything LeasyBack or the workshop still has to
+     * do. Rendered with a lock so it does not read as an ordinary next step.
+     */
+    isLocked?: boolean;
 }
 
 /**
@@ -69,6 +75,10 @@ export interface OrderTimelineEntry {
  */
 export function toOrderTimelineEntries(steps: CustomerOrderFlowStep[] | null, fallbackStatus?: string | null): OrderTimelineEntry[] {
     if (steps) {
+        // The payment rung being the current one is exactly the situation in
+        // which collection is held rather than merely pending.
+        const heldByPayment = steps.some((step) => step.stage === 'awaiting_payment' && step.isCurrent);
+
         return steps.map((step) => ({
             datetime: step.datetime ? formatGermanDateTime(step.datetime) : '',
             label: step.label,
@@ -84,6 +94,7 @@ export function toOrderTimelineEntries(steps: CustomerOrderFlowStep[] | null, fa
             docUrl: step.reportDocUrl,
             invoiceUrl: step.invoiceDocUrl,
             showPaymentAction: step.showPaymentAction,
+            isLocked: heldByPayment && step.stage === 'vehicle_ready',
         }));
     }
 

@@ -1,3 +1,4 @@
+import type { RepairPaymentStage } from '@/lib/customerOrderFlow';
 import type { OfferData, OrderCollectionData } from './order';
 
 export interface VehicleDocumentData {
@@ -84,6 +85,28 @@ export interface OrderPaymentState {
     requires_setup: boolean;
     status: string;
     card: { brand: string | null; last4: string | null; exp_month: number | null; exp_year: number | null } | null;
+    /**
+     * How `delivered` should be presented, derived server-side from the order
+     * status and the repair charge — see App\Support\RepairPaymentPresentation.
+     * Every surface that could otherwise contradict another reads this.
+     */
+    repair_stage: RepairPaymentStage;
+    /** Absent until the order reaches `delivered` and a charge is opened. */
+    repair?: OrderRepairPaymentState | null;
+}
+
+export interface OrderRepairPaymentState {
+    status: string;
+    amount_cents: number;
+    currency: string;
+    paid_at: string | null;
+    blocks_pickup: boolean;
+    /**
+     * Whether this viewer can settle it now — already false for Admin and for
+     * anything already paid, so no client-side rule has to agree with the
+     * server's.
+     */
+    payable: boolean;
 }
 
 /**

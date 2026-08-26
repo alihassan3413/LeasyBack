@@ -36,6 +36,17 @@ class FakeStripeGateway implements StripeGateway
     /** Thrown by the next gateway call, then cleared. */
     public ?StripeGatewayException $nextFailure = null;
 
+    /**
+     * Results returned by confirmPaymentIntent(), consumed in order.
+     *
+     * Without this a confirmation can only ever succeed, which cannot express
+     * the case that matters most here: confirming on-session moves an intent to
+     * `requires_action` so the browser can run the challenge.
+     *
+     * @var list<StripePaymentIntentResult>
+     */
+    public array $confirmationResults = [];
+
     /** Verified webhook payload returned by constructWebhookEvent(). */
     public ?array $webhookEvent = null;
 
@@ -138,6 +149,10 @@ class FakeStripeGateway implements StripeGateway
 
         $existing = $this->paymentIntents[$paymentIntentId]
             ?? throw StripeGatewayException::apiError("No such payment intent: {$paymentIntentId}");
+
+        if ($this->confirmationResults !== []) {
+            return $this->paymentIntents[$paymentIntentId] = array_shift($this->confirmationResults);
+        }
 
         return $this->paymentIntents[$paymentIntentId] = new StripePaymentIntentResult(
             id: $existing->id,

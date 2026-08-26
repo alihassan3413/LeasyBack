@@ -180,8 +180,10 @@ class PaymentService
     }
 
     /**
-     * Admins only for now: there is no customer-facing payment page yet, so a
-     * customer mail would point nowhere. The car stays gated either way.
+     * Admins only. The customer is shown the outstanding charge in the portal
+     * — a banner and a pay action on the order — so this is the internal
+     * signal rather than the customer's. A customer mail linking to that page
+     * is worth adding and is deliberately not part of this increment.
      */
     private function notifyAdminsOfOutstandingPayment(LeasybackOrder $order, OrderPayment $payment): void
     {

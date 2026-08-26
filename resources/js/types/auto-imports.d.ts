@@ -9,7 +9,6 @@ declare global {
   const ADMIN_ORDER_STATUS_FILTERS: typeof import('../lib/adminStatus').ADMIN_ORDER_STATUS_FILTERS
   const B2B_ORDER_STAGE_SEQUENCE: typeof import('../lib/customerOrderFlow').B2B_ORDER_STAGE_SEQUENCE
   const CUSTOMER_ORDER_STAGE_SEQUENCE: typeof import('../lib/customerOrderFlow').CUSTOMER_ORDER_STAGE_SEQUENCE
-  const CUSTOMER_PAYMENT_FEATURE_ENABLED: typeof import('../lib/customerOrderFlow').CUSTOMER_PAYMENT_FEATURE_ENABLED
   const DOCUMENT_TYPE_LABELS: typeof import('../lib/documentTypes').DOCUMENT_TYPE_LABELS
   const EffectScope: typeof import('vue').EffectScope
   const Head: typeof import('@inertiajs/vue3').Head
@@ -87,6 +86,8 @@ declare global {
   const reactive: typeof import('vue').reactive
   const readonly: typeof import('vue').readonly
   const ref: typeof import('vue').ref
+  const repairPaymentBlocksPickup: typeof import('../lib/customerOrderFlow').repairPaymentBlocksPickup
+  const repairPaymentStage: typeof import('../lib/customerOrderFlow').repairPaymentStage
   const resolveComponent: typeof import('vue').resolveComponent
   const resolveErrorCopy: typeof import('../lib/errorPages').resolveErrorCopy
   const router: typeof import('@inertiajs/vue3').router
@@ -166,7 +167,7 @@ declare global {
   export type { StatusPillStyle } from '../lib/adminStatus'
   import('../lib/adminStatus')
   // @ts-ignore
-  export type { CustomerOrderStage, B2bOrderStage, CustomerOrderFlowStep, CustomerOrderStatusHistoryEntry, CustomerOrderBesichtigungsort, CustomerOrderReportDocument, CustomerOrderOffer, CustomerOrderFlowInput, CustomerOrderCollection } from '../lib/customerOrderFlow'
+  export type { CustomerOrderStage, RepairPaymentStage, CustomerOrderRepairPayment, B2bOrderStage, CustomerOrderFlowStep, CustomerOrderStatusHistoryEntry, CustomerOrderBesichtigungsort, CustomerOrderReportDocument, CustomerOrderOffer, CustomerOrderFlowInput, CustomerOrderCollection } from '../lib/customerOrderFlow'
   import('../lib/customerOrderFlow')
   // @ts-ignore
   export type { ErrorIllustrationVariant, ErrorPageCopy } from '../lib/errorPages'
@@ -193,7 +194,6 @@ declare module 'vue' {
     readonly ADMIN_ORDER_STATUS_FILTERS: UnwrapRef<typeof import('../lib/adminStatus')['ADMIN_ORDER_STATUS_FILTERS']>
     readonly B2B_ORDER_STAGE_SEQUENCE: UnwrapRef<typeof import('../lib/customerOrderFlow')['B2B_ORDER_STAGE_SEQUENCE']>
     readonly CUSTOMER_ORDER_STAGE_SEQUENCE: UnwrapRef<typeof import('../lib/customerOrderFlow')['CUSTOMER_ORDER_STAGE_SEQUENCE']>
-    readonly CUSTOMER_PAYMENT_FEATURE_ENABLED: UnwrapRef<typeof import('../lib/customerOrderFlow')['CUSTOMER_PAYMENT_FEATURE_ENABLED']>
     readonly DOCUMENT_TYPE_LABELS: UnwrapRef<typeof import('../lib/documentTypes')['DOCUMENT_TYPE_LABELS']>
     readonly EffectScope: UnwrapRef<typeof import('vue')['EffectScope']>
     readonly Head: UnwrapRef<typeof import('@inertiajs/vue3')['Head']>
@@ -271,6 +271,8 @@ declare module 'vue' {
     readonly reactive: UnwrapRef<typeof import('vue')['reactive']>
     readonly readonly: UnwrapRef<typeof import('vue')['readonly']>
     readonly ref: UnwrapRef<typeof import('vue')['ref']>
+    readonly repairPaymentBlocksPickup: UnwrapRef<typeof import('../lib/customerOrderFlow')['repairPaymentBlocksPickup']>
+    readonly repairPaymentStage: UnwrapRef<typeof import('../lib/customerOrderFlow')['repairPaymentStage']>
     readonly resolveComponent: UnwrapRef<typeof import('vue')['resolveComponent']>
     readonly resolveErrorCopy: UnwrapRef<typeof import('../lib/errorPages')['resolveErrorCopy']>
     readonly router: UnwrapRef<typeof import('@inertiajs/vue3')['router']>

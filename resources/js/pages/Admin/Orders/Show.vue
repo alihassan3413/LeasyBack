@@ -63,6 +63,15 @@ const customerFlowSteps = computed(() =>
         offers: props.order.offers,
         collection: props.order.collection,
         channel: props.order.vehicle_belongs,
+        // The same derived stage the customer's payload carries, rendered with
+        // Admin's wording. `payable` is deliberately not passed: Admin is
+        // refused by OrderPolicy::pay and must never be offered a pay action.
+        repairPayment: {
+            stage: props.order.repair_payment_stage,
+            status: props.order.repair_payment?.status ?? null,
+            amount_cents: props.order.repair_payment?.amount_cents ?? null,
+        },
+        audience: 'admin',
     }),
 );
 

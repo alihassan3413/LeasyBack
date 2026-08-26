@@ -15,6 +15,7 @@ use App\Modules\UserProfile\Order\Services\WorkshopCommissionService;
 use App\Modules\UserProfile\Order\Services\WorkshopQuotationService;
 use App\Modules\UserProfile\Payment\Enums\PaymentPurpose;
 use App\Modules\UserProfile\Payment\Models\OrderPayment;
+use App\Support\RepairPaymentPresentation;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\Request;
@@ -513,6 +514,19 @@ class AdminQueryService
         $order['repair_payment'] = $row->vehicle_belongs === 'B2B'
             ? null
             : $this->repairPaymentSummary($orderId);
+
+        /*
+         * The derived stage Admin presents `delivered` as. Emitted alongside
+         * the summary rather than inside it because it has an answer even when
+         * there is no charge — and because it is the same value the customer's
+         * payload carries, computed by the same rule, which is what keeps the
+         * two from contradicting each other.
+         */
+        $order['repair_payment_stage'] = RepairPaymentPresentation::stageFor(
+            $row->order_status,
+            $order['repair_payment']['status'] ?? null,
+            $row->vehicle_belongs === 'B2B',
+        );
 
         // Admin sees both audiences; each row carries its own `visibility` so
         // the card can label an internal note as internal (§16).

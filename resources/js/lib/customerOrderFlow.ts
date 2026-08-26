@@ -7,6 +7,7 @@ export type CustomerOrderStage =
     | 'workshop_commissioned'
     | 'in_repair'
     | 'followup_completed'
+    | 'awaiting_payment'
     | 'vehicle_ready'
     | 'case_closed';
 
@@ -19,22 +20,38 @@ export const CUSTOMER_ORDER_STAGE_SEQUENCE: readonly CustomerOrderStage[] = [
     'workshop_commissioned',
     'in_repair',
     'followup_completed',
+    // Derived, not a persisted status. `delivered` is reached before the money
+    // arrives because reaching it is what triggers the charge, so this rung is
+    // what stands between "repairs done" and "come and collect it".
+    'awaiting_payment',
     'vehicle_ready',
     'case_closed',
 ];
 
-const PAYMENT_GATED_STAGE: CustomerOrderStage = 'vehicle_ready';
-
-export const CUSTOMER_PAYMENT_FEATURE_ENABLED = false;
-
 /**
- * Collection is gated on payment only once payment exists. The gate used to be
- * unconditional, so `vehicle_ready` was pinned to "future" forever — the
- * customer got an "Ihr Fahrzeug ist abholbereit" email while the timeline still
- * showed collection as something that had not happened yet.
+ * The stage the server derived from the order status and the repair charge.
+ * Mirrors App\Support\RepairPaymentPresentation — the rule lives there, and
+ * this file only decides the wording each audience sees for it.
  */
-function isForcedFuture(stage: CustomerOrderStage | B2bOrderStage): boolean {
-    return CUSTOMER_PAYMENT_FEATURE_ENABLED && stage === PAYMENT_GATED_STAGE;
+export type RepairPaymentStage = 'none' | 'awaiting_payment' | 'payment_processing' | 'payment_settled' | 'payment_not_required';
+
+export interface CustomerOrderRepairPayment {
+    stage: RepairPaymentStage;
+    status?: string | null;
+    amount_cents?: number | null;
+    /** True only when the viewer can act on it — already false for Admin. */
+    payable?: boolean;
+}
+
+export function repairPaymentStage(ctx: CustomerOrderFlowInput): RepairPaymentStage {
+    return ctx.repairPayment?.stage ?? 'none';
+}
+
+/** Whether the vehicle is still held. The customer's banner asks the same question. */
+export function repairPaymentBlocksPickup(ctx: CustomerOrderFlowInput): boolean {
+    const stage = repairPaymentStage(ctx);
+
+    return stage === 'awaiting_payment' || stage === 'payment_processing';
 }
 
 export type B2bOrderStage =
@@ -139,6 +156,14 @@ export interface CustomerOrderFlowInput {
     collection?: CustomerOrderCollection | null;
     /** Resolved from the persisted vehicle/order, never from user input. Absent means B2C. */
     channel?: 'B2B' | 'B2C' | null;
+    /** The server-derived repair-payment stage. Absent means there is nothing to present. */
+    repairPayment?: CustomerOrderRepairPayment | null;
+    /**
+     * Who is reading. Both see the same derived stage — only the wording
+     * differs, because "please pay" and "awaiting payment" are the same fact
+     * addressed to different people.
+     */
+    audience?: 'customer' | 'admin';
 }
 
 export interface CustomerOrderCollection {
@@ -320,6 +345,12 @@ function stageHappened(stage: CustomerOrderStage, ctx: CustomerOrderFlowInput): 
             return offers.length > 0;
         case 'offer_approved':
             return offers.some((offer) => offer.offer_status === 'selected');
+        // A rung the order only *took* if money actually moved. A repair that
+        // came to 0,00 €, or an order that predates payments entirely, passed
+        // it without it ever happening — which is what `skipped` means, and is
+        // honest in a way a green tick reading "Zahlung erhalten" would not be.
+        case 'awaiting_payment':
+            return repairPaymentStage(ctx) === 'payment_settled';
         default:
             return true;
     }
@@ -345,9 +376,87 @@ const STAGE_SHORT_LABEL: Record<CustomerOrderStage, string> = {
     workshop_commissioned: 'Werkstatt beauftragt',
     in_repair: 'In Reparaturphase',
     followup_completed: 'Nachgutachten abgeschlossen',
+    awaiting_payment: 'Reparatur abgeschlossen – Zahlung erforderlich',
     vehicle_ready: 'Fahrzeug abholbereit',
     case_closed: 'Vorgang abgeschlossen',
 };
+
+/**
+ * The payment rung's wording, by derived stage and by audience.
+ *
+ * Kept as one table rather than two so the pair for each stage is visible
+ * side by side: they must always describe the same fact, and the failure mode
+ * this whole change exists to fix is exactly two surfaces drifting apart.
+ */
+const PAYMENT_STAGE_LABEL: Record<RepairPaymentStage, { customer: string; admin: string }> = {
+    none: { customer: 'Zahlung', admin: 'Zahlung' },
+    awaiting_payment: {
+        customer: 'Reparatur abgeschlossen – Zahlung erforderlich',
+        admin: 'Reparatur abgeschlossen – Zahlung ausstehend',
+    },
+    payment_processing: {
+        customer: 'Zahlung wird verarbeitet',
+        admin: 'Reparatur abgeschlossen – Zahlung wird verarbeitet',
+    },
+    payment_settled: { customer: 'Zahlung erhalten', admin: 'Zahlung erhalten' },
+    payment_not_required: { customer: 'Keine Zahlung erforderlich', admin: 'Keine Zahlung erforderlich' },
+};
+
+const PAYMENT_STAGE_TOOLTIP: Record<RepairPaymentStage, { customer: string; admin: string }> = {
+    none: {
+        customer: 'Nach Abschluss der Reparatur werden die Reparaturkosten fällig.',
+        admin: 'Nach Abschluss der Reparatur wird die Reparaturzahlung fällig.',
+    },
+    awaiting_payment: {
+        customer: 'Die Reparatur ist abgeschlossen. Ihr Fahrzeug kann erst nach Zahlungseingang abgeholt werden.',
+        admin: 'Die Reparatur ist abgeschlossen, die Zahlung steht noch aus. Übergabe und Abschluss sind bis zum Zahlungseingang gesperrt.',
+    },
+    payment_processing: {
+        customer: 'Ihre Zahlung wird derzeit verarbeitet. Sobald sie bestätigt ist, kann Ihr Fahrzeug abgeholt werden.',
+        admin: 'Die Zahlung wird bei Stripe verarbeitet. Übergabe und Abschluss bleiben bis zur Bestätigung gesperrt.',
+    },
+    payment_settled: {
+        customer: 'Ihre Zahlung ist eingegangen. Ihr Fahrzeug kann abgeholt werden.',
+        admin: 'Die Reparaturzahlung ist eingegangen. Die Übergabe kann bestätigt werden.',
+    },
+    payment_not_required: {
+        customer: 'Für diese Reparatur fallen keine Kosten an.',
+        admin: 'Für diese Reparatur fallen keine Kosten an — die Übergabe ist nicht gesperrt.',
+    },
+};
+
+function formatEuroAmount(cents: number): string {
+    return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(cents / 100);
+}
+
+/**
+ * The payment rung's second line. Both audiences are told the amount and that
+ * the vehicle is held — the difference is only whose move it is.
+ */
+function paymentStageSubtitle(stage: RepairPaymentStage, audience: 'customer' | 'admin', amountCents: number | null): string {
+    const amount = amountCents && amountCents > 0 ? formatEuroAmount(amountCents) : '';
+
+    if (stage === 'payment_settled') {
+        return amount ? `${amount} erhalten` : 'Die Zahlung ist eingegangen';
+    }
+
+    if (stage === 'payment_not_required') {
+        return 'Für diese Reparatur fallen keine Kosten an';
+    }
+
+    const held =
+        audience === 'admin'
+            ? 'Übergabe und Abschluss sind bis zum Zahlungseingang gesperrt'
+            : 'Ihr Fahrzeug kann erst nach Zahlungseingang abgeholt werden';
+
+    if (stage === 'payment_processing') {
+        const processing = audience === 'admin' ? 'Zahlung wird verarbeitet' : 'Ihre Zahlung wird derzeit verarbeitet';
+
+        return amount ? `${amount} – ${processing}.\n${held}` : `${processing}.\n${held}`;
+    }
+
+    return amount ? `Offener Betrag: ${amount}.\n${held}` : held;
+}
 
 const STAGE_TOOLTIP: Record<CustomerOrderStage, string> = {
     requested: 'Sie haben einen Wunschtermin zur Erstbegutachtung Ihres Fahrzeugs angefragt.',
@@ -358,6 +467,7 @@ const STAGE_TOOLTIP: Record<CustomerOrderStage, string> = {
     workshop_commissioned: 'Die Werkstatt aus Ihrem freigegebenen Angebot wurde beauftragt und stimmt den Reparaturtermin ab.',
     in_repair: 'Ihr Fahrzeug befindet sich aktuell in der Reparatur bei der Partnerwerkstatt.',
     followup_completed: 'Die Nachbegutachtung nach der Reparatur wurde abgeschlossen. Gutachten und Rechnung stehen bereit.',
+    awaiting_payment: 'Die Reparatur ist abgeschlossen. Ihr Fahrzeug kann erst nach Zahlungseingang abgeholt werden.',
     vehicle_ready: 'Ihr Fahrzeug ist fertig und steht bei der Werkstatt zur Abholung bereit.',
     case_closed: 'Sie haben Ihr Fahrzeug abgeholt. Der Vorgang ist abgeschlossen — es steht nichts mehr aus.',
 };
@@ -531,9 +641,23 @@ const COMMISSIONED_STATUS = 'workshop_commissioned';
 const CLOSING_STATUSES = new Set(['vehicle_returned', 'invoice_processed']);
 const TERMINAL_STATUSES = new Set(['cancelled']);
 
-function resolveProgressIndex(status: string, relevantOffer: CustomerOrderOffer | null, hasFollowupReport: boolean): number | null {
-    if (status === 'completed') return 9;
-    if (status === 'delivered') return 8;
+function resolveProgressIndex(
+    status: string,
+    relevantOffer: CustomerOrderOffer | null,
+    hasFollowupReport: boolean,
+    paymentBlocks = false,
+): number | null {
+    if (status === 'completed') return 10;
+
+    /*
+     * The whole point of the derived rung. `delivered` means repairs are done
+     * and the charge has been opened — not that the car may be collected. While
+     * the charge is outstanding the order stands *on* the payment rung, so
+     * `vehicle_ready` is still ahead of it and renders as locked. Nothing about
+     * the persisted status changes.
+     */
+    if (status === 'delivered') return paymentBlocks ? 8 : 9;
+
     if (CLOSING_STATUSES.has(status)) return 7;
 
     /*
@@ -593,6 +717,11 @@ function getStageDate(
             // date of `delivered`/`completed`, which put the wrong timestamp on
             // the step as soon as those became distinct events.
             return nachgutachtenDoc?.created_at ?? findHistoryDate(ctx.statusHistory, new Set(['reinspection', ...CLOSING_STATUSES]), status);
+        case 'awaiting_payment':
+            // Both rungs date from `delivered`: that is when repairs finished
+            // and the charge was opened. They are one moment presented as two
+            // steps, which is the whole idea.
+            return findHistoryDate(ctx.statusHistory, new Set(['delivered']));
         case 'vehicle_ready':
             return findHistoryDate(ctx.statusHistory, new Set(['delivered']));
         case 'case_closed':
@@ -686,6 +815,14 @@ function buildStep(
         case 'followup_completed':
             subtitle = rechnungDoc ? 'Hier können Sie Ihr Gutachten und Ihre Rechnung einsehen' : 'Hier können Sie Ihr Gutachten einsehen';
             break;
+        case 'awaiting_payment': {
+            const stage = repairPaymentStage(ctx);
+            const audience = ctx.audience ?? 'customer';
+
+            label = PAYMENT_STAGE_LABEL[stage][audience];
+            subtitle = paymentStageSubtitle(stage, audience, ctx.repairPayment?.amount_cents ?? null);
+            break;
+        }
         case 'vehicle_ready':
             subtitle = rechnungDoc
                 ? 'Ihr Fahrzeug kann nun abgeholt werden.\nHier können Sie Ihre Rechnung einsehen'
@@ -717,9 +854,24 @@ function buildStep(
     const step: CustomerOrderFlowStep = {
         stage,
         label,
-        shortLabel: state.isCancelled ? 'Auftrag storniert' : state.isRejected ? 'Wunschtermin abgelehnt' : STAGE_SHORT_LABEL[stage],
+        shortLabel: state.isCancelled
+            ? 'Auftrag storniert'
+            : state.isRejected
+              ? 'Wunschtermin abgelehnt'
+              : // The headline the page header and the Admin status header both
+                // read comes from here, so the payment rung has to carry its
+                // derived wording into shortLabel too — otherwise the timeline
+                // says "Zahlung erforderlich" while the header above it still
+                // says "Abholbereit".
+                stage === 'awaiting_payment'
+                ? PAYMENT_STAGE_LABEL[repairPaymentStage(ctx)][ctx.audience ?? 'customer']
+                : STAGE_SHORT_LABEL[stage],
         subtitle,
-        tooltipDescription: state.isCancelled ? 'Dieser Auftrag wurde storniert und wird nicht weiter bearbeitet.' : STAGE_TOOLTIP[stage],
+        tooltipDescription: state.isCancelled
+            ? 'Dieser Auftrag wurde storniert und wird nicht weiter bearbeitet.'
+            : stage === 'awaiting_payment'
+              ? PAYMENT_STAGE_TOOLTIP[repairPaymentStage(ctx)][ctx.audience ?? 'customer']
+              : STAGE_TOOLTIP[stage],
         datetime: state.datetime,
         completed: state.completed,
         isCurrent: state.isCurrent,
@@ -735,7 +887,18 @@ function buildStep(
     if (stage === 'followup_completed') {
         if (nachgutachtenDoc) step.reportDocUrl = resolveDocUrl(nachgutachtenDoc);
         if (rechnungDoc) step.invoiceDocUrl = resolveDocUrl(rechnungDoc);
+    }
+
+    // Moved off `followup_completed`, where it sat next to the report links and
+    // meant nothing in particular. It belongs on the rung that is actually
+    // about paying, and only when this viewer can settle it — `payable` is
+    // decided server-side and is already false for Admin.
+    if (stage === 'awaiting_payment' && ctx.repairPayment?.payable) {
         step.showPaymentAction = true;
+    }
+
+    if (stage === 'awaiting_payment' && rechnungDoc) {
+        step.invoiceDocUrl = resolveDocUrl(rechnungDoc);
     }
 
     if (stage === 'vehicle_ready' && rechnungDoc) {
@@ -915,7 +1078,7 @@ export function getCustomerOrderFlowSteps(ctx: CustomerOrderFlowInput): Customer
         });
     }
 
-    const progressIndex = resolveProgressIndex(status, relevantOffer, !!nachgutachtenDoc);
+    const progressIndex = resolveProgressIndex(status, relevantOffer, !!nachgutachtenDoc, repairPaymentBlocksPickup(ctx));
 
     if (progressIndex === null) {
         return null;
@@ -924,16 +1087,15 @@ export function getCustomerOrderFlowSteps(ctx: CustomerOrderFlowInput): Customer
     let nextAssigned = false;
 
     return CUSTOMER_ORDER_STAGE_SEQUENCE.map((stage, index) => {
-        const forcedFuture = isForcedFuture(stage);
-        const reached = !forcedFuture && index < progressIndex;
+        const reached = index < progressIndex;
 
         // Reached, but with nothing to show for it — the repair was arranged
         // without ever going through an offer. Neither ticked nor pending: it is
         // a step this order did not take.
         const skipped = reached && !stageHappened(stage, ctx);
         const completed = reached && !skipped;
-        const isCurrent = !forcedFuture && index === progressIndex;
-        const isUpcoming = forcedFuture || index > progressIndex;
+        const isCurrent = index === progressIndex;
+        const isUpcoming = index > progressIndex;
         const isNext = isUpcoming && !nextAssigned;
 
         if (isNext) {

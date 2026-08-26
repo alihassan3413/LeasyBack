@@ -35,7 +35,7 @@ const vehicleStatus = computed(() => {
     }
 
     return {
-        label: getOrderStatusLabel(current.order_status),
+        label: getOrderStatusLabel(current.order_status, current.payment?.repair_stage),
         dotColor: current.order_status === 'cancelled' ? '#EF4444' : '#01B990',
     };
 });

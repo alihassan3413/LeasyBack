@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import AdminReportDocumentsList, { type AdminPanelReportDocument } from '@/components/admin/AdminReportDocumentsList.vue';
 import PaymentMethodStep from '@/components/payment/PaymentMethodStep.vue';
+import RepairPaymentPanel from '@/components/payment/RepairPaymentPanel.vue';
 import OrderStatusTimeline from '@/components/shared/OrderStatusTimeline.vue';
 import { AppModal } from '@/components/ui/modal';
 import AddVehicleModal from '@/components/vehicle/AddVehicleModal.vue';
 import OfferComparison from '@/components/vehicle/OfferComparison.vue';
 import UploadDocumentModal from '@/components/vehicle/UploadDocumentModal.vue';
 import VehiclePanelShell from '@/components/vehicle/VehiclePanelShell.vue';
-import { CUSTOMER_PAYMENT_FEATURE_ENABLED, formatGermanDateTime, getCustomerOrderFlowSteps, getCustomerOrderHeadline } from '@/lib/customerOrderFlow';
+import { formatGermanDateTime, getCustomerOrderFlowSteps, getCustomerOrderHeadline } from '@/lib/customerOrderFlow';
 import { toOrderTimelineEntries, type OrderTimelineEntry } from '@/lib/timeline';
 import { getOrderStatusLabel } from '@/lib/vehicleStatus';
 import type { B2bOfferPresentationData, B2bOfferPresentationLine, OfferData } from '@/types/order';
@@ -220,6 +221,24 @@ function onPaymentComplete() {
     router.reload({ preserveScroll: true });
 }
 
+/**
+ * A repair charge the automatic attempt could not finish. `payable` is decided
+ * server-side and is already false for Admin, for anything settled, and for a
+ * charge of 0,00 € — so this needs no rule of its own.
+ */
+const repairPaymentOrder = computed(() => props.vehicle.orders.find((order) => order.payment?.repair?.payable) ?? null);
+
+const repairPaymentModalOpen = ref(false);
+
+function openRepairPayment() {
+    repairPaymentModalOpen.value = true;
+}
+
+function onRepairPaid() {
+    repairPaymentModalOpen.value = false;
+    router.reload({ preserveScroll: true });
+}
+
 const besichtigungsort = computed(() => firstOrder.value?.request_payload?.besichtigungsort ?? null);
 
 const terminFormatted = computed(() => {
@@ -258,6 +277,16 @@ const customerFlowSteps = computed(() => {
         offers: rawOffers.value,
         collection: orderCollection.value,
         channel: props.vehicle.vehicle_belongs,
+        // Straight from the server's derived stage, so the timeline, the
+        // header above it and the pay-now banner below it cannot disagree
+        // about whether the vehicle may be collected.
+        repairPayment: {
+            stage: order.payment?.repair_stage ?? 'none',
+            status: order.payment?.repair?.status ?? null,
+            amount_cents: order.payment?.repair?.amount_cents ?? null,
+            payable: order.payment?.repair?.payable ?? false,
+        },
+        audience: 'customer',
     });
 });
 
@@ -629,6 +658,40 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
             </div>
         </AppModal>
 
+        <div v-if="repairPaymentOrder" class="bg-[#EFEFEF] px-4 pt-4">
+            <div class="flex flex-col gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div class="flex items-start gap-3">
+                    <IconMdiCreditCardOutline class="mt-0.5 size-5 shrink-0 text-amber-700" />
+                    <div>
+                        <p class="text-[15px] font-bold text-amber-900">Zahlung erforderlich</p>
+                        <p class="text-sm text-amber-900/90">
+                            Für Auftrag {{ repairPaymentOrder.auftragsnummer }} sind die Reparaturkosten noch offen. Ihr Fahrzeug kann erst nach
+                            Zahlungseingang übergeben werden.
+                        </p>
+                    </div>
+                </div>
+                <button
+                    type="button"
+                    class="bg-brand-green hover:bg-brand-green/90 shrink-0 rounded-[5px] px-6 py-2.5 text-sm font-bold text-white"
+                    @click="openRepairPayment"
+                >
+                    Jetzt bezahlen
+                </button>
+            </div>
+        </div>
+
+        <AppModal
+            :open="repairPaymentModalOpen"
+            title="Reparaturkosten bezahlen"
+            description="Schließen Sie die Zahlung ab, damit Ihr Fahrzeug übergeben werden kann."
+            :width="620"
+            @update:open="(value) => (repairPaymentModalOpen = value)"
+        >
+            <div v-if="repairPaymentOrder" class="min-w-0 px-2">
+                <RepairPaymentPanel :order-id="repairPaymentOrder.id" @paid="onRepairPaid" />
+            </div>
+        </AppModal>
+
         <div class="columns-1 gap-4 bg-[#EFEFEF] p-4 *:mb-4 *:break-inside-avoid md:columns-2 2xl:columns-3">
             <div class="flex w-full flex-col overflow-hidden rounded-3xl border bg-white" style="border-color: #ececec">
                 <OrderStatusTimeline
@@ -664,9 +727,10 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                         <button
                             v-if="entry.showPaymentAction"
                             type="button"
-                            :disabled="!CUSTOMER_PAYMENT_FEATURE_ENABLED"
+                            :disabled="!repairPaymentOrder"
                             class="text-[#01b990] hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-30"
-                            title="Bezahlen (bald verfügbar)"
+                            :title="repairPaymentOrder ? 'Reparaturkosten bezahlen' : 'Derzeit ist keine Zahlung offen'"
+                            @click="openRepairPayment"
                         >
                             <IconMdiCreditCardOutline class="size-[18.5px] shrink-0" />
                         </button>
@@ -1174,9 +1238,10 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                     <button
                         v-if="entry.showPaymentAction"
                         type="button"
-                        :disabled="!CUSTOMER_PAYMENT_FEATURE_ENABLED"
+                        :disabled="!repairPaymentOrder"
                         class="text-[#01b990] hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-30"
-                        title="Bezahlen (bald verfügbar)"
+                        :title="repairPaymentOrder ? 'Reparaturkosten bezahlen' : 'Derzeit ist keine Zahlung offen'"
+                        @click="openRepairPayment"
                     >
                         <IconMdiCreditCardOutline class="size-[18.5px] shrink-0" />
                     </button>
