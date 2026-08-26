@@ -4,6 +4,8 @@ namespace App\Providers;
 
 use App\Modules\PartnerApi\Services\PartnerContext;
 use App\Modules\UserProfile\B2B\Services\B2bContext;
+use App\Modules\UserProfile\Payment\Contracts\StripeGateway;
+use App\Modules\UserProfile\Payment\Services\StripeClient;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 
@@ -27,6 +29,19 @@ class AppServiceProvider extends ServiceProvider
         // non-scoped binding would let a controller resolve a fresh, empty
         // context and silently run unscoped.
         $this->app->scoped(PartnerContext::class);
+
+        /*
+         * The single seam between this application and Stripe. Bound rather
+         * than instantiated at call sites so the entire payment suite can swap
+         * in a fake and never touch the network — a payment test that reaches
+         * Stripe fails when Stripe is slow and passes when a test card happens
+         * to behave, which makes it worse than no test at all.
+         *
+         * Not scoped: StripeClient holds no per-request state, and binding it
+         * lazily means an environment with no STRIPE_SECRET only fails when
+         * something actually tries to charge, rather than on every request.
+         */
+        $this->app->bind(StripeGateway::class, StripeClient::class);
     }
 
     /**

@@ -32,6 +32,38 @@ class OrderPolicy
         return $this->view($user, $order);
     }
 
+    /**
+     * Acting on this order's payments: opening a SetupIntent, confirming a
+     * stored card, or paying an outstanding amount.
+     *
+     * Deliberately **not** granted to Admin, which is the one place this
+     * policy departs from view(). Every other ability here treats Admin as a
+     * superset of the customer, but entering or confirming a payment method is
+     * something only the cardholder does — an Admin who could do it would be
+     * storing a card the customer never authorized, and the mandate this flow
+     * records would be attesting to a consent that never happened.
+     *
+     * Admin's legitimate payment powers — retrying a charge, re-sending a
+     * payment link, marking an amount collected offline — are separate
+     * abilities on the admin surface, not this one.
+     */
+    public function pay(User $user, LeasybackOrder $order): bool
+    {
+        return ! $user->isAdmin()
+            && $this->scope->findVehicleWithAccess($order->vehicle_id, $user) !== null;
+    }
+
+    /**
+     * Cancelling one's own order. Owner-only for the same reason: Admin
+     * cancels through admin.orders.status, which is audited as an Admin
+     * action and does not levy the customer cancellation fee.
+     */
+    public function cancel(User $user, LeasybackOrder $order): bool
+    {
+        return ! $user->isAdmin()
+            && $this->scope->findVehicleWithAccess($order->vehicle_id, $user) !== null;
+    }
+
     public function approve(User $user): bool
     {
         return $user->isAdmin();

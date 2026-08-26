@@ -6,6 +6,7 @@ use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Middleware\EnsureUserIsAdmin;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\VerifyDekraWebhookSignature;
+use App\Http\Middleware\VerifyStripeWebhookSignature;
 use App\Http\Middleware\VerifyTuvsudApiKey;
 use App\Modules\PartnerApi\Exceptions\PartnerApiExceptionRenderer;
 use App\Modules\PartnerApi\Http\Middleware\AssignPartnerRequestId;
@@ -46,6 +47,11 @@ return Application::configure(basePath: dirname(__DIR__))
             Route::middleware('api')
                 ->prefix('api')
                 ->group(base_path('routes/partner.php'));
+
+            // Same reasoning: exactly one URL, and no session/CSRF middleware.
+            Route::middleware('api')
+                ->prefix('api')
+                ->group(base_path('routes/stripe.php'));
         },
     )
     ->withMiddleware(function (Middleware $middleware) {
@@ -60,6 +66,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'b2b.can' => EnsureB2bPermission::class,
             'tuvsud.webhook' => VerifyTuvsudApiKey::class,
             'dekra.webhook' => VerifyDekraWebhookSignature::class,
+            'stripe.webhook' => VerifyStripeWebhookSignature::class,
 
             // Partner API (see routes/partner.php for the required order).
             'partner.request-id' => AssignPartnerRequestId::class,

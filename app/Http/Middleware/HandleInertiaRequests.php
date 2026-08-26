@@ -96,6 +96,21 @@ class HandleInertiaRequests extends Middleware
             'notifications' => [
                 'unread_count' => $request->user() ? $request->user()->unreadNotifications()->count() : 0,
             ],
+            // The *publishable* key, and deliberately nothing else from the
+            // 'stripe' config block. It is designed to be public — Stripe.js
+            // cannot mount a card field without it — whereas the secret and
+            // the webhook secret never leave the server. Shared globally like
+            // `name` rather than passed as a page prop so the payment
+            // component works wherever it is mounted (the onboarding wizard,
+            // the dashboard banner, the pay page) without three call sites
+            // remembering to hand it over.
+            //
+            // Null when unconfigured rather than an empty string, so the
+            // frontend can tell "payments are not set up here" from "the key
+            // is blank", and fail visibly instead of half-rendering.
+            'stripe' => [
+                'key' => config('services.stripe.key') ?: null,
+            ],
             'flash' => [
                 'success' => $request->session()->get('success'),
                 'error' => $request->session()->get('error'),

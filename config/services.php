@@ -67,6 +67,26 @@ return [
         'wsdl' => env('TIM_WSDL', ''),
     ],
 
+    'stripe' => [
+        // The publishable key is the only one that reaches the browser (shared
+        // through HandleInertiaRequests). It is not a secret, but it still has
+        // no default: a wrong-or-absent key must surface as a broken payment
+        // step, never as a silent fallback to somebody else's account.
+        'key' => env('STRIPE_KEY'),
+
+        // No defaults, same fail-closed reasoning as dekra.webhook_key and
+        // tuvsud.api_key above. StripeClient refuses to construct without a
+        // secret, and VerifyStripeWebhookSignature answers 503 without a
+        // webhook secret, rather than either falling back to a committed value.
+        'secret' => env('STRIPE_SECRET'),
+        'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
+
+        // Stripe charges in the minor unit of this currency. Everything in the
+        // offer domain is EUR (see config/offers.php and OfferPricingPolicy),
+        // so this exists to be explicit at the API boundary, not to be varied.
+        'currency' => env('STRIPE_CURRENCY', 'eur'),
+    ],
+
     'notifications' => [
         // Legacy single-value ops recipient, still honoured as the fallback
         // for mail_notifications.admin_recipients (staff-facing "a new order

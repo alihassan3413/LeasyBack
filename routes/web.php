@@ -14,6 +14,7 @@ Route::delete('impersonate', [ImpersonationController::class, 'destroy'])
 
 require __DIR__.'/vehicles.php';
 require __DIR__.'/orders.php';
+require __DIR__.'/payments.php';
 require __DIR__.'/onboarding.php';
 require __DIR__.'/b2b.php';
 require __DIR__.'/workshop.php';

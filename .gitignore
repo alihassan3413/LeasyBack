@@ -37,3 +37,10 @@ yarn-error.log
 # itself lands in storage/app/private/partner-api-docs, which storage's own
 # .gitignore already excludes.
 /.scribe_partner
+
+# Playwright E2E artifacts
+/.env.e2e
+/database/e2e.sqlite
+/test-results
+/playwright-report
+/public/hot.e2e-backup

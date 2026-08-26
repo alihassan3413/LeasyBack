@@ -37,4 +37,43 @@ class HandleInertiaRequestsTest extends TestCase
                 ->where('auth.user', null)
             );
     }
+
+    /**
+     * The publishable key is meant to reach the browser — Stripe.js cannot
+     * mount a card field without it. The other two values in the same config
+     * block must never follow it there, which is the actual point of this
+     * test: `stripe` is shared as an explicit one-key array rather than as
+     * `config('services.stripe')`, and this fails the moment someone
+     * "simplifies" it into the latter.
+     */
+    public function test_only_the_stripe_publishable_key_is_shared(): void
+    {
+        config([
+            'services.stripe.key' => 'pk_test_shared',
+            'services.stripe.secret' => 'sk_test_never_shared',
+            'services.stripe.webhook_secret' => 'whsec_never_shared',
+        ]);
+
+        $this->get(route('login'))
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('stripe.key', 'pk_test_shared')
+                ->missing('stripe.secret')
+                ->missing('stripe.webhook_secret')
+            );
+    }
+
+    /**
+     * Null rather than '' so the frontend can distinguish "payments are not
+     * configured in this environment" from a blank key, and refuse to render
+     * a card field that could never work.
+     */
+    public function test_stripe_key_is_null_when_unconfigured(): void
+    {
+        config(['services.stripe.key' => '']);
+
+        $this->get(route('login'))
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('stripe.key', null)
+            );
+    }
 }
