@@ -2,6 +2,7 @@
 import AdminReportDocumentsList, { type AdminPanelReportDocument } from '@/components/admin/AdminReportDocumentsList.vue';
 import PaymentCheckoutPanel from '@/components/payment/PaymentCheckoutPanel.vue';
 import PaymentMethodStep from '@/components/payment/PaymentMethodStep.vue';
+import MasonryGrid from '@/components/shared/MasonryGrid.vue';
 import OrderStatusTimeline from '@/components/shared/OrderStatusTimeline.vue';
 import { AppModal } from '@/components/ui/modal';
 import AddVehicleModal from '@/components/vehicle/AddVehicleModal.vue';
@@ -430,6 +431,12 @@ function formatEuro(value: string | number | null | undefined): string {
 const hasRealOffers = computed(() => offersData.value.length > 0);
 
 /**
+ * Admin sees the report/invoice list even when the customer's own groups are
+ * empty, so it only counts as empty once that has nothing to show either.
+ */
+const hasNoDocuments = computed(() => groupedDocuments.value.length === 0 && (!props.admin || adminReportDocuments.value.length === 0));
+
+/**
  * Why there is nothing to show, which depends on where the order stands.
  *
  * "Keine Angebote" alone reads as a fault; on an order that has not been
@@ -760,63 +767,83 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
             </div>
         </AppModal>
 
-        <div class="columns-1 gap-4 bg-[#EFEFEF] p-4 *:mb-4 *:break-inside-avoid md:columns-2 2xl:columns-3">
-            <div class="flex w-full flex-col overflow-hidden rounded-3xl border bg-white" style="border-color: #ececec">
-                <OrderStatusTimeline
-                    :entries="timelineEntries"
-                    :header-label="timelineHeaderLabel"
-                    :header-tooltip-description="timelineHeaderTooltipDescription"
-                >
-                    <template #actions="{ entry }">
-                        <template v-if="entry.docUrl">
+        <div class="bg-[#EFEFEF] p-4">
+            <MasonryGrid class="grid-cols-1 md:grid-cols-2 2xl:grid-cols-3">
+                <div class="flex w-full flex-col overflow-hidden rounded-3xl border bg-white" style="border-color: #ececec">
+                    <OrderStatusTimeline
+                        :entries="timelineEntries"
+                        :header-label="timelineHeaderLabel"
+                        :header-tooltip-description="timelineHeaderTooltipDescription"
+                    >
+                        <template #actions="{ entry }">
+                            <template v-if="entry.docUrl">
+                                <a
+                                    :href="entry.docUrl"
+                                    target="_blank"
+                                    rel="noopener"
+                                    class="text-[#01b990] hover:opacity-70"
+                                    title="Gutachten herunterladen"
+                                >
+                                    <IconMaterialSymbolsDownload class="size-[18.5px] shrink-0" />
+                                </a>
+                                <a
+                                    :href="entry.docUrl"
+                                    target="_blank"
+                                    rel="noopener"
+                                    class="text-[#01b990] hover:opacity-70"
+                                    title="Gutachten öffnen"
+                                >
+                                    <IconMdiOpenInNew class="size-[18.5px] shrink-0" />
+                                </a>
+                            </template>
                             <a
-                                :href="entry.docUrl"
+                                v-if="entry.invoiceUrl"
+                                :href="entry.invoiceUrl"
                                 target="_blank"
                                 rel="noopener"
                                 class="text-[#01b990] hover:opacity-70"
-                                title="Gutachten herunterladen"
+                                title="Rechnung ansehen"
                             >
-                                <IconMaterialSymbolsDownload class="size-[18.5px] shrink-0" />
+                                <IconMdiReceiptTextOutline class="size-[18.5px] shrink-0" />
                             </a>
-                            <a :href="entry.docUrl" target="_blank" rel="noopener" class="text-[#01b990] hover:opacity-70" title="Gutachten öffnen">
-                                <IconMdiOpenInNew class="size-[18.5px] shrink-0" />
-                            </a>
+                            <button
+                                v-if="entry.showPaymentAction"
+                                type="button"
+                                :disabled="!repairPaymentOrder"
+                                class="text-[#01b990] hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-30"
+                                :title="repairPaymentOrder ? 'Reparaturkosten bezahlen' : 'Derzeit ist keine Zahlung offen'"
+                                @click="openRepairPayment"
+                            >
+                                <IconMdiCreditCardOutline class="size-[18.5px] shrink-0" />
+                            </button>
                         </template>
-                        <a
-                            v-if="entry.invoiceUrl"
-                            :href="entry.invoiceUrl"
-                            target="_blank"
-                            rel="noopener"
-                            class="text-[#01b990] hover:opacity-70"
-                            title="Rechnung ansehen"
-                        >
-                            <IconMdiReceiptTextOutline class="size-[18.5px] shrink-0" />
-                        </a>
-                        <button
-                            v-if="entry.showPaymentAction"
-                            type="button"
-                            :disabled="!repairPaymentOrder"
-                            class="text-[#01b990] hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-30"
-                            :title="repairPaymentOrder ? 'Reparaturkosten bezahlen' : 'Derzeit ist keine Zahlung offen'"
-                            @click="openRepairPayment"
-                        >
-                            <IconMdiCreditCardOutline class="size-[18.5px] shrink-0" />
-                        </button>
-                    </template>
-                </OrderStatusTimeline>
-            </div>
+                    </OrderStatusTimeline>
+                </div>
 
-            <div class="flex w-full flex-col gap-4">
                 <div class="relative flex flex-col rounded-[16px] border bg-white" style="border-color: #ececec">
                     <button class="absolute top-5 right-5 transition-opacity hover:opacity-60" @click="uploadDocsOpen = true">
                         <IconMdiFileUploadOutline class="size-[18.5px] shrink-0" style="color: #01b990" />
                     </button>
-                    <div class="p-6">
+                    <div :class="hasNoDocuments ? 'px-6 pt-6' : 'p-6'">
                         <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">Fahrzeugdokumente</p>
-                        <div class="mt-2 h-px bg-gray-200"></div>
+                        <div v-if="!hasNoDocuments" class="mt-2 h-px bg-gray-200"></div>
                     </div>
 
-                    <div class="flex flex-col gap-5 p-6 pt-0">
+                    <!--
+                        A card's worth of chrome — divider, section padding, a
+                        group heading — around one line of grey text is a tile
+                        the masonry has to reserve a slot for and nothing to
+                        read in it. Same empty state the Angebote card uses.
+                    -->
+                    <div v-if="hasNoDocuments" class="flex flex-col items-center gap-2 px-6 pt-2 pb-8 text-center">
+                        <IconMdiFileDocumentOutline class="size-7" style="color: #d3dbdb" />
+                        <p class="text-[14px] font-bold" style="color: #2e3e3f">Noch keine Dokumente</p>
+                        <p class="max-w-[280px] text-[12.5px] leading-snug" style="color: #8f9ba7">
+                            Laden Sie Fahrzeugschein, Serviceheft oder Fotos hoch — oben rechts über das Upload-Symbol.
+                        </p>
+                    </div>
+
+                    <div v-else class="flex flex-col gap-5 p-6 pt-0">
                         <div v-for="group in groupedDocuments" :key="group.key" class="flex flex-col gap-3">
                             <div>
                                 <p class="text-[16px] font-semibold text-[#000000] uppercase">
@@ -843,14 +870,14 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                             </div>
                         </div>
                         <AdminReportDocumentsList v-if="admin" :documents="adminReportDocuments" />
-
-                        <div v-if="!admin && documents.length === 0" class="text-[14px] text-[#b7c2c2]">Keine Dokumente gefunden</div>
                     </div>
                 </div>
-            </div>
 
-            <div v-if="pendingPresentedOffer || decidedPresentedOffer" class="relative w-full">
-                <div class="flex flex-col rounded-[16px] border bg-white" style="border-color: #ececec">
+                <div
+                    v-if="pendingPresentedOffer || decidedPresentedOffer"
+                    class="@container flex flex-col rounded-[16px] border bg-white"
+                    style="border-color: #ececec"
+                >
                     <div class="px-6 pt-6">
                         <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">Reparaturangebot</p>
                         <p class="mt-1 text-[13px]" style="color: #64748b">
@@ -863,7 +890,14 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
 
                     <template v-for="offer in [pendingPresentedOffer ?? decidedPresentedOffer]" :key="offer?.offerId">
                         <div v-if="offer?.presentation" class="flex flex-col px-6 pt-4 pb-6">
-                            <div class="grid grid-cols-3 gap-3 max-[560px]:grid-cols-1">
+                            <!--
+                                Keyed to the card, not the viewport. This card is
+                                one masonry track wide — a third of the panel at
+                                the top breakpoint — so a `max-[560px]` viewport
+                                query never fired where it was needed and left
+                                three amount tiles fighting over ~300px.
+                            -->
+                            <div class="grid grid-cols-3 gap-3 @max-[420px]:grid-cols-1">
                                 <div class="rounded-[13px] bg-[#f6f9f8] px-4 py-3">
                                     <p class="text-[12px]" style="color: #64748b">Gutachten {{ presentedAmountsUnit }}</p>
                                     <p class="mt-1 text-[16px] font-bold" style="color: #000">
@@ -990,9 +1024,7 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                         </div>
                     </template>
                 </div>
-            </div>
 
-            <div class="w-full">
                 <div class="flex flex-col rounded-[16px] border bg-white" style="border-color: #ececec">
                     <div class="flex items-center justify-between gap-3 px-6 py-6">
                         <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">Angebote</p>
@@ -1146,134 +1178,140 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <div class="relative flex w-full flex-col rounded-[24px] border bg-white p-6" style="border-color: #ececec">
-                <div class="pb-6">
-                    <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">Besichtigungsort</p>
-                </div>
-
-                <template v-if="besichtigungsort">
-                    <div class="flex items-center gap-5 pb-6">
-                        <div
-                            class="flex size-[56px] shrink-0 items-center justify-center rounded-full"
-                            style="background-color: rgba(1, 185, 144, 0.1)"
-                        >
-                            <IconMdiOfficeBuildingOutline class="size-7" style="color: #01b990" />
-                        </div>
-                        <p class="min-w-0 flex-1 text-[18px] font-bold wrap-break-word" style="color: #2e3e3f">
-                            {{ besichtigungsort.name }}
-                        </p>
+                <div class="relative flex w-full flex-col rounded-[24px] border bg-white p-6" style="border-color: #ececec">
+                    <div :class="besichtigungsort ? 'pb-6' : 'pb-2'">
+                        <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">Besichtigungsort</p>
                     </div>
 
-                    <div class="pb-5">
-                        <p class="text-[10px] font-medium uppercase" style="color: #8f9ba7; letter-spacing: 0.5px">Termin</p>
-                        <div class="flex items-center gap-3 pt-2">
-                            <IconMdiCalendarClockOutline class="size-[18px] shrink-0" style="color: #5a6b7a" />
-                            <p class="text-[14px] font-bold" style="color: #2e3e3f">
-                                {{ terminFormatted || 'Kein Termin' }}
+                    <template v-if="besichtigungsort">
+                        <div class="flex items-center gap-5 pb-6">
+                            <div
+                                class="flex size-[56px] shrink-0 items-center justify-center rounded-full"
+                                style="background-color: rgba(1, 185, 144, 0.1)"
+                            >
+                                <IconMdiOfficeBuildingOutline class="size-7" style="color: #01b990" />
+                            </div>
+                            <p class="min-w-0 flex-1 text-[18px] font-bold wrap-break-word" style="color: #2e3e3f">
+                                {{ besichtigungsort.name }}
                             </p>
                         </div>
+
+                        <div class="pb-5">
+                            <p class="text-[10px] font-medium uppercase" style="color: #8f9ba7; letter-spacing: 0.5px">Termin</p>
+                            <div class="flex items-center gap-3 pt-2">
+                                <IconMdiCalendarClockOutline class="size-[18px] shrink-0" style="color: #5a6b7a" />
+                                <p class="text-[14px] font-bold" style="color: #2e3e3f">
+                                    {{ terminFormatted || 'Kein Termin' }}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="mb-5 h-px bg-gray-200"></div>
+
+                        <div class="flex items-start gap-4">
+                            <IconMdiMapMarkerOutline class="mt-0.5 size-[18px] shrink-0" style="color: #5a6b7a" />
+                            <span class="text-[14px] leading-relaxed font-normal" style="color: #2e3e3f">
+                                {{ besichtigungsort.strasse }}<br />
+                                {{ besichtigungsort.plz }} {{ besichtigungsort.ort }}
+                                <template v-if="besichtigungsort.land"> ({{ besichtigungsort.land.toUpperCase() }}) </template>
+                            </span>
+                        </div>
+                    </template>
+                    <div v-else class="flex flex-col items-center gap-2 pt-2 pb-2 text-center">
+                        <IconMdiMapMarkerOutline class="size-7" style="color: #d3dbdb" />
+                        <p class="text-[14px] font-bold" style="color: #2e3e3f">Noch kein Besichtigungsort</p>
+                        <p class="max-w-[280px] text-[12.5px] leading-snug" style="color: #8f9ba7">
+                            Sobald ein Auftrag angelegt ist, stehen hier Werkstatt, Termin und Adresse.
+                        </p>
                     </div>
-
-                    <div class="mb-5 h-px bg-gray-200"></div>
-
-                    <div class="flex items-start gap-4">
-                        <IconMdiMapMarkerOutline class="mt-0.5 size-[18px] shrink-0" style="color: #5a6b7a" />
-                        <span class="text-[14px] leading-relaxed font-normal" style="color: #2e3e3f">
-                            {{ besichtigungsort.strasse }}<br />
-                            {{ besichtigungsort.plz }} {{ besichtigungsort.ort }}
-                            <template v-if="besichtigungsort.land"> ({{ besichtigungsort.land.toUpperCase() }}) </template>
-                        </span>
-                    </div>
-                </template>
-                <div v-else class="text-[14px] font-normal" style="color: #b7c2c2">Kein Besichtigungsort verfügbar</div>
-            </div>
-
-            <div class="relative flex w-full flex-col overflow-hidden rounded-3xl border bg-white" style="border-color: #ececec">
-                <button class="absolute top-6 right-6 transition-opacity hover:opacity-60" @click="editVehicleOpen = true">
-                    <IconMdiPencil class="size-5 shrink-0" style="color: #01b990" />
-                </button>
-                <div class="px-6 pt-6">
-                    <p class="text-[16px] font-bold uppercase" style="color: #000">FAHRZEUGDATEN</p>
                 </div>
 
-                <div class="flex flex-col gap-0 px-6 pt-4 pb-6">
-                    <div class="flex items-center justify-between py-4">
-                        <span class="text-[16px] font-normal" style="color: #64748b">Kennzeichen</span>
-                        <span class="text-[16px] font-semibold" style="color: #000">{{ vehicle.license_plate }}</span>
-                    </div>
-                    <div class="h-px bg-gray-200"></div>
-                    <div class="flex items-center justify-between py-4">
-                        <span class="text-[16px] font-normal" style="color: #64748b">Modell</span>
-                        <span class="text-[16px] font-semibold" style="color: #000">{{ vehicle.make }} {{ vehicle.model }}</span>
-                    </div>
-                    <div class="h-px bg-gray-200"></div>
-                    <div class="flex items-center justify-between py-4">
-                        <span class="text-[16px] font-normal" style="color: #64748b">Leasinggeber</span>
-                        <span class="text-[16px] font-semibold" style="color: #000">{{ vehicle.leasinggeber || 'Nicht verfügbar' }}</span>
-                    </div>
-                    <div class="h-px bg-gray-200"></div>
-                    <div class="flex items-center justify-between py-4">
-                        <span class="text-[16px] font-normal" style="color: #64748b">Rückgabetermin</span>
-                        <span class="text-[16px] font-semibold" style="color: #000">{{ formatDate(vehicle.leasing_end_date) }}</span>
+                <div class="relative flex w-full flex-col overflow-hidden rounded-3xl border bg-white" style="border-color: #ececec">
+                    <button class="absolute top-6 right-6 transition-opacity hover:opacity-60" @click="editVehicleOpen = true">
+                        <IconMdiPencil class="size-5 shrink-0" style="color: #01b990" />
+                    </button>
+                    <div class="px-6 pt-6">
+                        <p class="text-[16px] font-bold uppercase" style="color: #000">FAHRZEUGDATEN</p>
                     </div>
 
-                    <template v-if="isB2bVehicle">
-                        <template v-for="row in fleetRows" :key="row.label">
-                            <div class="h-px bg-gray-200"></div>
+                    <div class="flex flex-col gap-0 px-6 pt-4 pb-6">
+                        <div class="flex items-center justify-between py-4">
+                            <span class="text-[16px] font-normal" style="color: #64748b">Kennzeichen</span>
+                            <span class="text-[16px] font-semibold" style="color: #000">{{ vehicle.license_plate }}</span>
+                        </div>
+                        <div class="h-px bg-gray-200"></div>
+                        <div class="flex items-center justify-between py-4">
+                            <span class="text-[16px] font-normal" style="color: #64748b">Modell</span>
+                            <span class="text-[16px] font-semibold" style="color: #000">{{ vehicle.make }} {{ vehicle.model }}</span>
+                        </div>
+                        <div class="h-px bg-gray-200"></div>
+                        <div class="flex items-center justify-between py-4">
+                            <span class="text-[16px] font-normal" style="color: #64748b">Leasinggeber</span>
+                            <span class="text-[16px] font-semibold" style="color: #000">{{ vehicle.leasinggeber || 'Nicht verfügbar' }}</span>
+                        </div>
+                        <div class="h-px bg-gray-200"></div>
+                        <div class="flex items-center justify-between py-4">
+                            <span class="text-[16px] font-normal" style="color: #64748b">Rückgabetermin</span>
+                            <span class="text-[16px] font-semibold" style="color: #000">{{ formatDate(vehicle.leasing_end_date) }}</span>
+                        </div>
+
+                        <template v-if="isB2bVehicle">
+                            <template v-for="row in fleetRows" :key="row.label">
+                                <div class="h-px bg-gray-200"></div>
+                                <div class="flex items-start justify-between gap-4 py-4">
+                                    <span class="shrink-0 text-[16px] font-normal" style="color: #64748b">{{ row.label }}</span>
+                                    <span class="text-right text-[16px] font-semibold" style="color: #000">{{ row.value || 'Nicht verfügbar' }}</span>
+                                </div>
+                            </template>
+                        </template>
+                    </div>
+                </div>
+
+                <div
+                    v-if="hasCollectionData"
+                    class="relative flex w-full flex-col overflow-hidden rounded-3xl border bg-white"
+                    style="border-color: #ececec"
+                >
+                    <div class="px-6 pt-6">
+                        <p class="text-[16px] font-bold uppercase" style="color: #000">ABHOLUNG</p>
+                    </div>
+
+                    <div class="flex flex-col gap-0 px-6 pt-4 pb-6">
+                        <template v-for="(row, index) in collectionRows" :key="row.label">
+                            <div v-if="index > 0" class="h-px bg-gray-200"></div>
                             <div class="flex items-start justify-between gap-4 py-4">
                                 <span class="shrink-0 text-[16px] font-normal" style="color: #64748b">{{ row.label }}</span>
                                 <span class="text-right text-[16px] font-semibold" style="color: #000">{{ row.value || 'Nicht verfügbar' }}</span>
                             </div>
                         </template>
-                    </template>
-                </div>
-            </div>
-
-            <div
-                v-if="hasCollectionData"
-                class="relative flex w-full flex-col overflow-hidden rounded-3xl border bg-white"
-                style="border-color: #ececec"
-            >
-                <div class="px-6 pt-6">
-                    <p class="text-[16px] font-bold uppercase" style="color: #000">ABHOLUNG</p>
+                    </div>
                 </div>
 
-                <div class="flex flex-col gap-0 px-6 pt-4 pb-6">
-                    <template v-for="(row, index) in collectionRows" :key="row.label">
-                        <div v-if="index > 0" class="h-px bg-gray-200"></div>
-                        <div class="flex items-start justify-between gap-4 py-4">
-                            <span class="shrink-0 text-[16px] font-normal" style="color: #64748b">{{ row.label }}</span>
-                            <span class="text-right text-[16px] font-semibold" style="color: #000">{{ row.value || 'Nicht verfügbar' }}</span>
-                        </div>
-                    </template>
-                </div>
-            </div>
+                <!--
+                    Customer-visible notes only (§16). The payload never carries an
+                    internal note, so there is nothing to filter here.
+                -->
+                <div
+                    v-if="orderNotes.length"
+                    class="relative flex w-full flex-col overflow-hidden rounded-3xl border bg-white"
+                    style="border-color: #ececec"
+                >
+                    <div class="px-6 pt-6">
+                        <p class="text-[16px] font-bold uppercase" style="color: #000">HINWEISE VON LEASYBACK</p>
+                    </div>
 
-            <!--
-                Customer-visible notes only (§16). The payload never carries an
-                internal note, so there is nothing to filter here.
-            -->
-            <div
-                v-if="orderNotes.length"
-                class="relative flex w-full flex-col overflow-hidden rounded-3xl border bg-white"
-                style="border-color: #ececec"
-            >
-                <div class="px-6 pt-6">
-                    <p class="text-[16px] font-bold uppercase" style="color: #000">HINWEISE VON LEASYBACK</p>
+                    <div class="flex flex-col gap-0 px-6 pt-4 pb-6">
+                        <template v-for="(note, index) in orderNotes" :key="note.id">
+                            <div v-if="index > 0" class="h-px bg-gray-200"></div>
+                            <div class="py-4">
+                                <p class="text-[16px] whitespace-pre-line" style="color: #000">{{ note.body }}</p>
+                                <p class="mt-2 text-[14px]" style="color: #64748b">{{ note.author_name }} · {{ formatDate(note.created_at) }}</p>
+                            </div>
+                        </template>
+                    </div>
                 </div>
-
-                <div class="flex flex-col gap-0 px-6 pt-4 pb-6">
-                    <template v-for="(note, index) in orderNotes" :key="note.id">
-                        <div v-if="index > 0" class="h-px bg-gray-200"></div>
-                        <div class="py-4">
-                            <p class="text-[16px] whitespace-pre-line" style="color: #000">{{ note.body }}</p>
-                            <p class="mt-2 text-[14px]" style="color: #64748b">{{ note.author_name }} · {{ formatDate(note.created_at) }}</p>
-                        </div>
-                    </template>
-                </div>
-            </div>
+            </MasonryGrid>
         </div>
     </VehiclePanelShell>
 
@@ -1330,12 +1368,20 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
             <button class="absolute top-4 right-4 transition-opacity hover:opacity-60" @click="uploadDocsOpen = true">
                 <IconMdiFileUploadOutline class="size-[18.5px] shrink-0" style="color: #01b990" />
             </button>
-            <div class="p-4">
+            <div :class="hasNoDocuments ? 'px-4 pt-4' : 'p-4'">
                 <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">Fahrzeugdokumente</p>
-                <div class="mt-2 h-px bg-gray-200"></div>
+                <div v-if="!hasNoDocuments" class="mt-2 h-px bg-gray-200"></div>
             </div>
 
-            <div class="flex flex-col gap-4 p-4 pt-0">
+            <div v-if="hasNoDocuments" class="flex flex-col items-center gap-2 px-4 pt-2 pb-6 text-center">
+                <IconMdiFileDocumentOutline class="size-6" style="color: #d3dbdb" />
+                <p class="text-[13.5px] font-bold" style="color: #2e3e3f">Noch keine Dokumente</p>
+                <p class="text-[12px] leading-snug" style="color: #8f9ba7">
+                    Laden Sie Fahrzeugschein, Serviceheft oder Fotos hoch — oben rechts über das Upload-Symbol.
+                </p>
+            </div>
+
+            <div v-else class="flex flex-col gap-4 p-4 pt-0">
                 <div v-for="group in groupedDocuments" :key="group.key" class="flex flex-col gap-3">
                     <div>
                         <p class="text-[16px] font-semibold text-[#000000] uppercase">
@@ -1358,8 +1404,6 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                     </div>
                 </div>
                 <AdminReportDocumentsList v-if="admin" :documents="adminReportDocuments" compact />
-
-                <div v-if="!admin && documents.length === 0" class="text-[14px] text-[#b7c2c2]">Keine Dokumente gefunden</div>
             </div>
         </div>
 
@@ -1490,7 +1534,7 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
         </div>
 
         <div class="relative flex flex-col rounded-[24px] border bg-white p-6" style="border-color: #ececec">
-            <div class="pb-4">
+            <div :class="besichtigungsort ? 'pb-4' : 'pb-2'">
                 <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">Besichtigungsort</p>
             </div>
 
@@ -1525,7 +1569,13 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                     </span>
                 </div>
             </template>
-            <div v-else class="text-[13px] font-normal" style="color: #b7c2c2">Kein Besichtigungsort verfügbar</div>
+            <div v-else class="flex flex-col items-center gap-2 pt-1 text-center">
+                <IconMdiMapMarkerOutline class="size-6" style="color: #d3dbdb" />
+                <p class="text-[13.5px] font-bold" style="color: #2e3e3f">Noch kein Besichtigungsort</p>
+                <p class="text-[12px] leading-snug" style="color: #8f9ba7">
+                    Sobald ein Auftrag angelegt ist, stehen hier Werkstatt, Termin und Adresse.
+                </p>
+            </div>
         </div>
 
         <div class="relative flex flex-col overflow-hidden rounded-3xl border bg-white" style="border-color: #ececec">

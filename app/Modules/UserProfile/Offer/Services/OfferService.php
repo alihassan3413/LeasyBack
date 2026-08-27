@@ -8,6 +8,7 @@ use App\Models\LeasybackOrder;
 use App\Models\OfferAuditLog;
 use App\Models\OrderAuditLog;
 use App\Models\User;
+use App\Modules\UserProfile\Order\Services\AdminOfferDecisionAnnouncer;
 use App\Modules\UserProfile\Order\Services\PartnerOfferAnnouncer;
 use App\Modules\UserProfile\Order\Services\RepairOfferService;
 use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
@@ -27,6 +28,7 @@ class OfferService
         private readonly OrderMailer $orderMailer,
         private readonly RepairOfferService $repairOfferService,
         private readonly PartnerOfferAnnouncer $announcer,
+        private readonly AdminOfferDecisionAnnouncer $adminAnnouncer,
     ) {}
 
     /**
@@ -166,7 +168,7 @@ class OfferService
         // After the commit, and only for the request that really made the
         // decision: a replay must not send a second acceptance mail.
         if (! $result['already_selected']) {
-            $this->notifyOfferSelected($result['offer']);
+            $this->notifyOfferSelected($result['offer'], $onBehalfOfCustomer);
         }
 
         return $result;
@@ -381,9 +383,16 @@ class OfferService
     /**
      * Best-effort, never breaks the selection if the send fails.
      */
-    private function notifyOfferSelected(LeasybackOffer $offer): void
+    private function notifyOfferSelected(LeasybackOffer $offer, bool $onBehalfOfCustomer): void
     {
         $this->orderMailer->repairApprovalConfirmed($offer);
+
+        // An admin who accepted on the customer's behalf is already on the
+        // order — telling Admin what Admin just did is noise, and the audit
+        // trail already separates the two cases.
+        if (! $onBehalfOfCustomer) {
+            $this->adminAnnouncer->accepted($offer);
+        }
     }
 
     private function fail(int $status, string $message): never

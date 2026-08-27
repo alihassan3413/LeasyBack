@@ -9,6 +9,7 @@ use App\Modules\UserProfile\Payment\Enums\PaymentStatus;
 use App\Modules\UserProfile\Payment\Jobs\ChargeRepairAmount;
 use App\Modules\UserProfile\Payment\Models\OrderPayment;
 use App\Modules\UserProfile\Payment\Models\OrderPaymentMethod;
+use App\Support\RepairPaymentPresentation;
 
 /**
  * Opens the repair charge when repairs are finished.
@@ -75,6 +76,22 @@ class RepairPaymentService
         ChargeRepairAmount::dispatch($payment->id);
 
         return true;
+    }
+
+    /**
+     * How this order's repair charge should be presented right now.
+     *
+     * Callers that only need to *say* where an order stands ask here rather
+     * than reading `order_status` alone, which for a B2C order held on an
+     * unpaid repair would claim the car is collectable.
+     */
+    public function presentedStage(LeasybackOrder $order, bool $isB2b): string
+    {
+        return RepairPaymentPresentation::stageFor(
+            $order->order_status,
+            $this->payments->repairPaymentFor($order->id)?->status->value,
+            $isB2b,
+        );
     }
 
     public function selectedOffer(LeasybackOrder $order): ?LeasybackOffer

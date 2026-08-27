@@ -206,6 +206,7 @@ declare module 'vue' {
     LogoUploadField: typeof import('./../components/form/LogoUploadField.vue')['default']
     LogoutOverlay: typeof import('./../components/session/LogoutOverlay.vue')['default']
     ManagePasswordCard: typeof import('./../components/account/ManagePasswordCard.vue')['default']
+    MasonryGrid: typeof import('./../components/shared/MasonryGrid.vue')['default']
     MemberAccessFields: typeof import('./../components/b2b/MemberAccessFields.vue')['default']
     MemberAccessModal: typeof import('./../components/b2b/MemberAccessModal.vue')['default']
     NavFooter: typeof import('./../components/NavFooter.vue')['default']
@@ -332,6 +333,7 @@ declare module 'vue' {
     VehicleRow: typeof import('./../components/vehicle/VehicleRow.vue')['default']
     VehicleStep: typeof import('./../components/onboarding/VehicleStep.vue')['default']
     VehicleToolbar: typeof import('./../components/vehicle/VehicleToolbar.vue')['default']
+    VinInput: typeof import('./../components/form/VinInput.vue')['default']
     WorkshopQuotationComparison: typeof import('./../components/admin/WorkshopQuotationComparison.vue')['default']
   }
 }

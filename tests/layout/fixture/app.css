@@ -1,0 +1,9 @@
+@import 'tailwindcss';
+
+/*
+ * The fixture asserts against real utility output — container queries, the
+ * grid's `*:min-w-0` — so Tailwind has to scan the components under test, not
+ * just this directory.
+ */
+@source '../../../resources/js/components/shared';
+@source './main.ts';

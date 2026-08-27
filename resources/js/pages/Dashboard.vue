@@ -12,6 +12,7 @@ import VehicleRow from '@/components/vehicle/VehicleRow.vue';
 import type { MemberFilterOption } from '@/components/vehicle/VehicleToolbar.vue';
 import VehicleToolbar from '@/components/vehicle/VehicleToolbar.vue';
 import { useB2bPermissions } from '@/composables/useB2bPermissions';
+import { useLiveUpdates } from '@/composables/useLiveUpdates';
 import { useOnboarding } from '@/composables/useOnboarding';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { ONBOARDING_VIDEO_POSTER_URL, ONBOARDING_VIDEO_URL } from '@/lib/onboarding';
@@ -41,6 +42,10 @@ const props = defineProps<{
     memberOptions: MemberFilterOption[];
     analytics: B2bAnalytics | null;
 }>();
+
+// Every vehicle the viewer owns is on this page, so any notification about
+// one of them is about something visible here — no filter.
+useLiveUpdates();
 
 const search = ref(props.filters.search);
 const status = ref(props.filters.status);

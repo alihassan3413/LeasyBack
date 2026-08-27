@@ -9,8 +9,10 @@ import AdminOrderTasksCard from '@/components/admin/AdminOrderTasksCard.vue';
 import AdminRepairAppointmentCard from '@/components/admin/AdminRepairAppointmentCard.vue';
 import AdminWorkshopCommissionCard from '@/components/admin/AdminWorkshopCommissionCard.vue';
 import AdminWorkshopQuotationsCard from '@/components/admin/AdminWorkshopQuotationsCard.vue';
+import MasonryGrid from '@/components/shared/MasonryGrid.vue';
 import OrderMessages from '@/components/shared/OrderMessages.vue';
 import OrderStatusTimeline from '@/components/shared/OrderStatusTimeline.vue';
+import { useLiveUpdates } from '@/composables/useLiveUpdates';
 import AdminLayout from '@/layouts/AdminLayout.vue';
 import { getAdminDashboardStatus as getStatus } from '@/lib/adminStatus';
 import { getCustomerOrderFlowSteps, getCustomerOrderHeadline } from '@/lib/customerOrderFlow';
@@ -21,6 +23,11 @@ import { Head, Link } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 
 const props = defineProps<{ order: AdminOrderDetail }>();
+
+// This order only. The repair charge settles through a Stripe webhook long
+// after the customer paid, and `confirm_pickup` stays shut until it lands —
+// so without this the page waits for someone to press reload.
+useLiveUpdates((notification) => notification.meta.order_id === props.order.id);
 
 const ownerRoute = computed(() => {
     if (props.order.user_type === 'Firmenkunde' && props.order.b2b_id) {
@@ -246,8 +253,8 @@ function formatDateTime(value: string | null): string {
             </div>
         </template>
 
-        <div class="flex h-full flex-col gap-5">
-            <main class="flex flex-1 flex-col gap-5 overflow-y-auto pr-1 pb-4">
+        <div class="flex flex-col gap-5">
+            <main class="flex flex-col gap-5 pb-4">
                 <section class="grid grid-cols-[1.15fr_1fr_1fr] gap-4 max-[1100px]:grid-cols-1">
                     <div class="identity-card">
                         <div class="absolute -top-24 -right-20 h-64 w-64 rounded-full bg-white/10 blur-2xl"></div>
@@ -346,27 +353,14 @@ function formatDateTime(value: string | null): string {
                 </section>
 
                 <!--
-                    Masonry (CSS multicol) rather than two fixed columns. Almost every
-                    card below is conditional — B2B-only, or gated on the order having
-                    reached a status — so no static left/right split balances for both
-                    audiences: the timeline sat alone in a stretched grid track and ran
-                    empty for most of its height next to the much longer stack beside it.
-                    Multicol balances the two columns by height on its own, whatever
-                    subset renders, and collapses to a single column below 1180px.
-                    `break-inside-avoid` keeps each card whole, so nothing is ever split
-                    across the gutter.
-
-                    It also removes the width blowout the old grid had: a multicol column
-                    is a fixed width, so a long unbreakable string (a freshly issued
-                    workshop link) or the quotation table's `min-w-[420px]` can no longer
-                    widen its column the way it could widen a `1.15fr` grid track — they
-                    truncate / scroll inside their card, which is what they were built to do.
-
-                    Columns space their items with `mb-4` (multicol has no row gap), and
-                    the matching `-mb-4` cancels the one the last card in each column
-                    leaves behind, so the section still sits `gap-5` from the next.
+                    Packed rather than split into two fixed columns. Almost every card
+                    below is conditional — B2B-only, or gated on the order having reached
+                    a status — so no static left/right split balances for both audiences.
+                    MasonryGrid drops each card into the first slot it fits, so a short
+                    card backfills the gap a tall neighbour leaves, and the section
+                    collapses to one column below 1180px.
                 -->
-                <section class="-mb-4 columns-2 gap-4 max-[1180px]:columns-1 [&>*]:mb-4 [&>*]:break-inside-avoid">
+                <MasonryGrid class="grid-cols-1 min-[1180px]:grid-cols-2">
                     <div id="order-section-status" class="content-card overflow-hidden p-0">
                         <OrderStatusTimeline :entries="timelineEntries" :header-label="timelineHeaderLabel">
                             <template #actions="{ entry }">
@@ -487,15 +481,68 @@ function formatDateTime(value: string | null): string {
                             </div>
                         </div>
                     </div>
+                    <!--
+                        The status log is a reference card like the rest, not a page
+                        footer: four short columns spread over the full width of the
+                        page read as an almost empty table.
+                    -->
+                    <div class="content-card">
+                        <div class="mb-4">
+                            <h2 class="text-[17px] font-extrabold tracking-[-0.3px] text-[#10393b]">Statusverlauf</h2>
+                            <p class="mt-0.5 text-[12px] font-medium text-[#9bb0af]">{{ order.status_updates.length }} Änderungen</p>
+                        </div>
 
-                    <AdminAppraisalPositionsCard
-                        id="order-section-positionen"
-                        :order-id="order.id"
-                        :positions="order.appraisal_positions"
-                        :totals="order.appraisal_totals"
-                        :report-documents="order.report_documents"
-                    />
-                </section>
+                        <p v-if="!order.status_updates.length" class="py-10 text-center text-[13px] text-[#9bb0af]">Keine Statusänderungen.</p>
+
+                        <div v-else class="overflow-auto rounded-[18px] border border-[#eef3f2]">
+                            <table class="w-full min-w-[640px] border-collapse">
+                                <thead>
+                                    <tr class="bg-[#f8faf9]">
+                                        <th class="admin-th">Von</th>
+                                        <th class="admin-th">Nach</th>
+                                        <th class="admin-th">Durch</th>
+                                        <th class="admin-th">Zeitpunkt</th>
+                                    </tr>
+                                </thead>
+
+                                <tbody>
+                                    <tr v-for="update in order.status_updates" :key="update.id" class="border-b border-[#eef3f2] last:border-0">
+                                        <td class="px-5 py-3 text-[12.5px] text-[#6f8585]">{{ getStatus(update.old_status).label }}</td>
+                                        <td class="px-5 py-3">
+                                            <span
+                                                class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold"
+                                                :style="{
+                                                    background: getStatus(update.new_status).background,
+                                                    color: getStatus(update.new_status).color,
+                                                }"
+                                            >
+                                                <span class="h-[5px] w-[5px] rounded-full bg-current"></span>
+                                                {{ getStatus(update.new_status).label }}
+                                            </span>
+                                        </td>
+                                        <td class="px-5 py-3 text-[12.5px] text-[#5a6e6c]">{{ update.updated_by }}</td>
+                                        <td class="px-5 py-3 text-[12px] text-[#9bb0af] tabular-nums">{{ formatDateTime(update.created_at) }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </MasonryGrid>
+
+                <!--
+                    Positions sit full width, outside the packing grid above: they are by
+                    far the tallest card on the page, and packing one card that outgrows
+                    every other card put together only moves the dead space around.
+                    Full width is also what the card wants — each position lays out as a
+                    row instead of a stack of six fields.
+                -->
+                <AdminAppraisalPositionsCard
+                    id="order-section-positionen"
+                    :order-id="order.id"
+                    :positions="order.appraisal_positions"
+                    :totals="order.appraisal_totals"
+                    :report-documents="order.report_documents"
+                />
 
                 <!--
                     Quotations and offers are the two halves of one step — a quotation is
@@ -510,7 +557,7 @@ function formatDateTime(value: string | null): string {
                     of the card simply vanished. Full width also gives the comparison
                     table its `min-w-[420px]` without forcing a sideways scroll.
                 -->
-                <section id="order-section-angebote" class="mt-4 grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+                <section id="order-section-angebote" class="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
                     <AdminWorkshopQuotationsCard
                         :order-id="order.id"
                         :quotations="order.workshop_quotations"
@@ -518,48 +565,6 @@ function formatDateTime(value: string | null): string {
                     />
 
                     <AdminOffersCard ref="offersCard" :order-id="order.id" :offers="order.offers" :quotations="order.workshop_quotations" />
-                </section>
-
-                <section class="content-card mt-2">
-                    <div class="">
-                        <h2 class="text-[17px] font-extrabold tracking-[-0.3px] text-[#10393b]">Statusverlauf</h2>
-                        <p class="mt-0.5 text-[12px] font-medium text-[#9bb0af]">{{ order.status_updates.length }} Änderungen</p>
-                    </div>
-
-                    <p v-if="!order.status_updates.length" class="py-10 text-center text-[13px] text-[#9bb0af]">Keine Statusänderungen.</p>
-
-                    <div v-else class="overflow-auto rounded-[18px] border border-[#eef3f2]">
-                        <table class="w-full min-w-[640px] border-collapse">
-                            <thead>
-                                <tr class="bg-[#f8faf9]">
-                                    <th class="admin-th">Von</th>
-                                    <th class="admin-th">Nach</th>
-                                    <th class="admin-th">Durch</th>
-                                    <th class="admin-th">Zeitpunkt</th>
-                                </tr>
-                            </thead>
-
-                            <tbody>
-                                <tr v-for="update in order.status_updates" :key="update.id" class="border-b border-[#eef3f2] last:border-0">
-                                    <td class="px-5 py-3 text-[12.5px] text-[#6f8585]">{{ getStatus(update.old_status).label }}</td>
-                                    <td class="px-5 py-3">
-                                        <span
-                                            class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold"
-                                            :style="{
-                                                background: getStatus(update.new_status).background,
-                                                color: getStatus(update.new_status).color,
-                                            }"
-                                        >
-                                            <span class="h-[5px] w-[5px] rounded-full bg-current"></span>
-                                            {{ getStatus(update.new_status).label }}
-                                        </span>
-                                    </td>
-                                    <td class="px-5 py-3 text-[12.5px] text-[#5a6e6c]">{{ update.updated_by }}</td>
-                                    <td class="px-5 py-3 text-[12px] text-[#9bb0af] tabular-nums">{{ formatDateTime(update.created_at) }}</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
                 </section>
             </main>
         </div>

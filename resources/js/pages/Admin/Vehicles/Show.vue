@@ -161,8 +161,8 @@ function deleteDocument(documentId: string) {
             </div>
         </template>
 
-        <div class="flex h-full flex-col gap-5">
-            <main class="flex flex-1 flex-col gap-5 overflow-y-auto pr-1 pb-4">
+        <div class="flex flex-col gap-5">
+            <main class="flex flex-col gap-5 pb-4">
                 <section class="grid grid-cols-[1.15fr_1fr_1fr] gap-4 max-[1100px]:grid-cols-1">
                     <div class="identity-card">
                         <div class="absolute -top-24 -right-20 h-64 w-64 rounded-full bg-white/10 blur-2xl"></div>

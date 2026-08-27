@@ -24,6 +24,7 @@ declare global {
   const VEHICLE_BRANDS: typeof import('../lib/vehicleBrands').VEHICLE_BRANDS
   const VEHICLE_BRAND_OPTIONS: typeof import('../lib/vehicleBrands').VEHICLE_BRAND_OPTIONS
   const VEHICLE_STATUS_FILTER_OPTIONS: typeof import('../lib/vehicleStatus').VEHICLE_STATUS_FILTER_OPTIONS
+  const VIN_LENGTH: typeof import('../lib/vin').VIN_LENGTH
   const canStartNewOrder: typeof import('../lib/customerOrderFlow').canStartNewOrder
   const cn: typeof import('../lib/utils').cn
   const companyFormData: typeof import('../lib/company').companyFormData
@@ -93,6 +94,7 @@ declare global {
   const resolveErrorCopy: typeof import('../lib/errorPages').resolveErrorCopy
   const router: typeof import('@inertiajs/vue3').router
   const sanitizePlateNumber: typeof import('../lib/licensePlate').sanitizePlateNumber
+  const sanitizeVin: typeof import('../lib/vin').sanitizeVin
   const shallowReactive: typeof import('vue').shallowReactive
   const shallowReadonly: typeof import('vue').shallowReadonly
   const shallowRef: typeof import('vue').shallowRef
@@ -124,6 +126,7 @@ declare global {
   const useGooglePlaces: typeof import('../composables/useGooglePlaces').useGooglePlaces
   const useId: typeof import('vue').useId
   const useInitials: typeof import('../composables/useInitials').useInitials
+  const useLiveUpdates: typeof import('../composables/useLiveUpdates').useLiveUpdates
   const useLocalStorage: typeof import('@vueuse/core').useLocalStorage
   const useModel: typeof import('vue').useModel
   const useNotificationSound: typeof import('../composables/useNotificationSound').useNotificationSound
@@ -210,6 +213,7 @@ declare module 'vue' {
     readonly VEHICLE_BRANDS: UnwrapRef<typeof import('../lib/vehicleBrands')['VEHICLE_BRANDS']>
     readonly VEHICLE_BRAND_OPTIONS: UnwrapRef<typeof import('../lib/vehicleBrands')['VEHICLE_BRAND_OPTIONS']>
     readonly VEHICLE_STATUS_FILTER_OPTIONS: UnwrapRef<typeof import('../lib/vehicleStatus')['VEHICLE_STATUS_FILTER_OPTIONS']>
+    readonly VIN_LENGTH: UnwrapRef<typeof import('../lib/vin')['VIN_LENGTH']>
     readonly canStartNewOrder: UnwrapRef<typeof import('../lib/customerOrderFlow')['canStartNewOrder']>
     readonly cn: UnwrapRef<typeof import('../lib/utils')['cn']>
     readonly companyFormData: UnwrapRef<typeof import('../lib/company')['companyFormData']>
@@ -279,6 +283,7 @@ declare module 'vue' {
     readonly resolveErrorCopy: UnwrapRef<typeof import('../lib/errorPages')['resolveErrorCopy']>
     readonly router: UnwrapRef<typeof import('@inertiajs/vue3')['router']>
     readonly sanitizePlateNumber: UnwrapRef<typeof import('../lib/licensePlate')['sanitizePlateNumber']>
+    readonly sanitizeVin: UnwrapRef<typeof import('../lib/vin')['sanitizeVin']>
     readonly shallowReactive: UnwrapRef<typeof import('vue')['shallowReactive']>
     readonly shallowReadonly: UnwrapRef<typeof import('vue')['shallowReadonly']>
     readonly shallowRef: UnwrapRef<typeof import('vue')['shallowRef']>
@@ -310,6 +315,7 @@ declare module 'vue' {
     readonly useGooglePlaces: UnwrapRef<typeof import('../composables/useGooglePlaces')['useGooglePlaces']>
     readonly useId: UnwrapRef<typeof import('vue')['useId']>
     readonly useInitials: UnwrapRef<typeof import('../composables/useInitials')['useInitials']>
+    readonly useLiveUpdates: UnwrapRef<typeof import('../composables/useLiveUpdates')['useLiveUpdates']>
     readonly useLocalStorage: UnwrapRef<typeof import('@vueuse/core')['useLocalStorage']>
     readonly useModel: UnwrapRef<typeof import('vue')['useModel']>
     readonly useNotificationSound: UnwrapRef<typeof import('../composables/useNotificationSound')['useNotificationSound']>

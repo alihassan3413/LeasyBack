@@ -6,6 +6,7 @@ import OfferComparison from '@/components/vehicle/OfferComparison.vue';
 import OrderCreationModal from '@/components/vehicle/OrderCreationModal.vue';
 import OrderProgress from '@/components/vehicle/OrderProgress.vue';
 import UploadDocumentModal from '@/components/vehicle/UploadDocumentModal.vue';
+import { useLiveUpdates } from '@/composables/useLiveUpdates';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { canStartNewOrder, getCustomerOrderFlowSteps } from '@/lib/customerOrderFlow';
 import { getVehicleStatusDisplay } from '@/lib/vehicleStatus';
@@ -20,6 +21,13 @@ import MdiTrashCanOutline from '~icons/mdi/trash-can-outline';
 import MdiTrayArrowUp from '~icons/mdi/tray-arrow-up';
 
 const props = defineProps<{ vehicle: VehicleData; stations: StationData[] }>();
+
+/**
+ * This vehicle's own events, plus the few notification types that don't name a
+ * vehicle at all — refusing those would leave the page stale for exactly the
+ * updates it has no way to recognise.
+ */
+useLiveUpdates((notification) => !notification.meta.vehicle_id || notification.meta.vehicle_id === props.vehicle.vehicle_id);
 
 const editOpen = ref(false);
 const orderOpen = ref(false);

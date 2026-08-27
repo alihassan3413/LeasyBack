@@ -223,8 +223,8 @@ function openCustomer(user: AdminPanelUser) {
     <Head title="Admin Dashboard" />
 
     <AdminLayout>
-        <div class="flex h-full flex-col gap-5">
-            <main class="flex flex-1 flex-col gap-5 overflow-y-auto pr-1 pb-4">
+        <div class="flex flex-col gap-5">
+            <main class="flex flex-col gap-5 pb-4">
                 <div class="flex items-end justify-between gap-5 max-[760px]:items-start">
                     <div>
                         <p class="mb-1.5 text-[12px] font-bold text-[#01B990] capitalize">{{ today }}</p>

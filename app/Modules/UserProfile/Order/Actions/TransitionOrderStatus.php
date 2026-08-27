@@ -239,14 +239,29 @@ class TransitionOrderStatus
             return;
         }
 
+        // The presented wording, not the raw status: an order that reaches
+        // `delivered` owing money is not collectable, and telling the customer
+        // "Abholbereit" while the portal shows them a pay-now banner is the
+        // contradiction RepairPaymentPresentation exists to prevent. The
+        // charge is opened before this runs, so the stage is already knowable.
+        $label = OrderStatusLabel::presented(
+            $order->order_status,
+            $this->repairPayments->presentedStage($order, self::isB2bOrder($order)),
+        );
+
         $this->notifier->send(
             $this->vehicleScope->resolveOwnerUsers($vehicle),
             NotificationPayload::make(
                 NotificationType::OrderStatusChanged,
                 'Status aktualisiert',
-                sprintf('%s: %s', $vehicle->license_plate, OrderStatusLabel::for($order->order_status)),
+                sprintf('%s: %s', $vehicle->license_plate, $label),
                 '/dashboard',
-                ['auftragsnummer' => $order->auftragsnummer, 'status' => $order->order_status],
+                [
+                    'auftragsnummer' => $order->auftragsnummer,
+                    'order_id' => $order->id,
+                    'vehicle_id' => $vehicle->vehicle_id,
+                    'status' => $order->order_status,
+                ],
             ),
         );
 

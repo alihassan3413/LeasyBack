@@ -8,6 +8,7 @@ import CalendarDateField from '@/components/form/CalendarDateField.vue';
 import FormField from '@/components/form/FormField.vue';
 import LicensePlateInput from '@/components/form/LicensePlateInput.vue';
 import SearchableSelectField from '@/components/form/SearchableSelectField.vue';
+import VinInput from '@/components/form/VinInput.vue';
 import InputError from '@/components/InputError.vue';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -170,24 +171,7 @@ function submit() {
 
                 <LicensePlateInput v-model="form.license_plate" :disabled="isEditMode" :server-error="form.errors.license_plate" />
 
-                <FormField
-                    v-slot="{ id, describedBy, invalid }"
-                    label="FIN"
-                    required
-                    label-hint="(siehe Fahrzeugschein – Feld E)"
-                    :error="form.errors.vin"
-                >
-                    <Input
-                        :id="id"
-                        v-model="form.vin"
-                        maxlength="17"
-                        placeholder="FIN eingeben"
-                        class="uppercase"
-                        autocomplete="off"
-                        :aria-invalid="invalid"
-                        :aria-describedby="describedBy"
-                    />
-                </FormField>
+                <VinInput v-model="form.vin" :error="form.errors.vin" />
 
                 <FormField v-slot="{ id, describedBy, invalid }" label="Marke" required :error="form.errors.make">
                     <SearchableSelectField

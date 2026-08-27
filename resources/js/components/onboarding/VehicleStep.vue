@@ -4,6 +4,7 @@ import CalendarDateField from '@/components/form/CalendarDateField.vue';
 import FormField from '@/components/form/FormField.vue';
 import LicensePlateInput from '@/components/form/LicensePlateInput.vue';
 import SearchableSelectField from '@/components/form/SearchableSelectField.vue';
+import VinInput from '@/components/form/VinInput.vue';
 import OnboardingCard from '@/components/onboarding/OnboardingCard.vue';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -40,15 +41,6 @@ const fieldClass = 'text-sm';
 
 const leasingEndUnknown = ref(false);
 const leasinggeberUnknown = ref(false);
-
-const VIN_MAX_LENGTH = 17;
-
-function sanitizeVin(value: string | number): string {
-    return String(value)
-        .toUpperCase()
-        .replace(/[^A-Z0-9]/g, '')
-        .slice(0, VIN_MAX_LENGTH);
-}
 
 const form = useForm({
     license_plate: '',
@@ -124,25 +116,7 @@ function submit() {
             <div class="grid grid-cols-1 gap-x-6 gap-y-3 md:grid-cols-2">
                 <LicensePlateInput v-model="form.license_plate" :disabled="isEditMode" :server-error="form.errors.license_plate" />
 
-                <FormField
-                    v-slot="{ id, describedBy, invalid }"
-                    label="FIN"
-                    required
-                    label-hint="(siehe Fahrzeugschein – Feld E)"
-                    :error="form.errors.vin"
-                >
-                    <Input
-                        :id="id"
-                        :model-value="form.vin"
-                        maxlength="17"
-                        placeholder="FIN eingeben"
-                        autocomplete="off"
-                        :class="[fieldClass, 'uppercase']"
-                        :aria-invalid="invalid"
-                        :aria-describedby="describedBy"
-                        @update:model-value="(value) => (form.vin = sanitizeVin(value))"
-                    />
-                </FormField>
+                <VinInput v-model="form.vin" :input-class="fieldClass" :error="form.errors.vin" />
 
                 <FormField v-slot="{ id, describedBy, invalid }" label="Marke" required :error="form.errors.make">
                     <SearchableSelectField

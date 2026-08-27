@@ -42,7 +42,10 @@ class RepairOfferService
 {
     public const STATUS_REJECTED = 'rejected';
 
-    public function __construct(private readonly PartnerOfferAnnouncer $announcer) {}
+    public function __construct(
+        private readonly PartnerOfferAnnouncer $announcer,
+        private readonly AdminOfferDecisionAnnouncer $adminAnnouncer,
+    ) {}
 
     /**
      * @return array<string, mixed>
@@ -200,6 +203,10 @@ class RepairOfferService
                 'changed_by_user_id' => $user->id,
             ]);
         });
+
+        // After the commit: Admin is told about a rejection that is on disk,
+        // and a send that fails cannot roll the rejection back.
+        $this->adminAnnouncer->rejected($offer->fresh() ?? $offer, $validated['customer_comment'] ?? null);
     }
 
     /**

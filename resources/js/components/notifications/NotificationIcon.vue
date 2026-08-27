@@ -2,7 +2,9 @@
 import { computed } from 'vue';
 import MdiAccountAlertOutline from '~icons/mdi/account-alert-outline';
 import MdiBellOutline from '~icons/mdi/bell-outline';
+import MdiCarKey from '~icons/mdi/car-key';
 import MdiCheckDecagram from '~icons/mdi/check-decagram';
+import MdiCloseCircleOutline from '~icons/mdi/close-circle-outline';
 import MdiFileDocumentOutline from '~icons/mdi/file-document-outline';
 import MdiMessageTextOutline from '~icons/mdi/message-text-outline';
 import MdiProgressClock from '~icons/mdi/progress-clock';
@@ -14,11 +16,13 @@ const props = defineProps<{ name: string; variant: string }>();
 const ICONS: Record<string, unknown> = {
     'progress-clock': MdiProgressClock,
     'check-decagram': MdiCheckDecagram,
+    'close-circle-outline': MdiCloseCircleOutline,
     'tag-outline': MdiTagOutline,
     'wrench-outline': MdiWrenchOutline,
     'file-document-outline': MdiFileDocumentOutline,
     'account-alert-outline': MdiAccountAlertOutline,
     'message-text-outline': MdiMessageTextOutline,
+    'car-key': MdiCarKey,
     'bell-outline': MdiBellOutline,
 };
 

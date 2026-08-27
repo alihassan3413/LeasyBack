@@ -11,10 +11,12 @@ use App\Modules\UserProfile\Payment\Enums\PaymentPurpose;
 use App\Modules\UserProfile\Payment\Enums\PaymentStatus;
 use App\Modules\UserProfile\Payment\Models\OrderPayment;
 use App\Modules\UserProfile\Payment\Models\OrderPaymentIntent;
+use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
 use App\Notifications\NotificationPayload;
 use App\Services\Mail\OrderMailer;
 use App\Services\Notifier;
 use App\Support\OrderStatusLabel;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -33,6 +35,7 @@ class PaymentService
         private readonly OrderMailer $orderMailer,
         private readonly Notifier $notifier,
         private readonly PaymentAuthorizer $authorizer,
+        private readonly VehicleScopeService $vehicleScope,
     ) {}
 
     /**
@@ -171,6 +174,10 @@ class PaymentService
         if ($to->satisfiesReleaseGate()) {
             $this->orderMailer->vehicleReadyForPickup($order, $order->vehicle);
 
+            if ($to === PaymentStatus::Paid) {
+                $this->notifyPickupReleased($order, $payment);
+            }
+
             return;
         }
 
@@ -187,12 +194,8 @@ class PaymentService
      */
     private function notifyAdminsOfOutstandingPayment(LeasybackOrder $order, OrderPayment $payment): void
     {
-        $admins = User::where('user_type', UserType::Admin->value)
-            ->where('is_active', true)
-            ->get();
-
         $this->notifier->sendNow(
-            $admins,
+            $this->activeAdmins(),
             NotificationPayload::make(
                 NotificationType::PaymentActionRequired,
                 'Reparaturzahlung offen',
@@ -210,6 +213,75 @@ class PaymentService
                 ],
             ),
         );
+    }
+
+    /**
+     * The moment the pickup gate opens on a charge that was actually held.
+     *
+     * Both sides are told, because both were waiting on the same event and
+     * neither is looking at a page that knows it happened: the customer's mail
+     * goes out either way, but the portal itself kept saying "Zahlung
+     * erforderlich" until something reloaded it, and Admin's `confirm_pickup`
+     * task stayed shut behind `repair_payment_blocks` with nothing announcing
+     * that it had opened. Both notifications broadcast over Reverb, which is
+     * what lets those two pages refresh themselves instead of being reloaded
+     * by hand.
+     *
+     * `Paid` only, deliberately. A repair that comes to 0,00 € settles inside
+     * the very `delivered` transition that opens it, and TransitionOrderStatus
+     * announces that status change in the same breath — a second "abholbereit"
+     * one line below the first is the same fact twice.
+     */
+    private function notifyPickupReleased(LeasybackOrder $order, OrderPayment $payment): void
+    {
+        $vehicle = $order->vehicle;
+
+        if ($vehicle === null) {
+            return;
+        }
+
+        $meta = [
+            'auftragsnummer' => $order->auftragsnummer,
+            'order_id' => $order->id,
+            'vehicle_id' => $vehicle->vehicle_id,
+            'payment_status' => $payment->status->value,
+        ];
+
+        $this->notifier->send(
+            $this->vehicleScope->resolveOwnerUsers($vehicle),
+            NotificationPayload::make(
+                NotificationType::VehicleReadyForPickup,
+                'Fahrzeug abholbereit',
+                sprintf('%s: Die Reparaturkosten sind bezahlt. Ihr Fahrzeug kann abgeholt werden.', $vehicle->license_plate),
+                '/dashboard',
+                $meta,
+            ),
+        );
+
+        $this->notifier->send(
+            $this->activeAdmins(),
+            NotificationPayload::make(
+                NotificationType::VehicleReadyForPickup,
+                'Zahlungseingang bestätigt',
+                sprintf(
+                    '%s (%s): Die Reparaturkosten sind bezahlt — die Abholung kann bestätigt werden.',
+                    $order->auftragsnummer,
+                    $vehicle->license_plate,
+                ),
+                '/admin/orders/'.$order->id,
+                $meta,
+            ),
+        );
+    }
+
+    /**
+     * @return EloquentCollection<int, User>
+     */
+    private function activeAdmins(): EloquentCollection
+    {
+        return User::where('user_type', UserType::Admin->value)
+            ->where('is_active', true)
+            ->get();
     }
 
     /**
