@@ -4,6 +4,7 @@ import CalendarDateField from '@/components/form/CalendarDateField.vue';
 import RequiredMark from '@/components/form/RequiredMark.vue';
 import AdminLayout from '@/layouts/AdminLayout.vue';
 import { getAdminDashboardStatus as getStatus } from '@/lib/adminStatus';
+import { formatPortalDate } from '@/lib/portalDate';
 import type { AdminCustomerDetail, AdminCustomerOrder, AdminCustomerType, AdminCustomerVehicle } from '@/types/admin';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
@@ -72,13 +73,7 @@ function toggleStatus() {
 }
 
 function formatGermanDate(value: string | null): string {
-    if (!value) {
-        return '—';
-    }
-
-    const date = new Date(value);
-
-    return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    return formatPortalDate(value) || '—';
 }
 
 const createVehicleOpen = ref(false);

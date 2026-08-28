@@ -109,7 +109,11 @@ class PartnerTimelineEndpointTest extends TestCase
     {
         [$client, $token] = $this->makeAuthenticatedPartner();
         $order = $this->makeB2bOrder($client->b2b_id, OrderStatus::Completed);
-        $this->recordTransition($order, 'invoice_processed', 'completed', now()->subDay());
+        // Captured once. Calling now() again for the assertion made this flaky:
+        // the two reads straddle a tick under a full-suite run and the stamps
+        // then differ by a second.
+        $closedAt = now()->subDay();
+        $this->recordTransition($order, 'invoice_processed', 'completed', $closedAt);
 
         // The half of the contradiction that was already right.
         $this->withHeaders($this->bearer($token))
@@ -129,7 +133,7 @@ class PartnerTimelineEndpointTest extends TestCase
         // Still the current stage: `current_stage` is derived from this and has
         // to keep naming the stage the order ended on.
         $this->assertTrue($stages['order_completed']['is_current']);
-        $this->assertSame(now()->subDay()->toIso8601String(), $stages['order_completed']['occurred_at']);
+        $this->assertSame($closedAt->toIso8601String(), $stages['order_completed']['occurred_at']);
     }
 
     public function test_the_timeline_history_is_the_status_trail_without_audit_metadata(): void

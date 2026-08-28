@@ -31,6 +31,7 @@ import FormField from '@/components/form/FormField.vue';
 import InputError from '@/components/InputError.vue';
 import { Input } from '@/components/ui/input';
 import { AppModal, AppModalButton } from '@/components/ui/modal';
+import { formatPortalDate } from '@/lib/portalDate';
 import type { AdminWorkshopQuotation } from '@/types/admin';
 import { useForm } from '@inertiajs/vue3';
 import { computed, ref, watch } from 'vue';
@@ -153,13 +154,7 @@ function formatEuro(value: string | null): string {
 }
 
 function formatDate(value: string | null): string {
-    if (!value) {
-        return '—';
-    }
-
-    const date = new Date(value);
-
-    return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('de-DE');
+    return formatPortalDate(value) || '—';
 }
 
 /** Every position must carry a number — the endpoint requires all eight. */

@@ -3,6 +3,7 @@ import NotificationIcon from '@/components/notifications/NotificationIcon.vue';
 import { useNotifications, type AppNotification } from '@/composables/useNotifications';
 import { useNotificationSound } from '@/composables/useNotificationSound';
 import { useWebPush } from '@/composables/useWebPush';
+import { parsePortalDate } from '@/lib/portalDate';
 import { router } from '@inertiajs/vue3';
 import MdiBellOffOutline from '~icons/mdi/bell-off-outline';
 import MdiBellOutline from '~icons/mdi/bell-outline';
@@ -17,12 +18,19 @@ const { notifications, unreadCount, loading, hasMore, loadMore, markRead, markAl
 const { soundEnabled, toggleSound } = useNotificationSound();
 const { pushSupported, pushSubscribed, pushBusy, subscribeToPush, unsubscribeFromPush } = useWebPush();
 
+/**
+ * An elapsed duration, so there is nothing to render in Berlin — but the
+ * instant still has to be read correctly, or "vor 5 Std." is however many hours
+ * the reader happens to sit from UTC.
+ */
 function relativeTime(value: string | null): string {
-    if (!value) {
+    const sentAt = parsePortalDate(value);
+
+    if (!sentAt) {
         return '';
     }
 
-    const diff = Date.now() - new Date(value).getTime();
+    const diff = Date.now() - sentAt.getTime();
     const minutes = Math.round(diff / 60000);
 
     if (minutes < 1) {

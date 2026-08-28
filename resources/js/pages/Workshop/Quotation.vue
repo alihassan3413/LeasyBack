@@ -11,6 +11,7 @@ import CalendarDateField from '@/components/form/CalendarDateField.vue';
 import RequiredMark from '@/components/form/RequiredMark.vue';
 import InputError from '@/components/InputError.vue';
 import { Input } from '@/components/ui/input';
+import { formatPortalDate } from '@/lib/portalDate';
 import { Head, useForm } from '@inertiajs/vue3';
 import { computed } from 'vue';
 
@@ -82,13 +83,7 @@ function formatEuro(value: number | string | null): string {
 }
 
 function formatDate(value: string | null): string {
-    if (!value) {
-        return '—';
-    }
-
-    const date = new Date(value);
-
-    return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('de-DE');
+    return formatPortalDate(value) || '—';
 }
 
 function itemError(index: number, field: string): string | undefined {

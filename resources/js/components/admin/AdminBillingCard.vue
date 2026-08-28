@@ -10,6 +10,7 @@
  */
 import InputError from '@/components/InputError.vue';
 import { Input } from '@/components/ui/input';
+import { formatPortalDateTimeShort } from '@/lib/portalDate';
 import type { AdminOrderBilling, AdminReportDocument } from '@/types/admin';
 import { useForm } from '@inertiajs/vue3';
 import { computed } from 'vue';
@@ -30,13 +31,7 @@ const form = useForm(() => ({
 const isProcessed = computed(() => props.billing.is_processed);
 
 function formatDateTime(value: string | null): string {
-    if (!value) {
-        return '—';
-    }
-
-    const date = new Date(value);
-
-    return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' });
+    return formatPortalDateTimeShort(value) || '—';
 }
 
 function documentLabel(document: AdminReportDocument): string {

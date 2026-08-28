@@ -5,6 +5,7 @@
  * signed-in user, not by which page is hosting the section.
  */
 import { useOrderMessages } from '@/composables/useOrderMessages';
+import { formatPortalDateTime } from '@/lib/portalDate';
 import type { SharedData } from '@/types';
 import { usePage } from '@inertiajs/vue3';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
@@ -152,21 +153,9 @@ onBeforeUnmount(() => {
     window.removeEventListener('focus', catchUpIfVisible);
 });
 
+/** No `Uhr` here, unlike the timeline — a message list repeats the stamp often. */
 function formatTime(value: string | null): string {
-    if (!value) {
-        return '';
-    }
-
-    const date = new Date(value);
-
-    if (Number.isNaN(date.getTime())) {
-        return '';
-    }
-
-    return `${date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })} · ${date.toLocaleTimeString('de-DE', {
-        hour: '2-digit',
-        minute: '2-digit',
-    })}`;
+    return formatPortalDateTime(value, { suffix: '' });
 }
 </script>
 

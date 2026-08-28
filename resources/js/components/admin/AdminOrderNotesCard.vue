@@ -12,6 +12,7 @@
  * belong to OrderMessages and are deliberately absent here.
  */
 import InputError from '@/components/InputError.vue';
+import { formatPortalDateTimeShort } from '@/lib/portalDate';
 import type { AdminOrderNote } from '@/types/admin';
 import { useForm } from '@inertiajs/vue3';
 import { computed } from 'vue';
@@ -49,13 +50,7 @@ function remove(note: AdminOrderNote) {
 }
 
 function formatDateTime(value: string | null): string {
-    if (!value) {
-        return '—';
-    }
-
-    const date = new Date(value);
-
-    return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' });
+    return formatPortalDateTimeShort(value) || '—';
 }
 </script>
 

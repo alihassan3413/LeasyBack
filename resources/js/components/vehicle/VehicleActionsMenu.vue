@@ -35,9 +35,11 @@ const page = usePage<SharedData>();
  * anything else, so this only decides whether to show an action, never whether
  * it is allowed.
  */
-const cancellableOrder = computed(
-    () => props.vehicle.orders.find((order) => order.payment != null && isCustomerCancellable(order.order_status)) ?? null,
-);
+const cancellableOrder = computed(() => {
+    const order = props.vehicle.current_order;
+
+    return order && order.payment != null && isCustomerCancellable(order.order_status) ? order : null;
+});
 
 const hasActions = computed(() => cancellableOrder.value !== null);
 

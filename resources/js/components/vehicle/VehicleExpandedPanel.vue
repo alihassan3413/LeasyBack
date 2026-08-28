@@ -7,9 +7,11 @@ import OrderStatusTimeline from '@/components/shared/OrderStatusTimeline.vue';
 import { AppModal } from '@/components/ui/modal';
 import AddVehicleModal from '@/components/vehicle/AddVehicleModal.vue';
 import OfferComparison from '@/components/vehicle/OfferComparison.vue';
+import OrderHistoryList from '@/components/vehicle/OrderHistoryList.vue';
 import UploadDocumentModal from '@/components/vehicle/UploadDocumentModal.vue';
 import VehiclePanelShell from '@/components/vehicle/VehiclePanelShell.vue';
 import { formatGermanDateTime, getCustomerOrderFlowSteps, getCustomerOrderHeadline } from '@/lib/customerOrderFlow';
+import { formatPortalDate } from '@/lib/portalDate';
 import { toOrderTimelineEntries, type OrderTimelineEntry } from '@/lib/timeline';
 import { getOrderStatusLabel } from '@/lib/vehicleStatus';
 import type { B2bOfferPresentationData, B2bOfferPresentationLine, OfferData } from '@/types/order';
@@ -196,7 +198,14 @@ const groupedDocuments = computed(() => {
     return groups;
 });
 
-const firstOrder = computed(() => props.vehicle.orders[0] ?? null);
+/**
+ * The order this panel speaks for. Server-decided
+ * (App\Support\OrderHistory::split()) rather than read off the front of the
+ * list, so the panel, the row's badge and the timeline cannot end up on
+ * different orders. Everything behind it lives in `order_history` and opens
+ * on its own page.
+ */
+const currentOrder = computed(() => props.vehicle.current_order);
 
 /**
  * The recovery path for an order whose mandate was never set up — most often
@@ -254,7 +263,7 @@ function onFeePaid() {
     router.reload({ preserveScroll: true });
 }
 
-const besichtigungsort = computed(() => firstOrder.value?.request_payload?.besichtigungsort ?? null);
+const besichtigungsort = computed(() => currentOrder.value?.request_payload?.besichtigungsort ?? null);
 
 const terminFormatted = computed(() => {
     const termin = besichtigungsort.value?.termin;
@@ -274,10 +283,10 @@ const adminReportDocuments = computed<AdminPanelReportDocument[]>(() =>
     props.vehicle.orders.flatMap((order) => order.report_documents.map((document) => ({ ...document, auftragsnummer: order.auftragsnummer }))),
 );
 
-const rawOffers = computed<OfferData[]>(() => firstOrder.value?.offers ?? []);
+const rawOffers = computed<OfferData[]>(() => currentOrder.value?.offers ?? []);
 
 const customerFlowSteps = computed(() => {
-    const order = firstOrder.value;
+    const order = currentOrder.value;
 
     if (!order) {
         return null;
@@ -308,23 +317,23 @@ const customerFlowSteps = computed(() => {
 const customerHeadline = computed(() => getCustomerOrderHeadline(customerFlowSteps.value));
 
 const timelineHeaderLabel = computed(() => {
-    if (!firstOrder.value) {
+    if (!currentOrder.value) {
         return 'STATUS: KEINE AUFTRÄGE';
     }
 
     const headline = customerHeadline.value;
 
-    return `STATUS: ${(headline?.label ?? getOrderStatusLabel(firstOrder.value.order_status)).toUpperCase()}`;
+    return `STATUS: ${(headline?.label ?? getOrderStatusLabel(currentOrder.value.order_status)).toUpperCase()}`;
 });
 
 const timelineHeaderTooltipDescription = computed(() => customerHeadline.value?.tooltipDescription);
 
 const timelineEntries = computed<OrderTimelineEntry[]>(() => {
-    if (!firstOrder.value) {
+    if (!currentOrder.value) {
         return [{ datetime: '', label: 'Keine Aufträge vorhanden', completed: false }];
     }
 
-    return toOrderTimelineEntries(customerFlowSteps.value, firstOrder.value.order_status);
+    return toOrderTimelineEntries(customerFlowSteps.value, currentOrder.value.order_status);
 });
 
 const offersData = computed<PanelOffer[]>(() =>
@@ -443,7 +452,7 @@ const hasNoDocuments = computed(() => groupedDocuments.value.length === 0 && (!p
  * inspected yet, no offers is simply the correct state.
  */
 const noOffersHint = computed(() => {
-    const status = firstOrder.value?.order_status ?? '';
+    const status = currentOrder.value?.order_status ?? '';
 
     if (status === 'cancelled' || status === 'discarded') {
         return 'Für diesen Auftrag wurden keine Angebote erstellt.';
@@ -609,13 +618,7 @@ function deleteDocument(doc: PanelDocument) {
 }
 
 function formatDate(value: string | null): string {
-    if (!value) {
-        return '';
-    }
-
-    const date = new Date(value);
-
-    return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('de-DE');
+    return formatPortalDate(value);
 }
 
 const isB2bVehicle = computed(() => props.vehicle.vehicle_belongs === 'B2B');
@@ -629,10 +632,10 @@ const fleetRows = computed(() => [
     { label: 'Abholadresse', value: formatAddress(props.vehicle.collection_address ?? null) },
 ]);
 
-const orderCollection = computed(() => (isB2bVehicle.value ? (firstOrder.value?.collection ?? null) : null));
+const orderCollection = computed(() => (isB2bVehicle.value ? (currentOrder.value?.collection ?? null) : null));
 
 /** Customer-visible notes (§16). Always empty for a B2C vehicle. */
-const orderNotes = computed(() => (isB2bVehicle.value ? (firstOrder.value?.notes ?? []) : []));
+const orderNotes = computed(() => (isB2bVehicle.value ? (currentOrder.value?.notes ?? []) : []));
 
 const hasCollectionData = computed(() => {
     const collection = orderCollection.value;
@@ -1311,6 +1314,25 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                         </template>
                     </div>
                 </div>
+
+                <!--
+                    Everything behind the current order, each row linking to
+                    orders.show — so a closed order is reachable in full rather
+                    than reduced to whatever the current one happens to show.
+                    Customer-side only: those rows lead to the customer's order
+                    page, and an admin has admin.orders.show, reached from the
+                    Aufträge list on the same Admin page this panel is embedded
+                    in.
+                -->
+                <OrderHistoryList
+                    v-if="!admin && vehicle.order_history.length"
+                    :entries="vehicle.order_history"
+                    title="FRÜHERE AUFTRÄGE"
+                    container-class="relative flex w-full flex-col overflow-hidden rounded-3xl border bg-white"
+                    header-class="flex items-baseline justify-between gap-3 px-6 pt-6 pb-2"
+                    title-class="text-[16px] font-bold uppercase text-black"
+                    style="border-color: #ececec"
+                />
             </MasonryGrid>
         </div>
     </VehiclePanelShell>

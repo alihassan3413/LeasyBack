@@ -101,7 +101,7 @@ const hasQuery = computed(() => search.value !== '' || status.value !== '' || cr
 const { can, seesOwnVehiclesOnly, isCompanyUser } = useB2bPermissions();
 
 function latestOrderStatus(vehicle: VehicleData): string | undefined {
-    return vehicle.orders[0]?.order_status;
+    return vehicle.current_order?.order_status;
 }
 
 const activeVehicles = computed(() => props.vehicles.filter((vehicle) => !isVehicleCompleted(latestOrderStatus(vehicle))));

@@ -9,6 +9,7 @@ import RequiredMark from '@/components/form/RequiredMark.vue';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useCompanyCard } from '@/composables/useCompanyCard';
+import { formatPortalDate } from '@/lib/portalDate';
 import type { B2bCompanyData } from '@/types/b2b';
 import { computed, toRef } from 'vue';
 
@@ -50,15 +51,7 @@ const serviceFee = computed(() => {
     return Number.isFinite(amount) ? amount.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' }) : '—';
 });
 
-const serviceFeeEffectiveFrom = computed(() => {
-    if (!props.company.service_fee_effective_from) {
-        return '—';
-    }
-
-    const date = new Date(props.company.service_fee_effective_from);
-
-    return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-});
+const serviceFeeEffectiveFrom = computed(() => formatPortalDate(props.company.service_fee_effective_from) || '—');
 </script>
 
 <template>

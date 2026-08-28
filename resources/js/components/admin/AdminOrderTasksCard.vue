@@ -14,6 +14,7 @@
  * This is Admin-only internal information and lives outside the shared
  * customer timeline; no part of it reaches a customer payload.
  */
+import { formatPortalDate } from '@/lib/portalDate';
 import type { AdminOrderTask, AdminOrderTaskAction, AdminOrderTasks } from '@/types/admin';
 import { router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
@@ -95,13 +96,7 @@ function runNextAction() {
 const showSectionLink = computed(() => props.tasks.next?.action?.type !== 'inline');
 
 function formatDate(value: string | null): string {
-    if (!value) {
-        return '—';
-    }
-
-    const date = new Date(value);
-
-    return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    return formatPortalDate(value) || '—';
 }
 
 const WAITING_LABEL: Record<string, string> = {

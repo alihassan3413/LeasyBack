@@ -4,15 +4,17 @@ import OrderMessages from '@/components/shared/OrderMessages.vue';
 import AddVehicleModal from '@/components/vehicle/AddVehicleModal.vue';
 import OfferComparison from '@/components/vehicle/OfferComparison.vue';
 import OrderCreationModal from '@/components/vehicle/OrderCreationModal.vue';
+import OrderHistoryList from '@/components/vehicle/OrderHistoryList.vue';
 import OrderProgress from '@/components/vehicle/OrderProgress.vue';
 import UploadDocumentModal from '@/components/vehicle/UploadDocumentModal.vue';
 import { useLiveUpdates } from '@/composables/useLiveUpdates';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { NEW_ORDER_ACTION_LABEL, getCustomerOrderFlowSteps, newOrderAction } from '@/lib/customerOrderFlow';
+import { formatPortalDate, formatPortalDateTime } from '@/lib/portalDate';
 import { getVehicleStatusDisplay } from '@/lib/vehicleStatus';
 import type { StationData } from '@/types/order';
 import type { VehicleData } from '@/types/vehicle';
-import { Head, router } from '@inertiajs/vue3';
+import { Head, Link, router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 import MdiFileDocumentOutline from '~icons/mdi/file-document-outline';
 import MdiOpenInNew from '~icons/mdi/open-in-new';
@@ -33,7 +35,7 @@ const editOpen = ref(false);
 const orderOpen = ref(false);
 const uploadOpen = ref(false);
 
-const currentOrder = computed(() => props.vehicle.orders[0] ?? null);
+const currentOrder = computed(() => props.vehicle.current_order);
 /** Not `!currentOrder`: a cancelled order still shows in the history but must not block a new one. */
 const orderAction = computed(() => newOrderAction(props.vehicle.orders));
 const orderActionLabel = computed(() => (orderAction.value ? NEW_ORDER_ACTION_LABEL[orderAction.value] : ''));
@@ -41,7 +43,13 @@ const orderActionLabel = computed(() => (orderAction.value ? NEW_ORDER_ACTION_LA
 // "Abholbereit" over a timeline saying "Zahlung erforderlich" on the same order.
 const status = computed(() => getVehicleStatusDisplay(currentOrder.value?.order_status, currentOrder.value?.payment?.repair_stage));
 
-const offers = computed(() => props.vehicle.orders.flatMap((order) => order.offers));
+/**
+ * The current order's offers only. Flattening every order's offers into one
+ * comparison put a previous case's quotes next to this one's — they price
+ * different inspections and were never alternatives to each other. A past
+ * order's offers are on that order's own page.
+ */
+const offers = computed(() => currentOrder.value?.offers ?? []);
 
 const steps = computed(() => {
     const order = currentOrder.value;
@@ -103,8 +111,6 @@ const reportDocuments = computed(() =>
     ),
 );
 
-const pastOrders = computed(() => props.vehicle.orders.slice(1));
-
 const deletingId = ref<string | null>(null);
 
 function deleteDocument(documentId: string) {
@@ -117,27 +123,11 @@ function deleteDocument(documentId: string) {
 }
 
 function formatDate(value: string | null): string {
-    if (!value) {
-        return '—';
-    }
-
-    const date = new Date(value);
-
-    return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    return formatPortalDate(value) || '—';
 }
 
 function formatDateTime(value: string | undefined): string {
-    if (!value) {
-        return '—';
-    }
-
-    const date = new Date(value);
-
-    if (Number.isNaN(date.getTime())) {
-        return '—';
-    }
-
-    return `${date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })} · ${date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })} Uhr`;
+    return formatPortalDateTime(value) || '—';
 }
 </script>
 
@@ -201,11 +191,21 @@ function formatDateTime(value: string | undefined): string {
                     <OfferComparison :offers="offers" />
 
                     <section class="overflow-hidden rounded-[16px] border border-[#e6eded] bg-white">
-                        <header class="border-b border-[#f1f5f5] px-5 py-4">
-                            <h2 class="text-[15px] font-bold text-[#10393b]">Vorgang</h2>
-                            <p class="mt-0.5 text-[12.5px] text-[#00000080]">
-                                {{ steps ? 'Der aktuelle Stand Ihres Leasyback-Prozesses.' : 'Für dieses Fahrzeug läuft noch kein Vorgang.' }}
-                            </p>
+                        <header class="flex items-start justify-between gap-3 border-b border-[#f1f5f5] px-5 py-4">
+                            <div>
+                                <h2 class="text-[15px] font-bold text-[#10393b]">Vorgang</h2>
+                                <p class="mt-0.5 text-[12.5px] text-[#00000080]">
+                                    {{ steps ? 'Der aktuelle Stand Ihres Leasyback-Prozesses.' : 'Für dieses Fahrzeug läuft noch kein Vorgang.' }}
+                                </p>
+                            </div>
+                            <!-- The current order has an address of its own too, not only the past ones. -->
+                            <Link
+                                v-if="currentOrder"
+                                :href="route('orders.show', currentOrder.id)"
+                                class="shrink-0 text-[12px] font-semibold text-[#01B990] transition-opacity hover:opacity-70"
+                            >
+                                Alle Details
+                            </Link>
                         </header>
 
                         <div class="px-5 py-5">
@@ -323,27 +323,8 @@ function formatDateTime(value: string | undefined): string {
                         </ul>
                     </section>
 
-                    <section v-if="pastOrders.length" class="overflow-hidden rounded-[16px] border border-[#e6eded] bg-white">
-                        <header class="border-b border-[#f1f5f5] px-5 py-4">
-                            <h2 class="text-[15px] font-bold text-[#10393b]">Frühere Vorgänge</h2>
-                        </header>
-
-                        <ul>
-                            <li
-                                v-for="order in pastOrders"
-                                :key="order.id"
-                                class="flex items-center justify-between gap-3 border-b border-[#f1f5f5] px-5 py-3 last:border-b-0"
-                            >
-                                <div class="min-w-0">
-                                    <p class="truncate text-[13px] font-semibold text-[#10393b]">{{ order.auftragsnummer }}</p>
-                                    <p class="text-[11.5px] text-[#9aacac]">{{ formatDate(order.created_at) }}</p>
-                                </div>
-                                <span class="shrink-0 rounded-full bg-[#f1f5f5] px-2.5 py-1 text-[11px] font-bold text-[#6f8585]">
-                                    {{ getVehicleStatusDisplay(order.order_status).label }}
-                                </span>
-                            </li>
-                        </ul>
-                    </section>
+                    <!-- Every order behind the current one, each opening on its own page. -->
+                    <OrderHistoryList v-if="vehicle.order_history.length" :entries="vehicle.order_history" title="Frühere Vorgänge" />
                 </div>
 
                 <div class="flex flex-col gap-5">

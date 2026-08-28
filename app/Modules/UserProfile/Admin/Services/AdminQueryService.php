@@ -15,6 +15,7 @@ use App\Modules\UserProfile\Order\Services\WorkshopCommissionService;
 use App\Modules\UserProfile\Order\Services\WorkshopQuotationService;
 use App\Modules\UserProfile\Payment\Enums\PaymentPurpose;
 use App\Modules\UserProfile\Payment\Models\OrderPayment;
+use App\Support\PortalTimestamp;
 use App\Support\RepairPaymentPresentation;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
@@ -473,11 +474,13 @@ class AdminQueryService
             ->get()
             ->all();
 
-        $order['status_updates'] = DB::table('leasyback_order_status_updates')
-            ->where('auftragsnummer', $row->auftragsnummer)
-            ->orderByDesc('created_at')
-            ->get()
-            ->all();
+        $order['status_updates'] = PortalTimestamp::normalizeRows(
+            DB::table('leasyback_order_status_updates')
+                ->where('auftragsnummer', $row->auftragsnummer)
+                ->orderByDesc('created_at')
+                ->get(),
+            ['created_at'],
+        );
 
         $order['available_transitions'] = array_values(array_diff(
             TransitionOrderStatus::allowedNextStatuses($row->order_status, $row->vehicle_belongs === 'B2B'),
@@ -553,6 +556,11 @@ class AdminQueryService
             // Admin gets the full contact snapshot; the customer payload
             // deliberately reduces this to the company name.
             $offer->workshop = $workshops[$offer->offer_id] ?? null;
+            // The two the timeline dates its offer stages from. Stamped here
+            // rather than on the query, because the rows stay objects through
+            // this map and the customer payload stamps the same two fields.
+            $offer->published_at = PortalTimestamp::iso($offer->published_at);
+            $offer->selected_at = PortalTimestamp::iso($offer->selected_at);
 
             return $offer;
         }, $order['offers']);
@@ -597,8 +605,8 @@ class AdminQueryService
                 'auftragsnummer' => $row->auftragsnummer,
                 'leasyback_partner' => $row->leasyback_partner,
                 'order_status' => $row->order_status,
-                'sent_at' => $row->sent_at,
-                'created_at' => $row->created_at,
+                'sent_at' => PortalTimestamp::iso($row->sent_at),
+                'created_at' => PortalTimestamp::iso($row->created_at),
                 'response_status' => $row->response_status,
                 'license_plate' => $row->license_plate,
                 'vin' => $row->vin,
@@ -679,7 +687,7 @@ class AdminQueryService
             ->groupBy(fn (object $document) => $document->auftragsnummer.'|'.$document->vehicle_id)
             ->map(function (Collection $documents) {
                 return $documents->map(function (object $document) {
-                    $item = (array) $document;
+                    $item = PortalTimestamp::normalizeRow($document, ['created_at', 'updated_at']);
                     $item['published'] = (bool) $document->published;
                     // vehicle_report_documents.s3_key was renamed to `path`
                     // in the 2026_08_01_000001 migration — this read this
@@ -878,7 +886,7 @@ class AdminQueryService
         $history = $rawHistory->groupBy('vehicle_id')->map(fn (Collection $items) => $items->map(function (object $item) use ($reportDocs) {
             $key = $item->auftragsnummer.'|'.$item->vehicle_id;
             unset($item->vehicle_id, $item->response_body);
-            $arr = (array) $item;
+            $arr = PortalTimestamp::normalizeRow($item, ['created_at', 'sent_at']);
             $arr['report_documents'] = $reportDocs[$key] ?? [];
 
             return $arr;

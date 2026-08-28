@@ -16,6 +16,7 @@ import { useLiveUpdates } from '@/composables/useLiveUpdates';
 import AdminLayout from '@/layouts/AdminLayout.vue';
 import { getAdminDashboardStatus as getStatus } from '@/lib/adminStatus';
 import { getCustomerOrderFlowSteps, getCustomerOrderHeadline } from '@/lib/customerOrderFlow';
+import { formatPortalDate, formatPortalDateTimeShort } from '@/lib/portalDate';
 import { toOrderTimelineEntries } from '@/lib/timeline';
 import { getOrderStatusLabel } from '@/lib/vehicleStatus';
 import type { AdminOrderDetail, AdminOrderTaskAction } from '@/types/admin';
@@ -198,23 +199,11 @@ const specs = computed(() => [
 ]);
 
 function formatDate(value: string | null): string {
-    if (!value) {
-        return '—';
-    }
-
-    const date = new Date(value);
-
-    return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    return formatPortalDate(value) || '—';
 }
 
 function formatDateTime(value: string | null): string {
-    if (!value) {
-        return '—';
-    }
-
-    const date = new Date(value);
-
-    return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('de-DE');
+    return formatPortalDateTimeShort(value) || '—';
 }
 </script>
 

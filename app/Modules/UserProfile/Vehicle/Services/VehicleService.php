@@ -17,6 +17,8 @@ use App\Modules\UserProfile\Order\Services\RepairOfferService;
 use App\Modules\UserProfile\Payment\Enums\PaymentPurpose;
 use App\Modules\UserProfile\Payment\Enums\PaymentStatus;
 use App\Modules\UserProfile\Payment\Models\OrderPaymentMethod;
+use App\Support\OrderHistory;
+use App\Support\PortalTimestamp;
 use App\Support\RepairPaymentPresentation;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -494,6 +496,56 @@ class VehicleService
     }
 
     /**
+     * One order of one vehicle, addressed by its own id.
+     *
+     * Hydration is not repeated here: the order is picked out of the vehicle
+     * payload that findVehicleWithOrders() already builds, so a historical
+     * order's timeline, status trail, documents, offers, collection and
+     * payment state are byte-for-byte the ones the current order gets. The
+     * scope arguments are the same ones the vehicle page passes, which is
+     * also what makes this safe — an order whose vehicle the viewer may not
+     * see resolves to null here, exactly as the vehicle itself would.
+     *
+     * The vehicle travels without its `orders` list: the one order the page
+     * renders is under `order`, and sending the rest again would be the same
+     * payload twice. `current_order` is reduced to a history summary so the
+     * page can say which of the vehicle's orders is the live one and link to
+     * it.
+     *
+     * @return array{vehicle: array<string, mixed>, order: array<string, mixed>}|null
+     */
+    public function findOrderDetail(string $orderId, ?string $ownerId, string $belongs, ?User $viewer = null): ?array
+    {
+        $vehicleId = DB::table('leasyback_orders')->where('id', $orderId)->value('vehicle_id');
+
+        if ($vehicleId === null) {
+            return null;
+        }
+
+        $vehicle = $this->findVehicleWithOrders((string) $vehicleId, $ownerId, $belongs, $viewer);
+
+        if ($vehicle === null) {
+            return null;
+        }
+
+        $order = collect($vehicle['orders'])->firstWhere('id', $orderId);
+
+        if ($order === null) {
+            return null;
+        }
+
+        return [
+            'vehicle' => [
+                ...Arr::except($vehicle, ['orders', 'current_order']),
+                'current_order' => $vehicle['current_order'] === null
+                    ? null
+                    : OrderHistory::summarise($vehicle['current_order']),
+            ],
+            'order' => $order,
+        ];
+    }
+
+    /**
      * One page of the dashboard list. Only the page's vehicles are hydrated,
      * so the payload and the seven child queries stay bounded regardless of
      * how many vehicles the customer owns.
@@ -692,7 +744,7 @@ class VehicleService
                         // came from Leasyback rather than from TÜV SÜD. The
                         // `updated_by` name/email stays Admin-only.
                         'auth_source' => $su->auth_source,
-                        'created_at' => $su->created_at,
+                        'created_at' => PortalTimestamp::iso($su->created_at),
                     ])
                     ->values()
                     ->toArray();
@@ -715,8 +767,8 @@ class VehicleService
                         'document_title' => $doc->document_title,
                         'url' => $this->generateSignedUrl($doc->path, 1800), // 30 min
                         'published' => $doc->published,
-                        'created_at' => $doc->created_at,
-                        'updated_at' => $doc->updated_at,
+                        'created_at' => PortalTimestamp::iso($doc->created_at),
+                        'updated_at' => PortalTimestamp::iso($doc->updated_at),
                     ])
                     ->values()
                     ->toArray();
@@ -748,8 +800,8 @@ class VehicleService
                         // frozen presentation, a manual one carries null.
                         'presentation' => $offerPresentations[$offer->offer_id] ?? null,
                         'additional_notes' => $offer->additional_notes,
-                        'published_at' => $offer->published_at,
-                        'selected_at' => $offer->selected_at,
+                        'published_at' => PortalTimestamp::iso($offer->published_at),
+                        'selected_at' => PortalTimestamp::iso($offer->selected_at),
                     ])
                     ->values()
                     ->toArray();
@@ -775,13 +827,13 @@ class VehicleService
                     'id' => $order->id,
                     'auftragsnummer' => $order->auftragsnummer,
                     'leasyback_partner' => $order->leasyback_partner,
-                    'sent_at' => $order->sent_at,
+                    'sent_at' => PortalTimestamp::iso($order->sent_at),
                     'request_payload' => json_decode($order->request_payload ?? '', false) ?: null,
                     'response_status' => $order->response_status,
                     'response_body' => json_decode($order->response_body ?? '', false) ?: null,
                     'order_status' => $order->order_status,
                     'created_by_user_id' => $order->created_by_user_id,
-                    'created_at' => $order->created_at,
+                    'created_at' => PortalTimestamp::iso($order->created_at),
                     'status_updates' => $statusUpdates,
                     'order_confirmations' => $confirmations,
                     'report_documents' => $reportDocsArr,
@@ -799,6 +851,10 @@ class VehicleService
                 ])
                 ->values()
                 ->toArray();
+
+            // Which order the portal speaks for, and what sits behind it —
+            // decided here rather than by the client reading `orders[0]`.
+            ['current_order' => $currentOrder, 'order_history' => $orderHistory] = OrderHistory::split($ordersArr);
 
             $result[] = [
                 ...($vehicle->vehicle_belongs === 'B2B' ? [
@@ -820,6 +876,15 @@ class VehicleService
                 'vehicle_belongs' => $vehicle->vehicle_belongs,
                 'created_at' => $vehicle->created_at,
                 'updated_at' => $vehicle->updated_at,
+                'current_order' => $currentOrder,
+                'order_history' => $orderHistory,
+                /*
+                 * Every order, full-fidelity, still travels: the panel's
+                 * payment banners scan all of them (a cancellation fee is
+                 * owed on an order that has already closed) and the document
+                 * lists are vehicle-wide. What no longer travels through it
+                 * is the answer to "which one is current".
+                 */
                 'orders' => $ordersArr,
                 'documents' => $documents,
             ];

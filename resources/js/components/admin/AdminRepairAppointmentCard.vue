@@ -14,6 +14,7 @@ import CalendarDateField from '@/components/form/CalendarDateField.vue';
 import RequiredMark from '@/components/form/RequiredMark.vue';
 import InputError from '@/components/InputError.vue';
 import { Input } from '@/components/ui/input';
+import { formatPortalDate } from '@/lib/portalDate';
 import type { AdminWorkshopQuotation } from '@/types/admin';
 import type { OrderCollectionData } from '@/types/order';
 import { useForm } from '@inertiajs/vue3';
@@ -53,13 +54,7 @@ const seed = computed(() => {
 });
 
 function formatDate(value: string | null): string {
-    if (!value) {
-        return '—';
-    }
-
-    const date = new Date(value);
-
-    return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    return formatPortalDate(value) || '—';
 }
 
 function submit() {

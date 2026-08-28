@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { AppModal, AppModalButton } from '@/components/ui/modal';
+import { formatPortalDate } from '@/lib/portalDate';
 import type { OfferData } from '@/types/order';
 import { router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
@@ -90,11 +91,7 @@ function currency(value: string | number | null): string {
 }
 
 function formatDate(value: string | null): string {
-    if (!value) {
-        return '';
-    }
-
-    return new Date(value).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    return formatPortalDate(value);
 }
 
 function isBest(offer: OfferData): boolean {

@@ -11,6 +11,7 @@
  * makes the action legal.
  */
 import { AppModal, AppModalButton } from '@/components/ui/modal';
+import { formatPortalDate } from '@/lib/portalDate';
 import type { AdminWorkshopCommission } from '@/types/admin';
 import { router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
@@ -47,13 +48,7 @@ function formatCurrency(value: string | null): string {
 }
 
 function formatDate(value: string | null | undefined): string {
-    if (!value) {
-        return '—';
-    }
-
-    const date = new Date(value);
-
-    return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('de-DE');
+    return formatPortalDate(value) || '—';
 }
 
 function commission() {

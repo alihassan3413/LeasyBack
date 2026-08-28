@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import CreateVehicleModal from '@/components/admin/CreateVehicleModal.vue';
 import AdminLayout from '@/layouts/AdminLayout.vue';
+import { formatPortalDate } from '@/lib/portalDate';
 import type { AdminCustomerList, AdminCustomerListItem, AdminCustomerType } from '@/types/admin';
 import { Head, router } from '@inertiajs/vue3';
 import { computed, ref, watch } from 'vue';
@@ -115,13 +116,7 @@ function ownerId(customer: AdminCustomerListItem): string {
 }
 
 function formatGermanDate(value: string | null): string {
-    if (!value) {
-        return '—';
-    }
-
-    const date = new Date(value);
-
-    return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    return formatPortalDate(value) || '—';
 }
 
 function openDetail(customer: AdminCustomerListItem) {

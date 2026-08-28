@@ -1,3 +1,5 @@
+import { formatPortalDate, formatPortalDateTime } from '@/lib/portalDate';
+
 export type CustomerOrderStage =
     | 'requested'
     | 'appointment_confirmed'
@@ -183,20 +185,12 @@ export interface CustomerOrderCollection {
     collection_note?: string | null;
 }
 
-export function formatGermanDateTime(iso: string): string {
-    const date = new Date(iso);
-
-    if (Number.isNaN(date.getTime())) {
-        return '';
-    }
-
-    return (
-        date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }) +
-        ' · ' +
-        date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) +
-        ' Uhr'
-    );
-}
+/**
+ * Kept as a re-export rather than a second implementation: every surface that
+ * shows an order date has to agree on the zone, and two copies of the
+ * formatting is how they stopped agreeing in the first place.
+ */
+export { formatPortalDateTime as formatGermanDateTime } from '@/lib/portalDate';
 
 function findHistoryDate(history: ReadonlyArray<CustomerOrderStatusHistoryEntry>, statuses: ReadonlySet<string>, preferredStatus?: string): string {
     if (preferredStatus) {
@@ -260,19 +254,13 @@ function pickRelevantOffer(offers: ReadonlyArray<CustomerOrderOffer>): CustomerO
 }
 
 function appointmentDateLabel(prefix: string, termin: string | undefined): string {
-    const datePart = termin ? formatGermanDateTime(termin) : '';
+    const datePart = termin ? formatPortalDateTime(termin) : '';
 
     return datePart ? `${prefix} ${datePart}` : prefix;
 }
 
-function formatGermanDate(value: string): string {
-    const date = new Date(value);
-
-    return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-}
-
 function collectionDateLabel(prefix: string, date: string | null | undefined): string {
-    const datePart = date ? formatGermanDate(date) : '';
+    const datePart = date ? formatPortalDate(date) : '';
 
     return datePart ? `${prefix} ${datePart}` : prefix;
 }
@@ -308,7 +296,7 @@ function repairScheduleSubtitle(collection: CustomerOrderCollection | null | und
     const start = collection?.confirmed_repair_start_date;
     const days = collection?.estimated_processing_days;
 
-    return [start ? `Reparaturbeginn: ${formatGermanDate(start)}` : '', days != null ? `Voraussichtliche Dauer: ${days} Arbeitstage` : '']
+    return [start ? `Reparaturbeginn: ${formatPortalDate(start)}` : '', days != null ? `Voraussichtliche Dauer: ${days} Arbeitstage` : '']
         .filter(Boolean)
         .join('\n');
 }
@@ -585,14 +573,14 @@ function b2bStageSubtitle(stage: B2bOrderStage, ctx: CustomerOrderFlowInput, rel
         case 'collection_requested': {
             const requested = collection?.requested_collection_date;
             const note = collection?.collection_note?.trim();
-            const lines = [requested ? `Wunschtermin: ${formatGermanDate(requested)}` : '', note ? `Hinweis: ${note}` : ''];
+            const lines = [requested ? `Wunschtermin: ${formatPortalDate(requested)}` : '', note ? `Hinweis: ${note}` : ''];
 
             return lines.filter(Boolean).join('\n');
         }
         case 'collection_scheduled': {
             const confirmed = collection?.confirmed_collection_date;
             const address = collection ? collectionAddressSubtitle(collection) : '';
-            const lines = [confirmed ? `Bestätigter Abholtermin: ${formatGermanDate(confirmed)}` : '', address];
+            const lines = [confirmed ? `Bestätigter Abholtermin: ${formatPortalDate(confirmed)}` : '', address];
 
             return lines.filter(Boolean).join('\n');
         }
@@ -604,7 +592,7 @@ function b2bStageSubtitle(stage: B2bOrderStage, ctx: CustomerOrderFlowInput, rel
             const days = collection?.estimated_processing_days;
 
             return [
-                start ? `Bestätigter Reparaturbeginn: ${formatGermanDate(start)}` : '',
+                start ? `Bestätigter Reparaturbeginn: ${formatPortalDate(start)}` : '',
                 days != null ? `Voraussichtliche Dauer: ${days} Arbeitstage` : '',
             ]
                 .filter(Boolean)

@@ -5,6 +5,7 @@ import VehicleActionsMenu from '@/components/vehicle/VehicleActionsMenu.vue';
 import VehicleExpandedPanel from '@/components/vehicle/VehicleExpandedPanel.vue';
 import { useB2bPermissions } from '@/composables/useB2bPermissions';
 import { NEW_ORDER_ACTION_LABEL, newOrderAction } from '@/lib/customerOrderFlow';
+import { formatPortalDate } from '@/lib/portalDate';
 import { getOrderStatusLabel } from '@/lib/vehicleStatus';
 import type { StationData } from '@/types/order';
 import type { VehicleData } from '@/types/vehicle';
@@ -32,7 +33,7 @@ const orderAction = computed(() => (can('orders.create') ? newOrderAction(props.
 const orderActionLabel = computed(() => (orderAction.value ? NEW_ORDER_ACTION_LABEL[orderAction.value] : ''));
 
 const vehicleStatus = computed(() => {
-    const current = props.vehicle.orders[0];
+    const current = props.vehicle.current_order;
 
     if (!current) {
         return { label: 'Eingeplant', dotColor: '#ef8450' };
@@ -45,17 +46,7 @@ const vehicleStatus = computed(() => {
 });
 
 function formatDate(value: string | null): string {
-    if (!value) {
-        return '';
-    }
-
-    const date = new Date(value);
-
-    if (Number.isNaN(date.getTime())) {
-        return '';
-    }
-
-    return date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    return formatPortalDate(value);
 }
 
 /**

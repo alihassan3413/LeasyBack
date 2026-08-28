@@ -19,6 +19,7 @@ import WorkshopQuotationComparison from '@/components/admin/WorkshopQuotationCom
 import RequiredMark from '@/components/form/RequiredMark.vue';
 import InputError from '@/components/InputError.vue';
 import { Input } from '@/components/ui/input';
+import { formatPortalDate } from '@/lib/portalDate';
 import type { AdminWorkshopQuotation } from '@/types/admin';
 import { router, useForm, usePage } from '@inertiajs/vue3';
 import { computed, ref, watch } from 'vue';
@@ -79,13 +80,7 @@ function formatEuro(value: string | null): string {
 }
 
 function formatDate(value: string | null): string {
-    if (!value) {
-        return '—';
-    }
-
-    const date = new Date(value);
-
-    return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('de-DE');
+    return formatPortalDate(value) || '—';
 }
 
 function toggle(id: string) {

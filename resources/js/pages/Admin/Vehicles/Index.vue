@@ -5,6 +5,7 @@ import VehicleExpandedPanel from '@/components/vehicle/VehicleExpandedPanel.vue'
 import AdminLayout from '@/layouts/AdminLayout.vue';
 import { ADMIN_ORDER_STATUS_FILTERS, getAdminDashboardStatus as getStatus } from '@/lib/adminStatus';
 import { toVehicleData } from '@/lib/adminVehicle';
+import { formatPortalDate } from '@/lib/portalDate';
 import type { AdminVehicleRow } from '@/types/admin';
 import type { StationData } from '@/types/order';
 import { Head, router } from '@inertiajs/vue3';
@@ -128,13 +129,7 @@ function ownerLabel(vehicle: AdminVehicleRow): string {
 }
 
 function formatGermanDate(value: string | null): string {
-    if (!value) {
-        return '—';
-    }
-
-    const date = new Date(value);
-
-    return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    return formatPortalDate(value) || '—';
 }
 
 function openDetail(vehicle: AdminVehicleRow) {

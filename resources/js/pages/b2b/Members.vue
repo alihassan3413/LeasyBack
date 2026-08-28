@@ -6,6 +6,7 @@ import type { SelectFieldOption } from '@/components/form/SelectField.vue';
 import { AppModal, AppModalButton } from '@/components/ui/modal';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import AppLayout from '@/layouts/AppLayout.vue';
+import { formatPortalDate } from '@/lib/portalDate';
 import type { B2bAnalytics, B2bCompanySummary, B2bInvitationRow, B2bMemberRow, B2bPermissionGroup } from '@/types/b2b';
 import { Head, router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
@@ -153,16 +154,8 @@ function revokeInvitation(invitation: B2bInvitationRow) {
 }
 
 /* ── Formatting ──────────────────────────────────────────────────────── */
-const dateFormatter = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-
 function formatDate(value: string | null): string {
-    if (!value) {
-        return '—';
-    }
-
-    const parsed = new Date(value);
-
-    return Number.isNaN(parsed.getTime()) ? '—' : dateFormatter.format(parsed);
+    return formatPortalDate(value) || '—';
 }
 
 function scopeLabel(member: B2bMemberRow): string {

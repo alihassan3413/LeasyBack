@@ -11,6 +11,7 @@
 import CalendarDateField from '@/components/form/CalendarDateField.vue';
 import InputError from '@/components/InputError.vue';
 import { Input } from '@/components/ui/input';
+import { formatPortalDate } from '@/lib/portalDate';
 import type { OrderCollectionData } from '@/types/order';
 import { useForm } from '@inertiajs/vue3';
 import { computed } from 'vue';
@@ -36,13 +37,7 @@ const requestedDate = computed(() => props.collection?.requested_collection_date
 const canAdoptRequested = computed(() => requestedDate.value !== null && form.confirmed_collection_date !== requestedDate.value);
 
 function formatDate(value: string | null): string {
-    if (!value) {
-        return '—';
-    }
-
-    const date = new Date(value);
-
-    return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    return formatPortalDate(value) || '—';
 }
 
 function adoptRequested() {

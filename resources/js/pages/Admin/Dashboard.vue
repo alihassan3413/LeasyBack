@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import AdminLayout from '@/layouts/AdminLayout.vue';
 import { ADMIN_ORDER_STATUS_FILTERS, getAdminDashboardStatus as getStatus } from '@/lib/adminStatus';
+import { PORTAL_LOCALE, PORTAL_TIME_ZONE, formatPortalDate } from '@/lib/portalDate';
 import type { AdminSummaryData } from '@/types/admin';
 import { Head, router } from '@inertiajs/vue3';
 import { computed, ref, watch } from 'vue';
@@ -58,7 +59,15 @@ const props = defineProps<{
     vehicles: PanelList<AdminPanelVehicle> | null;
 }>();
 
-const today = new Intl.DateTimeFormat('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date());
+// The German business day, not the reader's — an admin abroad is still working
+// LeasyBack's calendar, and the orders listed below are dated by it.
+const today = new Intl.DateTimeFormat(PORTAL_LOCALE, {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    timeZone: PORTAL_TIME_ZONE,
+}).format(new Date());
 
 const activePanel = ref<PanelType>(props.filters.panel);
 const search = ref(props.filters.search);
@@ -170,13 +179,7 @@ function userInitials(user: AdminPanelUser): string {
 }
 
 function formatGermanDate(value: string | null): string {
-    if (!value) {
-        return '';
-    }
-
-    const date = new Date(value);
-
-    return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    return formatPortalDate(value);
 }
 
 const donutDistribution = computed(() => [

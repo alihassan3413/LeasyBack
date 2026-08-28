@@ -145,6 +145,33 @@ export interface VehicleCollectionAddress {
     country: string | null;
 }
 
+/** How an order ended. Matches App\Support\OrderHistory::outcome(). */
+export type OrderOutcome = 'open' | 'completed' | 'cancelled' | 'discarded';
+
+/**
+ * One row of a vehicle's Auftragsverlauf — matches
+ * App\Support\OrderHistory::summarise().
+ *
+ * Deliberately a summary and not a `VehicleOrderData`: the full record is
+ * fetched by id (`orders.show`) when the customer opens it, so a vehicle with
+ * a long history does not carry every timeline, offer list and document set
+ * into every dashboard response.
+ */
+export interface OrderHistoryEntry {
+    id: string;
+    auftragsnummer: string;
+    order_status: string;
+    outcome: OrderOutcome;
+    is_closed: boolean;
+    created_at: string;
+    /** When it reached its closing status; null while it is still running. */
+    closed_at: string | null;
+    offer_count: number;
+    document_count: number;
+    /** A cancellation fee outlives its order, so a closed row can still owe money. */
+    has_open_payment: boolean;
+}
+
 /** Matches VehicleService::listVehiclesWithOrders()'s per-vehicle response shape. */
 export interface VehicleData {
     vehicle_id: string;
@@ -158,6 +185,22 @@ export interface VehicleData {
     vehicle_belongs: 'B2B' | 'B2C';
     created_at: string;
     updated_at: string;
+    /**
+     * The order every surface speaks for, decided server-side by
+     * App\Support\OrderHistory::split() — the newest one still running, or
+     * the newest closed one when the vehicle's case is over. Never
+     * `orders[0]`, which was a position rather than a rule.
+     */
+    current_order: VehicleOrderData | null;
+    /** Every other order, newest first. Opened by id, not by index. */
+    order_history: OrderHistoryEntry[];
+    /**
+     * Every order, full-fidelity. Still here because a few things are
+     * genuinely vehicle-wide rather than order-scoped: the payment banners
+     * scan all orders (a cancellation fee is owed on an order that has already
+     * closed) and the document lists span them. Nothing may read a *position*
+     * out of it.
+     */
     orders: VehicleOrderData[];
     documents: VehicleDocumentData[];
     mileage?: number | null;
@@ -186,4 +229,16 @@ export interface VehicleImportResult {
     /** Headings that matched no known field and were skipped. */
     ignored_columns: string[];
     errors: VehicleImportRowError[];
+}
+
+/**
+ * The vehicle as the order detail page receives it — matches
+ * VehicleService::findOrderDetail()'s `vehicle`.
+ *
+ * The order list is gone (the one order being rendered travels separately) and
+ * `current_order` is reduced to a summary, which is all the page needs to say
+ * which of the vehicle's orders is the live one and link to it.
+ */
+export interface OrderDetailVehicle extends Omit<VehicleData, 'orders' | 'current_order'> {
+    current_order: OrderHistoryEntry | null;
 }

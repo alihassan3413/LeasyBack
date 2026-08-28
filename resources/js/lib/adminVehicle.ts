@@ -1,3 +1,4 @@
+import { splitOrderHistory } from '@/lib/orderHistory';
 import type { AdminVehicleRow } from '@/types/admin';
 import type { VehicleData, VehicleOrderData } from '@/types/vehicle';
 
@@ -11,6 +12,12 @@ import type { VehicleData, VehicleOrderData } from '@/types/vehicle';
  * The two shapes only differ in naming and in what the list variant omits:
  *
  * - `order_history` → `orders`; `signed_url` → `url` on report documents.
+ *   Note the name means different things on the two sides: Admin's
+ *   `order_history` is *every* order, while the customer payload splits its
+ *   orders into `current_order` and an `order_history` of what sits behind it.
+ *   That split is the server's answer there and is recomputed here — with the
+ *   same rule, from lib/orderHistory.ts — because the Admin payload does not
+ *   carry one.
  * - `request_payload` / `status_updates` / `offers` are present only when
  *   the row came from vehicleDetail() (see its hydrateVehicleDetail()); the
  *   list variant leaves them undefined and the panel degrades to its
@@ -22,7 +29,10 @@ import type { VehicleData, VehicleOrderData } from '@/types/vehicle';
  *   than being faked from `confirmation_date`.
  */
 export function toVehicleData(vehicle: AdminVehicleRow): VehicleData {
+    const orders = vehicle.order_history.map(toVehicleOrderData);
+
     return {
+        ...splitOrderHistory(orders),
         vehicle_id: vehicle.vehicle_id,
         license_plate: vehicle.license_plate,
         first_registration_date: vehicle.first_registration_date,
@@ -35,7 +45,7 @@ export function toVehicleData(vehicle: AdminVehicleRow): VehicleData {
         collection_address: vehicle.collection_address,
         created_at: vehicle.created_at,
         updated_at: vehicle.updated_at,
-        orders: vehicle.order_history.map(toVehicleOrderData),
+        orders,
         documents: vehicle.documents.map((document) => ({
             document_id: document.document_id,
             document_type: document.document_type,

@@ -228,6 +228,7 @@ declare module 'vue' {
     OnboardingCard: typeof import('./../components/onboarding/OnboardingCard.vue')['default']
     OnboardingModal: typeof import('./../components/dashboard/OnboardingModal.vue')['default']
     OrderCreationModal: typeof import('./../components/vehicle/OrderCreationModal.vue')['default']
+    OrderHistoryList: typeof import('./../components/vehicle/OrderHistoryList.vue')['default']
     OrderMessages: typeof import('./../components/shared/OrderMessages.vue')['default']
     OrderProgress: typeof import('./../components/vehicle/OrderProgress.vue')['default']
     OrderStatusTimeline: typeof import('./../components/shared/OrderStatusTimeline.vue')['default']
