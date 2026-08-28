@@ -167,7 +167,7 @@ class OrderNumberGeneratorTest extends TestCase
         $base = $this->generator->base('B-XY 123');
 
         $first = app(OrderService::class)->createB2bCollectionOrder($vehicle, $owner, $this->collectionPayload());
-        $first->update(['order_status' => 'completed']);
+        $first->update(['order_status' => 'cancelled']);
 
         $second = app(OrderService::class)->createB2bCollectionOrder($vehicle, $owner, $this->collectionPayload());
 
@@ -190,10 +190,10 @@ class OrderNumberGeneratorTest extends TestCase
         $base = $this->generator->base('B-XY 123');
 
         $first = app(OrderService::class)->createOtherOrder($vehicle, $customer, $this->otherProviderPayload());
-        // Closed before the second, exactly as the B2B case above does: a
-        // vehicle may hold only one active order, so "two references for one
-        // vehicle" is only reachable across a completed first order.
-        $first->update(['order_status' => 'completed']);
+        // Cancelled before the second, exactly as the B2B case above does: a
+        // vehicle gets one order and only a cancelled one may be replaced, so
+        // "two references for one vehicle" is only reachable across a call-off.
+        $first->update(['order_status' => 'cancelled']);
 
         $second = app(OrderService::class)->createOtherOrder($vehicle, $customer, $this->otherProviderPayload());
 

@@ -105,6 +105,27 @@ enum OrderStatus: string
     }
 
     /**
+     * Statuses that leave a vehicle free to be ordered for again.
+     *
+     * Deliberately narrower than closedValues(). `completed` closes a case
+     * *successfully* — the vehicle went through the process and came out the
+     * other side — and a second order on top of that would be a second return
+     * of a car that has already been returned. What stays reorderable is only
+     * an order that produced nothing: called off by the customer, or discarded
+     * before it was ever placed. Those leave the vehicle exactly as they found
+     * it, so locking it out would let one cancellation retire a car for good.
+     *
+     * @return array<string>
+     */
+    public static function reorderableValues(): array
+    {
+        return [
+            self::Cancelled->value,
+            self::Discarded->value,
+        ];
+    }
+
+    /**
      * Statuses considered "active" (not yet closed).
      *
      * @return array<string>

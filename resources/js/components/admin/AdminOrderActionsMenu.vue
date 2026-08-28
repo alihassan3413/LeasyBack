@@ -54,7 +54,7 @@ const props = withDefaults(
         /** Inspection stations for the "Auftrag erstellen" picker; empty disables the action. */
         stations?: StationData[];
         /** True while the vehicle has an order that is neither delivered nor cancelled. */
-        hasOpenOrder?: boolean;
+        blocksNewOrder?: boolean;
         /** Only a TÜV SÜD order can have its appraisal documents pulled. */
         canPullDocuments?: boolean;
         /**
@@ -73,7 +73,7 @@ const props = withDefaults(
         availableTransitions: () => [],
         align: 'end',
         stations: () => [],
-        hasOpenOrder: false,
+        blocksNewOrder: false,
         canPullDocuments: false,
         vehicleBelongs: null,
         collectionAddress: null,
@@ -102,16 +102,20 @@ const orderCreationVehicle = computed(() =>
 );
 
 /**
- * OrderService rejects a second order while one is still running
- * (hasUnfinishedOrder). A B2B collection order books no inspection
- * appointment, so it does not need a station either — requiring one would
- * disable the action on every B2B vehicle.
+ * OrderService rejects a second order unless the vehicle's only orders were
+ * called off (blocksNewOrder) — a running order and a completed one both bar
+ * it. A B2B collection order books no inspection appointment, so it does not
+ * need a station either — requiring one would disable the action on every B2B
+ * vehicle.
  */
-const canCreateOrder = computed(() => !props.hasOpenOrder && (isB2bVehicle.value || props.stations.length > 0));
+const canCreateOrder = computed(() => !props.blocksNewOrder && (isB2bVehicle.value || props.stations.length > 0));
 
 const createOrderHint = computed(() => {
-    if (props.hasOpenOrder) {
-        return 'Für dieses Fahrzeug läuft bereits ein Auftrag';
+    if (props.blocksNewOrder) {
+        // Deliberately not "läuft bereits ein Auftrag": the flag is also true
+        // for a finished one, and that wording sent admins looking for an open
+        // order that had closed weeks ago.
+        return 'Für dieses Fahrzeug besteht bereits ein Auftrag';
     }
 
     return canCreateOrder.value ? '' : 'Keine aktive Begutachtungsstelle hinterlegt';

@@ -15,6 +15,7 @@ declare global {
   const HttpError: typeof import('../lib/http').HttpError
   const INVOICE_DOCUMENT_TYPE: typeof import('../lib/documentTypes').INVOICE_DOCUMENT_TYPE
   const Link: typeof import('@inertiajs/vue3').Link
+  const NEW_ORDER_ACTION_LABEL: typeof import('../lib/customerOrderFlow').NEW_ORDER_ACTION_LABEL
   const ONBOARDING_VIDEO_POSTER_URL: typeof import('../lib/onboarding').ONBOARDING_VIDEO_POSTER_URL
   const ONBOARDING_VIDEO_URL: typeof import('../lib/onboarding').ONBOARDING_VIDEO_URL
   const ORDER_STATUS_LABELS: typeof import('../lib/vehicleStatus').ORDER_STATUS_LABELS
@@ -25,7 +26,6 @@ declare global {
   const VEHICLE_BRAND_OPTIONS: typeof import('../lib/vehicleBrands').VEHICLE_BRAND_OPTIONS
   const VEHICLE_STATUS_FILTER_OPTIONS: typeof import('../lib/vehicleStatus').VEHICLE_STATUS_FILTER_OPTIONS
   const VIN_LENGTH: typeof import('../lib/vin').VIN_LENGTH
-  const canStartNewOrder: typeof import('../lib/customerOrderFlow').canStartNewOrder
   const cn: typeof import('../lib/utils').cn
   const companyFormData: typeof import('../lib/company').companyFormData
   const computed: typeof import('vue').computed
@@ -65,6 +65,7 @@ declare global {
   const labelForDocumentType: typeof import('../lib/documentTypes').labelForDocumentType
   const loadGoogleMaps: typeof import('../composables/useGoogleMapsLoader').loadGoogleMaps
   const markRaw: typeof import('vue').markRaw
+  const newOrderAction: typeof import('../lib/customerOrderFlow').newOrderAction
   const nextTick: typeof import('vue').nextTick
   const normalizePlate: typeof import('../lib/licensePlate').normalizePlate
   const onActivated: typeof import('vue').onActivated
@@ -171,7 +172,7 @@ declare global {
   export type { StatusPillStyle } from '../lib/adminStatus'
   import('../lib/adminStatus')
   // @ts-ignore
-  export type { CustomerOrderStage, RepairPaymentStage, CustomerOrderRepairPayment, B2bOrderStage, CustomerOrderFlowStep, CustomerOrderStatusHistoryEntry, CustomerOrderBesichtigungsort, CustomerOrderReportDocument, CustomerOrderOffer, CustomerOrderFlowInput, CustomerOrderCollection } from '../lib/customerOrderFlow'
+  export type { CustomerOrderStage, RepairPaymentStage, CustomerOrderRepairPayment, B2bOrderStage, CustomerOrderFlowStep, CustomerOrderStatusHistoryEntry, CustomerOrderBesichtigungsort, CustomerOrderReportDocument, CustomerOrderOffer, CustomerOrderFlowInput, CustomerOrderCollection, NewOrderAction } from '../lib/customerOrderFlow'
   import('../lib/customerOrderFlow')
   // @ts-ignore
   export type { ErrorIllustrationVariant, ErrorPageCopy } from '../lib/errorPages'
@@ -204,6 +205,7 @@ declare module 'vue' {
     readonly HttpError: UnwrapRef<typeof import('../lib/http')['HttpError']>
     readonly INVOICE_DOCUMENT_TYPE: UnwrapRef<typeof import('../lib/documentTypes')['INVOICE_DOCUMENT_TYPE']>
     readonly Link: UnwrapRef<typeof import('@inertiajs/vue3')['Link']>
+    readonly NEW_ORDER_ACTION_LABEL: UnwrapRef<typeof import('../lib/customerOrderFlow')['NEW_ORDER_ACTION_LABEL']>
     readonly ONBOARDING_VIDEO_POSTER_URL: UnwrapRef<typeof import('../lib/onboarding')['ONBOARDING_VIDEO_POSTER_URL']>
     readonly ONBOARDING_VIDEO_URL: UnwrapRef<typeof import('../lib/onboarding')['ONBOARDING_VIDEO_URL']>
     readonly ORDER_STATUS_LABELS: UnwrapRef<typeof import('../lib/vehicleStatus')['ORDER_STATUS_LABELS']>
@@ -214,7 +216,6 @@ declare module 'vue' {
     readonly VEHICLE_BRAND_OPTIONS: UnwrapRef<typeof import('../lib/vehicleBrands')['VEHICLE_BRAND_OPTIONS']>
     readonly VEHICLE_STATUS_FILTER_OPTIONS: UnwrapRef<typeof import('../lib/vehicleStatus')['VEHICLE_STATUS_FILTER_OPTIONS']>
     readonly VIN_LENGTH: UnwrapRef<typeof import('../lib/vin')['VIN_LENGTH']>
-    readonly canStartNewOrder: UnwrapRef<typeof import('../lib/customerOrderFlow')['canStartNewOrder']>
     readonly cn: UnwrapRef<typeof import('../lib/utils')['cn']>
     readonly companyFormData: UnwrapRef<typeof import('../lib/company')['companyFormData']>
     readonly computed: UnwrapRef<typeof import('vue')['computed']>
@@ -254,6 +255,7 @@ declare module 'vue' {
     readonly labelForDocumentType: UnwrapRef<typeof import('../lib/documentTypes')['labelForDocumentType']>
     readonly loadGoogleMaps: UnwrapRef<typeof import('../composables/useGoogleMapsLoader')['loadGoogleMaps']>
     readonly markRaw: UnwrapRef<typeof import('vue')['markRaw']>
+    readonly newOrderAction: UnwrapRef<typeof import('../lib/customerOrderFlow')['newOrderAction']>
     readonly nextTick: UnwrapRef<typeof import('vue')['nextTick']>
     readonly normalizePlate: UnwrapRef<typeof import('../lib/licensePlate')['normalizePlate']>
     readonly onActivated: UnwrapRef<typeof import('vue')['onActivated']>

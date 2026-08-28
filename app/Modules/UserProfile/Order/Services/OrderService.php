@@ -54,7 +54,7 @@ class OrderService
             $this->fail(422, 'collection orders are only available for B2B vehicles');
         }
 
-        $this->assertNoActiveOrder($vehicle);
+        $this->assertVehicleIsFree($vehicle);
 
         $auftragsnummer = $this->reserveOrderNumber($vehicle, $user);
 
@@ -96,7 +96,7 @@ class OrderService
             $this->fail(422, 'B2B vehicles use the collection order flow');
         }
 
-        $this->assertNoActiveOrder($vehicle);
+        $this->assertVehicleIsFree($vehicle);
 
         $station = InspectionStation::where('station_id', $validated['station_id'])
             ->where('provider', 'tuvsud')
@@ -208,7 +208,7 @@ class OrderService
             $this->fail(422, 'B2B vehicles use the collection order flow');
         }
 
-        $this->assertNoActiveOrder($vehicle);
+        $this->assertVehicleIsFree($vehicle);
 
         $auftragsnummer = $this->reserveOrderNumber($vehicle, $user);
         $station = InspectionStation::find($validated['station_id']);
@@ -344,19 +344,27 @@ class OrderService
     }
 
     /**
-     * The one expression of "a vehicle has at most one active order", applied
-     * by every creation path and to both channels.
+     * The one expression of "a vehicle gets one order, and only a cancelled
+     * one may be replaced", applied by every creation path — customer, Admin
+     * and Partner API — and to both channels.
+     *
+     * Widened from "at most one *active* order": a completed order now bars a
+     * new one too, so a car cannot be put through the process twice. Only a
+     * cancelled or discarded order leaves the vehicle free, which is what makes
+     * calling an order off recoverable without making completion so.
      *
      * This pre-check exists to produce a useful 409 in the ordinary case —
      * before a reference is reserved and before an external booking call goes
-     * out. It cannot be the whole guarantee: two requests can both read "no
-     * active order" before either writes, and the deployment target is sqlite,
-     * where lockForUpdate() compiles to nothing. insertOrder() closes that
-     * window on the unique index.
+     * out. It cannot be the whole guarantee: two requests can both read the
+     * vehicle as free before either writes, and the deployment target is
+     * sqlite, where lockForUpdate() compiles to nothing. insertOrder() closes
+     * that window on the unique index, which still covers it: every order is
+     * created active, so two concurrent creations always collide there
+     * regardless of what the losing history looked like.
      */
-    private function assertNoActiveOrder(Vehicle $vehicle): void
+    private function assertVehicleIsFree(Vehicle $vehicle): void
     {
-        if ($this->vehicleService->hasUnfinishedOrder($vehicle->vehicle_id)) {
+        if ($this->vehicleService->blocksNewOrder($vehicle->vehicle_id)) {
             $this->failActiveOrderExists();
         }
     }
@@ -387,9 +395,17 @@ class OrderService
         }
     }
 
+    /**
+     * The wording had to widen with the rule: "not completed yet" was the
+     * whole reason a caller was refused, and now completion is one of the
+     * reasons. The 409 and the Partner API's `order_already_open` code are
+     * deliberately unchanged — they are a published contract, and the
+     * condition they describe (this vehicle cannot take another order) is
+     * still exactly what happened.
+     */
     private function failActiveOrderExists(): never
     {
-        $this->fail(409, 'vehicle previous order not completed yet');
+        $this->fail(409, 'vehicle already has an order that cannot be replaced');
     }
 
     /**

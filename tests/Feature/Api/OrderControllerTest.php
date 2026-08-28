@@ -121,7 +121,7 @@ class OrderControllerTest extends TestCase
 
     /**
      * Regression test: the unfinished-order guard (now delegated to
-     * VehicleService::hasUnfinishedOrder()) still blocks a new booking.
+     * VehicleService::blocksNewOrder()) still blocks a new booking.
      */
     public function test_cannot_create_order_when_vehicle_has_an_unfinished_order(): void
     {
@@ -140,6 +140,58 @@ class OrderControllerTest extends TestCase
             ]);
 
         $response->assertStatus(409);
+    }
+
+    /**
+     * The rule the UI shows and the API enforces are the same one: a vehicle
+     * whose case closed successfully is done, and no client — portal, Admin or
+     * partner — may open a second one on it. Pinned at the endpoint rather than
+     * on the service, because "cannot create another order through the API" is
+     * the promise being made.
+     */
+    public function test_cannot_create_order_when_the_vehicle_already_completed_one(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create(['b2c_user_id' => $owner->id]);
+        LeasybackOrder::factory()->create([
+            'vehicle_id' => $vehicle->vehicle_id,
+            'order_status' => 'completed',
+        ]);
+        $station = InspectionStation::factory()->create(['provider' => 'tuvsud']);
+
+        $this->withHeaders($this->bearer($owner))
+            ->postJson("/order/tuvsud/create/{$vehicle->vehicle_id}", [
+                'station_id' => $station->station_id,
+                'termin' => '2026-09-01T10:00:00+02:00',
+            ])
+            ->assertStatus(409);
+
+        $this->assertSame(1, LeasybackOrder::where('vehicle_id', $vehicle->vehicle_id)->count());
+    }
+
+    /**
+     * And the one case that must stay open: a cancelled order leaves the
+     * vehicle exactly as it found it, so the customer can start again.
+     */
+    public function test_can_create_order_when_the_previous_one_was_cancelled(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create(['b2c_user_id' => $owner->id]);
+        LeasybackOrder::factory()->create([
+            'vehicle_id' => $vehicle->vehicle_id,
+            'order_status' => 'cancelled',
+        ]);
+        $station = InspectionStation::factory()->create(['provider' => 'dekra']);
+
+        $this->withHeaders($this->bearer($owner))
+            ->postJson("/order/others/create/{$vehicle->vehicle_id}", [
+                'provider' => 'dekra',
+                'station_id' => $station->station_id,
+                'termin' => '2026-09-01T10:00:00+02:00',
+            ])
+            ->assertOk();
+
+        $this->assertSame(2, LeasybackOrder::where('vehicle_id', $vehicle->vehicle_id)->count());
     }
 
     public function test_can_create_an_other_provider_order(): void

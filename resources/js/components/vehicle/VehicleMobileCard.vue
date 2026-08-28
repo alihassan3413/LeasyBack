@@ -10,7 +10,7 @@
  * for both lists is what stops that happening again.
  */
 import { useB2bPermissions } from '@/composables/useB2bPermissions';
-import { canStartNewOrder } from '@/lib/customerOrderFlow';
+import { NEW_ORDER_ACTION_LABEL, newOrderAction } from '@/lib/customerOrderFlow';
 import { getOrderStatusLabel } from '@/lib/vehicleStatus';
 import type { VehicleData } from '@/types/vehicle';
 import { computed } from 'vue';
@@ -25,7 +25,9 @@ const { can } = useB2bPermissions();
 
 // A company member without orders.create would be refused by the route anyway
 // (b2b.can:orders.create) — don't offer the action.
-const canStartProcess = computed(() => canStartNewOrder(props.vehicle.orders) && can('orders.create'));
+const orderAction = computed(() => (can('orders.create') ? newOrderAction(props.vehicle.orders) : null));
+
+const orderActionLabel = computed(() => (orderAction.value ? NEW_ORDER_ACTION_LABEL[orderAction.value] : ''));
 
 const status = computed(() => {
     const current = props.vehicle.orders[0];
@@ -80,14 +82,14 @@ function formatDate(value: string | null): string {
 
         <VehicleExpandedPanel v-if="expanded" :vehicle="vehicle" />
 
-        <div v-if="canStartProcess" class="flex items-center justify-between border-t border-gray-100 px-4 py-3">
+        <div v-if="orderAction" class="flex items-center justify-between border-t border-gray-100 px-4 py-3">
             <button
                 class="flex items-center gap-2 rounded-lg px-3 py-2 font-medium text-white"
                 style="background-color: #ef8450"
                 @click.stop="emit('startProcess')"
             >
                 <IconSolarPlayBold class="h-5 w-5" />
-                <span class="text-[14px]">Vorgang starten</span>
+                <span class="text-[14px]">{{ orderActionLabel }}</span>
             </button>
         </div>
     </div>

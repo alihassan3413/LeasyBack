@@ -135,20 +135,36 @@ class B2cRepairToClosureTest extends TestCase
     // -------------------------------------------------- active-order invariant
 
     /**
-     * The reason the closed set had to change: a car nobody has collected is
-     * not a finished case, and its vehicle must stay unavailable.
+     * A car nobody has collected is not a finished case, and collecting it
+     * does not hand the vehicle back either: completion is the end of this
+     * vehicle's journey, not a reset to the start of another.
      */
-    public function test_a_vehicle_stays_claimed_until_the_car_is_actually_collected(): void
+    public function test_a_vehicle_stays_claimed_through_collection_and_after_it(): void
     {
         $order = $this->b2cOrder('reinspection');
         $vehicleId = $order->vehicle_id;
         $vehicles = app(VehicleService::class);
 
         $this->advance($order, 'delivered');
-        $this->assertTrue($vehicles->hasUnfinishedOrder($vehicleId), 'a car awaiting collection must still hold its vehicle');
+        $this->assertTrue($vehicles->blocksNewOrder($vehicleId), 'a car awaiting collection must still hold its vehicle');
 
         $this->advance($order->fresh(), 'completed');
-        $this->assertFalse($vehicles->hasUnfinishedOrder($vehicleId), 'collection releases the vehicle');
+        $this->assertTrue($vehicles->blocksNewOrder($vehicleId), 'a completed case must not free the vehicle for another order');
+    }
+
+    /**
+     * The one way back. A cancelled order produced nothing, so it must leave
+     * the vehicle as it found it — otherwise calling an order off would retire
+     * the car permanently.
+     */
+    public function test_only_a_cancelled_order_frees_the_vehicle_again(): void
+    {
+        $order = $this->b2cOrder('confirmed');
+        $vehicles = app(VehicleService::class);
+
+        $this->advance($order, 'cancelled');
+
+        $this->assertFalse($vehicles->blocksNewOrder($order->vehicle_id));
     }
 
     public function test_delivered_is_not_in_the_closed_set_and_completed_is(): void

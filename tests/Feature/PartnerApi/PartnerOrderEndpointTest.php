@@ -43,10 +43,13 @@ class PartnerOrderEndpointTest extends TestCase
      * LeasybackOrder::saving() releases each row's claim on its vehicle's
      * active-order slot. A `query()->update()` here would skip that hook and
      * leave the vehicle looking permanently busy.
+     *
+     * Cancelled rather than completed: completion closes a vehicle out for
+     * good now, so a call-off is the only ending that leaves it orderable.
      */
     private function closeAllOrders(): void
     {
-        LeasybackOrder::query()->get()->each->update(['order_status' => 'completed']);
+        LeasybackOrder::query()->get()->each->update(['order_status' => 'cancelled']);
     }
 
     private function withKey(string $token, string $key = 'order-1'): array

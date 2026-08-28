@@ -546,7 +546,12 @@ class VehicleControllerTest extends TestCase
             ->assertInertia(fn (AssertableInertia $page) => $page->where('vehicles.data.0.can_pull_documents', false));
     }
 
-    public function test_has_open_order_blocks_a_second_order(): void
+    /**
+     * The Admin row flag has to say the same thing OrderService enforces, or
+     * the menu offers "Auftrag erstellen" on a vehicle the create endpoint
+     * refuses. Completed is the case that used to disagree.
+     */
+    public function test_blocks_new_order_mirrors_the_create_rule(): void
     {
         $admin = $this->admin();
         $busy = Vehicle::factory()->create(['license_plate' => 'K OPEN 1']);
@@ -559,14 +564,23 @@ class VehicleControllerTest extends TestCase
             'vehicle_id' => $free->vehicle_id,
             'order_status' => OrderStatus::Cancelled->value,
         ]);
+        $done = Vehicle::factory()->create(['license_plate' => 'K OPEN 3']);
+        LeasybackOrder::factory()->create([
+            'vehicle_id' => $done->vehicle_id,
+            'order_status' => OrderStatus::Completed->value,
+        ]);
 
         $this->actingAs($admin)
             ->get(route('admin.vehicles.index', ['search' => 'K OPEN 1']))
-            ->assertInertia(fn (AssertableInertia $page) => $page->where('vehicles.data.0.has_open_order', true));
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('vehicles.data.0.blocks_new_order', true));
 
         $this->actingAs($admin)
             ->get(route('admin.vehicles.index', ['search' => 'K OPEN 2']))
-            ->assertInertia(fn (AssertableInertia $page) => $page->where('vehicles.data.0.has_open_order', false));
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('vehicles.data.0.blocks_new_order', false));
+
+        $this->actingAs($admin)
+            ->get(route('admin.vehicles.index', ['search' => 'K OPEN 3']))
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('vehicles.data.0.blocks_new_order', true));
     }
 
     /**

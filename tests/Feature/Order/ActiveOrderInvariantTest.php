@@ -36,7 +36,7 @@ class ActiveOrderInvariantTest extends TestCase
     use BuildsB2bCompanies;
     use RefreshDatabase;
 
-    private const CONFLICT = 'vehicle previous order not completed yet';
+    private const CONFLICT = 'vehicle already has an order that cannot be replaced';
 
     protected function setUp(): void
     {
@@ -130,7 +130,7 @@ class ActiveOrderInvariantTest extends TestCase
         // Stands in for the other request having committed between this one's
         // check and its insert.
         $blind = Mockery::mock(VehicleService::class)->makePartial();
-        $blind->shouldReceive('hasUnfinishedOrder')->andReturnFalse();
+        $blind->shouldReceive('blocksNewOrder')->andReturnFalse();
         $this->app->instance(VehicleService::class, $blind);
         $this->app->forgetInstance(OrderService::class);
 
@@ -169,12 +169,14 @@ class ActiveOrderInvariantTest extends TestCase
     // ------------------------------------------------------ releasing the slot
 
     /**
-     * Every status the domain calls closed must free the vehicle, or a
-     * customer whose case ended is locked out of ever booking again.
+     * Only an order that produced nothing frees the vehicle. Closed is no
+     * longer the test — `completed` is closed and must keep its claim, or a
+     * car that has already been through the process could be put through it
+     * again.
      */
-    public function test_a_vehicle_can_order_again_after_each_terminal_status(): void
+    public function test_a_vehicle_can_order_again_after_each_reorderable_status(): void
     {
-        foreach (OrderStatus::closedValues() as $terminal) {
+        foreach (OrderStatus::reorderableValues() as $terminal) {
             [$customer, $vehicle] = $this->privateCustomerWithVehicle();
             $station = $this->station('dekra');
 
@@ -186,6 +188,26 @@ class ActiveOrderInvariantTest extends TestCase
             $this->assertNotSame($first->id, $second->id, "status [{$terminal}] did not release the vehicle");
             $this->assertSame(2, LeasybackOrder::where('vehicle_id', $vehicle->vehicle_id)->count());
         }
+    }
+
+    /**
+     * The other half of the same rule, and the change this pins: a successful
+     * case closes the vehicle out for good. Asserted through the service, so
+     * it holds for every caller that reaches a creation method.
+     */
+    public function test_a_completed_order_never_frees_the_vehicle(): void
+    {
+        [$customer, $vehicle] = $this->privateCustomerWithVehicle();
+        $station = $this->station('dekra');
+
+        $first = app(OrderService::class)->createOtherOrder($vehicle, $customer, $this->otherPayload($station));
+        $first->update(['order_status' => OrderStatus::Completed->value]);
+
+        $this->assertConflict(
+            fn () => app(OrderService::class)->createOtherOrder($vehicle, $customer, $this->otherPayload($station)),
+        );
+
+        $this->assertSame(1, LeasybackOrder::where('vehicle_id', $vehicle->vehicle_id)->count());
     }
 
     // ----------------------------------------------------------------- B2B
@@ -205,17 +227,28 @@ class ActiveOrderInvariantTest extends TestCase
         $this->assertSame(1, LeasybackOrder::where('vehicle_id', $vehicle->vehicle_id)->count());
     }
 
-    public function test_a_b2b_vehicle_can_order_again_after_its_own_terminal_status(): void
+    /**
+     * The rule is one rule, not a B2C one: a fleet vehicle whose return
+     * completed is as finished as a private customer's car, and a cancelled
+     * collection is as recoverable.
+     */
+    public function test_a_b2b_vehicle_reorders_after_cancellation_but_not_after_completion(): void
     {
         $company = $this->makeCompany();
         $owner = $this->makeOwner($company);
         $vehicle = $this->shim($this->makeB2bVehicle($company)->vehicle_id);
 
         $first = app(OrderService::class)->createB2bCollectionOrder($vehicle, $owner, $this->collectionPayload());
-        // `completed` is the B2B terminal; `delivered` is refused on this channel.
-        $first->update(['order_status' => OrderStatus::Completed->value]);
+        $first->update(['order_status' => OrderStatus::Cancelled->value]);
 
-        app(OrderService::class)->createB2bCollectionOrder($vehicle, $owner, $this->collectionPayload());
+        $second = app(OrderService::class)->createB2bCollectionOrder($vehicle, $owner, $this->collectionPayload());
+        $this->assertSame(2, LeasybackOrder::where('vehicle_id', $vehicle->vehicle_id)->count());
+
+        $second->update(['order_status' => OrderStatus::Completed->value]);
+
+        $this->assertConflict(
+            fn () => app(OrderService::class)->createB2bCollectionOrder($vehicle, $owner, $this->collectionPayload()),
+        );
 
         $this->assertSame(2, LeasybackOrder::where('vehicle_id', $vehicle->vehicle_id)->count());
     }

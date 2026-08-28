@@ -942,11 +942,12 @@ class AdminQueryService
                     ['order_placed', 'discarded'],
                 )),
                 // Drives the row menu's "Auftrag erstellen" / "Dokumente
-                // abrufen" entries. has_open_order mirrors
-                // VehicleService::hasUnfinishedOrder(), the rule
-                // OrderService actually enforces on create.
-                'has_open_order' => collect($history[$row->vehicle_id] ?? [])->contains(
-                    fn (array $order) => ! in_array($order['order_status'], OrderStatus::closedValues(), true)
+                // abrufen" entries. Mirrors VehicleService::blocksNewOrder(),
+                // the rule OrderService actually enforces on create — renamed
+                // from `has_open_order` along with it, because a completed
+                // order is not open and now bars a new one all the same.
+                'blocks_new_order' => collect($history[$row->vehicle_id] ?? [])->contains(
+                    fn (array $order) => ! in_array($order['order_status'], OrderStatus::reorderableValues(), true)
                 ),
                 'can_pull_documents' => (bool) ($canPull[$row->vehicle_id] ?? false),
                 'order_history' => $history[$row->vehicle_id] ?? [],

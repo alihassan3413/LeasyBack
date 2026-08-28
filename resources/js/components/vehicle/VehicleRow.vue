@@ -4,7 +4,7 @@ import OrderCreationModal from '@/components/vehicle/OrderCreationModal.vue';
 import VehicleActionsMenu from '@/components/vehicle/VehicleActionsMenu.vue';
 import VehicleExpandedPanel from '@/components/vehicle/VehicleExpandedPanel.vue';
 import { useB2bPermissions } from '@/composables/useB2bPermissions';
-import { canStartNewOrder } from '@/lib/customerOrderFlow';
+import { NEW_ORDER_ACTION_LABEL, newOrderAction } from '@/lib/customerOrderFlow';
 import { getOrderStatusLabel } from '@/lib/vehicleStatus';
 import type { StationData } from '@/types/order';
 import type { VehicleData } from '@/types/vehicle';
@@ -25,7 +25,11 @@ const { can } = useB2bPermissions();
 
 // A company member without orders.create would be refused by the route
 // anyway (b2b.can:orders.create) — don't offer the action.
-const canStartProcess = computed(() => canStartNewOrder(props.vehicle.orders) && can('orders.create'));
+const orderAction = computed(() => (can('orders.create') ? newOrderAction(props.vehicle.orders) : null));
+
+// The row's control is an icon, so its title is the only place the difference
+// between starting and starting over is ever said.
+const orderActionLabel = computed(() => (orderAction.value ? NEW_ORDER_ACTION_LABEL[orderAction.value] : ''));
 
 const vehicleStatus = computed(() => {
     const current = props.vehicle.orders[0];
@@ -104,7 +108,13 @@ function startProcess() {
                     <IconMdiOpenInNew class="h-[18px] w-[18px]" />
                 </button>
 
-                <button v-if="canStartProcess" class="rounded p-1 transition-opacity hover:bg-orange-50 hover:opacity-70" @click.stop="startProcess">
+                <button
+                    v-if="orderAction"
+                    class="rounded p-1 transition-opacity hover:bg-orange-50 hover:opacity-70"
+                    :title="orderActionLabel"
+                    :aria-label="orderActionLabel"
+                    @click.stop="startProcess"
+                >
                     <IconSolarPlayBold class="h-5 w-5" style="color: rgb(239, 132, 80)" />
                 </button>
 

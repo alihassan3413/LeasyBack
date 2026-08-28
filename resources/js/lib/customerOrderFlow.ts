@@ -1121,22 +1121,42 @@ export function getCustomerOrderFlowSteps(ctx: CustomerOrderFlowInput): Customer
 
 /**
  * Statuses that leave a vehicle free for a new order — the frontend mirror of
- * VehicleService::hasUnfinishedOrder(), which the create-order endpoint
- * enforces.
+ * OrderStatus::reorderableValues(), which VehicleService::blocksNewOrder() and
+ * the create-order endpoint enforce.
+ *
+ * `delivered` used to be in here, left behind from when it was a terminal
+ * status; the button it produced was refused by the server every time, because
+ * a car nobody has collected still holds its vehicle. `completed` used to be
+ * here too, and is now deliberately out: a vehicle that has been through the
+ * process is done with it.
  */
-const FINISHED_ORDER_STATUSES = new Set(['delivered', 'completed', 'cancelled', 'discarded']);
+const REORDERABLE_ORDER_STATUSES = new Set(['cancelled', 'discarded']);
 
 /**
- * Whether the customer may start a new process for this vehicle.
+ * What the vehicle's order button should offer, if anything.
  *
- * Must not be "has no orders at all": cancelled orders are part of the
- * customer's history now, and a vehicle whose only order was cancelled has to
- * stay startable — otherwise a cancellation permanently locks the vehicle out
- * of the flow.
+ * `start` for a vehicle that has never been ordered for, `restart` where every
+ * order it has was called off — the same creation flow either way, but the
+ * wording has to differ or a reorder reads as though nothing had happened
+ * before it. `null` covers both "an order is running" and "the case is closed
+ * for good", which is why this returns an action rather than a boolean: those
+ * two say nothing and there is nothing to distinguish.
  */
-export function canStartNewOrder(orders: ReadonlyArray<{ order_status: string }>): boolean {
-    return orders.every((order) => FINISHED_ORDER_STATUSES.has((order.order_status ?? '').trim()));
+export type NewOrderAction = 'start' | 'restart';
+
+export function newOrderAction(orders: ReadonlyArray<{ order_status: string }>): NewOrderAction | null {
+    if (!orders.every((order) => REORDERABLE_ORDER_STATUSES.has((order.order_status ?? '').trim()))) {
+        return null;
+    }
+
+    return orders.length > 0 ? 'restart' : 'start';
 }
+
+/** The button's own wording, kept next to the rule that decides it. */
+export const NEW_ORDER_ACTION_LABEL: Record<NewOrderAction, string> = {
+    start: 'Vorgang starten',
+    restart: 'Vorgang erneut starten',
+};
 
 export function getCustomerOrderHeadline(steps: ReadonlyArray<CustomerOrderFlowStep> | null): { label: string; tooltipDescription: string } | null {
     if (!steps) {

@@ -377,13 +377,20 @@ class VehicleService
     }
 
     /**
-     * Check if vehicle has an unfinished order.
+     * Whether this vehicle's order history bars a new order.
+     *
+     * Named for what it decides rather than for what it reads, because the two
+     * stopped coinciding: this used to ask "is an order still unfinished",
+     * which let a `completed` order release the vehicle. A finished case is
+     * exactly the one that must keep it — the car has been through the process
+     * — so the question is now which statuses leave the vehicle *free*, and
+     * OrderStatus::reorderableValues() is the single answer to it.
      */
-    public function hasUnfinishedOrder(string $vehicleId): bool
+    public function blocksNewOrder(string $vehicleId): bool
     {
         return DB::table('leasyback_orders')
             ->where('vehicle_id', $vehicleId)
-            ->whereNotIn('order_status', OrderStatus::closedValues())
+            ->whereNotIn('order_status', OrderStatus::reorderableValues())
             ->exists();
     }
 

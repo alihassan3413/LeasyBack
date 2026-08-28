@@ -116,7 +116,7 @@ export interface AdminVehicleRow {
     /** Allowed next statuses for `current_order_id`, for the list row's action menu. */
     current_order_transitions: string[];
     /** True while an order is neither delivered nor cancelled/discarded — blocks creating another. */
-    has_open_order: boolean;
+    blocks_new_order: boolean;
     /** True when a TÜV SÜD order carries a Gutachtennummer the appraisal pull can use. */
     can_pull_documents: boolean;
     /** The vehicle's default pickup address; always null on a B2C vehicle. Prefills the B2B order modal. */

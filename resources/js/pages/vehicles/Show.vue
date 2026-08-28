@@ -8,7 +8,7 @@ import OrderProgress from '@/components/vehicle/OrderProgress.vue';
 import UploadDocumentModal from '@/components/vehicle/UploadDocumentModal.vue';
 import { useLiveUpdates } from '@/composables/useLiveUpdates';
 import AppLayout from '@/layouts/AppLayout.vue';
-import { canStartNewOrder, getCustomerOrderFlowSteps } from '@/lib/customerOrderFlow';
+import { NEW_ORDER_ACTION_LABEL, getCustomerOrderFlowSteps, newOrderAction } from '@/lib/customerOrderFlow';
 import { getVehicleStatusDisplay } from '@/lib/vehicleStatus';
 import type { StationData } from '@/types/order';
 import type { VehicleData } from '@/types/vehicle';
@@ -35,7 +35,8 @@ const uploadOpen = ref(false);
 
 const currentOrder = computed(() => props.vehicle.orders[0] ?? null);
 /** Not `!currentOrder`: a cancelled order still shows in the history but must not block a new one. */
-const canStart = computed(() => canStartNewOrder(props.vehicle.orders));
+const orderAction = computed(() => newOrderAction(props.vehicle.orders));
+const orderActionLabel = computed(() => (orderAction.value ? NEW_ORDER_ACTION_LABEL[orderAction.value] : ''));
 const status = computed(() => getVehicleStatusDisplay(currentOrder.value?.order_status));
 
 const offers = computed(() => props.vehicle.orders.flatMap((order) => order.offers));
@@ -152,13 +153,13 @@ function formatDateTime(value: string | undefined): string {
 
                 <div class="flex flex-wrap items-center gap-2">
                     <button
-                        v-if="canStart"
+                        v-if="orderAction"
                         type="button"
                         class="h-10 rounded-full px-5 text-[13px] font-semibold text-white shadow-lg transition-all"
                         style="background: #ef8450"
                         @click="orderOpen = true"
                     >
-                        Vorgang starten
+                        {{ orderActionLabel }}
                     </button>
                     <button
                         type="button"
@@ -194,7 +195,13 @@ function formatDateTime(value: string | undefined): string {
                         <div class="px-5 py-5">
                             <OrderProgress v-if="steps" :steps="steps" />
 
-                            <div v-else class="flex flex-col items-start gap-3 py-2">
+                            <!--
+                                Gated like the header button rather than on the absent
+                                timeline: `steps` is also null for an order whose status
+                                the flow cannot place, and offering to start one there
+                                produced a button the server refuses.
+                            -->
+                            <div v-else-if="orderAction" class="flex flex-col items-start gap-3 py-2">
                                 <p class="text-[13px] text-[#00000080]">Starten Sie den Vorgang, um einen Begutachtungstermin zu buchen.</p>
                                 <button
                                     type="button"
@@ -202,7 +209,7 @@ function formatDateTime(value: string | undefined): string {
                                     style="background: #ef8450"
                                     @click="orderOpen = true"
                                 >
-                                    Vorgang starten
+                                    {{ orderActionLabel }}
                                 </button>
                             </div>
                         </div>
