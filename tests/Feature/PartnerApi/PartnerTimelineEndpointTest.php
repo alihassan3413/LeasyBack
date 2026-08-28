@@ -92,6 +92,46 @@ class PartnerTimelineEndpointTest extends TestCase
         );
     }
 
+    /**
+     * The closing stage of a finished order.
+     *
+     * It used to report `current` and `completed: false` permanently, because
+     * the builder marks only the stages *behind* the current index as done —
+     * fine while there is work in progress, wrong at the end, and flatly at
+     * odds with the `is_open: false` in the same response. A partner polling
+     * this saw a return that never finished its last step.
+     *
+     * The portal's copy of this timeline had the identical defect and is fixed
+     * with it; there it surfaced as a grey final step on the customer's page
+     * after Admin had marked the order completed.
+     */
+    public function test_a_completed_order_marks_its_closing_stage_completed(): void
+    {
+        [$client, $token] = $this->makeAuthenticatedPartner();
+        $order = $this->makeB2bOrder($client->b2b_id, OrderStatus::Completed);
+        $this->recordTransition($order, 'invoice_processed', 'completed', now()->subDay());
+
+        // The half of the contradiction that was already right.
+        $this->withHeaders($this->bearer($token))
+            ->getJson(route('partner.v1.orders.status', $order->id))
+            ->assertOk()
+            ->assertJsonPath('data.status.is_open', false);
+
+        $response = $this->withHeaders($this->bearer($token))
+            ->getJson(route('partner.v1.orders.timeline', $order->id))
+            ->assertOk()
+            ->assertJsonPath('data.current_stage', 'order_completed');
+
+        $stages = collect($response->json('data.stages'))->keyBy('code');
+
+        $this->assertSame('completed', $stages['order_completed']['state']);
+        $this->assertTrue($stages['order_completed']['completed']);
+        // Still the current stage: `current_stage` is derived from this and has
+        // to keep naming the stage the order ended on.
+        $this->assertTrue($stages['order_completed']['is_current']);
+        $this->assertSame(now()->subDay()->toIso8601String(), $stages['order_completed']['occurred_at']);
+    }
+
     public function test_the_timeline_history_is_the_status_trail_without_audit_metadata(): void
     {
         [$client, $token] = $this->makeAuthenticatedPartner();

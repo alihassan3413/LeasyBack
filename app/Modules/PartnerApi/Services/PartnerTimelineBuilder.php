@@ -310,9 +310,23 @@ class PartnerTimelineBuilder
     ): array {
         $stages = [];
 
+        $closedSuccessfully = trim((string) $order->order_status) === OrderStatus::Completed->value;
+
         foreach (self::STAGES as $index => $stage) {
-            $completed = $index < $progressIndex;
             $isCurrent = ! $isCancelled && $index === $progressIndex;
+            /*
+             * The rung the order stands on is normally still in progress. On
+             * the successful terminal it is the rung the order *finished* on,
+             * so it counts as completed too — otherwise a closed order reported
+             * its last stage as `current` and `completed: false` forever, which
+             * contradicted the `is_open: false` in the same response.
+             *
+             * Mirrors customerOrderFlow.ts's CLOSED_SUCCESSFULLY, the same fix
+             * in the client's copy of this timeline. `is_current` stays true:
+             * `current_stage` is derived from it and must keep naming the stage
+             * the order ended on.
+             */
+            $completed = $index < $progressIndex || ($isCurrent && $closedSuccessfully);
             $cancelledHere = $isCancelled && $index === $progressIndex;
 
             $occurredAt = match (true) {

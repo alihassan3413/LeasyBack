@@ -17,6 +17,7 @@ use App\Support\PartnerLifecyclePermissions;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
+use Inertia\Testing\AssertableInertia;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\B2b\Concerns\BuildsB2bCompanies;
 use Tests\TestCase;
@@ -326,7 +327,114 @@ class B2cRepairToClosureTest extends TestCase
         $this->assertSame('completed', $order->fresh()->order_status);
     }
 
+    // ------------------------------------------------- what the customer reloads
+
+    /**
+     * QA's report: Admin marks the order completed, Admin's own timeline shows
+     * it, and the customer's page still draws the last step as unfinished after
+     * a refresh.
+     *
+     * The client derives that timeline entirely from these two fields —
+     * getCustomerOrderFlowSteps() reads `order_status` to place the order and
+     * `status_updates` to date the closing stage — so what is pinned here is
+     * that a reload genuinely carries both. Both B2C surfaces are asserted,
+     * because they build the same steps from separately assembled payloads and
+     * the reported symptom appeared on only one of them.
+     */
+    public function test_a_completed_case_reloads_as_completed_on_both_customer_surfaces(): void
+    {
+        [$owner, $order] = $this->ownedB2cOrder('workshop');
+
+        foreach (['reinspection', 'delivered', 'completed'] as $next) {
+            $order = $this->advance($order, $next);
+        }
+
+        $closure = fn (AssertableInertia $page, string $at) => $page
+            ->where("{$at}.orders.0.order_status", 'completed')
+            ->where("{$at}.orders.0.status_updates.0.new_status", 'completed')
+            ->where("{$at}.orders.0.status_updates.0.old_status", 'delivered');
+
+        $this->actingAs($owner)
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $closure($page, 'vehicles.0'));
+
+        $this->actingAs($owner)
+            ->get(route('vehicles.show', $order->vehicle_id))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $closure($page, 'vehicle'));
+    }
+
+    /**
+     * The repair-payment stage has to reach both customer surfaces, and be the
+     * same one on each.
+     *
+     * The vehicle page derives its payment rung from this field. It was present
+     * in the payload all along and simply not read, which resolved the stage to
+     * `none`, made the settled charge invisible to stageHappened() and drew the
+     * rung as a skipped step captioned "kein Kundenangebot erstellt" over a
+     * repair the customer had paid for. Asserting parity rather than a literal:
+     * what must hold is that the two pages cannot disagree about the payment.
+     */
+    public function test_both_customer_surfaces_carry_the_same_repair_payment_stage(): void
+    {
+        [$owner, $order] = $this->ownedB2cOrder('reinspection');
+
+        $this->advance($order, 'delivered');
+
+        $stageOn = fn (string $route, mixed $args, string $at) => data_get(
+            $this->actingAs($owner)->get(route($route, $args))->assertOk()->viewData('page'),
+            "props.{$at}.orders.0.payment.repair_stage",
+        );
+
+        $dashboard = $stageOn('dashboard', [], 'vehicles.0');
+        $detail = $stageOn('vehicles.show', $order->vehicle_id, 'vehicle');
+
+        $this->assertNotNull($detail, 'the vehicle page cannot derive a payment rung without this');
+        $this->assertSame($dashboard, $detail);
+    }
+
+    /**
+     * The closing transition has to leave a history row of its own. It is the
+     * only record of when the case closed — the timeline dates its final stage
+     * from it, and nothing else in the payload carries that moment.
+     */
+    public function test_closure_is_recorded_as_its_own_history_entry(): void
+    {
+        [, $order] = $this->ownedB2cOrder('delivered');
+
+        $this->advance($order, 'completed');
+
+        $entry = OrderStatusUpdate::where('auftragsnummer', $order->auftragsnummer)
+            ->where('new_status', 'completed')
+            ->sole();
+
+        $this->assertSame('delivered', $entry->old_status);
+        $this->assertNotNull($entry->created_at);
+    }
+
     // -------------------------------------------------------------- helpers
+
+    /**
+     * A B2C order whose vehicle has a real owner, so the customer-facing
+     * routes resolve it. b2cOrder() deliberately leaves the vehicle unowned.
+     *
+     * @return array{User, LeasybackOrder}
+     */
+    private function ownedB2cOrder(string $status): array
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create([
+            'vehicle_belongs' => 'B2C',
+            'b2b_id' => null,
+            'b2c_user_id' => $owner->id,
+        ]);
+
+        return [$owner, LeasybackOrder::factory()->create([
+            'vehicle_id' => $vehicle->vehicle_id,
+            'order_status' => $status,
+        ])];
+    }
 
     private function advance(LeasybackOrder $order, string $to): LeasybackOrder
     {

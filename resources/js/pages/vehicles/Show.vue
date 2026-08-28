@@ -37,7 +37,9 @@ const currentOrder = computed(() => props.vehicle.orders[0] ?? null);
 /** Not `!currentOrder`: a cancelled order still shows in the history but must not block a new one. */
 const orderAction = computed(() => newOrderAction(props.vehicle.orders));
 const orderActionLabel = computed(() => (orderAction.value ? NEW_ORDER_ACTION_LABEL[orderAction.value] : ''));
-const status = computed(() => getVehicleStatusDisplay(currentOrder.value?.order_status));
+// The derived stage, like VehicleRow.vue's badge — without it this header read
+// "Abholbereit" over a timeline saying "Zahlung erforderlich" on the same order.
+const status = computed(() => getVehicleStatusDisplay(currentOrder.value?.order_status, currentOrder.value?.payment?.repair_stage));
 
 const offers = computed(() => props.vehicle.orders.flatMap((order) => order.offers));
 
@@ -57,6 +59,20 @@ const steps = computed(() => {
         offers: order.offers,
         collection: order.collection,
         channel: props.vehicle.vehicle_belongs,
+        // Same server-derived stage VehicleExpandedPanel.vue passes. Omitting
+        // it resolved the stage to `none`, so stageHappened() could not see a
+        // settled charge and marked the payment rung *skipped* — drawn grey and
+        // captioned "kein Kundenangebot erstellt" on a repair the customer had
+        // paid for.
+        repairPayment: {
+            stage: order.payment?.repair_stage ?? 'none',
+            status: order.payment?.repair?.status ?? null,
+            amount_cents: order.payment?.repair?.amount_cents ?? null,
+            // This page has no pay control, so the action must never be offered
+            // here — only the dashboard panel can carry it out.
+            payable: false,
+        },
+        audience: 'customer',
     });
 });
 

@@ -641,6 +641,24 @@ const COMMISSIONED_STATUS = 'workshop_commissioned';
 const CLOSING_STATUSES = new Set(['vehicle_returned', 'invoice_processed']);
 const TERMINAL_STATUSES = new Set(['cancelled']);
 
+/**
+ * The successful terminal, as against TERMINAL_STATUSES' unsuccessful one.
+ *
+ * Both flows mark the rung an order stands on as `isCurrent` and every rung
+ * behind it as `completed`, which is right while there is work in progress and
+ * wrong at the end: the closing stage is the rung the order *finished* on, and
+ * marking it current alone left a finished case drawn with an unfinished last
+ * step. It stays `isCurrent` as well — the page header and the Admin status
+ * header both read their headline from it.
+ *
+ * Only one surface ever showed the bug. toOrderTimelineEntries() folds
+ * `isCurrent` into `completed` for its own rendering, so the dashboard panel
+ * and Admin looked correct; OrderProgress.vue reads `step.completed` straight
+ * from here, which is why the B2C vehicle page — and only it — kept the last
+ * step grey after an order was completed.
+ */
+const CLOSED_SUCCESSFULLY = 'completed';
+
 function resolveProgressIndex(
     status: string,
     relevantOffer: CustomerOrderOffer | null,
@@ -1010,8 +1028,8 @@ function getB2bOrderFlowSteps(ctx: CustomerOrderFlowInput): CustomerOrderFlowSte
     let nextAssigned = false;
 
     return B2B_ORDER_STAGE_SEQUENCE.map((stage, index) => {
-        const completed = index < progressIndex;
         const isCurrent = index === progressIndex;
+        const completed = index < progressIndex || (isCurrent && status === CLOSED_SUCCESSFULLY);
         const isNext = index > progressIndex && !nextAssigned;
 
         if (isNext) {
@@ -1096,8 +1114,8 @@ export function getCustomerOrderFlowSteps(ctx: CustomerOrderFlowInput): Customer
         // without ever going through an offer. Neither ticked nor pending: it is
         // a step this order did not take.
         const skipped = reached && !stageHappened(stage, ctx);
-        const completed = reached && !skipped;
         const isCurrent = index === progressIndex;
+        const completed = (reached && !skipped) || (isCurrent && status === CLOSED_SUCCESSFULLY);
         const isUpcoming = index > progressIndex;
         const isNext = isUpcoming && !nextAssigned;
 
