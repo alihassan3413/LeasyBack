@@ -275,15 +275,71 @@ class OrderTaskResolverTest extends TestCase
         $this->assertSame(['status' => 'reinspection'], $task['action']['payload']);
     }
 
+    /**
+     * The paid repair the customer has no document for. B2C never had a
+     * billing step, so the only invoice a private customer could ever receive
+     * was one an admin thought to upload unprompted.
+     */
+    public function test_a_paid_repair_without_an_invoice_asks_for_one(): void
+    {
+        $order = $this->readyForPickup();
+
+        $task = $this->nextTask($order);
+
+        $this->assertSame('provide_invoice', $task['key']);
+        $this->assertSame('Rechnung bereitstellen', $task['title']);
+        $this->assertSame(OrderTaskResolver::SECTION_DOCUMENTS, $task['section']);
+        $this->assertSame(OrderTaskResolver::ACTION_MODAL, $task['action']['type']);
+        $this->assertSame(OrderTaskResolver::UI_UPLOAD_REPORT, $task['action']['key']);
+        $this->assertSame('rechnung', $task['action']['payload']['document_type']);
+    }
+
+    /**
+     * Asking is all it does. The handover is a physical event and must never
+     * wait on paperwork, so the transition stays offered either way.
+     */
+    public function test_the_invoice_step_does_not_gate_the_handover(): void
+    {
+        $order = $this->readyForPickup();
+
+        $this->assertContains('completed', $this->availableTransitions($order));
+    }
+
     public function test_a_vehicle_ready_for_pickup_asks_for_the_collection(): void
     {
         $order = $this->readyForPickup();
+        $this->publishDocument($order, 'rechnung');
 
         $task = $this->nextTask($order);
 
         $this->assertSame('confirm_pickup', $task['key']);
         $this->assertSame('Fahrzeugabholung bestätigen', $task['title']);
         $this->assertSame(['status' => 'completed'], $task['action']['payload']);
+    }
+
+    /**
+     * An unpublished upload is a draft the customer cannot open, so it is not
+     * an invoice they have been given — the step stays open on it.
+     */
+    public function test_an_unpublished_invoice_does_not_satisfy_the_step(): void
+    {
+        $order = $this->readyForPickup();
+        $this->publishDocument($order, 'rechnung', published: false);
+
+        $this->assertSame('provide_invoice', $this->nextTask($order)['key']);
+    }
+
+    /**
+     * The step reads the settled charge, not the status. An order that was
+     * never charged — a repair that came to nothing, or one predating payments
+     * entirely — has no invoice to hand over, and being nagged for one on every
+     * such order would train admins to ignore the card.
+     */
+    public function test_a_delivered_order_that_was_never_charged_skips_the_invoice_step(): void
+    {
+        $order = $this->b2cOrder('delivered');
+
+        $this->assertSame('confirm_pickup', $this->nextTask($order)['key']);
     }
 
     public function test_a_completed_order_has_no_task(): void
@@ -402,8 +458,13 @@ class OrderTaskResolverTest extends TestCase
             'set_repair_appointment',
             'await_repair',
             'evaluate_reinspection',
-            'confirm_pickup',
+            'provide_invoice',
         ], $seen);
+
+        // The invoice is the last thing owed before the case closes, so the
+        // handover only becomes the suggested step once the customer has it.
+        $this->publishDocument($order, 'rechnung');
+        $this->assertSame('confirm_pickup', $this->nextTask($order->fresh())['key']);
 
         $this->advance($order->fresh(), 'completed');
         $this->assertNull($this->tasks($order)['next']);
@@ -461,6 +522,10 @@ class OrderTaskResolverTest extends TestCase
         // reinspection -> delivered
         $this->runNextAction($order);
         $this->assertSame('delivered', $order->fresh()->order_status);
+
+        // The invoice step's action opens a modal rather than firing a
+        // request, so it is satisfied the way an admin would satisfy it.
+        $this->publishDocument($order, 'rechnung');
 
         // delivered -> completed
         $this->runNextAction($order);

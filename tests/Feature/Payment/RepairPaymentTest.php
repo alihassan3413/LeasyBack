@@ -337,6 +337,11 @@ class RepairPaymentTest extends TestCase
             'order_status' => OrderStatus::Delivered->value,
             'status_updates' => [],
             'repair_payment' => ['status' => 'paid', 'blocks_pickup' => false],
+            // A settled charge owes the customer an invoice before the case
+            // closes, so that step is what the tree asks for first.
+            'report_documents' => [
+                ['document_type' => 'rechnung', 'published' => true, 'created_at' => '2026-08-01T10:00:00+00:00'],
+            ],
         ]);
 
         $this->assertSame('confirm_pickup', $tasks['next']['key']);

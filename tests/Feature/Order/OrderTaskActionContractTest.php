@@ -238,11 +238,27 @@ class OrderTaskActionContractTest extends TestCase
         $task = $this->nextTask($this->order([
             'order_status' => 'delivered',
             'repair_payment' => ['status' => 'paid', 'blocks_pickup' => false],
+            // A paid repair owes the customer an invoice, and that step comes
+            // first; with it satisfied the handover is what remains.
+            'report_documents' => [$this->publishedReport(DocumentType::Rechnung->value)],
         ]));
 
         $this->assertSame('confirm_pickup', $task['key']);
         $this->assertSame(OrderTaskResolver::ACTION_REQUEST, $task['action']['type']);
         $this->assertSame('completed', $task['action']['payload']['status']);
+    }
+
+    public function test_provide_invoice_opens_the_upload_modal(): void
+    {
+        $task = $this->nextTask($this->order([
+            'order_status' => 'delivered',
+            'repair_payment' => ['status' => 'paid', 'blocks_pickup' => false],
+        ]));
+
+        $this->assertSame('provide_invoice', $task['key']);
+        $this->assertSame(OrderTaskResolver::ACTION_MODAL, $task['action']['type']);
+        $this->assertSame(OrderTaskResolver::UI_UPLOAD_REPORT, $task['action']['key']);
+        $this->assertSame(DocumentType::Rechnung->value, $task['action']['payload']['document_type']);
     }
 
     // ---- informational tasks stay actionless ------------------------------

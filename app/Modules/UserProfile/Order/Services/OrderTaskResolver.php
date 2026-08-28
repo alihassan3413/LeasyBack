@@ -726,6 +726,36 @@ class OrderTaskResolver
                 action: null,
                 actor: self::ACTOR_CUSTOMER,
             ),
+            /*
+             * B2C's counterpart to the B2B billing step, and deliberately not
+             * a copy of it: there is no `order_billings` row here, no invoice
+             * number and no completion gate. The customer has already paid
+             * through Stripe, so nothing about the money is outstanding — what
+             * is outstanding is the document they are owed for it, and the
+             * only thing standing between them and it was that nothing asked
+             * an admin to upload one.
+             *
+             * Ahead of `confirm_pickup` because the tree surfaces exactly one
+             * open step and goes silent once the order is closed: a step that
+             * only came due at `completed` could never be shown at all. It
+             * still gates nothing — the status card offers „Abholung
+             * bestätigen" throughout, and TransitionOrderStatus is untouched.
+             *
+             * Gated on an actual settled charge rather than on `delivered`
+             * alone: a repair that cost the customer nothing has no invoice to
+             * hand over, and an order that predates payments has none to find.
+             */
+            $this->definition(
+                key: 'provide_invoice',
+                title: 'Rechnung bereitstellen',
+                description: 'Die Reparaturkosten sind bezahlt. Laden Sie die Rechnung hoch und veröffentlichen Sie sie — der Kunde findet sie danach in seinem Vorgang.',
+                section: self::SECTION_DOCUMENTS,
+                done: $context['rechnung'] !== null,
+                open: $rank === 7 && $context['repair_payment_status'] === 'paid',
+                date: $context['rechnung']['created_at'] ?? $dates['delivered'] ?? null,
+                dateLabel: $context['rechnung'] !== null ? 'Rechnung vom' : 'Abholbereit seit',
+                action: $this->modalAction(self::UI_UPLOAD_REPORT, 'Rechnung hochladen', ['document_type' => DocumentType::Rechnung->value, 'title' => 'Rechnung hochladen']),
+            ),
             $this->definition(
                 key: 'confirm_pickup',
                 title: 'Fahrzeugabholung bestätigen',

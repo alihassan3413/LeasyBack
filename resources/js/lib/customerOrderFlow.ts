@@ -741,6 +741,14 @@ function cancellationActor(authSource?: string | null): string {
     }
 }
 
+/**
+ * Every rung from the follow-up inspection onwards carries the invoice link.
+ * `case_closed` is in the list because a finished order rests on it, and its
+ * own subtitle promises the documents stay available — leaving it out was the
+ * one place that promise was not kept.
+ */
+const INVOICE_STAGES = new Set<CustomerOrderStage>(['followup_completed', 'awaiting_payment', 'vehicle_ready', 'case_closed']);
+
 function buildStep(
     stage: CustomerOrderStage,
     ctx: CustomerOrderFlowInput,
@@ -884,9 +892,8 @@ function buildStep(
         step.reportDocUrl = resolveDocUrl(gutachtenDoc);
     }
 
-    if (stage === 'followup_completed') {
-        if (nachgutachtenDoc) step.reportDocUrl = resolveDocUrl(nachgutachtenDoc);
-        if (rechnungDoc) step.invoiceDocUrl = resolveDocUrl(rechnungDoc);
+    if (stage === 'followup_completed' && nachgutachtenDoc) {
+        step.reportDocUrl = resolveDocUrl(nachgutachtenDoc);
     }
 
     // Moved off `followup_completed`, where it sat next to the report links and
@@ -897,11 +904,7 @@ function buildStep(
         step.showPaymentAction = true;
     }
 
-    if (stage === 'awaiting_payment' && rechnungDoc) {
-        step.invoiceDocUrl = resolveDocUrl(rechnungDoc);
-    }
-
-    if (stage === 'vehicle_ready' && rechnungDoc) {
+    if (rechnungDoc && INVOICE_STAGES.has(stage)) {
         step.invoiceDocUrl = resolveDocUrl(rechnungDoc);
     }
 
