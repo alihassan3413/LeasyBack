@@ -14,9 +14,10 @@ import { formatGermanDateTime, getCustomerOrderFlowSteps, getCustomerOrderHeadli
 import { formatPortalDate } from '@/lib/portalDate';
 import { toOrderTimelineEntries, type OrderTimelineEntry } from '@/lib/timeline';
 import { getOrderStatusLabel } from '@/lib/vehicleStatus';
+import type { SharedData } from '@/types';
 import type { B2bOfferPresentationData, B2bOfferPresentationLine, OfferData } from '@/types/order';
 import type { VehicleCollectionAddress, VehicleData } from '@/types/vehicle';
-import { router } from '@inertiajs/vue3';
+import { router, usePage } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 
 interface PanelDocument {
@@ -409,6 +410,12 @@ function presentedLineAmount(line: B2bOfferPresentationLine, key: 'appraisal_amo
 
     return gross != null ? formatEuro(gross) : formatEuro(line[`${key}_net`] ?? null);
 }
+
+const page = usePage<SharedData>();
+
+const cancellationFeeLabel = computed(() =>
+    new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format((page.props.payments?.cancellation_fee_cents ?? 20000) / 100),
+);
 
 const rejectOpen = ref(false);
 const rejectComment = ref('');
@@ -998,6 +1005,10 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                             </div>
 
                             <div v-if="rejectOpen && !admin && offer.status === 'published'" class="mt-3 flex flex-col gap-2">
+                                <p class="rounded-[13px] border border-amber-300 bg-amber-50 p-3 text-[13px] leading-relaxed text-amber-900">
+                                    Wenn Sie dieses Reparaturangebot ablehnen, fällt eine Gebühr von
+                                    <span class="font-bold">{{ cancellationFeeLabel }}</span> an.
+                                </p>
                                 <textarea
                                     v-model="rejectComment"
                                     rows="3"

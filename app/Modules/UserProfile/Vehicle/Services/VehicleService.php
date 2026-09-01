@@ -17,6 +17,7 @@ use App\Modules\UserProfile\Order\Services\RepairOfferService;
 use App\Modules\UserProfile\Payment\Enums\PaymentPurpose;
 use App\Modules\UserProfile\Payment\Enums\PaymentStatus;
 use App\Modules\UserProfile\Payment\Models\OrderPaymentMethod;
+use App\Modules\UserProfile\Payment\Support\TuvAppointment;
 use App\Support\OrderHistory;
 use App\Support\PortalTimestamp;
 use App\Support\RepairPaymentPresentation;
@@ -940,6 +941,9 @@ class VehicleService
             // The whole `payment` block is emitted for B2C orders only, so the
             // channel is already settled by the time this runs.
             'repair_stage' => RepairPaymentPresentation::stageFor($order->order_status, $repairPayment?->status),
+            // Whether cancelling right now would cost the customer the fee, so
+            // the confirmation copy warns only where the trigger applies.
+            'late_cancellation' => TuvAppointment::isLateCancellation(TuvAppointment::fromPayload($order->request_payload)),
             'repair' => $repairPayment === null ? null : [
                 'status' => $repairPayment->status,
                 'amount_cents' => (int) $repairPayment->amount_cents,

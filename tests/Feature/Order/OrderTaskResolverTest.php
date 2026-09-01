@@ -162,10 +162,11 @@ class OrderTaskResolverTest extends TestCase
     }
 
     /**
-     * A rejection puts the order back where it was before the offer existed —
-     * there is a submitted quotation and nothing live built from it.
+     * Rejecting a B2C offer triggers the €200 fee. With a card on file it
+     * settles at once, which closes the case — so there is no follow-up task
+     * and no new offer to prepare.
      */
-    public function test_a_rejected_offer_asks_for_a_new_one(): void
+    public function test_a_rejected_b2c_offer_closes_the_case_once_the_fee_settles(): void
     {
         $order = $this->withPositions($this->b2cOrder('inspected'));
         $offer = $this->publishedOffer($order, 'Werkstatt A', '600.00');
@@ -175,7 +176,12 @@ class OrderTaskResolverTest extends TestCase
             ->post(route('offers.reject', $offer->offer_id), ['customer_comment' => 'Zu teuer'])
             ->assertSessionHasNoErrors();
 
-        $this->assertSame('create_customer_offer', $this->nextTask($order)['key']);
+        $this->assertSame('completed', $order->fresh()->order_status);
+
+        $tasks = $this->tasks($order);
+
+        $this->assertTrue($tasks['is_closed']);
+        $this->assertNull($tasks['next']);
     }
 
     public function test_an_accepted_offer_asks_to_commission_the_winning_workshop(): void

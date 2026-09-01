@@ -10,6 +10,9 @@ use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
 use App\Modules\UserProfile\Order\Services\OrderCollectionService;
 use App\Modules\UserProfile\Order\Services\OrderService;
 use App\Modules\UserProfile\Order\Services\WorkshopCommissionService;
+use App\Modules\UserProfile\Payment\Enums\FeeReason;
+use App\Modules\UserProfile\Payment\Services\B2cFeeService;
+use App\Modules\UserProfile\Payment\Support\TuvAppointment;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -26,6 +29,32 @@ class OrderController extends Controller
         private readonly OrderCollectionService $orderCollectionService,
         private readonly WorkshopCommissionService $workshopCommissionService,
     ) {}
+
+    /**
+     * Mark the TÜV appointment as not attended. The one no-show entry point:
+     * nothing infers it from time passing.
+     */
+    public function markNoShow(Request $request, string $orderId): RedirectResponse
+    {
+        $order = LeasybackOrder::find($orderId);
+        abort_unless($order !== null, 404);
+
+        if (TransitionOrderStatus::isB2bOrder($order)) {
+            return back()->with('error', 'Nur B2C-Aufträge kennen eine Nichtwahrnehmung.');
+        }
+
+        $fee = app(B2cFeeService::class)->trigger($order, FeeReason::TuvNoShow, [
+            'appointment_at' => TuvAppointment::for($order)?->toIso8601String(),
+            'marked_at' => now()->toIso8601String(),
+        ]);
+
+        return back()->with(
+            'success',
+            $fee === null
+                ? 'Nichtwahrnehmung wurde vermerkt.'
+                : sprintf('Nichtwahrnehmung vermerkt — Gebühr %s € ausgelöst.', $fee->amountDecimal()),
+        );
+    }
 
     public function index(Request $request): Response
     {

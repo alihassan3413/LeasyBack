@@ -11,6 +11,8 @@ use App\Modules\UserProfile\Order\Models\B2bOfferPresentation;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Order\Models\WorkshopQuotation;
 use App\Modules\UserProfile\Order\Models\WorkshopQuotationItem;
+use App\Modules\UserProfile\Payment\Enums\FeeReason;
+use App\Modules\UserProfile\Payment\Services\B2cFeeService;
 use App\Support\OfferPricingPolicy;
 use Carbon\CarbonInterface;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -207,6 +209,15 @@ class RepairOfferService
         // After the commit: Admin is told about a rejection that is on disk,
         // and a send that fails cannot roll the rejection back.
         $this->adminAnnouncer->rejected($offer->fresh() ?? $offer, $validated['customer_comment'] ?? null);
+
+        $order = LeasybackOrder::find($offer->order_id);
+
+        if ($order !== null) {
+            app(B2cFeeService::class)->trigger($order, FeeReason::RepairOfferRejected, [
+                'offer_id' => $offer->offer_id,
+                'rejected_at' => now()->toIso8601String(),
+            ]);
+        }
     }
 
     /**

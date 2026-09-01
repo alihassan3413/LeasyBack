@@ -482,9 +482,18 @@ class AdminQueryService
             ['created_at'],
         );
 
+        // `completed` is also reachable from mid-flow statuses, but only as the
+        // automatic close after a B2C fee settles — never as something Admin
+        // picks from a dropdown. Confirming pickup from `delivered` stays.
+        $withheld = ['order_placed', 'discarded'];
+
+        if ($row->vehicle_belongs !== 'B2B' && $row->order_status !== OrderStatus::Delivered->value) {
+            $withheld[] = OrderStatus::Completed->value;
+        }
+
         $order['available_transitions'] = array_values(array_diff(
             TransitionOrderStatus::allowedNextStatuses($row->order_status, $row->vehicle_belongs === 'B2B'),
-            ['order_placed', 'discarded'],
+            $withheld,
         ));
 
         $order['vehicle_belongs'] = $row->vehicle_belongs;
@@ -988,6 +997,9 @@ class AdminQueryService
 
         return [
             'purpose' => $payment->purpose->value,
+            'trigger_reason' => $payment->trigger_reason?->value,
+            'trigger_label' => $payment->trigger_reason?->label(),
+            'triggered_at' => $payment->triggered_at?->toIso8601String(),
             'status' => $payment->status->value,
             'amount_cents' => $payment->amount_cents,
             'currency' => $payment->currency,

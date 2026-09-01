@@ -3,6 +3,7 @@
 namespace App\Modules\UserProfile\Payment\Models;
 
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
+use App\Modules\UserProfile\Payment\Enums\FeeReason;
 use App\Modules\UserProfile\Payment\Enums\PaymentPurpose;
 use App\Modules\UserProfile\Payment\Enums\PaymentStatus;
 use Database\Factories\OrderPaymentFactory;
@@ -66,6 +67,9 @@ class OrderPayment extends Model
         return [
             'purpose' => PaymentPurpose::class,
             'status' => PaymentStatus::class,
+            'trigger_reason' => FeeReason::class,
+            'trigger_context' => 'array',
+            'triggered_at' => 'datetime',
             'amount_cents' => 'integer',
             'intent_count' => 'integer',
             'auto_confirmation_count' => 'integer',

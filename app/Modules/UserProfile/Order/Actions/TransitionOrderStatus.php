@@ -60,7 +60,7 @@ class TransitionOrderStatus
     private const ALLOWED_TRANSITIONS = [
         'order_requested' => ['order_placed', 'discarded', 'cancelled'],
         'order_placed' => ['confirmed', 'cancelled'],
-        'confirmed' => ['inspected', 'cancelled'],
+        'confirmed' => ['inspected', 'completed', 'cancelled'],
 
         /*
          * Two ways out of `inspected`, and they are not alternatives so much as
@@ -79,10 +79,10 @@ class TransitionOrderStatus
          * existed. WorkshopCommissionService refuses to let it become a way of
          * skipping the notification when there *is* a workshop to notify.
          */
-        'inspected' => ['workshop_commissioned', 'workshop', 'cancelled'],
-        'workshop_commissioned' => ['workshop', 'cancelled'],
+        'inspected' => ['workshop_commissioned', 'workshop', 'completed', 'cancelled'],
+        'workshop_commissioned' => ['workshop', 'completed', 'cancelled'],
 
-        'workshop' => ['reinspection', 'cancelled'],
+        'workshop' => ['reinspection', 'completed', 'cancelled'],
 
         /*
          * `reinspection` means the follow-up inspection has been *performed* —
@@ -327,6 +327,13 @@ class TransitionOrderStatus
     private function guardPaymentBeforeCompletion(LeasybackOrder $order, string $toStatus, bool $isB2b): void
     {
         if ($isB2b || $toStatus !== OrderStatus::Completed->value) {
+            return;
+        }
+
+        // The gate exists to hold a repaired car until its repair is paid for,
+        // so it applies to the release itself. A case closed from earlier in
+        // the flow never reached a repair and has no car to withhold.
+        if ($order->order_status !== OrderStatus::Delivered->value) {
             return;
         }
 

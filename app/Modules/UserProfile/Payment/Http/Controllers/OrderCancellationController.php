@@ -42,7 +42,7 @@ class OrderCancellationController extends Controller
 
         return response()->json([
             'order_status' => $order->fresh()?->order_status,
-            'fee' => [
+            'fee' => $fee === null ? null : [
                 'amount_cents' => $fee->amount_cents,
                 'amount' => $fee->amountDecimal(),
                 'currency' => $fee->currency,

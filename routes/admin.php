@@ -51,6 +51,7 @@ Route::middleware(['auth', 'active', 'verified', 'admin'])->prefix('admin')->nam
         Route::post('{orderId}/approve', [OrderController::class, 'approve'])->whereUuid('orderId')->name('approve');
         Route::patch('{orderId}/status', [OrderController::class, 'updateStatus'])->whereUuid('orderId')->name('status');
         Route::patch('{orderId}/collection', [OrderController::class, 'updateCollection'])->whereUuid('orderId')->name('collection');
+        Route::post('{orderId}/no-show', [OrderController::class, 'markNoShow'])->whereUuid('orderId')->name('no-show');
         Route::patch('{orderId}/repair-appointment', [OrderController::class, 'updateRepairAppointment'])
             ->whereUuid('orderId')->name('repair-appointment');
 

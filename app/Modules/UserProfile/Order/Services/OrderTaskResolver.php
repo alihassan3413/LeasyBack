@@ -137,6 +137,32 @@ class OrderTaskResolver
         $history = [];
         $next = null;
 
+        // An outstanding fee stops the process: the case has been called off
+        // and only the money is left. Returned instead of the normal tree so
+        // no repair task keeps asking for work nobody is going to do.
+        if ($context['fee_outstanding']) {
+            return [
+                'next' => [
+                    'key' => 'await_cancellation_fee',
+                    'title' => 'Gebühr abwarten',
+                    'description' => sprintf(
+                        'Der Vorgang wurde beendet%s. Die Gebühr von %s € ist noch offen; der Auftrag wird nach Zahlungseingang automatisch abgeschlossen.',
+                        $context['fee_reason_label'] === null ? '' : ' — '.$context['fee_reason_label'],
+                        number_format(((int) $context['fee_amount']) / 100, 2, ',', '.'),
+                    ),
+                    'state' => 'waiting',
+                    'actor' => self::ACTOR_CUSTOMER,
+                    'date' => null,
+                    'date_label' => null,
+                    'section' => self::SECTION_STATUS,
+                    'action' => null,
+                ],
+                'history' => [],
+                'is_closed' => false,
+                'closed_status' => null,
+            ];
+        }
+
         foreach ($this->definitions($context) as $definition) {
             if ($definition['done']) {
                 $history[] = [
@@ -217,6 +243,10 @@ class OrderTaskResolver
             // same as "nothing is outstanding" for task purposes.
             'repair_payment_blocks' => (bool) ($order['repair_payment']['blocks_pickup'] ?? false),
             'repair_payment_status' => $order['repair_payment']['status'] ?? null,
+            'fee_outstanding' => ($order['cancellation_fee'] ?? null) !== null
+                && ! in_array($order['cancellation_fee']['status'], ['paid', 'cancelled'], true),
+            'fee_amount' => $order['cancellation_fee']['amount_cents'] ?? 0,
+            'fee_reason_label' => $order['cancellation_fee']['trigger_label'] ?? null,
             'billing_processed_at' => $order['billing']['processed_at'] ?? null,
             'position_count' => count((array) ($order['appraisal_positions'] ?? [])),
             // "Still able to produce an answer": an invitation that expired or

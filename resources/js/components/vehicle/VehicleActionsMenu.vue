@@ -50,6 +50,8 @@ const error = ref<string | null>(null);
 /** Server-held, so the amount someone agrees to is the amount that is charged. */
 const feeLabel = computed(() => formatEuro((page.props.payments?.cancellation_fee_cents ?? 20000) / 100));
 
+const isLateCancellation = computed(() => cancellableOrder.value?.payment?.late_cancellation === true);
+
 function openConfirm() {
     error.value = null;
     confirmOpen.value = true;
@@ -109,9 +111,13 @@ async function confirmCancellation() {
             <p class="text-sm leading-relaxed text-black dark:text-white">
                 Die Stornierung beendet und storniert den gesamten Auftrag
                 <span v-if="cancellableOrder" class="font-bold">{{ cancellableOrder.auftragsnummer }}</span
-                >. Es fällt eine Stornogebühr von <span class="font-bold">{{ feeLabel }}</span> an, die von Ihrer hinterlegten Zahlungsmethode
-                eingezogen wird.
+                >.
             </p>
+            <p v-if="isLateCancellation" class="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm leading-relaxed text-amber-900">
+                Ihr Termin liegt weniger als 48 Stunden in der Zukunft. Es fällt eine Stornogebühr von
+                <span class="font-bold">{{ feeLabel }}</span> an, die von Ihrer hinterlegten Zahlungsmethode eingezogen wird.
+            </p>
+            <p v-else class="text-muted-foreground text-sm">Bei einer Stornierung mehr als 48 Stunden vor dem Termin fallen keine Gebühren an.</p>
             <p class="text-muted-foreground text-sm">Dieser Schritt kann nicht rückgängig gemacht werden.</p>
             <InputError :message="error" />
         </div>

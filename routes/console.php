@@ -40,3 +40,13 @@ Schedule::command('partner:webhooks:emit-expired-offers')
     ->dailyAt('07:30')
     ->withoutOverlapping()
     ->onOneServer();
+
+/*
+ * The two delayed B2C fee triggers (§4 and §5). Both are re-derived from
+ * current state on every run and guarded by UNIQUE(order_id, purpose), so an
+ * extra run can neither open a second obligation nor charge twice.
+ */
+Schedule::command('b2c:process-fee-deadlines')
+    ->dailyAt('08:15')
+    ->withoutOverlapping()
+    ->onOneServer();

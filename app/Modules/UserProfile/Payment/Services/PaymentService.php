@@ -6,6 +6,7 @@ use App\Enums\NotificationType;
 use App\Enums\UserType;
 use App\Models\LeasybackOrder;
 use App\Models\User;
+use App\Modules\UserProfile\Payment\Actions\CloseCaseAfterFee;
 use App\Modules\UserProfile\Payment\Data\StripePaymentIntentResult;
 use App\Modules\UserProfile\Payment\Enums\PaymentPurpose;
 use App\Modules\UserProfile\Payment\Enums\PaymentStatus;
@@ -161,6 +162,14 @@ class PaymentService
 
     private function notifyStatusChange(OrderPayment $payment, PaymentStatus $to): void
     {
+        if ($payment->purpose === PaymentPurpose::CancellationFee) {
+            if ($to === PaymentStatus::Paid) {
+                app(CloseCaseAfterFee::class)($payment);
+            }
+
+            return;
+        }
+
         if ($payment->purpose !== PaymentPurpose::Repair) {
             return;
         }

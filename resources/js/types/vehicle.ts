@@ -91,6 +91,8 @@ export interface OrderPaymentState {
      * Every surface that could otherwise contradict another reads this.
      */
     repair_stage: RepairPaymentStage;
+    /** True when cancelling now falls inside the 48-hour TÜV notice period. */
+    late_cancellation: boolean;
     /** Absent until the order reaches `delivered` and a charge is opened. */
     repair?: OrderRepairPaymentState | null;
     /**
