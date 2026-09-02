@@ -357,6 +357,8 @@ export interface AdminOrderDetail extends AdminOrderRow {
     billing: AdminOrderBilling | null;
     /** The B2C counterpart of `billing`. Null for B2B, and until `delivered`. */
     repair_payment: AdminRepairPayment | null;
+    /** The B2C €200 fee, separate from the repair charge. */
+    cancellation_fee: AdminRepairPayment | null;
     /**
      * How `delivered` should be presented — derived server-side from the order
      * status and the repair charge, and identical to the value the customer's
@@ -369,7 +371,11 @@ export interface AdminOrderDetail extends AdminOrderRow {
 
 /** B2C repair charge, as Admin sees it. Admin can read it but never settle it. */
 export interface AdminRepairPayment {
+    purpose: string;
     status: string;
+    trigger_reason?: string | null;
+    trigger_label?: string | null;
+    triggered_at?: string | null;
     amount_cents: number;
     currency: string;
     paid_at: string | null;

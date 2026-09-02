@@ -91,8 +91,8 @@ export interface OrderPaymentState {
      * Every surface that could otherwise contradict another reads this.
      */
     repair_stage: RepairPaymentStage;
-    /** True when cancelling now falls inside the 48-hour TÜV notice period. */
-    late_cancellation: boolean;
+    /** Server-derived: what cancelling right now would cost, and the wording for it. */
+    cancellation: OrderCancellationPreview;
     /** Absent until the order reaches `delivered` and a charge is opened. */
     repair?: OrderRepairPaymentState | null;
     /**
@@ -103,11 +103,19 @@ export interface OrderPaymentState {
     cancellation_fee?: OrderCancellationFeeState | null;
 }
 
+export interface OrderCancellationPreview {
+    fee_applies: boolean;
+    fee_amount_cents: number;
+    fee_reason: string | null;
+    message: string;
+}
+
 export interface OrderCancellationFeeState {
     status: string;
     amount_cents: number;
     currency: string;
     paid_at: string | null;
+    trigger_label?: string | null;
     /** Whether this viewer can settle it now — already false for Admin. */
     payable: boolean;
 }

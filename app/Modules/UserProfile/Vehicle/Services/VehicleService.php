@@ -14,10 +14,11 @@ use App\Modules\UserProfile\Order\Models\LogisticsAddressProfile;
 use App\Modules\UserProfile\Order\Services\B2bOrderNoteService;
 use App\Modules\UserProfile\Order\Services\OrderCollectionService;
 use App\Modules\UserProfile\Order\Services\RepairOfferService;
+use App\Modules\UserProfile\Payment\Enums\FeeReason;
 use App\Modules\UserProfile\Payment\Enums\PaymentPurpose;
 use App\Modules\UserProfile\Payment\Enums\PaymentStatus;
 use App\Modules\UserProfile\Payment\Models\OrderPaymentMethod;
-use App\Modules\UserProfile\Payment\Support\TuvAppointment;
+use App\Modules\UserProfile\Payment\Services\CancellationPreview;
 use App\Support\OrderHistory;
 use App\Support\PortalTimestamp;
 use App\Support\RepairPaymentPresentation;
@@ -816,6 +817,8 @@ class VehicleService
                             $mandatesByOrder->get($order->id),
                             $repairPaymentsByOrder->get($order->id),
                             $cancellationFeesByOrder->get($order->id),
+                            $offersByOrder->get($order->id, collect())
+                                ->contains(fn ($offer) => in_array($offer->offer_status, ['selected', 'closed'], true)),
                             $viewer,
                         ),
                     ]),
@@ -915,8 +918,10 @@ class VehicleService
      * @param  object|null  $cancellationFee  Absent unless the customer cancelled the order themselves.
      * @return array{requires_setup: bool, status: string, card: ?array{brand: ?string, last4: ?string, exp_month: ?int, exp_year: ?int}, repair_stage: string, repair: ?array{status: string, amount_cents: int, currency: string, paid_at: ?string, blocks_pickup: bool, payable: bool}, cancellation_fee: ?array{status: string, amount_cents: int, currency: string, paid_at: ?string, payable: bool}}
      */
-    private function orderPaymentState(object $order, ?object $mandate, ?object $repairPayment, ?object $cancellationFee, ?User $viewer): array
+    private function orderPaymentState(object $order, ?object $mandate, ?object $repairPayment, ?object $cancellationFee, bool $hasAcceptedOffer, ?User $viewer): array
     {
+        $cancellation = CancellationPreview::describe($hasAcceptedOffer, $order->request_payload);
+
         $usable = $mandate !== null
             && $mandate->status === OrderPaymentMethod::STATUS_SAVED
             && $mandate->verified_at !== null
@@ -943,7 +948,7 @@ class VehicleService
             'repair_stage' => RepairPaymentPresentation::stageFor($order->order_status, $repairPayment?->status),
             // Whether cancelling right now would cost the customer the fee, so
             // the confirmation copy warns only where the trigger applies.
-            'late_cancellation' => TuvAppointment::isLateCancellation(TuvAppointment::fromPayload($order->request_payload)),
+            'cancellation' => $cancellation,
             'repair' => $repairPayment === null ? null : [
                 'status' => $repairPayment->status,
                 'amount_cents' => (int) $repairPayment->amount_cents,
@@ -964,6 +969,7 @@ class VehicleService
             // order it belongs to is already terminal.
             'cancellation_fee' => $cancellationFee === null ? null : [
                 'status' => $cancellationFee->status,
+                'trigger_label' => FeeReason::tryFrom((string) $cancellationFee->trigger_reason)?->label(),
                 'amount_cents' => (int) $cancellationFee->amount_cents,
                 'currency' => $cancellationFee->currency,
                 'paid_at' => $cancellationFee->paid_at,

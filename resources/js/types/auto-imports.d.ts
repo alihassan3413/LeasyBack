@@ -30,6 +30,7 @@ declare global {
   const VEHICLE_BRAND_OPTIONS: typeof import('../lib/vehicleBrands').VEHICLE_BRAND_OPTIONS
   const VEHICLE_STATUS_FILTER_OPTIONS: typeof import('../lib/vehicleStatus').VEHICLE_STATUS_FILTER_OPTIONS
   const VIN_LENGTH: typeof import('../lib/vin').VIN_LENGTH
+  const cancellationFeeSettled: typeof import('../lib/customerOrderFlow').cancellationFeeSettled
   const cn: typeof import('../lib/utils').cn
   const companyFormData: typeof import('../lib/company').companyFormData
   const computed: typeof import('vue').computed
@@ -94,6 +95,7 @@ declare global {
   const orderHistoryDateLabel: typeof import('../lib/orderHistory').orderHistoryDateLabel
   const parsePortalDate: typeof import('../lib/portalDate').parsePortalDate
   const platePartsLength: typeof import('../lib/licensePlate').platePartsLength
+  const processStopped: typeof import('../lib/customerOrderFlow').processStopped
   const provide: typeof import('vue').provide
   const providerDisplayLabel: typeof import('../lib/timeline').providerDisplayLabel
   const reactive: typeof import('vue').reactive
@@ -184,7 +186,7 @@ declare global {
   export type { StatusPillStyle } from '../lib/adminStatus'
   import('../lib/adminStatus')
   // @ts-ignore
-  export type { CustomerOrderStage, RepairPaymentStage, CustomerOrderRepairPayment, B2bOrderStage, CustomerOrderFlowStep, CustomerOrderStatusHistoryEntry, CustomerOrderBesichtigungsort, CustomerOrderReportDocument, CustomerOrderOffer, CustomerOrderFlowInput, CustomerOrderCollection, NewOrderAction } from '../lib/customerOrderFlow'
+  export type { CustomerOrderStage, RepairPaymentStage, CustomerOrderCancellationFee, CustomerOrderRepairPayment, B2bOrderStage, CustomerOrderFlowStep, CustomerOrderStatusHistoryEntry, CustomerOrderBesichtigungsort, CustomerOrderReportDocument, CustomerOrderOffer, CustomerOrderFlowInput, CustomerOrderCollection, NewOrderAction } from '../lib/customerOrderFlow'
   import('../lib/customerOrderFlow')
   // @ts-ignore
   export type { ErrorIllustrationVariant, ErrorPageCopy } from '../lib/errorPages'
@@ -235,6 +237,7 @@ declare module 'vue' {
     readonly VEHICLE_BRAND_OPTIONS: UnwrapRef<typeof import('../lib/vehicleBrands')['VEHICLE_BRAND_OPTIONS']>
     readonly VEHICLE_STATUS_FILTER_OPTIONS: UnwrapRef<typeof import('../lib/vehicleStatus')['VEHICLE_STATUS_FILTER_OPTIONS']>
     readonly VIN_LENGTH: UnwrapRef<typeof import('../lib/vin')['VIN_LENGTH']>
+    readonly cancellationFeeSettled: UnwrapRef<typeof import('../lib/customerOrderFlow')['cancellationFeeSettled']>
     readonly cn: UnwrapRef<typeof import('../lib/utils')['cn']>
     readonly companyFormData: UnwrapRef<typeof import('../lib/company')['companyFormData']>
     readonly computed: UnwrapRef<typeof import('vue')['computed']>
@@ -299,6 +302,7 @@ declare module 'vue' {
     readonly orderHistoryDateLabel: UnwrapRef<typeof import('../lib/orderHistory')['orderHistoryDateLabel']>
     readonly parsePortalDate: UnwrapRef<typeof import('../lib/portalDate')['parsePortalDate']>
     readonly platePartsLength: UnwrapRef<typeof import('../lib/licensePlate')['platePartsLength']>
+    readonly processStopped: UnwrapRef<typeof import('../lib/customerOrderFlow')['processStopped']>
     readonly provide: UnwrapRef<typeof import('vue')['provide']>
     readonly providerDisplayLabel: UnwrapRef<typeof import('../lib/timeline')['providerDisplayLabel']>
     readonly reactive: UnwrapRef<typeof import('vue')['reactive']>

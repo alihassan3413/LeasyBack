@@ -35,6 +35,7 @@ import {
     DropdownMenuSubTrigger,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { AppModal } from '@/components/ui/modal';
 import OrderCreationModal from '@/components/vehicle/OrderCreationModal.vue';
 import { getAdminDashboardStatus } from '@/lib/adminStatus';
 import type { StationData } from '@/types/order';
@@ -131,6 +132,37 @@ function pullDocuments() {
 }
 
 const createOfferOpen = ref(false);
+const noShowOpen = ref(false);
+const markingNoShow = ref(false);
+
+/**
+ * Only where a TÜV appointment could actually have been missed: a B2C order
+ * that has been confirmed but not yet inspected. The endpoint refuses anything
+ * else; this decides whether the action is worth offering.
+ */
+const NO_SHOW_STATUSES = new Set(['confirmed']);
+
+const canMarkNoShow = computed(() => !!props.orderId && props.vehicleBelongs !== 'B2B' && NO_SHOW_STATUSES.has(props.orderStatus ?? ''));
+
+function markNoShow() {
+    if (!props.orderId) {
+        return;
+    }
+
+    markingNoShow.value = true;
+
+    router.post(
+        route('admin.orders.no-show', props.orderId),
+        {},
+        {
+            preserveScroll: true,
+            onFinish: () => {
+                markingNoShow.value = false;
+                noShowOpen.value = false;
+            },
+        },
+    );
+}
 const uploadOpen = ref(false);
 const uploadVariant = ref<UploadVariant>('gutachten');
 const cancelDialogOpen = ref(false);
@@ -262,6 +294,11 @@ function statusLabel(status: string): string {
 
             <DropdownMenuSeparator v-if="canApprove || transitions.length" />
 
+            <DropdownMenuItem v-if="canMarkNoShow" class="text-[#c0392b] focus:text-[#c0392b]" @select="noShowOpen = true">
+                <IconMdiAccountCancelOutline />
+                Termin nicht wahrgenommen
+            </DropdownMenuItem>
+
             <DropdownMenuItem :disabled="!hasOrder" @select="createOfferOpen = true">
                 <IconMdiTagPlusOutline />
                 Angebot erstellen
@@ -357,6 +394,34 @@ function statusLabel(status: string): string {
         :stations="stations"
         :vehicle="orderCreationVehicle"
     />
+
+    <AppModal :open="noShowOpen" title="Termin als nicht wahrgenommen markieren?" :width="560" @update:open="(v) => (noShowOpen = v)">
+        <div class="min-w-0 space-y-4 px-2">
+            <p class="text-sm leading-relaxed text-black">
+                Damit wird festgehalten, dass der Kunde den TÜV-Termin nicht wahrgenommen hat. Dadurch wird eine Gebühr von
+                <span class="font-bold">200,00 €</span> ausgelöst und der hinterlegten Zahlungsmethode des Kunden belastet.
+            </p>
+            <p class="text-muted-foreground text-sm">Dieser Schritt kann nicht rückgängig gemacht werden.</p>
+        </div>
+
+        <template #footer>
+            <button
+                type="button"
+                class="rounded-[5px] border border-[#e9efee] bg-white px-8 py-2.5 text-sm font-bold text-[#10393b] hover:bg-[#f4f7f6]"
+                @click="noShowOpen = false"
+            >
+                Abbrechen
+            </button>
+            <button
+                type="button"
+                :disabled="markingNoShow"
+                class="rounded-[5px] bg-[#E5533D] px-8 py-2.5 text-sm font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+                @click="markNoShow"
+            >
+                {{ markingNoShow ? 'Wird gespeichert …' : 'Nicht wahrgenommen — 200,00 € berechnen' }}
+            </button>
+        </template>
+    </AppModal>
 
     <CreateOfferModal v-if="orderId" v-model:open="createOfferOpen" :order-id="orderId" />
 

@@ -11,6 +11,7 @@ export type CustomerOrderStage =
     | 'followup_completed'
     | 'awaiting_payment'
     | 'vehicle_ready'
+    | 'process_stopped'
     | 'case_closed';
 
 export const CUSTOMER_ORDER_STAGE_SEQUENCE: readonly CustomerOrderStage[] = [
@@ -27,6 +28,9 @@ export const CUSTOMER_ORDER_STAGE_SEQUENCE: readonly CustomerOrderStage[] = [
     // what stands between "repairs done" and "come and collect it".
     'awaiting_payment',
     'vehicle_ready',
+    // Only ever the current rung, and only while a cancellation fee exists.
+    // It sits after the repair rungs so it can never mark one as reached.
+    'process_stopped',
     'case_closed',
 ];
 
@@ -36,6 +40,12 @@ export const CUSTOMER_ORDER_STAGE_SEQUENCE: readonly CustomerOrderStage[] = [
  * this file only decides the wording each audience sees for it.
  */
 export type RepairPaymentStage = 'none' | 'awaiting_payment' | 'payment_processing' | 'payment_settled' | 'payment_not_required';
+
+export interface CustomerOrderCancellationFee {
+    status: string;
+    amount_cents: number;
+    reason_label?: string | null;
+}
 
 export interface CustomerOrderRepairPayment {
     stage: RepairPaymentStage;
@@ -47,6 +57,22 @@ export interface CustomerOrderRepairPayment {
 
 export function repairPaymentStage(ctx: CustomerOrderFlowInput): RepairPaymentStage {
     return ctx.repairPayment?.stage ?? 'none';
+}
+
+export function cancellationFeeSettled(ctx: CustomerOrderFlowInput): boolean {
+    return ctx.cancellationFee?.status === 'paid';
+}
+
+/**
+ * A triggered fee ends the repair timeline wherever it stood. Without this the
+ * order's status alone drove the progress index, so a case completed by paying
+ * the fee painted every repair rung green — workshop, follow-up, pickup — none
+ * of which happened.
+ */
+export function processStopped(ctx: CustomerOrderFlowInput): boolean {
+    const status = ctx.cancellationFee?.status;
+
+    return status !== undefined && status !== 'cancelled';
 }
 
 /** Whether the vehicle is still held. The customer's banner asks the same question. */
@@ -160,6 +186,8 @@ export interface CustomerOrderFlowInput {
     channel?: 'B2B' | 'B2C' | null;
     /** The server-derived repair-payment stage. Absent means there is nothing to present. */
     repairPayment?: CustomerOrderRepairPayment | null;
+    /** Present once a €200 fee has been triggered. Stops the repair timeline. */
+    cancellationFee?: CustomerOrderCancellationFee | null;
     /**
      * Who is reading. Both see the same derived stage — only the wording
      * differs, because "please pay" and "awaiting payment" are the same fact
@@ -339,6 +367,8 @@ function stageHappened(stage: CustomerOrderStage, ctx: CustomerOrderFlowInput): 
         // honest in a way a green tick reading "Zahlung erhalten" would not be.
         case 'awaiting_payment':
             return repairPaymentStage(ctx) === 'payment_settled';
+        case 'process_stopped':
+            return processStopped(ctx);
         default:
             return true;
     }
@@ -366,6 +396,7 @@ const STAGE_SHORT_LABEL: Record<CustomerOrderStage, string> = {
     followup_completed: 'Nachgutachten abgeschlossen',
     awaiting_payment: 'Reparatur abgeschlossen – Zahlung erforderlich',
     vehicle_ready: 'Fahrzeug abholbereit',
+    process_stopped: 'Vorgang beendet',
     case_closed: 'Vorgang abgeschlossen',
 };
 
@@ -457,6 +488,7 @@ const STAGE_TOOLTIP: Record<CustomerOrderStage, string> = {
     followup_completed: 'Die Nachbegutachtung nach der Reparatur wurde abgeschlossen. Gutachten und Rechnung stehen bereit.',
     awaiting_payment: 'Die Reparatur ist abgeschlossen. Ihr Fahrzeug kann erst nach Zahlungseingang abgeholt werden.',
     vehicle_ready: 'Ihr Fahrzeug ist fertig und steht bei der Werkstatt zur Abholung bereit.',
+    process_stopped: 'Der Vorgang wurde beendet. Nach Zahlungseingang der Gebühr wird der Auftrag abgeschlossen.',
     case_closed: 'Sie haben Ihr Fahrzeug abgeholt. Der Vorgang ist abgeschlossen — es steht nichts mehr aus.',
 };
 
@@ -653,7 +685,7 @@ function resolveProgressIndex(
     hasFollowupReport: boolean,
     paymentBlocks = false,
 ): number | null {
-    if (status === 'completed') return 10;
+    if (status === 'completed') return 11;
 
     /*
      * The whole point of the derived rung. `delivered` means repairs are done
@@ -728,6 +760,18 @@ function getStageDate(
             // and the charge was opened. They are one moment presented as two
             // steps, which is the whole idea.
             return findHistoryDate(ctx.statusHistory, new Set(['delivered']));
+        case 'process_stopped': {
+            const fee = ctx.cancellationFee;
+            const amount = fee ? formatEuroAmount(fee.amount_cents) : '';
+            const paid = cancellationFeeSettled(ctx);
+
+            label = fee?.reason_label ? `Vorgang beendet — ${fee.reason_label}` : 'Vorgang beendet';
+            subtitle = paid
+                ? `Gebühr ${amount} bezahlt.`
+                : `Offene Gebühr: ${amount}.
+Der Auftrag wird nach Zahlungseingang abgeschlossen.`;
+            break;
+        }
         case 'vehicle_ready':
             return findHistoryDate(ctx.statusHistory, new Set(['delivered']));
         case 'case_closed':
@@ -910,6 +954,10 @@ function buildStep(
         step.showPaymentAction = true;
     }
 
+    if (stage === 'process_stopped' && processStopped(ctx) && !cancellationFeeSettled(ctx)) {
+        step.showPaymentAction = true;
+    }
+
     if (rechnungDoc && INVOICE_STAGES.has(stage)) {
         step.invoiceDocUrl = resolveDocUrl(rechnungDoc);
     }
@@ -1087,16 +1135,30 @@ export function getCustomerOrderFlowSteps(ctx: CustomerOrderFlowInput): Customer
         });
     }
 
-    const progressIndex = resolveProgressIndex(status, relevantOffer, !!nachgutachtenDoc, repairPaymentBlocksPickup(ctx));
+    const stopped = processStopped(ctx);
+    const rawIndex = resolveProgressIndex(status, relevantOffer, !!nachgutachtenDoc, repairPaymentBlocksPickup(ctx));
 
-    if (progressIndex === null) {
+    if (rawIndex === null) {
         return null;
     }
+
+    /*
+     * A stopped case never advanced past the rung it stopped on, whatever its
+     * status now says — paying the fee moves the order to `completed`, which on
+     * its own would tick every repair rung the customer never reached. The
+     * repair rungs are clamped to where the case actually got to, and the
+     * progress index moves onto `process_stopped` (or `case_closed` once the
+     * fee is settled) instead.
+     */
+    const stoppedIndex = CUSTOMER_ORDER_STAGE_SEQUENCE.indexOf('process_stopped');
+    const reachedBeforeStop = Math.min(rawIndex, stoppedIndex);
+    const progressIndex = stopped ? (cancellationFeeSettled(ctx) ? stoppedIndex + 1 : stoppedIndex) : rawIndex;
+    const repairCeiling = stopped ? reachedBeforeStop : CUSTOMER_ORDER_STAGE_SEQUENCE.length;
 
     let nextAssigned = false;
 
     return CUSTOMER_ORDER_STAGE_SEQUENCE.map((stage, index) => {
-        const reached = index < progressIndex;
+        const reached = index < progressIndex && (index >= stoppedIndex || index < repairCeiling);
 
         // Reached, but with nothing to show for it — the repair was arranged
         // without ever going through an offer. Neither ticked nor pending: it is

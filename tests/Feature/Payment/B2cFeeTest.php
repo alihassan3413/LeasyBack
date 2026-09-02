@@ -28,6 +28,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
+use Inertia\Testing\AssertableInertia;
 use Tests\Support\FakeStripeGateway;
 use Tests\TestCase;
 
@@ -39,6 +40,8 @@ class B2cFeeTest extends TestCase
     use RefreshDatabase;
 
     private FakeStripeGateway $stripe;
+
+    private string $stripeCustomerId = 'cus_fee';
 
     protected function setUp(): void
     {
@@ -58,7 +61,8 @@ class B2cFeeTest extends TestCase
         ?string $termin = null,
     ): array {
         $customer = User::factory()->create(['user_type' => UserType::Privatkunde]);
-        $customer->forceFill(['stripe_customer_id' => 'cus_fee'])->save();
+        $this->stripeCustomerId = 'cus_fee_'.$customer->id;
+        $customer->forceFill(['stripe_customer_id' => $this->stripeCustomerId])->save();
         $vehicle = Vehicle::factory()->create(['vehicle_belongs' => 'B2C', 'b2c_user_id' => $customer->id]);
         $order = LeasybackOrder::factory()->create([
             'vehicle_id' => $vehicle->vehicle_id,
@@ -69,7 +73,7 @@ class B2cFeeTest extends TestCase
         if ($withMandate) {
             OrderPaymentMethod::factory()->saved()->create([
                 'order_id' => $order->id,
-                'stripe_customer_id' => 'cus_fee',
+                'stripe_customer_id' => $this->stripeCustomerId,
                 'payment_method_id' => 'pm_saved',
             ]);
         }
@@ -109,7 +113,7 @@ class B2cFeeTest extends TestCase
             amount: 20000,
             currency: 'eur',
             clientSecret: 'pi_fee_secret',
-            customerId: 'cus_fee',
+            customerId: $this->stripeCustomerId,
             paymentMethodId: 'pm_saved',
             failureCode: $failureCode,
         );
@@ -513,7 +517,7 @@ class B2cFeeTest extends TestCase
                 'status' => OrderPaymentIntent::STRIPE_SUCCEEDED,
                 'amount' => 20000,
                 'currency' => 'eur',
-                'customer' => 'cus_fee',
+                'customer' => $this->stripeCustomerId,
                 'metadata' => ['order_id' => $order->id],
             ]],
         ];
@@ -557,6 +561,233 @@ class B2cFeeTest extends TestCase
         app(B2cFeeDeadlines::class)->process();
 
         $this->assertSame(FeeReason::RepairInactivity, $this->fee($order)->trigger_reason);
+    }
+
+    // ---- QA: the cancellation preview drives the modal ---------------------------
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function customerOrderPayload(User $customer): array
+    {
+        $payload = [];
+
+        $this->actingAs($customer)
+            ->get(route('dashboard'))
+            ->assertInertia(function (AssertableInertia $page) use (&$payload) {
+                $payload = $page->toArray()['props']['vehicles'][0]['current_order'];
+            });
+
+        return $payload;
+    }
+
+    public function test_an_accepted_offer_warns_about_the_fee_even_with_a_distant_appointment(): void
+    {
+        [$order, $customer] = $this->acceptedOrder();
+
+        $order->update(['request_payload' => ['besichtigungsort' => ['termin' => now()->addMonth()->toIso8601String()]]]);
+
+        $preview = $this->customerOrderPayload($customer)['payment']['cancellation'];
+
+        $this->assertTrue($preview['fee_applies']);
+        $this->assertSame(FeeReason::RepairCancelledAfterAcceptance->value, $preview['fee_reason']);
+        $this->assertSame(20000, $preview['fee_amount_cents']);
+        $this->assertStringNotContainsString('keine Gebühren', $preview['message']);
+        $this->assertStringContainsString('200,00', $preview['message']);
+    }
+
+    public function test_an_early_cancellation_without_an_accepted_offer_promises_no_fee(): void
+    {
+        [, $customer] = $this->b2cOrder(termin: now()->addDays(5)->toIso8601String());
+
+        $preview = $this->customerOrderPayload($customer)['payment']['cancellation'];
+
+        $this->assertFalse($preview['fee_applies']);
+        $this->assertSame(0, $preview['fee_amount_cents']);
+        $this->assertNull($preview['fee_reason']);
+        $this->assertStringContainsString('keine Gebühren', $preview['message']);
+    }
+
+    public function test_a_late_appointment_without_an_accepted_offer_warns_about_the_fee(): void
+    {
+        [, $customer] = $this->b2cOrder(termin: now()->addHours(5)->toIso8601String());
+
+        $preview = $this->customerOrderPayload($customer)['payment']['cancellation'];
+
+        $this->assertTrue($preview['fee_applies']);
+        $this->assertSame(FeeReason::TuvLateCancellation->value, $preview['fee_reason']);
+    }
+
+    public function test_the_preview_and_the_charge_always_agree(): void
+    {
+        [$order, $customer] = $this->acceptedOrder();
+
+        $order->update(['request_payload' => ['besichtigungsort' => ['termin' => now()->addMonth()->toIso8601String()]]]);
+
+        $preview = $this->customerOrderPayload($customer)['payment']['cancellation'];
+
+        $this->cancel($customer, $order)->assertOk();
+
+        $this->assertSame($preview['fee_reason'], $this->fee($order)->trigger_reason->value);
+    }
+
+    // ---- QA: the Admin no-show action --------------------------------------------
+
+    public function test_the_no_show_action_is_offered_only_at_the_appointment_stage(): void
+    {
+        [$confirmed] = $this->b2cOrder(OrderStatus::Confirmed->value, termin: now()->subHour()->toIso8601String());
+        [$inspected] = $this->b2cOrder(OrderStatus::Inspected->value);
+
+        $admin = User::factory()->create(['user_type' => UserType::Admin]);
+
+        $this->assertSame(OrderStatus::Confirmed->value, app(AdminQueryService::class)->orderDetail($confirmed->id)['order_status']);
+        $this->assertSame(OrderStatus::Inspected->value, app(AdminQueryService::class)->orderDetail($inspected->id)['order_status']);
+
+        $this->actingAs($admin)->post(route('admin.orders.no-show', $confirmed->id))->assertRedirect();
+
+        $this->assertNotNull($this->fee($confirmed));
+    }
+
+    public function test_the_no_show_endpoint_creates_exactly_one_fee(): void
+    {
+        [$order] = $this->b2cOrder(termin: now()->subHour()->toIso8601String());
+
+        $admin = User::factory()->create(['user_type' => UserType::Admin]);
+
+        foreach (range(1, 3) as $ignored) {
+            $this->actingAs($admin)->post(route('admin.orders.no-show', $order->id))->assertRedirect();
+        }
+
+        $this->assertSame(1, $this->feeCount($order));
+        $this->assertSame(1, $this->stripe->countCallsTo('createPaymentIntent'));
+        $this->assertSame(FeeReason::TuvNoShow, $this->fee($order)->trigger_reason);
+    }
+
+    public function test_a_b2b_order_is_refused_the_no_show_action(): void
+    {
+        $company = User::factory()->create(['user_type' => UserType::Firmenkunde]);
+        $vehicle = Vehicle::factory()->create(['vehicle_belongs' => 'B2B', 'b2c_user_id' => $company->id]);
+        $order = LeasybackOrder::factory()->create([
+            'vehicle_id' => $vehicle->vehicle_id,
+            'order_status' => OrderStatus::Confirmed->value,
+        ]);
+
+        $admin = User::factory()->create(['user_type' => UserType::Admin]);
+
+        $this->actingAs($admin)->post(route('admin.orders.no-show', $order->id))->assertRedirect();
+
+        $this->assertNull($this->fee($order));
+    }
+
+    // ---- QA: the customer can reject a published offer -----------------------------
+
+    public function test_a_published_offer_reaches_the_customer_payload_as_actionable(): void
+    {
+        [$order, $customer] = $this->b2cOrder(OrderStatus::Inspected->value);
+        $this->publishedOffer($order, CarbonImmutable::now());
+
+        $payload = $this->customerOrderPayload($customer);
+
+        $this->assertNotEmpty($payload['offers']);
+        $this->assertSame('published', $payload['offers'][0]['offer_status']);
+    }
+
+    public function test_rejecting_from_the_customer_endpoint_triggers_the_fee(): void
+    {
+        [$order, $customer] = $this->b2cOrder(OrderStatus::Inspected->value);
+        $offer = $this->publishedOffer($order, CarbonImmutable::now());
+
+        $this->actingAs($customer)
+            ->from('/dashboard')
+            ->post(route('offers.reject', $offer->offer_id), ['customer_comment' => 'Zu teuer'])
+            ->assertSessionHasNoErrors();
+
+        $fee = $this->fee($order);
+
+        $this->assertNotNull($fee);
+        $this->assertSame(FeeReason::RepairOfferRejected, $fee->trigger_reason);
+        $this->assertSame(1, $this->feeCount($order));
+    }
+
+    // ---- QA: the timeline stops where the process stopped ---------------------------
+
+    public function test_a_stopped_case_carries_the_fee_into_the_customer_payload(): void
+    {
+        [$order, $customer] = $this->acceptedOrder();
+
+        $this->nextChargeLands(OrderPaymentIntent::STRIPE_REQUIRES_PAYMENT_METHOD, 'card_declined');
+        $this->cancel($customer, $order)->assertOk();
+
+        $fee = $this->customerOrderPayload($customer)['payment']['cancellation_fee'];
+
+        $this->assertSame(PaymentStatus::Failed->value, $fee['status']);
+        $this->assertSame(20000, $fee['amount_cents']);
+        $this->assertSame(FeeReason::RepairCancelledAfterAcceptance->label(), $fee['trigger_label']);
+        $this->assertTrue($fee['payable']);
+    }
+
+    public function test_a_settled_fee_carries_a_paid_status_into_the_customer_payload(): void
+    {
+        [$order, $customer] = $this->acceptedOrder();
+
+        $this->cancel($customer, $order)->assertOk();
+
+        $payload = $this->customerOrderPayload($customer);
+
+        $this->assertSame(PaymentStatus::Paid->value, $payload['payment']['cancellation_fee']['status']);
+        $this->assertSame(OrderStatus::Completed->value, $payload['order_status']);
+    }
+
+    public function test_a_stopped_case_never_reaches_the_repair_statuses(): void
+    {
+        [$order, $customer] = $this->acceptedOrder();
+
+        $this->nextChargeLands(OrderPaymentIntent::STRIPE_REQUIRES_ACTION);
+        $this->cancel($customer, $order)->assertOk();
+
+        // The timeline is derived from these two facts, and neither may claim a
+        // repair stage the order never reached.
+        $this->assertSame(OrderStatus::WorkshopCommissioned->value, $order->fresh()->order_status);
+        $this->assertDatabaseMissing('leasyback_order_status_updates', [
+            'auftragsnummer' => $order->auftragsnummer,
+            'new_status' => OrderStatus::Workshop->value,
+        ]);
+        $this->assertDatabaseMissing('leasyback_order_status_updates', [
+            'auftragsnummer' => $order->auftragsnummer,
+            'new_status' => OrderStatus::Delivered->value,
+        ]);
+    }
+
+    public function test_the_admin_payload_exposes_the_fee_and_its_reason(): void
+    {
+        [$order, $customer] = $this->acceptedOrder();
+
+        $this->nextChargeLands(OrderPaymentIntent::STRIPE_REQUIRES_ACTION);
+        $this->cancel($customer, $order)->assertOk();
+
+        $detail = app(AdminQueryService::class)->orderDetail($order->id);
+
+        $this->assertSame(20000, $detail['cancellation_fee']['amount_cents']);
+        $this->assertSame(FeeReason::RepairCancelledAfterAcceptance->value, $detail['cancellation_fee']['trigger_reason']);
+        $this->assertSame(FeeReason::RepairCancelledAfterAcceptance->label(), $detail['cancellation_fee']['trigger_label']);
+        $this->assertNotNull($detail['cancellation_fee']['triggered_at']);
+    }
+
+    public function test_a_b2b_order_carries_no_cancellation_preview(): void
+    {
+        $company = User::factory()->create(['user_type' => UserType::Firmenkunde]);
+        $vehicle = Vehicle::factory()->create(['vehicle_belongs' => 'B2B', 'b2c_user_id' => $company->id]);
+        LeasybackOrder::factory()->create([
+            'vehicle_id' => $vehicle->vehicle_id,
+            'order_status' => OrderStatus::Confirmed->value,
+        ]);
+
+        $detail = app(AdminQueryService::class)->orderDetail(
+            LeasybackOrder::where('vehicle_id', $vehicle->vehicle_id)->firstOrFail()->id,
+        );
+
+        $this->assertNull($detail['cancellation_fee']);
+        $this->assertNull($detail['repair_payment']);
     }
 
     // ---- idempotency ------------------------------------------------------------
@@ -617,7 +848,7 @@ class B2cFeeTest extends TestCase
                     'status' => OrderPaymentIntent::STRIPE_SUCCEEDED,
                     'amount' => 20000,
                     'currency' => 'eur',
-                    'customer' => 'cus_fee',
+                    'customer' => $this->stripeCustomerId,
                     'metadata' => ['order_id' => $order->id],
                 ]],
             ];
@@ -721,7 +952,7 @@ class B2cFeeTest extends TestCase
             amount: 20000,
             currency: 'eur',
             clientSecret: $intentId.'_secret',
-            customerId: 'cus_fee',
+            customerId: $this->stripeCustomerId,
         ));
 
         $this->actingAs($customer)

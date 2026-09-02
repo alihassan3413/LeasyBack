@@ -12,6 +12,7 @@ use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Payment\Enums\FeeReason;
 use App\Modules\UserProfile\Payment\Models\OrderPayment;
 use App\Modules\UserProfile\Payment\Services\B2cFeeService;
+use App\Modules\UserProfile\Payment\Services\CancellationPreview;
 use App\Modules\UserProfile\Payment\Support\TuvAppointment;
 use App\Notifications\NotificationPayload;
 use App\Services\Notifier;
@@ -72,15 +73,7 @@ class CancelOrderByCustomer
      */
     private function reasonFor(LeasybackOrder $order): ?FeeReason
     {
-        if ($this->acceptedOffer($order) !== null) {
-            return FeeReason::RepairCancelledAfterAcceptance;
-        }
-
-        if (TuvAppointment::isLateCancellation(TuvAppointment::for($order))) {
-            return FeeReason::TuvLateCancellation;
-        }
-
-        return null;
+        return CancellationPreview::reasonFor($order);
     }
 
     /**

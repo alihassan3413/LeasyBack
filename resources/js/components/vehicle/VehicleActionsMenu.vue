@@ -50,7 +50,13 @@ const error = ref<string | null>(null);
 /** Server-held, so the amount someone agrees to is the amount that is charged. */
 const feeLabel = computed(() => formatEuro((page.props.payments?.cancellation_fee_cents ?? 20000) / 100));
 
-const isLateCancellation = computed(() => cancellableOrder.value?.payment?.late_cancellation === true);
+/**
+ * The server decides whether cancelling costs anything and says so in words.
+ * Re-deriving the 48-hour rule here is what told a customer with an accepted
+ * offer that cancelling was free.
+ */
+const cancellationPreview = computed(() => cancellableOrder.value?.payment?.cancellation ?? null);
+const feeApplies = computed(() => cancellationPreview.value?.fee_applies === true);
 
 function openConfirm() {
     error.value = null;
@@ -113,11 +119,10 @@ async function confirmCancellation() {
                 <span v-if="cancellableOrder" class="font-bold">{{ cancellableOrder.auftragsnummer }}</span
                 >.
             </p>
-            <p v-if="isLateCancellation" class="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm leading-relaxed text-amber-900">
-                Ihr Termin liegt weniger als 48 Stunden in der Zukunft. Es fällt eine Stornogebühr von
-                <span class="font-bold">{{ feeLabel }}</span> an, die von Ihrer hinterlegten Zahlungsmethode eingezogen wird.
+            <p v-if="feeApplies" class="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm leading-relaxed text-amber-900">
+                {{ cancellationPreview?.message }}
             </p>
-            <p v-else class="text-muted-foreground text-sm">Bei einer Stornierung mehr als 48 Stunden vor dem Termin fallen keine Gebühren an.</p>
+            <p v-else class="text-muted-foreground text-sm">{{ cancellationPreview?.message }}</p>
             <p class="text-muted-foreground text-sm">Dieser Schritt kann nicht rückgängig gemacht werden.</p>
             <InputError :message="error" />
         </div>
@@ -136,7 +141,7 @@ async function confirmCancellation() {
                 class="rounded-[5px] bg-[#E5533D] px-8 py-2.5 text-sm font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
                 @click.stop="confirmCancellation"
             >
-                {{ cancelling ? 'Wird storniert …' : 'Auftrag stornieren' }}
+                {{ cancelling ? 'Wird storniert …' : feeApplies ? `Stornieren und ${feeLabel} zahlen` : 'Auftrag stornieren' }}
             </button>
         </template>
     </AppModal>

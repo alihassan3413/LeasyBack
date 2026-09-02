@@ -79,6 +79,13 @@ const customerFlowSteps = computed(() =>
             status: props.order.repair_payment?.status ?? null,
             amount_cents: props.order.repair_payment?.amount_cents ?? null,
         },
+        cancellationFee: props.order.cancellation_fee
+            ? {
+                  status: props.order.cancellation_fee.status,
+                  amount_cents: props.order.cancellation_fee.amount_cents,
+                  reason_label: props.order.cancellation_fee.trigger_label ?? null,
+              }
+            : null,
         audience: 'admin',
     }),
 );
@@ -235,6 +242,7 @@ function formatDateTime(value: string | null): string {
                         :auftragsnummer="order.auftragsnummer"
                         :vehicle-id="order.vehicle_id"
                         :order-status="order.order_status"
+                        :vehicle-belongs="order.vehicle_belongs"
                         :available-transitions="order.available_transitions"
                         :can-pull-documents="order.can_pull_documents"
                     />

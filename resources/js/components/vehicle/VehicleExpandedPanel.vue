@@ -311,6 +311,13 @@ const customerFlowSteps = computed(() => {
             amount_cents: order.payment?.repair?.amount_cents ?? null,
             payable: order.payment?.repair?.payable ?? false,
         },
+        cancellationFee: order.payment?.cancellation_fee
+            ? {
+                  status: order.payment.cancellation_fee.status,
+                  amount_cents: order.payment.cancellation_fee.amount_cents,
+                  reason_label: order.payment.cancellation_fee.trigger_label ?? null,
+              }
+            : null,
         audience: 'customer',
     });
 });
@@ -416,6 +423,9 @@ const page = usePage<SharedData>();
 const cancellationFeeLabel = computed(() =>
     new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format((page.props.payments?.cancellation_fee_cents ?? 20000) / 100),
 );
+
+/** The one offer a customer can still act on. */
+const publishedOffer = computed(() => offersData.value.find((offer) => offer.status === 'published') ?? null);
 
 const rejectOpen = ref(false);
 const rejectComment = ref('');
@@ -1538,6 +1548,49 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                             </div>
                         </div>
                     </div>
+                </div>
+
+                <div v-if="!admin && publishedOffer" class="flex flex-wrap items-center gap-2 px-4 pt-4">
+                    <button
+                        type="button"
+                        class="rounded-[13px] px-4 py-2.5 text-[13px] font-bold text-white transition-all hover:opacity-90"
+                        style="background: #01b990"
+                        @click.stop="requestSelect(publishedOffer.offerId)"
+                    >
+                        Reparatur freigeben
+                    </button>
+
+                    <button
+                        type="button"
+                        class="rounded-[13px] border px-4 py-2.5 text-[13px] font-bold transition-all hover:opacity-80"
+                        style="border-color: #ececec; color: #991b1b"
+                        @click.stop="rejectOpen = !rejectOpen"
+                    >
+                        Angebot ablehnen
+                    </button>
+                </div>
+
+                <div v-if="rejectOpen && !admin && publishedOffer" class="flex flex-col gap-2 px-4 pt-3">
+                    <p class="rounded-[13px] border border-amber-300 bg-amber-50 p-3 text-[13px] leading-relaxed text-amber-900">
+                        Wenn Sie dieses Reparaturangebot ablehnen, fällt eine Gebühr von
+                        <span class="font-bold">{{ cancellationFeeLabel }}</span> an.
+                    </p>
+                    <textarea
+                        v-model="rejectComment"
+                        rows="3"
+                        class="w-full resize-none rounded-[13px] border px-3 py-2 text-[13px] outline-none focus:border-[#01b990]"
+                        style="border-color: #ececec"
+                        placeholder="Optionale Anmerkung oder Rückfrage..."
+                    />
+                    <button
+                        type="button"
+                        :disabled="rejectingOfferId === publishedOffer.offerId"
+                        class="self-start rounded-[13px] px-5 py-2.5 text-[13px] font-bold text-white transition-all hover:opacity-90 disabled:opacity-50"
+                        style="background: #991b1b"
+                        @click.stop="submitReject(publishedOffer.offerId)"
+                    >
+                        {{ rejectingOfferId === publishedOffer.offerId ? 'Wird gesendet...' : 'Ablehnung bestätigen' }}
+                    </button>
                 </div>
 
                 <div v-if="admin && !acceptedOffer" class="px-4 pt-4">

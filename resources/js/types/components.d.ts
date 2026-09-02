@@ -131,6 +131,7 @@ declare module 'vue' {
     IconMaterialSymbolsLightKeyboardArrowRight: typeof import('~icons/material-symbols-light/keyboard-arrow-right')['default']
     IconMaterialSymbolsLightKeyboardArrowUp: typeof import('~icons/material-symbols-light/keyboard-arrow-up')['default']
     IconMdiAccountArrowRightOutline: typeof import('~icons/mdi/account-arrow-right-outline')['default']
+    IconMdiAccountCancelOutline: typeof import('~icons/mdi/account-cancel-outline')['default']
     IconMdiAccountCheckOutline: typeof import('~icons/mdi/account-check-outline')['default']
     IconMdiAccountCircleOutline: typeof import('~icons/mdi/account-circle-outline')['default']
     IconMdiAccountOffOutline: typeof import('~icons/mdi/account-off-outline')['default']
