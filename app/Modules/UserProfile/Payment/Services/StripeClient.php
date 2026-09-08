@@ -4,6 +4,7 @@ namespace App\Modules\UserProfile\Payment\Services;
 
 use App\Modules\UserProfile\Payment\Contracts\StripeGateway;
 use App\Modules\UserProfile\Payment\Data\StripePaymentIntentResult;
+use App\Modules\UserProfile\Payment\Data\StripePaymentLinkResult;
 use App\Modules\UserProfile\Payment\Data\StripePaymentMethodDetails;
 use App\Modules\UserProfile\Payment\Data\StripeSetupIntentResult;
 use App\Modules\UserProfile\Payment\Exceptions\StripeGatewayException;
@@ -194,6 +195,40 @@ class StripeClient implements StripeGateway
         return $this->guard(
             fn () => $this->toPaymentIntentResult($this->stripe->paymentIntents->cancel($paymentIntentId)),
         );
+    }
+
+    public function createPaymentLink(
+        int $amountCents,
+        string $currency,
+        string $productName,
+        string $idempotencyKey,
+        array $metadata = [],
+    ): StripePaymentLinkResult {
+        return $this->guard(function () use ($amountCents, $currency, $productName, $idempotencyKey, $metadata) {
+            $price = $this->stripe->prices->create([
+                'currency' => $currency,
+                'unit_amount' => $amountCents,
+                'product_data' => ['name' => $productName],
+            ], ['idempotency_key' => $idempotencyKey.':price']);
+
+            $link = $this->stripe->paymentLinks->create([
+                'line_items' => [[
+                    'price' => $price->id,
+                    'quantity' => 1,
+                    'adjustable_quantity' => ['enabled' => false],
+                ]],
+                'allow_promotion_codes' => false,
+                'metadata' => $metadata,
+                'payment_intent_data' => ['metadata' => $metadata],
+                'restrictions' => ['completed_sessions' => ['limit' => 1]],
+            ], ['idempotency_key' => $idempotencyKey.':link']);
+
+            return new StripePaymentLinkResult(
+                id: $link->id,
+                url: (string) $link->url,
+                active: (bool) $link->active,
+            );
+        });
     }
 
     public function constructWebhookEvent(string $payload, string $signatureHeader): array

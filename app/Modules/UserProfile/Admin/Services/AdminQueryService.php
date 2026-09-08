@@ -8,12 +8,15 @@ use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Order\Services\AppraisalPositionService;
 use App\Modules\UserProfile\Order\Services\B2bBillingService;
 use App\Modules\UserProfile\Order\Services\B2bOrderNoteService;
+use App\Modules\UserProfile\Order\Services\DetachedOrderTaskResolver;
 use App\Modules\UserProfile\Order\Services\OrderCollectionService;
+use App\Modules\UserProfile\Order\Services\OrderTaskPriorityResolver;
 use App\Modules\UserProfile\Order\Services\OrderTaskResolver;
 use App\Modules\UserProfile\Order\Services\RepairOfferService;
 use App\Modules\UserProfile\Order\Services\WorkshopCommissionService;
 use App\Modules\UserProfile\Order\Services\WorkshopQuotationService;
 use App\Modules\UserProfile\Payment\Enums\PaymentPurpose;
+use App\Modules\UserProfile\Payment\Models\LexwareInvoice;
 use App\Modules\UserProfile\Payment\Models\OrderPayment;
 use App\Support\PortalTimestamp;
 use App\Support\RepairPaymentPresentation;
@@ -30,6 +33,8 @@ class AdminQueryService
     public function __construct(
         private readonly OrderCollectionService $orderCollectionService,
         private readonly OrderTaskResolver $orderTaskResolver,
+        private readonly OrderTaskPriorityResolver $orderTaskPriorityResolver,
+        private readonly DetachedOrderTaskResolver $detachedOrderTaskResolver,
         private readonly AppraisalPositionService $appraisalPositionService,
         private readonly WorkshopQuotationService $workshopQuotationService,
         private readonly RepairOfferService $repairOfferService,
@@ -574,7 +579,22 @@ class AdminQueryService
             return $offer;
         }, $order['offers']);
 
+        $order['lexware_invoice'] = $row->vehicle_belongs === 'B2B'
+            ? null
+            : $this->lexwareInvoiceSummary($orderId);
+
+        $order['last_customer_contact_at'] = PortalTimestamp::iso(
+            DB::table('order_messages')
+                ->where('order_id', $orderId)
+                ->where('sender_is_admin', false)
+                ->max('created_at'),
+        );
+
         $order['tasks'] = $this->orderTaskResolver->forOrderDetail($order);
+        $order['tasks']['priority'] = $this->orderTaskPriorityResolver
+            ->forOrderTasks($order['tasks'], $row->vehicle_belongs === 'B2B')
+            ->value;
+        $order['tasks']['detached'] = $this->detachedOrderTaskResolver->forOrderDetail($order);
 
         return $order;
     }
@@ -985,6 +1005,28 @@ class AdminQueryService
     /**
      * @return array{status: string, amount_cents: int, currency: string, paid_at: ?string, blocks_pickup: bool}|null
      */
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function lexwareInvoiceSummary(string $orderId): ?array
+    {
+        $invoice = LexwareInvoice::where('order_id', $orderId)
+            ->where('purpose', LexwareInvoice::PURPOSE_REPAIR)
+            ->first();
+
+        if ($invoice === null) {
+            return null;
+        }
+
+        return [
+            'voucher_number' => $invoice->voucher_number,
+            'status' => $invoice->status->value,
+            'failure_reason' => $invoice->failure_reason,
+            'invoiced_at' => $invoice->invoiced_at?->toIso8601String(),
+            'documented_at' => $invoice->documented_at?->toIso8601String(),
+        ];
+    }
+
     private function paymentSummary(string $orderId, PaymentPurpose $purpose): ?array
     {
         $payment = OrderPayment::where('order_id', $orderId)
@@ -1004,6 +1046,8 @@ class AdminQueryService
             'amount_cents' => $payment->amount_cents,
             'currency' => $payment->currency,
             'paid_at' => $payment->paid_at?->toIso8601String(),
+            'payment_link_url' => $payment->stripe_payment_link_url,
+            'payment_link_created_at' => $payment->payment_link_created_at?->toIso8601String(),
             // False for a cancellation fee by construction — it is owed on an
             // order that is already terminal, so there is no vehicle to hold.
             'blocks_pickup' => $payment->blocksRelease(),

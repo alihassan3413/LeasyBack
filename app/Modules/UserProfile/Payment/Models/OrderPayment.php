@@ -58,6 +58,9 @@ class OrderPayment extends Model
         'purpose',
         'amount_cents',
         'currency',
+        'stripe_payment_link_id',
+        'stripe_payment_link_url',
+        'payment_link_created_at',
         'created_by_user_id',
         'updated_by_user_id',
     ];
@@ -70,6 +73,7 @@ class OrderPayment extends Model
             'trigger_reason' => FeeReason::class,
             'trigger_context' => 'array',
             'triggered_at' => 'datetime',
+            'payment_link_created_at' => 'datetime',
             'amount_cents' => 'integer',
             'intent_count' => 'integer',
             'auto_confirmation_count' => 'integer',

@@ -10,6 +10,7 @@ use App\Modules\UserProfile\Payment\Actions\CloseCaseAfterFee;
 use App\Modules\UserProfile\Payment\Data\StripePaymentIntentResult;
 use App\Modules\UserProfile\Payment\Enums\PaymentPurpose;
 use App\Modules\UserProfile\Payment\Enums\PaymentStatus;
+use App\Modules\UserProfile\Payment\Models\LexwareInvoice;
 use App\Modules\UserProfile\Payment\Models\OrderPayment;
 use App\Modules\UserProfile\Payment\Models\OrderPaymentIntent;
 use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
@@ -181,11 +182,19 @@ class PaymentService
         }
 
         if ($to->satisfiesReleaseGate()) {
-            $this->orderMailer->vehicleReadyForPickup($order, $order->vehicle);
-
             if ($to === PaymentStatus::Paid) {
+                $this->orderMailer->repairPaymentReceived(
+                    $order,
+                    $order->vehicle,
+                    LexwareInvoice::where('order_id', $order->id)->value('voucher_number'),
+                );
+
                 $this->notifyPickupReleased($order, $payment);
+
+                return;
             }
+
+            $this->orderMailer->vehicleReadyForPickup($order, $order->vehicle);
 
             return;
         }

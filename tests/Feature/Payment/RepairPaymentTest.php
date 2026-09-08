@@ -5,8 +5,8 @@ namespace Tests\Feature\Payment;
 use App\Enums\OrderStatus;
 use App\Enums\UserType;
 use App\Mail\Orders\FinalInspectionCompletedMail;
+use App\Mail\Orders\RepairPaymentReceivedMail;
 use App\Mail\Orders\VehicleInRepairMail;
-use App\Mail\Orders\VehicleReadyForPickupMail;
 use App\Models\User;
 use App\Modules\UserProfile\Offer\Models\LeasybackOffer;
 use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
@@ -18,6 +18,7 @@ use App\Modules\UserProfile\Payment\Enums\PaymentStatus;
 use App\Modules\UserProfile\Payment\Models\OrderPayment;
 use App\Modules\UserProfile\Payment\Models\OrderPaymentIntent;
 use App\Modules\UserProfile\Payment\Models\OrderPaymentMethod;
+use App\Modules\UserProfile\Payment\Services\PaymentService;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
@@ -102,7 +103,12 @@ class RepairPaymentTest extends TestCase
 
     // ---- the trigger -------------------------------------------------------
 
-    public function test_reaching_delivered_charges_the_selected_offers_gross(): void
+    /**
+     * The obligation is opened at `delivered`; collection happens through the
+     * Stripe Payment Link the billing workflow creates, so nothing is charged
+     * off-session here any more.
+     */
+    public function test_reaching_delivered_opens_the_selected_offers_gross_without_charging(): void
     {
         [$order] = $this->orderAwaitingDelivery('1190.00');
 
@@ -113,17 +119,8 @@ class RepairPaymentTest extends TestCase
         $this->assertNotNull($payment);
         $this->assertSame(119000, $payment->amount_cents);
         $this->assertSame('eur', $payment->currency);
-        $this->assertSame(PaymentStatus::Paid, $payment->status);
-
-        $call = $this->stripe->lastCallTo('createPaymentIntent')['arguments'];
-
-        $this->assertSame(119000, $call['amountCents']);
-        $this->assertTrue($call['confirm']);
-        $this->assertTrue($call['offSession']);
-        $this->assertSame('cus_repair_test', $call['customerId']);
-        $this->assertSame($order->id, $call['metadata']['order_id']);
-        $this->assertSame('repair', $call['metadata']['purpose']);
-        $this->assertArrayHasKey('offer_id', $call['metadata']);
+        $this->assertSame(PaymentStatus::Pending, $payment->status);
+        $this->assertSame(0, $this->stripe->countCallsTo('createPaymentIntent'));
     }
 
     /**
@@ -150,7 +147,6 @@ class RepairPaymentTest extends TestCase
         $this->moveTo($order, OrderStatus::Delivered->value);
 
         $this->assertSame(1, OrderPayment::where('order_id', $order->id)->count());
-        $this->assertSame(1, $this->stripe->countCallsTo('createPaymentIntent'));
     }
 
     public function test_accepting_an_offer_alone_creates_no_payment(): void
@@ -199,7 +195,11 @@ class RepairPaymentTest extends TestCase
 
         $this->moveTo($order, OrderStatus::Delivered->value);
 
-        Mail::assertQueued(VehicleReadyForPickupMail::class, 1);
+        Mail::assertNotQueued(RepairPaymentReceivedMail::class);
+
+        app(PaymentService::class)->transition($this->repairPayment($order), PaymentStatus::Paid);
+
+        Mail::assertQueued(RepairPaymentReceivedMail::class, 1);
     }
 
     public function test_no_pickup_mail_while_the_charge_is_outstanding(): void
@@ -208,8 +208,8 @@ class RepairPaymentTest extends TestCase
 
         $this->moveTo($order, OrderStatus::Delivered->value);
 
-        Mail::assertNotQueued(VehicleReadyForPickupMail::class);
-        $this->assertSame(PaymentStatus::RequiresManualCollection, $this->repairPayment($order)->status);
+        Mail::assertNotQueued(RepairPaymentReceivedMail::class);
+        $this->assertSame(PaymentStatus::Pending, $this->repairPayment($order)->status);
     }
 
     /**
@@ -241,6 +241,8 @@ class RepairPaymentTest extends TestCase
     {
         [$order] = $this->orderAwaitingDelivery('1190.00');
         $order = $this->moveTo($order, OrderStatus::Delivered->value);
+
+        app(PaymentService::class)->transition($this->repairPayment($order), PaymentStatus::Paid);
 
         $this->assertSame(PaymentStatus::Paid, $this->repairPayment($order)->status);
 
@@ -293,7 +295,7 @@ class RepairPaymentTest extends TestCase
         $this->assertSame(10001, $this->repairPayment($order)->amount_cents);
     }
 
-    public function test_the_charge_is_dispatched_only_once_per_order(): void
+    public function test_the_repair_obligation_is_opened_only_once_per_order(): void
     {
         [$order] = $this->orderAwaitingDelivery('1190.00');
 
@@ -301,8 +303,9 @@ class RepairPaymentTest extends TestCase
         // A redelivered transition to the same status is a documented no-op.
         $this->moveTo($order, OrderStatus::Delivered->value);
 
-        $this->assertSame(1, $this->stripe->countCallsTo('createPaymentIntent'));
-        $this->assertSame(1, OrderPaymentIntent::count());
+        $this->assertSame(1, OrderPayment::where('order_id', $order->id)->count());
+        $this->assertSame(0, $this->stripe->countCallsTo('createPaymentIntent'));
+        $this->assertSame(0, OrderPaymentIntent::count());
     }
 
     /**

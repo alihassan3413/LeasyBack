@@ -6,4 +6,17 @@
  * just this directory.
  */
 @source '../../../resources/js/components/shared';
+@source '../../../resources/js/components/admin/AdminOrderTasksCard.vue';
+@source '../../../resources/js/components/admin/AdminRepairBillingCard.vue';
 @source './main.ts';
+@source './tasks.ts';
+
+@layer components {
+    .content-card {
+        border: 1px solid #eef3f2;
+        border-radius: 24px;
+        background: #ffffff;
+        padding: 24px;
+        box-shadow: 0 6px 22px rgba(16, 57, 59, 0.04);
+    }
+}

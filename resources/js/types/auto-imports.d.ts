@@ -103,6 +103,7 @@ declare global {
   const ref: typeof import('vue').ref
   const repairPaymentBlocksPickup: typeof import('../lib/customerOrderFlow').repairPaymentBlocksPickup
   const repairPaymentStage: typeof import('../lib/customerOrderFlow').repairPaymentStage
+  const repairPaymentStageLabel: typeof import('../lib/customerOrderFlow').repairPaymentStageLabel
   const resolveComponent: typeof import('vue').resolveComponent
   const resolveErrorCopy: typeof import('../lib/errorPages').resolveErrorCopy
   const router: typeof import('@inertiajs/vue3').router
@@ -310,6 +311,7 @@ declare module 'vue' {
     readonly ref: UnwrapRef<typeof import('vue')['ref']>
     readonly repairPaymentBlocksPickup: UnwrapRef<typeof import('../lib/customerOrderFlow')['repairPaymentBlocksPickup']>
     readonly repairPaymentStage: UnwrapRef<typeof import('../lib/customerOrderFlow')['repairPaymentStage']>
+    readonly repairPaymentStageLabel: UnwrapRef<typeof import('../lib/customerOrderFlow')['repairPaymentStageLabel']>
     readonly resolveComponent: UnwrapRef<typeof import('vue')['resolveComponent']>
     readonly resolveErrorCopy: UnwrapRef<typeof import('../lib/errorPages')['resolveErrorCopy']>
     readonly router: UnwrapRef<typeof import('@inertiajs/vue3')['router']>

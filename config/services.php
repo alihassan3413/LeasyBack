@@ -67,6 +67,17 @@ return [
         'wsdl' => env('TIM_WSDL', ''),
     ],
 
+    'lexware' => [
+        'mode' => env('LEXWARE_INTEGRATION_MODE', 'disabled'),
+        'base_url' => env('LEXWARE_API_BASE_URL', 'https://api.lexware.io'),
+        // No default, same fail-closed reasoning as stripe.secret below:
+        // LexwareClient refuses to construct without a key rather than
+        // sending requests somewhere unexpected.
+        'api_key' => env('LEXWARE_API_KEY'),
+        'timeout' => (int) env('LEXWARE_TIMEOUT', 12),
+        'connect_timeout' => (int) env('LEXWARE_CONNECT_TIMEOUT', 10),
+    ],
+
     'stripe' => [
         // The publishable key is the only one that reaches the browser (shared
         // through HandleInertiaRequests). It is not a secret, but it still has

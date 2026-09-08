@@ -50,12 +50,33 @@ class OrderEmailDataFactory
         );
     }
 
+    public function forRepairInvoice(
+        LeasybackOrder $order,
+        ?Vehicle $vehicle,
+        string $recipientName,
+        string $paymentUrl,
+        ?string $invoiceNumber,
+        ?LeasybackOffer $offer = null,
+    ): OrderEmailData {
+        return $this->build(
+            $order,
+            $vehicle,
+            $recipientName,
+            $paymentUrl,
+            $offer,
+            $invoiceNumber,
+            $this->urls->customerVehicleUrl($vehicle),
+        );
+    }
+
     private function build(
         LeasybackOrder $order,
         ?Vehicle $vehicle,
         string $recipientName,
         string $actionUrl,
         ?LeasybackOffer $offer,
+        ?string $invoiceNumber = null,
+        ?string $documentUrl = null,
     ): OrderEmailData {
         $station = $this->stationPayload($order);
 
@@ -75,6 +96,8 @@ class OrderEmailDataFactory
             remarks: $this->stringOrNull($order->request_payload['auftrag']['bemerkung'] ?? null),
             offerTotalGross: $this->money($offer?->final_total_gross),
             actionUrl: $actionUrl,
+            invoiceNumber: $invoiceNumber,
+            documentUrl: $documentUrl,
         );
     }
 

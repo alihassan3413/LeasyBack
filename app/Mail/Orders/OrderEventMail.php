@@ -39,6 +39,16 @@ abstract class OrderEventMail extends Mailable
         return $this->heading();
     }
 
+    public function secondaryLabel(): ?string
+    {
+        return null;
+    }
+
+    public function secondaryUrl(): ?string
+    {
+        return null;
+    }
+
     public function envelope(): Envelope
     {
         return new Envelope(subject: $this->subjectLine());
@@ -55,6 +65,8 @@ abstract class OrderEventMail extends Mailable
                 'heading' => $this->heading(),
                 'paragraphs' => $this->paragraphs(),
                 'ctaLabel' => $this->ctaLabel(),
+                'secondaryLabel' => $this->secondaryLabel(),
+                'secondaryUrl' => $this->secondaryUrl(),
             ],
         );
     }

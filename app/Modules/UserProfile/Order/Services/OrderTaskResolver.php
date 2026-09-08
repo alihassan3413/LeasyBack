@@ -127,6 +127,8 @@ class OrderTaskResolver
 
     private const TERMINAL_STATUSES = ['cancelled', 'discarded'];
 
+    private const PRIORITY_DATE_FROM_DISPLAY = '@display';
+
     /**
      * @param  array<string, mixed>  $order  One AdminQueryService::orderDetail() result.
      * @return array{next: array<string, mixed>|null, history: array<int, array<string, mixed>>, is_closed: bool, closed_status: string|null}
@@ -154,6 +156,7 @@ class OrderTaskResolver
                     'actor' => self::ACTOR_CUSTOMER,
                     'date' => null,
                     'date_label' => null,
+                    'priority_date' => null,
                     'section' => self::SECTION_STATUS,
                     'action' => null,
                 ],
@@ -185,6 +188,7 @@ class OrderTaskResolver
                     'actor' => $definition['actor'],
                     'date' => $definition['date'],
                     'date_label' => $definition['date_label'],
+                    'priority_date' => $definition['priority_date'],
                     'section' => $definition['section'],
                     'action' => $definition['action'],
                 ];
@@ -248,6 +252,15 @@ class OrderTaskResolver
             'fee_amount' => $order['cancellation_fee']['amount_cents'] ?? 0,
             'fee_reason_label' => $order['cancellation_fee']['trigger_label'] ?? null,
             'billing_processed_at' => $order['billing']['processed_at'] ?? null,
+            'repair_payment_paid_at' => $order['repair_payment']['paid_at'] ?? null,
+            'repair_payment_link_created_at' => $order['repair_payment']['payment_link_created_at'] ?? null,
+            'appointment_at' => $order['confirmation_date'] ?? null,
+            'quotation_requested_at' => $quotations
+                ->filter(fn (array $quotation) => ($quotation['status'] ?? null) === 'invited')
+                ->pluck('created_at')
+                ->filter()
+                ->sort()
+                ->first(),
             'position_count' => count((array) ($order['appraisal_positions'] ?? [])),
             // "Still able to produce an answer": an invitation that expired or
             // was revoked is not a workshop anyone is waiting on.
@@ -567,6 +580,7 @@ class OrderTaskResolver
                 date: $context['gutachten']['created_at'] ?? $dates['confirmed'] ?? null,
                 dateLabel: 'Termin bestätigt am',
                 action: $this->modalAction(self::UI_UPLOAD_REPORT, 'Erstgutachten hochladen', ['document_type' => DocumentType::Gutachten->value, 'title' => 'Erstgutachten hochladen']),
+                priorityDate: $context['appointment_at'],
             ),
             $this->definition(
                 key: 'complete_initial_appraisal',
@@ -618,6 +632,7 @@ class OrderTaskResolver
                 state: 'waiting',
                 actor: self::ACTOR_WORKSHOP,
                 action: null,
+                priorityDate: $context['quotation_requested_at'],
             ),
             $this->definition(
                 key: 'create_customer_offer',
@@ -755,6 +770,7 @@ class OrderTaskResolver
                 dateLabel: 'Abholbereit seit',
                 action: null,
                 actor: self::ACTOR_CUSTOMER,
+                priorityDate: $context['repair_payment_link_created_at'],
             ),
             /*
              * B2C's counterpart to the B2B billing step, and deliberately not
@@ -796,6 +812,7 @@ class OrderTaskResolver
                 date: $dates['delivered'] ?? null,
                 dateLabel: 'Abholbereit seit',
                 action: $this->statusAction($orderId, 'completed', 'Abholung bestätigen'),
+                priorityDate: $context['repair_payment_paid_at'],
             ),
         ];
     }
@@ -850,6 +867,7 @@ class OrderTaskResolver
         ?array $action,
         string $state = 'open',
         string $actor = self::ACTOR_ADMIN,
+        ?string $priorityDate = self::PRIORITY_DATE_FROM_DISPLAY,
     ): array {
         return [
             'key' => $key,
@@ -860,6 +878,7 @@ class OrderTaskResolver
             'open' => $open && ! $done,
             'date' => $date,
             'date_label' => $dateLabel,
+            'priority_date' => $priorityDate === self::PRIORITY_DATE_FROM_DISPLAY ? $date : $priorityDate,
             'state' => $state,
             'actor' => $actor,
             'action' => $action,

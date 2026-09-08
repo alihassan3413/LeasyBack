@@ -460,6 +460,7 @@ class WorkshopQuotationService
 
                 return [
                     'id' => $quotation->id,
+                    'created_at' => $quotation->created_at?->toISOString(),
                     'workshop_label' => $quotation->workshop_label,
                     'invited_email' => $quotation->invited_email,
                     'status' => $quotation->status(),

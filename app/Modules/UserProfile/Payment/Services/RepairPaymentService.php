@@ -6,7 +6,6 @@ use App\Modules\UserProfile\Offer\Models\LeasybackOffer;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Payment\Enums\PaymentPurpose;
 use App\Modules\UserProfile\Payment\Enums\PaymentStatus;
-use App\Modules\UserProfile\Payment\Jobs\ChargeRepairAmount;
 use App\Modules\UserProfile\Payment\Models\OrderPayment;
 use App\Modules\UserProfile\Payment\Models\OrderPaymentMethod;
 use App\Support\RepairPaymentPresentation;
@@ -62,18 +61,6 @@ class RepairPaymentService
 
             return true;
         }
-
-        if (! $this->mandateFor($order)?->isChargeableOffSession()) {
-            // Offer acceptance is gated on a usable mandate, so this means the
-            // card was detached between acceptance and completion. Recorded
-            // rather than charged: the gate holds the car, and collection
-            // becomes a manual matter.
-            $this->payments->transition($payment, PaymentStatus::RequiresManualCollection);
-
-            return true;
-        }
-
-        ChargeRepairAmount::dispatch($payment->id);
 
         return true;
     }

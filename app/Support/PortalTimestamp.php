@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use Carbon\CarbonImmutable;
 use DateTimeInterface;
 use Illuminate\Support\Carbon;
 use Throwable;
@@ -28,6 +29,36 @@ use Throwable;
  */
 final class PortalTimestamp
 {
+    public const TIME_ZONE = 'Europe/Berlin';
+
+    public static function now(): CarbonImmutable
+    {
+        return CarbonImmutable::now(self::TIME_ZONE);
+    }
+
+    public static function instant(mixed $value): ?CarbonImmutable
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if ($value instanceof DateTimeInterface) {
+            return CarbonImmutable::instance($value)->setTimezone(self::TIME_ZONE);
+        }
+
+        $value = (string) $value;
+
+        try {
+            if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) === 1) {
+                return CarbonImmutable::parse($value, self::TIME_ZONE);
+            }
+
+            return CarbonImmutable::parse($value)->setTimezone(self::TIME_ZONE);
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
     /**
      * One timestamp as ISO-8601 with its offset, or null when there is none.
      */

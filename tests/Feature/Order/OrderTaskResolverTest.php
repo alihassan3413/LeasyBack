@@ -11,7 +11,11 @@ use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Order\Models\WorkshopQuotation;
 use App\Modules\UserProfile\Order\Services\OrderTaskResolver;
 use App\Modules\UserProfile\Order\Services\WorkshopQuotationService;
+use App\Modules\UserProfile\Payment\Enums\PaymentPurpose;
+use App\Modules\UserProfile\Payment\Enums\PaymentStatus;
+use App\Modules\UserProfile\Payment\Models\OrderPayment;
 use App\Modules\UserProfile\Payment\Models\OrderPaymentMethod;
+use App\Modules\UserProfile\Payment\Services\PaymentService;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle;
 use App\Modules\UserProfile\Vehicle\Models\VehicleReportDocument;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -456,6 +460,9 @@ class OrderTaskResolverTest extends TestCase
         $this->advance($order->fresh(), 'delivered');
         $seen[] = $this->nextTask($order)['key'];
 
+        $this->settleRepairPayment($order);
+        $seen[] = $this->nextTask($order)['key'];
+
         $this->assertSame([
             'request_workshop_quotations',
             'create_customer_offer',
@@ -464,6 +471,7 @@ class OrderTaskResolverTest extends TestCase
             'set_repair_appointment',
             'await_repair',
             'evaluate_reinspection',
+            'await_repair_payment',
             'provide_invoice',
         ], $seen);
 
@@ -528,6 +536,10 @@ class OrderTaskResolverTest extends TestCase
         // reinspection -> delivered
         $this->runNextAction($order);
         $this->assertSame('delivered', $order->fresh()->order_status);
+
+        // The repair is collected through a Stripe Payment Link now, so the
+        // tree waits on the money before it offers anything else.
+        $this->settleRepairPayment($order);
 
         // The invoice step's action opens a modal rather than firing a
         // request, so it is satisfied the way an admin would satisfy it.
@@ -937,8 +949,20 @@ class OrderTaskResolverTest extends TestCase
         $this->advance($order, 'reinspection');
         $this->publishDocument($order, 'nachgutachten');
         $this->advance($order->fresh(), 'delivered');
+        $this->settleRepairPayment($order);
 
         return $order->fresh();
+    }
+
+    private function settleRepairPayment(LeasybackOrder $order): void
+    {
+        $payment = OrderPayment::where('order_id', $order->id)
+            ->where('purpose', PaymentPurpose::Repair->value)
+            ->first();
+
+        if ($payment !== null && $payment->status === PaymentStatus::Pending) {
+            app(PaymentService::class)->transition($payment, PaymentStatus::Paid);
+        }
     }
 
     private function ownerOf(LeasybackOrder $order): User

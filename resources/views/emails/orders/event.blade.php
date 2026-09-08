@@ -71,6 +71,12 @@
         </table>
     @endif
 
+    @if (!empty($secondaryUrl) && !empty($secondaryLabel))
+        <p style="margin:0 0 22px 0;font-size:15px;line-height:1.6;">
+            <a href="{{ $secondaryUrl }}" target="_blank" style="color:#0bb995;text-decoration:underline;font-weight:600;">{{ $secondaryLabel }}</a>
+        </p>
+    @endif
+
     <p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#557080;">
         Bei Fragen erreichen Sie uns unter
         <a href="mailto:{{ config('mail_notifications.support.email') }}" style="color:#0bb995;text-decoration:underline;">{{ config('mail_notifications.support.email') }}</a>

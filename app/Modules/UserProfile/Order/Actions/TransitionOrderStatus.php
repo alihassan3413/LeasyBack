@@ -10,6 +10,7 @@ use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Order\Models\OrderBilling;
 use App\Modules\UserProfile\Order\Models\OrderStatusUpdate;
 use App\Modules\UserProfile\Payment\Enums\PaymentPurpose;
+use App\Modules\UserProfile\Payment\Jobs\IssueRepairInvoice;
 use App\Modules\UserProfile\Payment\Models\OrderPayment;
 use App\Modules\UserProfile\Payment\Services\RepairPaymentService;
 use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
@@ -220,6 +221,10 @@ class TransitionOrderStatus
             // its repair is paid for, and exactly one sender may say so.
             $paymentOwnsPickupMail = $toStatus === OrderStatus::Delivered->value
                 && $this->repairPayments->startForDeliveredOrder($result, self::isB2bOrder($result));
+
+            if ($toStatus === OrderStatus::Delivered->value && ! self::isB2bOrder($result)) {
+                IssueRepairInvoice::dispatch($result->id);
+            }
 
             $this->notifyStatusChange($result, $paymentOwnsPickupMail);
         }

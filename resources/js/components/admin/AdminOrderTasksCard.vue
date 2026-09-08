@@ -15,12 +15,13 @@
  * customer timeline; no part of it reaches a customer payload.
  */
 import { formatPortalDate } from '@/lib/portalDate';
-import type { AdminOrderTask, AdminOrderTaskAction, AdminOrderTasks } from '@/types/admin';
+import type { AdminOrderDetachedTask, AdminOrderTask, AdminOrderTaskAction, AdminOrderTaskPriority, AdminOrderTasks } from '@/types/admin';
 import { router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 import MdiCheckCircleOutline from '~icons/mdi/check-circle-outline';
 import MdiClipboardCheckOutline from '~icons/mdi/clipboard-check-outline';
 import MdiClockOutline from '~icons/mdi/clock-outline';
+import MdiPhoneOutline from '~icons/mdi/phone-outline';
 
 const props = defineProps<{ tasks: AdminOrderTasks }>();
 
@@ -99,6 +100,27 @@ function formatDate(value: string | null): string {
     return formatPortalDate(value) || '—';
 }
 
+interface PriorityTreatment {
+    label: string;
+    badge: string;
+    dot: string;
+}
+
+const PRIORITY: Record<Exclude<AdminOrderTaskPriority, 'neutral'>, PriorityTreatment> = {
+    green: { label: 'Im Zeitrahmen', badge: 'bg-[#01B990]/10 text-[#00856a]', dot: 'bg-[#00856a]' },
+    yellow: { label: 'Bald fällig', badge: 'bg-[#ef8450]/15 text-[#c0562a]', dot: 'bg-[#ef8450]' },
+    red: { label: 'Überfällig', badge: 'bg-[#E5533D]/10 text-[#c0392b]', dot: 'bg-[#c0392b]' },
+    immediate_red: { label: 'Sofort', badge: 'bg-[#E5533D]/10 text-[#c0392b]', dot: 'bg-[#c0392b]' },
+};
+
+function priorityTreatment(priority: AdminOrderTaskPriority): PriorityTreatment | null {
+    return priority === 'neutral' ? null : PRIORITY[priority];
+}
+
+const nextPriority = computed(() => priorityTreatment(props.tasks.priority));
+
+const detached = computed<AdminOrderDetachedTask[]>(() => props.tasks.detached ?? []);
+
 const WAITING_LABEL: Record<string, string> = {
     customer: 'Wartet auf Kunde',
     workshop: 'Wartet auf Werkstatt',
@@ -130,20 +152,31 @@ function stateLabel(task: AdminOrderTask | null): string {
             class="rounded-[16px] border p-4 transition-colors"
             :class="props.tasks.next.state === 'waiting' ? 'border-[#e9efee] bg-[#f8faf9]' : 'border-[#ef8450]/30 bg-[#ef8450]/5'"
         >
-            <div class="flex items-start justify-between gap-3">
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
                 <button type="button" class="min-w-0 flex-1 text-left" :title="`Zum Abschnitt springen`" @click="focusNextSection">
                     <p class="text-[14px] font-extrabold tracking-[-0.2px] text-[#10393b] hover:opacity-70">
                         {{ props.tasks.next.title }}
                     </p>
                 </button>
 
-                <span
-                    class="flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-bold"
-                    :class="props.tasks.next.state === 'waiting' ? 'bg-[#f4f7f6] text-[#6f8585]' : 'bg-[#ef8450]/15 text-[#c0562a]'"
-                >
-                    <MdiClockOutline class="size-3" />
-                    {{ stateLabel(props.tasks.next) }}
-                </span>
+                <div class="flex flex-wrap items-center gap-1.5 sm:shrink-0 sm:justify-end">
+                    <span
+                        v-if="nextPriority"
+                        class="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-bold"
+                        :class="nextPriority.badge"
+                    >
+                        <span class="size-1.5 rounded-full" :class="nextPriority.dot" aria-hidden="true" />
+                        {{ nextPriority.label }}
+                    </span>
+
+                    <span
+                        class="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-bold"
+                        :class="props.tasks.next.state === 'waiting' ? 'bg-[#f4f7f6] text-[#6f8585]' : 'bg-[#ef8450]/15 text-[#c0562a]'"
+                    >
+                        <MdiClockOutline class="size-3" />
+                        {{ stateLabel(props.tasks.next) }}
+                    </span>
+                </div>
             </div>
 
             <p class="mt-1.5 text-[12.5px] leading-relaxed text-[#5a6e6c]">{{ props.tasks.next.description }}</p>
@@ -179,6 +212,41 @@ function stateLabel(task: AdminOrderTask | null): string {
             <p class="text-[12.5px] font-bold text-[#10393b]">
                 {{ props.tasks.is_closed ? 'Der Auftrag ist abgeschlossen — keine offenen Aufgaben.' : 'Derzeit keine offene Aufgabe.' }}
             </p>
+        </div>
+
+        <div v-if="detached.length" class="mt-3.5 border-t border-[#f2f6f5] pt-3.5" data-role="detached">
+            <p class="text-[11.5px] font-bold tracking-[-0.1px] text-[#6f8585]">Zusätzliche Follow-ups</p>
+
+            <ul class="mt-2 flex flex-col gap-2">
+                <li
+                    v-for="task in detached"
+                    :key="task.key"
+                    class="rounded-[13px] border border-[#E5533D]/25 bg-[#E5533D]/5 p-3"
+                    data-role="detached-task"
+                >
+                    <div class="flex flex-col gap-1.5 sm:flex-row sm:items-start sm:justify-between sm:gap-2.5">
+                        <p class="flex min-w-0 items-start gap-1.5 text-[12.5px] font-extrabold text-[#10393b]">
+                            <MdiPhoneOutline class="mt-px size-[14px] shrink-0 text-[#c0392b]" />
+                            <span class="min-w-0">{{ task.title }}</span>
+                        </p>
+
+                        <span
+                            v-if="priorityTreatment(task.priority)"
+                            class="flex w-fit items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-bold sm:shrink-0"
+                            :class="priorityTreatment(task.priority)!.badge"
+                        >
+                            <span class="size-1.5 rounded-full" :class="priorityTreatment(task.priority)!.dot" aria-hidden="true" />
+                            {{ priorityTreatment(task.priority)!.label }}
+                        </span>
+                    </div>
+
+                    <p class="mt-1 text-[12px] leading-relaxed text-[#5a6e6c]">{{ task.description }}</p>
+
+                    <p v-if="task.date" class="mt-1.5 text-[11.5px] font-medium text-[#9bb0af]">
+                        {{ task.date_label }}: <span class="font-bold text-[#10393b]">{{ formatDate(task.date) }}</span>
+                    </p>
+                </li>
+            </ul>
         </div>
 
         <div v-if="props.tasks.history.length" class="mt-3">

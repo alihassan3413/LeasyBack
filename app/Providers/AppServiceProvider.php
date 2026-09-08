@@ -4,7 +4,9 @@ namespace App\Providers;
 
 use App\Modules\PartnerApi\Services\PartnerContext;
 use App\Modules\UserProfile\B2B\Services\B2bContext;
+use App\Modules\UserProfile\Payment\Contracts\LexwareGateway;
 use App\Modules\UserProfile\Payment\Contracts\StripeGateway;
+use App\Modules\UserProfile\Payment\Services\LexwareClient;
 use App\Modules\UserProfile\Payment\Services\StripeClient;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
@@ -42,6 +44,8 @@ class AppServiceProvider extends ServiceProvider
          * something actually tries to charge, rather than on every request.
          */
         $this->app->bind(StripeGateway::class, StripeClient::class);
+
+        $this->app->bind(LexwareGateway::class, LexwareClient::class);
     }
 
     /**

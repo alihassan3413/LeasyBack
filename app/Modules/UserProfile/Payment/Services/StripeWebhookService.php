@@ -25,6 +25,7 @@ class StripeWebhookService
         private readonly PaymentMethodService $paymentMethods,
         private readonly PaymentIdentityGuard $identityGuard,
         private readonly PaymentService $payments,
+        private readonly RepairCheckoutSettlement $checkoutSettlement,
     ) {}
 
     /**
@@ -44,6 +45,8 @@ class StripeWebhookService
             'payment_intent.requires_action',
             'payment_intent.processing',
             'payment_intent.canceled' => $this->onPaymentIntentEvent($type, $object),
+            'checkout.session.completed',
+            'checkout.session.async_payment_succeeded' => $this->checkoutSettlement->settle($type, $object),
             default => null,
         };
     }

@@ -3,6 +3,7 @@
 namespace App\Modules\UserProfile\Payment\Contracts;
 
 use App\Modules\UserProfile\Payment\Data\StripePaymentIntentResult;
+use App\Modules\UserProfile\Payment\Data\StripePaymentLinkResult;
 use App\Modules\UserProfile\Payment\Data\StripePaymentMethodDetails;
 use App\Modules\UserProfile\Payment\Data\StripeSetupIntentResult;
 use App\Modules\UserProfile\Payment\Exceptions\StripeGatewayException;
@@ -113,6 +114,19 @@ interface StripeGateway
      * @throws StripeGatewayException
      */
     public function cancelPaymentIntent(string $paymentIntentId): StripePaymentIntentResult;
+
+    /**
+     * @param  array<string, string>  $metadata
+     *
+     * @throws StripeGatewayException
+     */
+    public function createPaymentLink(
+        int $amountCents,
+        string $currency,
+        string $productName,
+        string $idempotencyKey,
+        array $metadata = [],
+    ): StripePaymentLinkResult;
 
     /**
      * Verify a webhook's signature and decode it.

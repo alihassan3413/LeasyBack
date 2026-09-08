@@ -20,6 +20,8 @@ class OrderEmailData
         public readonly ?string $remarks = null,
         public readonly ?string $offerTotalGross = null,
         public readonly ?string $actionUrl = null,
+        public readonly ?string $invoiceNumber = null,
+        public readonly ?string $documentUrl = null,
     ) {}
 
     public function vehicleLabel(): ?string
@@ -36,6 +38,7 @@ class OrderEmailData
     {
         $details = [
             'Auftragsnummer' => $this->orderNumber,
+            'Rechnungsnummer' => $this->invoiceNumber,
             'Kennzeichen' => $this->licensePlate,
             'Fahrzeug' => $this->vehicleLabel(),
             'FIN' => $this->vin,

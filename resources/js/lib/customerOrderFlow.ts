@@ -421,6 +421,10 @@ const PAYMENT_STAGE_LABEL: Record<RepairPaymentStage, { customer: string; admin:
     payment_not_required: { customer: 'Keine Zahlung erforderlich', admin: 'Keine Zahlung erforderlich' },
 };
 
+export function repairPaymentStageLabel(stage: RepairPaymentStage, audience: 'customer' | 'admin' = 'admin'): string {
+    return PAYMENT_STAGE_LABEL[stage][audience];
+}
+
 const PAYMENT_STAGE_TOOLTIP: Record<RepairPaymentStage, { customer: string; admin: string }> = {
     none: {
         customer: 'Nach Abschluss der Reparatur werden die Reparaturkosten fällig.',

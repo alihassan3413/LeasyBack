@@ -4,7 +4,7 @@ namespace Tests\Feature\Payment;
 
 use App\Enums\OrderStatus;
 use App\Enums\UserType;
-use App\Mail\Orders\VehicleReadyForPickupMail;
+use App\Mail\Orders\RepairPaymentReceivedMail;
 use App\Models\User;
 use App\Modules\UserProfile\Offer\Models\LeasybackOffer;
 use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
@@ -202,7 +202,7 @@ class RepairPaymentRecoveryTest extends TestCase
 
         $this->assertSame(PaymentStatus::Paid, $payment->fresh()->status);
         Mail::assertQueuedCount(1);
-        Mail::assertQueued(VehicleReadyForPickupMail::class);
+        Mail::assertQueued(RepairPaymentReceivedMail::class);
     }
 
     // ---- requires_payment_method: two different meanings --------------------

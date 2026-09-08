@@ -317,6 +317,8 @@ export interface AdminOrderTask {
     actor: 'admin' | 'customer' | 'workshop';
     date: string | null;
     date_label: string;
+    /** The persisted trigger OrderTaskPriorityRules times this task from. */
+    priority_date: string | null;
     section: string;
     action: AdminOrderTaskAction | null;
 }
@@ -330,12 +332,37 @@ export interface AdminOrderTaskHistoryEntry {
     state: 'done';
 }
 
+/** Matches App\Enums\TaskPriority — derived by the backend, never timed here. */
+export type AdminOrderTaskPriority = 'neutral' | 'green' | 'yellow' | 'red' | 'immediate_red';
+
+/**
+ * A follow-up that stands beside the guided workflow rather than inside it —
+ * it never advances the order and never replaces `next`.
+ */
+export interface AdminOrderDetachedTask extends AdminOrderTask {
+    priority: AdminOrderTaskPriority;
+}
+
 /** Matches OrderTaskResolver::forOrderDetail(). Both channels, never null. */
 export interface AdminOrderTasks {
     next: AdminOrderTask | null;
     history: AdminOrderTaskHistoryEntry[];
     is_closed: boolean;
     closed_status: string | null;
+    /** OrderTaskPriorityResolver's verdict on `next`. */
+    priority: AdminOrderTaskPriority;
+    /** DetachedOrderTaskResolver's follow-ups. Empty when none is due. */
+    detached: AdminOrderDetachedTask[];
+}
+
+/** Matches AdminQueryService::lexwareInvoiceSummary(). B2C only; null until an invoice exists. */
+export interface AdminLexwareInvoice {
+    voucher_number: string | null;
+    status: 'pending' | 'invoiced' | 'documented' | 'needs_reconciliation';
+    /** Why the last attempt stopped, when it did. Null while healthy. */
+    failure_reason: string | null;
+    invoiced_at: string | null;
+    documented_at: string | null;
 }
 
 /** Matches AdminQueryService::orderDetail()'s response shape. */
@@ -347,6 +374,8 @@ export interface AdminOrderDetail extends AdminOrderRow {
     vehicle_belongs: 'B2B' | 'B2C';
     collection: OrderCollectionData | null;
     workshop_commission: AdminWorkshopCommission;
+    /** Newest message the customer sent on the order thread, or null. */
+    last_customer_contact_at: string | null;
     tasks: AdminOrderTasks;
     /** Both channels — an order with no positions yet sends an empty list, not null. */
     appraisal_positions: AdminAppraisalPosition[];
@@ -359,6 +388,8 @@ export interface AdminOrderDetail extends AdminOrderRow {
     repair_payment: AdminRepairPayment | null;
     /** The B2C €200 fee, separate from the repair charge. */
     cancellation_fee: AdminRepairPayment | null;
+    /** The Lexware repair invoice. Null for B2B and until one is issued. */
+    lexware_invoice: AdminLexwareInvoice | null;
     /**
      * How `delivered` should be presented — derived server-side from the order
      * status and the repair charge, and identical to the value the customer's
@@ -379,6 +410,10 @@ export interface AdminRepairPayment {
     amount_cents: number;
     currency: string;
     paid_at: string | null;
+    /** The hosted Stripe page the customer pays the repair on. */
+    payment_link_url: string | null;
+    /** When the payment request became actionable — the unpaid clock runs from here. */
+    payment_link_created_at: string | null;
     /** Mirrors the completion gate: true means `delivered → completed` is refused. */
     blocks_pickup: boolean;
 }

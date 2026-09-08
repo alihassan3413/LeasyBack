@@ -4,7 +4,7 @@ namespace Tests\Feature\Payment;
 
 use App\Enums\OrderStatus;
 use App\Enums\UserType;
-use App\Mail\Orders\VehicleReadyForPickupMail;
+use App\Mail\Orders\RepairPaymentReceivedMail;
 use App\Models\User;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Payment\Contracts\StripeGateway;
@@ -112,7 +112,7 @@ class RepairPaymentWebhookTest extends TestCase
 
         $this->assertSame(PaymentStatus::Paid, $payment->status);
         $this->assertNotNull($payment->paid_at);
-        Mail::assertQueued(VehicleReadyForPickupMail::class, 1);
+        Mail::assertQueued(RepairPaymentReceivedMail::class, 1);
     }
 
     /**
@@ -134,7 +134,7 @@ class RepairPaymentWebhookTest extends TestCase
 
         $this->assertSame(PaymentStatus::Failed, $payment->status);
         $this->assertSame('card_declined', $intent->failure_code);
-        Mail::assertNotQueued(VehicleReadyForPickupMail::class);
+        Mail::assertNotQueued(RepairPaymentReceivedMail::class);
     }
 
     /**
@@ -204,7 +204,7 @@ class RepairPaymentWebhookTest extends TestCase
         $this->sendEvent('payment_intent.succeeded')->assertOk();
         $this->sendEvent('payment_intent.succeeded')->assertOk();
 
-        Mail::assertQueued(VehicleReadyForPickupMail::class, 1);
+        Mail::assertQueued(RepairPaymentReceivedMail::class, 1);
     }
 
     public function test_an_unknown_payment_intent_is_ignored_with_200(): void

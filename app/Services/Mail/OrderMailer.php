@@ -13,6 +13,8 @@ use App\Mail\Orders\OrderCreatedCustomerMail;
 use App\Mail\Orders\OrderEventMail;
 use App\Mail\Orders\OrderStatusUpdatedMail;
 use App\Mail\Orders\RepairApprovalConfirmedMail;
+use App\Mail\Orders\RepairInvoiceAvailableMail;
+use App\Mail\Orders\RepairPaymentReceivedMail;
 use App\Mail\Orders\RepairQuotationAvailableMail;
 use App\Mail\Orders\VehicleInRepairMail;
 use App\Mail\Orders\VehicleReadyForPickupMail;
@@ -44,6 +46,7 @@ class OrderMailer
     public function __construct(
         private readonly OrderEmailDataFactory $dataFactory,
         private readonly MailRecipientResolver $recipients,
+        private readonly EmailUrlBuilder $urls,
     ) {}
 
     public function orderCreated(LeasybackOrder $order, ?Vehicle $vehicle = null): void
@@ -90,6 +93,69 @@ class OrderMailer
     public function vehicleReadyForPickup(LeasybackOrder $order, ?Vehicle $vehicle = null): void
     {
         $this->sendToCustomer($order, $vehicle ?? $order->vehicle, VehicleReadyForPickupMail::class);
+    }
+
+    public function repairInvoiceAvailable(
+        LeasybackOrder $order,
+        ?Vehicle $vehicle,
+        string $paymentUrl,
+        ?string $invoiceNumber,
+    ): void {
+        $vehicle ??= $order->vehicle;
+        $recipient = $this->recipients->forVehicle($vehicle);
+
+        if ($recipient === null) {
+            Log::warning('Could not resolve a customer email recipient — skipping billing email', [
+                'auftragsnummer' => $order->auftragsnummer,
+                'vehicle_id' => $vehicle?->vehicle_id,
+            ]);
+
+            return;
+        }
+
+        $data = $this->dataFactory->forRepairInvoice(
+            $order,
+            $vehicle,
+            $recipient['name'],
+            $paymentUrl,
+            $invoiceNumber,
+        );
+
+        $this->dispatch($recipient['email'], new RepairInvoiceAvailableMail($data), [
+            'auftragsnummer' => $order->auftragsnummer,
+            'mailable' => RepairInvoiceAvailableMail::class,
+        ]);
+    }
+
+    public function repairPaymentReceived(
+        LeasybackOrder $order,
+        ?Vehicle $vehicle,
+        ?string $invoiceNumber,
+    ): void {
+        $vehicle ??= $order->vehicle;
+        $recipient = $this->recipients->forVehicle($vehicle);
+
+        if ($recipient === null) {
+            Log::warning('Could not resolve a customer email recipient — skipping pickup authorisation', [
+                'auftragsnummer' => $order->auftragsnummer,
+                'vehicle_id' => $vehicle?->vehicle_id,
+            ]);
+
+            return;
+        }
+
+        $data = $this->dataFactory->forRepairInvoice(
+            $order,
+            $vehicle,
+            $recipient['name'],
+            $this->urls->customerVehicleUrl($vehicle),
+            $invoiceNumber,
+        );
+
+        $this->dispatch($recipient['email'], new RepairPaymentReceivedMail($data), [
+            'auftragsnummer' => $order->auftragsnummer,
+            'mailable' => RepairPaymentReceivedMail::class,
+        ]);
     }
 
     /**

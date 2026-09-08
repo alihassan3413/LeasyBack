@@ -7,6 +7,7 @@ import AdminOrderActionsMenu from '@/components/admin/AdminOrderActionsMenu.vue'
 import AdminOrderNotesCard from '@/components/admin/AdminOrderNotesCard.vue';
 import AdminOrderTasksCard from '@/components/admin/AdminOrderTasksCard.vue';
 import AdminRepairAppointmentCard from '@/components/admin/AdminRepairAppointmentCard.vue';
+import AdminRepairBillingCard from '@/components/admin/AdminRepairBillingCard.vue';
 import AdminWorkshopCommissionCard from '@/components/admin/AdminWorkshopCommissionCard.vue';
 import AdminWorkshopQuotationsCard from '@/components/admin/AdminWorkshopQuotationsCard.vue';
 import MasonryGrid from '@/components/shared/MasonryGrid.vue';
@@ -169,6 +170,10 @@ function handleTaskAction(action: AdminOrderTaskAction) {
 const BILLING_STATUSES = new Set(['vehicle_returned', 'invoice_processed', 'completed']);
 
 const showBilling = computed(() => BILLING_STATUSES.has(props.order.order_status) || !!props.order.billing?.is_processed);
+
+const showRepairBilling = computed(
+    () => props.order.vehicle_belongs !== 'B2B' && (props.order.lexware_invoice !== null || props.order.repair_payment !== null),
+);
 
 /**
  * The quotation behind the offer that is actually going ahead — it seeds the
@@ -401,6 +406,14 @@ function formatDateTime(value: string | null): string {
                         id="order-section-notizen"
                         :order-id="order.id"
                         :notes="order.notes"
+                    />
+
+                    <AdminRepairBillingCard
+                        v-if="showRepairBilling"
+                        id="order-section-abrechnung"
+                        :invoice="order.lexware_invoice"
+                        :payment="order.repair_payment"
+                        :stage="order.repair_payment_stage"
                     />
 
                     <AdminBillingCard

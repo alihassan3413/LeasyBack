@@ -4,6 +4,7 @@ namespace Tests\Support;
 
 use App\Modules\UserProfile\Payment\Contracts\StripeGateway;
 use App\Modules\UserProfile\Payment\Data\StripePaymentIntentResult;
+use App\Modules\UserProfile\Payment\Data\StripePaymentLinkResult;
 use App\Modules\UserProfile\Payment\Data\StripePaymentMethodDetails;
 use App\Modules\UserProfile\Payment\Data\StripeSetupIntentResult;
 use App\Modules\UserProfile\Payment\Exceptions\StripeGatewayException;
@@ -57,6 +58,9 @@ class FakeStripeGateway implements StripeGateway
      * @var list<StripePaymentIntentResult>
      */
     public array $confirmationResults = [];
+
+    /** @var array<string, StripePaymentLinkResult> */
+    public array $paymentLinks = [];
 
     /** Verified webhook payload returned by constructWebhookEvent(). */
     public ?array $webhookEvent = null;
@@ -208,6 +212,34 @@ class FakeStripeGateway implements StripeGateway
             customerId: $existing->customerId,
             paymentMethodId: $existing->paymentMethodId,
             metadata: $existing->metadata,
+        );
+    }
+
+    public function createPaymentLink(
+        int $amountCents,
+        string $currency,
+        string $productName,
+        string $idempotencyKey,
+        array $metadata = [],
+    ): StripePaymentLinkResult {
+        $this->record('createPaymentLink', compact('amountCents', 'currency', 'productName', 'idempotencyKey', 'metadata'));
+
+        if ($this->nextFailure !== null) {
+            $failure = $this->nextFailure;
+            $this->nextFailure = null;
+
+            throw $failure;
+        }
+
+        if (array_key_exists($idempotencyKey, $this->paymentLinks)) {
+            return $this->paymentLinks[$idempotencyKey];
+        }
+
+        $id = 'plink_'.(count($this->paymentLinks) + 1);
+
+        return $this->paymentLinks[$idempotencyKey] = new StripePaymentLinkResult(
+            id: $id,
+            url: 'https://pay.stripe.test/'.$id,
         );
     }
 

@@ -21,6 +21,7 @@ use App\Modules\UserProfile\Payment\Models\OrderPaymentIntent;
 use App\Modules\UserProfile\Payment\Models\OrderPaymentMethod;
 use App\Modules\UserProfile\Payment\Services\B2cFeeDeadlines;
 use App\Modules\UserProfile\Payment\Services\B2cFeeService;
+use App\Modules\UserProfile\Payment\Services\PaymentService;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -1053,7 +1054,9 @@ class B2cFeeTest extends TestCase
             ->where('purpose', PaymentPurpose::Repair->value)
             ->first();
 
-        $this->assertSame(PaymentStatus::Paid, $repair->status);
+        $this->assertSame(PaymentStatus::Pending, $repair->status);
+
+        app(PaymentService::class)->transition($repair, PaymentStatus::Paid);
 
         app(TransitionOrderStatus::class)($order->fresh(), OrderStatus::Completed->value, 'test', 'PHPUnit');
 

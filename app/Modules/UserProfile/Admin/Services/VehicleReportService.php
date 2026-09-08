@@ -143,6 +143,53 @@ class VehicleReportService
         return ['document' => $doc];
     }
 
+    public function storeGeneratedDocument(
+        string $auftragsnummer,
+        string $vehicleId,
+        string $filename,
+        string $contents,
+        string $documentType,
+        string $documentTitle,
+        bool $notifyCustomer = true,
+    ): VehicleReportDocument {
+        $path = "vehicle-reports/{$auftragsnummer}/{$filename}";
+
+        $existing = VehicleReportDocument::where('vehicle_id', $vehicleId)
+            ->where('auftragsnummer', $auftragsnummer)
+            ->where('path', $path)
+            ->first();
+
+        Storage::disk('documents')->put($path, $contents);
+
+        if ($existing !== null) {
+            return $existing;
+        }
+
+        $doc = DB::transaction(function () use ($auftragsnummer, $vehicleId, $documentType, $documentTitle, $path) {
+            $doc = VehicleReportDocument::create([
+                'auftragsnummer' => $auftragsnummer,
+                'vehicle_id' => $vehicleId,
+                'document_type' => $documentType,
+                'document_title' => $documentTitle,
+                'path' => $path,
+                'published' => true,
+                'created_by_user_id' => null,
+                'updated_by_user_id' => null,
+            ]);
+
+            $this->auditDocument($doc, 'uploaded', null);
+            $this->announceDocument($doc, 'available');
+
+            return $doc;
+        });
+
+        if ($notifyCustomer) {
+            $this->notifyDocumentPublished($doc);
+        }
+
+        return $doc;
+    }
+
     /**
      * @return array{message: string, action?: string, document: VehicleReportDocument}
      */
