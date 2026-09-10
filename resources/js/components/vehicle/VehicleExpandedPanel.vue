@@ -1191,6 +1191,49 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                         </button>
                     </div>
 
+                    <div v-if="!admin && publishedOffer && !pendingPresentedOffer" class="flex flex-wrap items-center gap-2 px-6 pt-4">
+                        <button
+                            type="button"
+                            class="rounded-[13px] px-5 py-2.5 text-[13px] font-bold text-white transition-all hover:opacity-90"
+                            style="background: #01b990"
+                            @click.stop="requestSelect(publishedOffer.offerId)"
+                        >
+                            Reparatur freigeben
+                        </button>
+
+                        <button
+                            type="button"
+                            class="rounded-[13px] border px-5 py-2.5 text-[13px] font-bold transition-all hover:opacity-80"
+                            style="border-color: #ececec; color: #991b1b"
+                            @click.stop="rejectOpen = !rejectOpen"
+                        >
+                            Angebot ablehnen
+                        </button>
+                    </div>
+
+                    <div v-if="rejectOpen && !admin && publishedOffer && !pendingPresentedOffer" class="flex flex-col gap-2 px-6 pt-3">
+                        <p class="rounded-[13px] border border-amber-300 bg-amber-50 p-3 text-[13px] leading-relaxed text-amber-900">
+                            Wenn Sie dieses Reparaturangebot ablehnen, fällt eine Gebühr von
+                            <span class="font-bold">{{ cancellationFeeLabel }}</span> an.
+                        </p>
+                        <textarea
+                            v-model="rejectComment"
+                            rows="3"
+                            class="w-full resize-none rounded-[13px] border px-3 py-2 text-[13px] outline-none focus:border-[#01b990]"
+                            style="border-color: #ececec"
+                            placeholder="Optionale Anmerkung oder Rückfrage..."
+                        />
+                        <button
+                            type="button"
+                            :disabled="rejectingOfferId === publishedOffer.offerId"
+                            class="self-start rounded-[13px] px-5 py-2.5 text-[13px] font-bold text-white transition-all hover:opacity-90 disabled:opacity-50"
+                            style="background: #991b1b"
+                            @click.stop="submitReject(publishedOffer.offerId)"
+                        >
+                            {{ rejectingOfferId === publishedOffer.offerId ? 'Wird gesendet...' : 'Ablehnung bestätigen' }}
+                        </button>
+                    </div>
+
                     <div v-if="acceptedOffer" class="px-6 pt-5 pb-6">
                         <div class="flex items-center justify-between gap-3 rounded-[50px] px-7 py-2.5" style="background: #ef8450">
                             <span class="min-w-0 flex-1 text-[13px] leading-snug font-normal text-white">

@@ -41,7 +41,11 @@ class LexwareInvoiceWorkflow
 
         $record = $this->claim($order);
 
-        if ($record->status->isSettled() || $record->status->blocksAutomation()) {
+        if ($record->status->blocksAutomation()) {
+            return $record;
+        }
+
+        if ($record->status->isSettled() && $this->documentIsHealthy($record)) {
             return $record;
         }
 
@@ -55,12 +59,19 @@ class LexwareInvoiceWorkflow
             $record = $record->fresh();
         }
 
-        if (! $record->hasDocument()) {
+        if (! $record->hasDocument() || ! $this->documentIsHealthy($record)) {
             $this->storeDocument($record, $order);
             $record = $record->fresh();
         }
 
         return $record;
+    }
+
+    private function documentIsHealthy(LexwareInvoice $record): bool
+    {
+        $document = $record->document;
+
+        return $document !== null && $this->documents->fileExists($document->path);
     }
 
     private function claim(LeasybackOrder $order): LexwareInvoice

@@ -18,6 +18,7 @@ use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use RuntimeException;
 
 /**
  * Vehicle report/invoice document management — moved out of the Sanctum
@@ -159,7 +160,12 @@ class VehicleReportService
             ->where('path', $path)
             ->first();
 
-        Storage::disk('documents')->put($path, $contents);
+        // The 'documents' disk has throw/report both disabled (config/filesystems.php),
+        // so a failed write returns false silently — check it, or a Lexware invoice can
+        // get marked Documented with no PDF ever on disk.
+        if (! Storage::disk('documents')->put($path, $contents)) {
+            throw new RuntimeException("Failed to write generated document to the 'documents' disk: {$path}");
+        }
 
         if ($existing !== null) {
             return $existing;
@@ -188,6 +194,11 @@ class VehicleReportService
         }
 
         return $doc;
+    }
+
+    public function fileExists(string $path): bool
+    {
+        return Storage::disk('documents')->exists($path);
     }
 
     /**

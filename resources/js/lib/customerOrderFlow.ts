@@ -1107,6 +1107,8 @@ export function getCustomerOrderFlowSteps(ctx: CustomerOrderFlowInput): Customer
     const gutachtenDoc = findLatestDoc(reportDocuments, 'gutachten');
     const nachgutachtenDoc = findLatestDoc(reportDocuments, 'nachgutachten');
     const rechnungDoc = findLatestDoc(reportDocuments, 'rechnung');
+    const stopped = processStopped(ctx);
+    const showsStage = (step: CustomerOrderFlowStep) => stopped || step.stage !== 'process_stopped';
 
     if (TERMINAL_STATUSES.has(status)) {
         const terminalEntry = ctx.statusHistory.find((entry) => entry.new_status === status);
@@ -1136,10 +1138,9 @@ export function getCustomerOrderFlowSteps(ctx: CustomerOrderFlowInput): Customer
                 isRejected: false,
                 cancelledBy: terminalEntry?.auth_source,
             });
-        });
+        }).filter(showsStage);
     }
 
-    const stopped = processStopped(ctx);
     const rawIndex = resolveProgressIndex(status, relevantOffer, !!nachgutachtenDoc, repairPaymentBlocksPickup(ctx));
 
     if (rawIndex === null) {
@@ -1188,7 +1189,7 @@ export function getCustomerOrderFlowSteps(ctx: CustomerOrderFlowInput): Customer
             isRejected: false,
             skipped,
         });
-    });
+    }).filter(showsStage);
 }
 
 /**

@@ -327,6 +327,96 @@ class LexwareInvoiceWorkflowTest extends TestCase
         $this->assertSame('invoice-1', $resumed->lexware_invoice_id);
     }
 
+    public function test_a_storage_write_failure_never_marks_the_invoice_documented(): void
+    {
+        $order = $this->deliveredOrder();
+
+        $realDisk = Storage::disk('documents');
+
+        Storage::set('documents', new class
+        {
+            public function put(...$args)
+            {
+                return false;
+            }
+        });
+
+        try {
+            $this->workflow()->issueRepairInvoice($order, false);
+            $this->fail('expected the failed write to throw');
+        } catch (\RuntimeException $exception) {
+            $this->assertStringContainsString('documents', $exception->getMessage());
+        } finally {
+            Storage::set('documents', $realDisk);
+        }
+
+        $record = LexwareInvoice::sole();
+        $this->assertSame(LexwareInvoiceStatus::Invoiced, $record->status);
+        $this->assertNull($record->document_id);
+        $this->assertNull($record->documented_at);
+        $this->assertSame(0, VehicleReportDocument::where('document_type', DocumentType::Rechnung->value)->count());
+
+        // Recovery: once storage works again, a retry resumes only the PDF step —
+        // no second legal invoice is created for the already-finalized voucher.
+        $resumed = $this->issue($order->fresh());
+
+        $this->assertSame(LexwareInvoiceStatus::Documented, $resumed->status);
+        $this->assertSame('invoice-1', $resumed->lexware_invoice_id);
+        $this->assertSame(1, $this->lexware->callCount('createFinalizedInvoice'));
+        $this->assertSame(2, $this->lexware->callCount('downloadInvoiceFile'));
+    }
+
+    public function test_a_documented_invoice_with_a_missing_pdf_is_restored_not_duplicated(): void
+    {
+        $order = $this->deliveredOrder();
+
+        $document = VehicleReportDocument::create([
+            'auftragsnummer' => $order->auftragsnummer,
+            'vehicle_id' => $order->vehicle_id,
+            'document_type' => DocumentType::Rechnung->value,
+            'document_title' => 'Rechnung RE0002',
+            'path' => "vehicle-reports/{$order->auftragsnummer}/Rechnung-RE0002.pdf",
+            'published' => true,
+        ]);
+
+        $invoice = LexwareInvoice::create([
+            'order_id' => $order->id,
+            'auftragsnummer' => $order->auftragsnummer,
+            'purpose' => LexwareInvoice::PURPOSE_REPAIR,
+            'status' => LexwareInvoiceStatus::Documented,
+            'lexware_invoice_id' => 'invoice-1',
+            'voucher_number' => 'RE0002',
+            'voucher_status' => 'open',
+            'document_id' => $document->id,
+            'submitted_at' => now(),
+            'invoiced_at' => now(),
+            'documented_at' => now(),
+        ]);
+
+        $this->assertFalse(Storage::disk('documents')->exists($document->path));
+
+        $restored = $this->issue($order->fresh());
+
+        $this->assertSame($invoice->id, $restored->id);
+        $this->assertSame($document->id, $restored->document_id);
+        $this->assertSame('RE0002', $restored->voucher_number);
+        $this->assertSame('invoice-1', $restored->lexware_invoice_id);
+        $this->assertSame(LexwareInvoiceStatus::Documented, $restored->status);
+        Storage::disk('documents')->assertExists($document->path);
+        $this->assertSame('%PDF-1.4 invoice-1', Storage::disk('documents')->get($document->path));
+        $this->assertSame(1, LexwareInvoice::count());
+        $this->assertSame(1, VehicleReportDocument::where('document_type', DocumentType::Rechnung->value)->count());
+        $this->assertSame(0, $this->lexware->callCount('createFinalizedInvoice'));
+        $this->assertSame(1, $this->lexware->callCount('downloadInvoiceFile'));
+
+        $this->issue($order->fresh());
+
+        $this->assertSame(1, $this->lexware->callCount('downloadInvoiceFile'));
+        $this->assertSame(0, $this->lexware->callCount('createFinalizedInvoice'));
+        $this->assertSame(1, LexwareInvoice::count());
+        $this->assertSame(1, VehicleReportDocument::where('document_type', DocumentType::Rechnung->value)->count());
+    }
+
     public function test_a_retrieval_failure_keeps_the_invoice_and_retries_retrieval(): void
     {
         $order = $this->deliveredOrder();

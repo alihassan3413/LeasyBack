@@ -15,6 +15,7 @@ use App\Modules\UserProfile\Order\Models\WorkshopQuotation;
 use App\Modules\UserProfile\Order\Services\WorkshopQuotationService;
 use App\Modules\UserProfile\Payment\Contracts\LexwareGateway;
 use App\Modules\UserProfile\Payment\Contracts\StripeGateway;
+use App\Modules\UserProfile\Payment\Enums\LexwareInvoiceStatus;
 use App\Modules\UserProfile\Payment\Enums\PaymentPurpose;
 use App\Modules\UserProfile\Payment\Enums\PaymentStatus;
 use App\Modules\UserProfile\Payment\Exceptions\LexwareGatewayException;
@@ -204,6 +205,56 @@ class RepairBillingWorkflowTest extends TestCase
 
         $this->assertSame(1, $this->lexware->callCount('createFinalizedInvoice'));
         $this->assertSame('plink_1', $this->repairPayment($order)->stripe_payment_link_id);
+    }
+
+    public function test_a_documented_invoice_with_a_missing_pdf_restores_then_bills_normally(): void
+    {
+        $order = $this->deliveredOrder();
+
+        $document = VehicleReportDocument::create([
+            'auftragsnummer' => $order->auftragsnummer,
+            'vehicle_id' => $order->vehicle_id,
+            'document_type' => DocumentType::Rechnung->value,
+            'document_title' => 'Rechnung RE0002',
+            'path' => "vehicle-reports/{$order->auftragsnummer}/Rechnung-RE0002.pdf",
+            'published' => true,
+        ]);
+
+        LexwareInvoice::create([
+            'order_id' => $order->id,
+            'auftragsnummer' => $order->auftragsnummer,
+            'purpose' => LexwareInvoice::PURPOSE_REPAIR,
+            'status' => LexwareInvoiceStatus::Documented,
+            'lexware_invoice_id' => 'invoice-1',
+            'voucher_number' => 'RE0002',
+            'voucher_status' => 'open',
+            'document_id' => $document->id,
+            'submitted_at' => now(),
+            'invoiced_at' => now(),
+            'documented_at' => now(),
+        ]);
+
+        $this->assertFalse(Storage::disk('documents')->exists($document->path));
+
+        $restored = $this->issue($order->fresh());
+
+        $this->assertSame('RE0002', $restored->voucher_number);
+        $this->assertSame($document->id, $restored->document_id);
+        $this->assertSame('invoice-1', $restored->lexware_invoice_id);
+        Storage::disk('documents')->assertExists($document->path);
+        $this->assertSame(0, $this->lexware->callCount('createFinalizedInvoice'));
+        $this->assertSame(1, LexwareInvoice::count());
+        $this->assertSame(1, VehicleReportDocument::where('document_type', DocumentType::Rechnung->value)->count());
+
+        $this->assertSame('plink_1', $this->repairPayment($order)->stripe_payment_link_id);
+        $this->assertSame(1, $this->stripe->countCallsTo('createPaymentLink'));
+        Mail::assertQueued(RepairInvoiceAvailableMail::class, 1);
+
+        $this->issue($order->fresh());
+
+        $this->assertSame(1, $this->lexware->callCount('downloadInvoiceFile'));
+        $this->assertSame(1, $this->stripe->countCallsTo('createPaymentLink'));
+        Mail::assertQueued(RepairInvoiceAvailableMail::class, 1);
     }
 
     public function test_an_incomplete_lexware_invoice_produces_no_link_and_no_email(): void
