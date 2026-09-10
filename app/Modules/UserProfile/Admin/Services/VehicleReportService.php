@@ -61,6 +61,7 @@ class VehicleReportService
         $filename = basename($source->s3_key);
         $destPath = "vehicle-reports/{$validated['auftragsnummer']}/{$filename}";
         Storage::disk('documents')->put($destPath, $bytes);
+        Storage::disk('documents')->setVisibility(dirname($destPath), 'private');
 
         // Read once and reuse: the notify check below used to test an
         // undefined `$published`, which PHP evaluated as null — so a
@@ -117,6 +118,7 @@ class VehicleReportService
         }
 
         Storage::disk('documents')->put($path, file_get_contents($file));
+        Storage::disk('documents')->setVisibility(dirname($path), 'private');
 
         $doc = DB::transaction(function () use ($auftragsnummer, $vehicleId, $documentType, $documentTitle, $path, $published, $user) {
             $doc = VehicleReportDocument::create([
@@ -166,6 +168,8 @@ class VehicleReportService
         if (! Storage::disk('documents')->put($path, $contents)) {
             throw new RuntimeException("Failed to write generated document to the 'documents' disk: {$path}");
         }
+
+        Storage::disk('documents')->setVisibility(dirname($path), 'private');
 
         if ($existing !== null) {
             return $existing;
