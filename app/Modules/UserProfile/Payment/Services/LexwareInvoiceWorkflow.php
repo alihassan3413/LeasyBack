@@ -16,6 +16,7 @@ use App\Modules\UserProfile\Payment\Enums\LexwareInvoiceStatus;
 use App\Modules\UserProfile\Payment\Exceptions\LexwareGatewayException;
 use App\Modules\UserProfile\Payment\Models\LexwareInvoice;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle;
+use App\Support\OfferPricingPolicy;
 use App\Support\PortalTimestamp;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
@@ -192,8 +193,8 @@ class LexwareInvoiceWorkflow
 
     private function invoiceRequest(LeasybackOrder $order): LexwareInvoiceRequest
     {
-        $presentation = $this->presentation($order);
-        $lines = $this->lines($presentation);
+        $offer = $this->acceptedOffer($order);
+        $lines = $this->lines($offer);
 
         if ($lines === []) {
             throw LexwareGatewayException::apiError('The accepted offer has no billable repair position.');
@@ -212,7 +213,7 @@ class LexwareInvoiceWorkflow
         );
     }
 
-    private function presentation(LeasybackOrder $order): B2bOfferPresentation
+    private function acceptedOffer(LeasybackOrder $order): LeasybackOffer
     {
         $offer = LeasybackOffer::where('order_id', $order->id)
             ->whereIn('offer_status', ['selected', 'closed'])
@@ -223,20 +224,30 @@ class LexwareInvoiceWorkflow
             throw LexwareGatewayException::apiError('The order has no accepted offer to invoice.');
         }
 
-        $presentation = B2bOfferPresentation::where('offer_id', $offer->offer_id)->first();
-
-        if ($presentation === null || $presentation->vat_rate === null) {
-            throw LexwareGatewayException::apiError('The accepted offer carries no stamped VAT rate.');
-        }
-
-        return $presentation;
+        return $offer;
     }
 
     /**
      * @return list<LexwareInvoiceLine>
      */
-    private function lines(B2bOfferPresentation $presentation): array
+    private function lines(LeasybackOffer $offer): array
     {
+        $presentation = B2bOfferPresentation::where('offer_id', $offer->offer_id)->first();
+
+        return $presentation !== null
+            ? $this->presentationLines($presentation)
+            : $this->manualOfferLines($offer);
+    }
+
+    /**
+     * @return list<LexwareInvoiceLine>
+     */
+    private function presentationLines(B2bOfferPresentation $presentation): array
+    {
+        if ($presentation->vat_rate === null) {
+            throw LexwareGatewayException::apiError('The accepted offer carries no stamped VAT rate.');
+        }
+
         $taxRate = $this->taxRatePercentage((string) $presentation->vat_rate);
         $lines = [];
 
@@ -257,6 +268,26 @@ class LexwareInvoiceWorkflow
         }
 
         return $lines;
+    }
+
+    /**
+     * @return list<LexwareInvoiceLine>
+     */
+    private function manualOfferLines(LeasybackOffer $offer): array
+    {
+        $vatRate = $offer->vat_rate !== null ? (string) $offer->vat_rate : OfferPricingPolicy::vatRate();
+        $net = (string) $offer->final_total_net;
+
+        if (bccomp($net, '0', 2) <= 0) {
+            return [];
+        }
+
+        return [new LexwareInvoiceLine(
+            name: 'Reparatur',
+            netAmountCents: (int) bcmul($net, '100', 0),
+            taxRatePercentage: $this->taxRatePercentage($vatRate),
+            description: '',
+        )];
     }
 
     private function taxRatePercentage(string $rate): int

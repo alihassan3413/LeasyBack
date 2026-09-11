@@ -88,12 +88,38 @@ class RepairBillingWorkflow
     private function assertAmountMatchesInvoice(OrderPayment $payment, LeasybackOrder $order): void
     {
         $offer = $this->repairPayments->selectedOffer($order);
-        $presentation = $offer === null ? null : B2bOfferPresentation::where('offer_id', $offer->offer_id)->first();
 
-        if ($presentation === null || $presentation->vat_rate === null) {
+        if ($offer === null) {
             return;
         }
 
+        $presentation = B2bOfferPresentation::where('offer_id', $offer->offer_id)->first();
+
+        [$vatRate, $net] = $presentation !== null
+            ? [$presentation->vat_rate, $this->presentationNet($presentation)]
+            : [$offer->vat_rate ?? OfferPricingPolicy::vatRate(), (string) $offer->final_total_net];
+
+        if ($vatRate === null) {
+            return;
+        }
+
+        $invoicedCents = (int) bcmul(
+            (string) OfferPricingPolicy::gross($net, (string) $vatRate),
+            '100',
+            0,
+        );
+
+        if ($invoicedCents !== (int) $payment->amount_cents) {
+            throw StripeGatewayException::apiError(sprintf(
+                'The repair payment of %d cents does not match the invoiced total of %d cents.',
+                $payment->amount_cents,
+                $invoicedCents,
+            ));
+        }
+    }
+
+    private function presentationNet(B2bOfferPresentation $presentation): string
+    {
         $net = '0';
 
         foreach ((array) ($presentation->lines ?? []) as $line) {
@@ -106,19 +132,7 @@ class RepairBillingWorkflow
             $net = bcadd($net, (string) $line['repair_amount_net'], 2);
         }
 
-        $invoicedCents = (int) bcmul(
-            (string) OfferPricingPolicy::gross($net, (string) $presentation->vat_rate),
-            '100',
-            0,
-        );
-
-        if ($invoicedCents !== (int) $payment->amount_cents) {
-            throw StripeGatewayException::apiError(sprintf(
-                'The repair payment of %d cents does not match the invoiced total of %d cents.',
-                $payment->amount_cents,
-                $invoicedCents,
-            ));
-        }
+        return $net;
     }
 
     private function sendBillingEmail(LexwareInvoice $invoice, OrderPayment $payment, LeasybackOrder $order): void

@@ -8,6 +8,7 @@ use App\Models\LeasybackOrder;
 use App\Models\OfferAuditLog;
 use App\Models\OrderAuditLog;
 use App\Models\User;
+use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
 use App\Modules\UserProfile\Order\Services\AdminOfferDecisionAnnouncer;
 use App\Modules\UserProfile\Order\Services\PartnerOfferAnnouncer;
 use App\Modules\UserProfile\Order\Services\RepairOfferService;
@@ -15,6 +16,7 @@ use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
 use App\Notifications\NotificationPayload;
 use App\Services\Mail\OrderMailer;
 use App\Services\Notifier;
+use App\Support\OfferPricingPolicy;
 use App\Support\OneSelectedOfferPerOrder;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -49,6 +51,7 @@ class OfferService
                 'offer_sequence' => $maxSeq + 1,
                 'offer_status' => 'draft',
                 ...$validated,
+                'vat_rate' => OfferPricingPolicy::rateFor(TransitionOrderStatus::isB2bOrder($order)),
                 'created_by_user_id' => $user->id,
             ]);
 
