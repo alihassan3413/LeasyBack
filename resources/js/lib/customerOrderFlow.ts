@@ -764,18 +764,11 @@ function getStageDate(
             // and the charge was opened. They are one moment presented as two
             // steps, which is the whole idea.
             return findHistoryDate(ctx.statusHistory, new Set(['delivered']));
-        case 'process_stopped': {
-            const fee = ctx.cancellationFee;
-            const amount = fee ? formatEuroAmount(fee.amount_cents) : '';
-            const paid = cancellationFeeSettled(ctx);
-
-            label = fee?.reason_label ? `Vorgang beendet — ${fee.reason_label}` : 'Vorgang beendet';
-            subtitle = paid
-                ? `Gebühr ${amount} bezahlt.`
-                : `Offene Gebühr: ${amount}.
-Der Auftrag wird nach Zahlungseingang abgeschlossen.`;
-            break;
-        }
+        // The case ends when the fee is settled and the order closes. While the
+        // fee is still open there is no such moment yet, and the rung is the
+        // current one rather than a dated one.
+        case 'process_stopped':
+            return cancellationFeeSettled(ctx) ? findHistoryDate(ctx.statusHistory, new Set([CLOSED_SUCCESSFULLY])) : '';
         case 'vehicle_ready':
             return findHistoryDate(ctx.statusHistory, new Set(['delivered']));
         case 'case_closed':
@@ -893,6 +886,21 @@ function buildStep(
         case 'case_closed':
             subtitle = 'Der Vorgang ist abgeschlossen.\nAlle Unterlagen bleiben hier für Sie verfügbar';
             break;
+        // This wording was written into getStageDate(), which returns a date
+        // string and declares neither of these — so every stopped case threw a
+        // ReferenceError and took the whole timeline down with it. The rung it
+        // describes is the one that says the process ended early, which is the
+        // one a rejection and a no-show both land on.
+        case 'process_stopped': {
+            const fee = ctx.cancellationFee;
+            const amount = fee ? formatEuroAmount(fee.amount_cents) : '';
+
+            label = fee?.reason_label ? `Vorgang beendet — ${fee.reason_label}` : 'Vorgang beendet';
+            subtitle = cancellationFeeSettled(ctx)
+                ? `Gebühr ${amount} bezahlt.`
+                : `Offene Gebühr: ${amount}.\nDer Auftrag wird nach Zahlungseingang abgeschlossen.`;
+            break;
+        }
     }
 
     // A rung the order went past without taking. Its normal wording is an
@@ -1166,7 +1174,27 @@ export function getCustomerOrderFlowSteps(ctx: CustomerOrderFlowInput): Customer
      * fee is settled) instead.
      */
     const stoppedIndex = CUSTOMER_ORDER_STAGE_SEQUENCE.indexOf('process_stopped');
-    const reachedBeforeStop = Math.min(rawIndex, stoppedIndex);
+
+    /*
+     * `completed` on a stopped case was written by the fee settling, not by a
+     * repair finishing, so the current status no longer says how far the case
+     * actually got — and clamping against it clamped nothing. The status the
+     * order held before that closing transition is the one that does, the same
+     * way the terminal branch above reads a cancellation's prior status.
+     */
+    const statusBeforeStop =
+        stopped && status === CLOSED_SUCCESSFULLY
+            ? (ctx.statusHistory.find((entry) => entry.new_status === status)?.old_status ?? '').trim()
+            : status;
+
+    const reachedIndex =
+        statusBeforeStop === status ? rawIndex : (resolveProgressIndex(statusBeforeStop, relevantOffer, !!nachgutachtenDoc) ?? rawIndex);
+
+    // Inclusive: the rung the case stopped on is something that *did* happen —
+    // the appointment really was confirmed, the appraisal really was done — and
+    // there is no "current" marker left to carry it, because that has moved on
+    // to `process_stopped`.
+    const reachedBeforeStop = Math.min(reachedIndex + 1, stoppedIndex);
     const progressIndex = stopped ? (cancellationFeeSettled(ctx) ? stoppedIndex + 1 : stoppedIndex) : rawIndex;
     const repairCeiling = stopped ? reachedBeforeStop : CUSTOMER_ORDER_STAGE_SEQUENCE.length;
 

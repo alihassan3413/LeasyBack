@@ -92,6 +92,17 @@ const steps = computed(() =>
             // timeline must not offer it a second time.
             payable: false,
         },
+        // A triggered fee ends the timeline where it stood. Without it the
+        // order's `completed` status alone drove the progress index, so a case
+        // stopped by a rejection or a no-show painted workshop, repair,
+        // follow-up and pickup green — none of which happened.
+        cancellationFee: props.order.payment?.cancellation_fee
+            ? {
+                  status: props.order.payment.cancellation_fee.status,
+                  amount_cents: props.order.payment.cancellation_fee.amount_cents,
+                  reason_label: props.order.payment.cancellation_fee.trigger_label ?? null,
+              }
+            : null,
         audience: 'customer',
     }),
 );

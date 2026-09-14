@@ -3,6 +3,7 @@
 namespace App\Modules\UserProfile\Offer\Services;
 
 use App\Enums\NotificationType;
+use App\Enums\OrderStatus;
 use App\Models\LeasybackOffer;
 use App\Models\LeasybackOrder;
 use App\Models\OfferAuditLog;
@@ -65,6 +66,18 @@ class OfferService
     {
         if ($offer->offer_status !== 'draft') {
             $this->fail(400, 'Only draft offers can be published');
+        }
+
+        /*
+         * A closed case has nothing left to decide. Publishing into one put a
+         * live "Reparatur freigeben" action in front of a customer whose order
+         * had already ended — by their own rejection, by a no-show, or by
+         * completion — and no acceptance path behind it.
+         */
+        $order = LeasybackOrder::find($offer->order_id);
+
+        if ($order !== null && in_array($order->order_status, OrderStatus::closedValues(), true)) {
+            $this->fail(422, 'Der Auftrag ist bereits abgeschlossen. Für einen abgeschlossenen Auftrag kann kein Angebot mehr veröffentlicht werden.');
         }
 
         /*

@@ -1018,7 +1018,7 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                                     style="border-color: #ececec; color: #991b1b"
                                     @click.stop="rejectOpen = !rejectOpen"
                                 >
-                                    Angebot ablehnen
+                                    {{ rejectOpen ? 'Abbrechen' : 'Angebot ablehnen' }}
                                 </button>
                             </div>
 
@@ -1215,7 +1215,7 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                             style="border-color: #ececec; color: #991b1b"
                             @click.stop="rejectOpen = !rejectOpen"
                         >
-                            Angebot ablehnen
+                            {{ rejectOpen ? 'Abbrechen' : 'Angebot ablehnen' }}
                         </button>
                     </div>
 
@@ -1617,7 +1617,7 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                         style="border-color: #ececec; color: #991b1b"
                         @click.stop="rejectOpen = !rejectOpen"
                     >
-                        Angebot ablehnen
+                        {{ rejectOpen ? 'Abbrechen' : 'Angebot ablehnen' }}
                     </button>
                 </div>
 

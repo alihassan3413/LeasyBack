@@ -80,6 +80,16 @@ const steps = computed(() => {
             // here — only the dashboard panel can carry it out.
             payable: false,
         },
+        // Same reason as `repairPayment` above: omitting it left processStopped()
+        // blind, so a case ended by a rejection or a no-show rendered as a
+        // repair that had run to completion.
+        cancellationFee: order.payment?.cancellation_fee
+            ? {
+                  status: order.payment.cancellation_fee.status,
+                  amount_cents: order.payment.cancellation_fee.amount_cents,
+                  reason_label: order.payment.cancellation_fee.trigger_label ?? null,
+              }
+            : null,
         audience: 'customer',
     });
 });
