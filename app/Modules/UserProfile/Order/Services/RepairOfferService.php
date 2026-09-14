@@ -98,6 +98,19 @@ class RepairOfferService
         $totals = $this->totals($lines);
 
         return DB::transaction(function () use ($order, $user, $validated, $quotation, $lines, $totals, $vatRate) {
+            // Serialises two admins — or two clicks — racing on the same
+            // quotation, so the check below cannot be passed twice.
+            WorkshopQuotation::whereKey($quotation->id)->lockForUpdate()->first();
+
+            $live = $this->liveOfferFromQuotation($quotation->id);
+
+            if ($live !== null) {
+                $this->fail(422, sprintf(
+                    'Aus diesem Werkstattangebot wurde bereits Angebot %s erstellt. Verwerfen Sie es zuerst, wenn Sie es erneut übernehmen möchten.',
+                    str_pad((string) $live->offer_sequence, 2, '0', STR_PAD_LEFT),
+                ));
+            }
+
             $sequence = (LeasybackOffer::where('order_id', $order->id)->max('offer_sequence') ?? 0) + 1;
 
             $offer = LeasybackOffer::create([
@@ -526,6 +539,26 @@ class RepairOfferService
         }
 
         return trim($value) === '' ? null : trim($value);
+    }
+
+    /**
+     * The customer offer this quotation already produced, if it is still one
+     * an admin or a customer could act on.
+     *
+     * A discarded offer deliberately does not count: verwerfen is how a draft
+     * built from the wrong quotation is undone, and taking the quotation again
+     * afterwards is the whole point of undoing it.
+     */
+    private function liveOfferFromQuotation(string $quotationId): ?LeasybackOffer
+    {
+        return LeasybackOffer::query()
+            ->whereIn('offer_status', ['draft', 'published', 'selected'])
+            ->whereIn(
+                'offer_id',
+                B2bOfferPresentation::query()->where('workshop_quotation_id', $quotationId)->select('offer_id'),
+            )
+            ->orderBy('offer_sequence')
+            ->first();
     }
 
     private function fail(int $status, string $message): never

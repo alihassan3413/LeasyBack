@@ -126,6 +126,8 @@ export interface OrderRepairPaymentState {
     currency: string;
     paid_at: string | null;
     blocks_pickup: boolean;
+    /** The hosted Stripe page for this repair, once the invoice has been issued. */
+    payment_url: string | null;
     /**
      * Whether this viewer can settle it now — already false for Admin and for
      * anything already paid, so no client-side rule has to agree with the

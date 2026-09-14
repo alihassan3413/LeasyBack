@@ -959,9 +959,16 @@ class VehicleService
                 // the same reason `requires_setup` is: Admin is refused by
                 // OrderPolicy::pay, and must never be shown a pay button that
                 // would have them authenticate a customer's card.
+                'payment_url' => $repairPayment->stripe_payment_link_url,
+                // A repair is collected through the Stripe payment link now, and
+                // a link that exists on an unsettled charge is exactly "this
+                // viewer can pay it" — the off-session states stay listed because
+                // a cancellation fee and an older order still reach them.
                 'payable' => $viewerMayAct
                     && (int) $repairPayment->amount_cents > 0
-                    && (PaymentStatus::tryFrom($repairPayment->status)?->needsCustomerAction() ?? false),
+                    && ((PaymentStatus::tryFrom($repairPayment->status)?->needsCustomerAction() ?? false)
+                        || ($repairPayment->stripe_payment_link_url !== null
+                            && ! (PaymentStatus::tryFrom($repairPayment->status)?->satisfiesReleaseGate() ?? false))),
             ],
             // Deliberately alongside `repair`, never merged into it: an order
             // can owe both, and one settling says nothing about the other.

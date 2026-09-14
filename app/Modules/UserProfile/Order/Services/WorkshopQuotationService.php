@@ -9,6 +9,7 @@ use App\Models\OrderAuditLog;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Modules\UserProfile\Order\Models\AppraisalPosition;
+use App\Modules\UserProfile\Order\Models\B2bOfferPresentation;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Order\Models\WorkshopQuotation;
 use App\Modules\UserProfile\Order\Models\WorkshopQuotationItem;
@@ -20,6 +21,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Workshop quotations (§9). A workshop never gets a portal account: Admin
@@ -84,6 +86,91 @@ class WorkshopQuotationService
             'items.*.amount_net' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
             'items.*.repair_method' => ['nullable', 'string', 'max:255'],
             'items.*.not_repairable' => ['nullable', 'boolean'],
+        ];
+    }
+
+    /**
+     * A quote has to quote something.
+     *
+     * The one exception is the workshop saying it cannot do the job for this
+     * money at all, which is a real answer and carries no prices — every other
+     * empty submission is a form someone tabbed through, and it used to travel
+     * all the way to a 0,00 € customer offer.
+     *
+     * @param  array<string, mixed>  $validated
+     */
+    private function assertQuotationIsPriced(array $validated): void
+    {
+        if ((bool) ($validated['cannot_repair_for_amount'] ?? false)) {
+            return;
+        }
+
+        foreach ($validated['items'] ?? [] as $item) {
+            if ((bool) ($item['not_repairable'] ?? false)) {
+                continue;
+            }
+
+            if ($this->amountOrNull($item['amount_net'] ?? null) !== null && (float) $item['amount_net'] > 0) {
+                return;
+            }
+        }
+
+        throw ValidationException::withMessages([
+            'items' => 'Bitte geben Sie für mindestens eine Position einen Nettopreis an — oder kreuzen Sie an, dass die Reparatur zu diesem Betrag nicht möglich ist.',
+        ]);
+    }
+
+    /**
+     * German validation copy for the workshop's own form.
+     *
+     * Written here rather than in a translation file because this application
+     * has no `lang/` set and states its German inline — the workshop sees a
+     * fully German page, so an English "The contact person field is required."
+     * was the one place that broke the illusion.
+     *
+     * @return array<string, string>
+     */
+    public static function submissionMessages(): array
+    {
+        return [
+            'required' => ':attribute muss ausgefüllt werden.',
+            'string' => ':attribute muss Text sein.',
+            'numeric' => ':attribute muss eine Zahl sein.',
+            'integer' => ':attribute muss eine ganze Zahl sein.',
+            'boolean' => ':attribute muss ja oder nein sein.',
+            'email' => ':attribute muss eine gültige E-Mail-Adresse sein.',
+            'uuid' => ':attribute ist ungültig.',
+            'in' => ':attribute ist ungültig.',
+            'array' => ':attribute ist ungültig.',
+            'present' => ':attribute fehlt.',
+            'date_format' => ':attribute muss ein gültiges Datum sein.',
+            'after_or_equal' => ':attribute darf nicht in der Vergangenheit liegen.',
+            'max.string' => ':attribute darf höchstens :max Zeichen lang sein.',
+            'max.numeric' => ':attribute darf höchstens :max betragen.',
+            'max.array' => ':attribute darf höchstens :max Einträge enthalten.',
+            'min.numeric' => ':attribute darf nicht kleiner als :min sein.',
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public static function submissionAttributes(): array
+    {
+        return [
+            'company_name' => 'Firma',
+            'contact_person' => 'Ansprechpartner',
+            'contact_email' => 'E-Mail',
+            'contact_phone' => 'Telefon',
+            'earliest_repair_start' => 'Frühester Reparaturbeginn',
+            'processing_days' => 'Bearbeitungsdauer',
+            'cannot_repair_for_amount' => 'Angabe zur Reparatur',
+            'cannot_repair_note' => 'Hinweis',
+            'items' => 'Positionen',
+            'items.*.appraisal_position_id' => 'Position',
+            'items.*.amount_net' => 'Nettopreis',
+            'items.*.repair_method' => 'Reparaturweg',
+            'items.*.not_repairable' => 'Nicht reparierbar',
         ];
     }
 
@@ -253,6 +340,8 @@ class WorkshopQuotationService
             if (! $locked->isOpenForSubmission()) {
                 $this->fail(410, 'Dieser Link ist nicht mehr gültig.');
             }
+
+            $this->assertQuotationIsPriced($validated);
 
             WorkshopQuotationItem::where('quotation_id', $locked->id)->delete();
 
@@ -433,11 +522,12 @@ class WorkshopQuotationService
     public function forOrder(string $orderId): array
     {
         $positions = $this->positionsFor($orderId)->keyBy('id');
+        $offerByQuotation = $this->liveOffersByQuotation($orderId);
 
         return WorkshopQuotation::where('order_id', $orderId)
             ->orderByDesc('created_at')
             ->get()
-            ->map(function (WorkshopQuotation $quotation) use ($positions) {
+            ->map(function (WorkshopQuotation $quotation) use ($positions, $offerByQuotation) {
                 $items = WorkshopQuotationItem::where('quotation_id', $quotation->id)
                     ->get()
                     ->keyBy('appraisal_position_id');
@@ -478,10 +568,42 @@ class WorkshopQuotationService
                     'cannot_repair_for_amount' => $quotation->cannot_repair_for_amount,
                     'cannot_repair_note' => $quotation->cannot_repair_note,
                     'appraisal_total_net' => $this->appraisalTotal($comparison),
+                    'customer_offer' => $offerByQuotation->get($quotation->id),
                     'comparison' => $comparison,
                 ];
             })
             ->all();
+    }
+
+    /**
+     * The customer offer each quotation has already produced, keyed by
+     * quotation id — so the card can say "already taken" rather than offer an
+     * action RepairOfferService would refuse.
+     *
+     * Discarded offers are left out, matching the guard there: verwerfen frees
+     * the quotation to be taken again.
+     *
+     * @return Collection<string, array{offer_id: string, offer_sequence: int, offer_status: string}>
+     */
+    private function liveOffersByQuotation(string $orderId): Collection
+    {
+        return B2bOfferPresentation::query()
+            ->where('b2b_offer_presentations.order_id', $orderId)
+            ->join('leasyback_offers', 'leasyback_offers.offer_id', '=', 'b2b_offer_presentations.offer_id')
+            ->whereIn('leasyback_offers.offer_status', ['draft', 'published', 'selected'])
+            ->orderBy('leasyback_offers.offer_sequence')
+            ->get([
+                'b2b_offer_presentations.workshop_quotation_id',
+                'leasyback_offers.offer_id',
+                'leasyback_offers.offer_sequence',
+                'leasyback_offers.offer_status',
+            ])
+            ->keyBy('workshop_quotation_id')
+            ->map(fn ($row) => [
+                'offer_id' => $row->offer_id,
+                'offer_sequence' => (int) $row->offer_sequence,
+                'offer_status' => $row->offer_status,
+            ]);
     }
 
     /**

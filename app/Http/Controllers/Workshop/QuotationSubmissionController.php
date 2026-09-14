@@ -42,7 +42,11 @@ class QuotationSubmissionController extends Controller
 
         $positionIds = AppraisalPosition::where('order_id', $quotation->order_id)->pluck('id')->all();
 
-        $validated = $request->validate(WorkshopQuotationService::submissionRules($positionIds));
+        $validated = $request->validate(
+            WorkshopQuotationService::submissionRules($positionIds),
+            WorkshopQuotationService::submissionMessages(),
+            WorkshopQuotationService::submissionAttributes(),
+        );
 
         $this->workshopQuotationService->submit($quotation, $validated);
 

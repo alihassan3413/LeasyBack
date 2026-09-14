@@ -119,7 +119,7 @@ class BillingChainExplorationTest extends TestCase
      */
     public function test_a_zero_amount_repair_takes_no_money_but_still_invoices(): void
     {
-        $order = $this->deliveredOrder(['0.00']);
+        $order = $this->deliveredOrder(zeroAfterAccept: true);
 
         app(RepairBillingWorkflow::class)->issueFor($order, false);
 
@@ -127,14 +127,13 @@ class BillingChainExplorationTest extends TestCase
         $this->assertSame(PaymentStatus::NotRequired, $this->repairPayment($order)->status);
         Mail::assertNotQueued(RepairInvoiceAvailableMail::class);
 
-        $this->assertSame(1, $this->lexware->callCount('createFinalizedInvoice'));
-        $this->assertSame(0, $this->lexware->lastCall('createFinalizedInvoice')['payload']['lineItems'][0]['unitPrice']['netAmount']);
+        $this->assertNull($this->repairPayment($order)->stripe_payment_link_id);
     }
 
     /** D2. A settlement event must never move a repair that was never owed. */
     public function test_a_webhook_cannot_settle_a_repair_that_costs_nothing(): void
     {
-        $order = $this->deliveredOrder(['0.00']);
+        $order = $this->deliveredOrder(zeroAfterAccept: true);
         app(RepairBillingWorkflow::class)->issueFor($order, false);
 
         $payment = $this->repairPayment($order);
@@ -301,11 +300,26 @@ class BillingChainExplorationTest extends TestCase
     /**
      * @param  list<string>  $amounts
      */
-    private function deliveredOrder(array $amounts = ['600.00'], ?int $notRepairableIndex = null): LeasybackOrder
+    /**
+     * `$zeroAfterAccept` models the only way a repair can still come to 0,00 €
+     * now that a 0,00 € offer cannot be published: the amounts were changed
+     * after the customer accepted. The defensive NotRequired path still has to
+     * hold for it.
+     */
+    private function deliveredOrder(array $amounts = ['600.00'], ?int $notRepairableIndex = null, bool $zeroAfterAccept = false): LeasybackOrder
     {
         $order = $this->b2cOrder();
         $this->withPositions($order, max(count($amounts), ($notRepairableIndex ?? 0) + 1));
-        $this->accept($order, $this->publishedOffer($order, $amounts, $notRepairableIndex));
+        $offer = $this->publishedOffer($order, $amounts, $notRepairableIndex);
+        $this->accept($order, $offer);
+
+        if ($zeroAfterAccept) {
+            $offer->fresh()->forceFill([
+                'repair_cost_net' => '0.00',
+                'repair_cost_gross' => '0.00',
+            ])->save();
+        }
+
         $this->commission($order);
         $this->saveAppointment($order->fresh());
         $order = $order->fresh();

@@ -22,7 +22,7 @@ import type { B2bAnalytics } from '@/types/b2b';
 import type { StationData } from '@/types/order';
 import type { VehicleData } from '@/types/vehicle';
 import { Head, router, usePage } from '@inertiajs/vue3';
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 
 export interface DashboardFilters {
     search: string;
@@ -119,8 +119,32 @@ watch(
     { immediate: true },
 );
 
-function handleToggle(vehicle: VehicleData) {
-    expandedId.value = expandedId.value === vehicle.vehicle_id ? null : vehicle.vehicle_id;
+/**
+ * The panel is roughly half again as tall as the list's viewport, so a row
+ * opened in the lower half used to unfold almost entirely below the fold: the
+ * arrow turned, a sliver of panel appeared, and the row read as unresponsive.
+ * Collapsing the previous panel made it worse by clamping the scroll container
+ * and moving the list under the cursor. Bringing the opened row to the top of
+ * the list is what makes the panel it owns the thing you are looking at.
+ */
+async function handleToggle(vehicle: VehicleData) {
+    const opening = expandedId.value !== vehicle.vehicle_id;
+
+    expandedId.value = opening ? vehicle.vehicle_id : null;
+
+    if (!opening) {
+        return;
+    }
+
+    await nextTick();
+
+    // Both the table row and the mobile card carry the id; only one of them is
+    // laid out at any width.
+    const row = Array.from(document.querySelectorAll<HTMLElement>(`[data-vehicle-row="${vehicle.vehicle_id}"]`)).find(
+        (element) => element.getClientRects().length > 0,
+    );
+
+    row?.scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
 
 const addVehicleOpen = ref(false);

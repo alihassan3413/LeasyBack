@@ -483,6 +483,12 @@ export interface AdminWorkshopQuotation {
     cannot_repair_for_amount: boolean;
     cannot_repair_note: string | null;
     appraisal_total_net: string;
+    /**
+     * The customer offer this quotation has already produced, or null. A
+     * discarded offer does not count — RepairOfferService lets the quotation
+     * be taken again once its offer is verworfen.
+     */
+    customer_offer: { offer_id: string; offer_sequence: number; offer_status: string } | null;
     comparison: AdminWorkshopComparisonRow[];
 }
 

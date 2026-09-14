@@ -241,7 +241,15 @@ const repairPaymentOrder = computed(() => props.vehicle.orders.find((order) => o
 
 const repairPaymentModalOpen = ref(false);
 
+const repairPaymentUrl = computed(() => repairPaymentOrder.value?.payment?.repair?.payment_url ?? null);
+
 function openRepairPayment() {
+    if (repairPaymentUrl.value) {
+        window.open(repairPaymentUrl.value, '_blank', 'noopener');
+
+        return;
+    }
+
     repairPaymentModalOpen.value = true;
 }
 

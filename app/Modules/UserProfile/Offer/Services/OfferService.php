@@ -67,6 +67,20 @@ class OfferService
             $this->fail(400, 'Only draft offers can be published');
         }
 
+        /*
+         * Net, not gross: a B2B offer carries no gross at all
+         * (OfferPricingPolicy stamps no rate for that channel), so a gross
+         * check would refuse every B2B offer ever written. Net is the figure
+         * both channels populate.
+         *
+         * An offer with nothing to pay is a data error rather than a free
+         * repair: it reaches the customer as "0,00 €", settles to a payment
+         * nobody owes, and bills a 0,00 € invoice to the accounting system.
+         */
+        if (bccomp((string) ($offer->final_total_net ?? '0'), '0', 2) <= 0) {
+            $this->fail(422, 'Ein Angebot über 0,00 € kann nicht veröffentlicht werden. Bitte prüfen Sie die Beträge.');
+        }
+
         $offer = DB::transaction(function () use ($offer, $user) {
             $offer->update([
                 'offer_status' => 'published',

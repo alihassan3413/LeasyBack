@@ -898,8 +898,18 @@ function buildStep(
     // A rung the order went past without taking. Its normal wording is an
     // instruction ("Bitte geben Sie ein Angebot Ihrer Wahl frei"), which reads
     // as an outstanding demand on a step that is never coming.
+    //
+    // Which skip it was matters. The offer rungs are skipped when the repair was
+    // arranged outside the system; the payment rung is skipped for a wholly
+    // different reason — it cost nothing, or it predates payments — and was
+    // being given the offer rungs' explanation, telling a customer who had
+    // selected an offer that none was ever prepared.
     if (state.skipped) {
-        subtitle = 'Für diesen Auftrag wurde kein Kundenangebot erstellt — die Reparatur wurde direkt abgestimmt.';
+        if (stage !== 'awaiting_payment') {
+            subtitle = 'Für diesen Auftrag wurde kein Kundenangebot erstellt — die Reparatur wurde direkt abgestimmt.';
+        } else if (repairPaymentStage(ctx) === 'none') {
+            subtitle = 'Für diesen Auftrag wurde keine Reparaturzahlung erfasst.';
+        }
     }
 
     // A cancelled order used to keep the stage's own wording, so the only cue

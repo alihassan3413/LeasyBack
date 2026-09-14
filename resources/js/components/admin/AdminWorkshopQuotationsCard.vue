@@ -10,6 +10,11 @@
  * The generated link is shown once, right after creation: only its hash is
  * stored, so it cannot be displayed again later.
  *
+ * A submitted quotation yields at most one customer offer: the action is
+ * replaced by the offer's own label once it exists, and RepairOfferService
+ * refuses a second one regardless, so the card cannot produce the run of
+ * duplicate drafts that repeated clicking used to.
+ *
  * Nothing here is channel-dependent any more. Turning a submitted quotation
  * into a customer offer used to be hidden for B2C because the endpoint refused
  * it; the quotation-backed offer flow serves both channels, so the action is
@@ -106,6 +111,10 @@ function revoke(quotationId: string) {
 function createOffer(quotationId: string) {
     offerForm.workshop_quotation_id = quotationId;
     offerForm.post(route('admin.orders.b2b-offer.store', props.orderId), { preserveScroll: true });
+}
+
+function offerLabel(sequence: number): string {
+    return `Angebot ${String(sequence).padStart(2, '0')}`;
 }
 
 async function copyLink(link: string) {
@@ -234,7 +243,7 @@ async function copyLink(link: string) {
                     </button>
 
                     <button
-                        v-if="quotation.status === 'submitted'"
+                        v-if="quotation.status === 'submitted' && !quotation.customer_offer"
                         type="button"
                         :disabled="offerForm.processing"
                         class="text-[11.5px] font-bold text-[#10393b] hover:opacity-70 disabled:opacity-50"
@@ -242,6 +251,10 @@ async function copyLink(link: string) {
                     >
                         Als Kundenangebot übernehmen
                     </button>
+
+                    <span v-else-if="quotation.customer_offer" class="text-[11.5px] font-bold text-[#6f8585]">
+                        Übernommen als {{ offerLabel(quotation.customer_offer.offer_sequence) }}
+                    </span>
 
                     <span v-if="quotation.cannot_repair_for_amount" class="ml-auto text-[11px] font-bold text-[#c0392b]">
                         Nicht zum angefragten Betrag durchführbar

@@ -70,6 +70,7 @@ function startProcess() {
 
 <template>
     <TableRow
+        :data-vehicle-row="vehicle.vehicle_id"
         class="cursor-pointer border-b border-[#f0f5f5]"
         style="height: 52px"
         :class="isExpanded ? 'bg-gray-50' : 'bg-white'"

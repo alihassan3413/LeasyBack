@@ -173,7 +173,7 @@ class RepairBillingWorkflowTest extends TestCase
 
     public function test_a_zero_amount_repair_gets_no_payment_link_and_no_billing_email(): void
     {
-        $order = $this->deliveredOrder(amountNet: '0.00');
+        $order = $this->deliveredOrder(zeroAfterAccept: true);
 
         $this->assertSame(PaymentStatus::NotRequired, $this->repairPayment($order)->status);
 
@@ -331,6 +331,28 @@ class RepairBillingWorkflowTest extends TestCase
         Mail::assertQueued(RepairInvoiceAvailableMail::class, 1);
     }
 
+    public function test_the_customer_can_pay_from_their_own_portal(): void
+    {
+        $order = $this->deliveredOrder();
+
+        $this->issue($order);
+
+        $vehicle = Vehicle::where('vehicle_id', $order->vehicle_id)->sole();
+        $payload = json_decode((string) json_encode(
+            $this->actingAs(User::findOrFail($vehicle->b2c_user_id))
+                ->get(route('dashboard'))
+                ->viewData('page')['props'],
+        ), true);
+
+        $repair = collect($payload['vehicles'] ?? [])
+            ->flatMap(fn (array $v) => $v['orders'] ?? [])
+            ->firstWhere('auftragsnummer', $order->auftragsnummer)['payment']['repair'];
+
+        $this->assertTrue($repair['payable'], 'the customer was shown an amount due with no way to pay it');
+        $this->assertSame('https://pay.stripe.test/plink_1', $repair['payment_url']);
+        $this->assertTrue($repair['blocks_pickup']);
+    }
+
     // -------------------------------------------------------- the pickup gate
 
     public function test_an_unpaid_order_waits_on_payment_and_never_offers_pickup(): void
@@ -412,9 +434,9 @@ class RepairBillingWorkflowTest extends TestCase
 
     // ------------------------------------------------------------- the states
 
-    private function deliveredOrder(string $amountNet = '600.00', bool $issue = false): LeasybackOrder
+    private function deliveredOrder(string $amountNet = '600.00', bool $issue = false, bool $zeroAfterAccept = false): LeasybackOrder
     {
-        $order = $this->inRepair($amountNet);
+        $order = $this->inRepair($amountNet, $zeroAfterAccept);
         $this->advance($order, 'reinspection');
         $this->publishDocument($order, 'nachgutachten');
         $this->advance($order->fresh(), 'delivered');
@@ -428,10 +450,16 @@ class RepairBillingWorkflowTest extends TestCase
         return $order;
     }
 
-    private function inRepair(string $amountNet = '600.00'): LeasybackOrder
+    private function inRepair(string $amountNet = '600.00', bool $zeroAfterAccept = false): LeasybackOrder
     {
         $order = $this->withPositions($this->b2cOrder());
-        $this->accept($order, $this->publishedOffer($order, $amountNet));
+        $offer = $this->publishedOffer($order, $amountNet);
+        $this->accept($order, $offer);
+
+        if ($zeroAfterAccept) {
+            $offer->fresh()->forceFill(['repair_cost_net' => '0.00', 'repair_cost_gross' => '0.00'])->save();
+        }
+
         $this->commission($order);
         $this->saveAppointment($order->fresh());
 

@@ -49,7 +49,7 @@ function formatDate(value: string | null): string {
 </script>
 
 <template>
-    <div class="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
+    <div :data-vehicle-row="vehicle.vehicle_id" class="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
         <div class="cursor-pointer p-4" :class="expanded ? 'bg-gray-50' : ''" @click="emit('toggle')">
             <div class="flex items-start justify-between">
                 <div class="flex flex-col gap-1">

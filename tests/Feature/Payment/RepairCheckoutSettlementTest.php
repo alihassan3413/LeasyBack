@@ -341,7 +341,7 @@ class RepairCheckoutSettlementTest extends TestCase
 
     public function test_a_zero_amount_repair_has_no_timer_and_no_follow_up(): void
     {
-        $order = $this->billedOrder(amountNet: '0.00');
+        $order = $this->billedOrder(zeroAfterAccept: true);
 
         $this->travelTo($this->berlin('2026-09-10 09:00:00'));
 
@@ -451,18 +451,18 @@ class RepairCheckoutSettlementTest extends TestCase
 
     // ------------------------------------------------------------- the states
 
-    private function billedOrder(string $amountNet = '600.00'): LeasybackOrder
+    private function billedOrder(string $amountNet = '600.00', bool $zeroAfterAccept = false): LeasybackOrder
     {
-        $order = $this->deliveredOrder($amountNet);
+        $order = $this->deliveredOrder($amountNet, $zeroAfterAccept);
 
         app(RepairBillingWorkflow::class)->issueFor($order, false);
 
         return $order->fresh();
     }
 
-    private function deliveredOrder(string $amountNet): LeasybackOrder
+    private function deliveredOrder(string $amountNet, bool $zeroAfterAccept = false): LeasybackOrder
     {
-        $order = $this->inRepair($amountNet);
+        $order = $this->inRepair($amountNet, $zeroAfterAccept);
         $this->advance($order, 'reinspection');
         $this->publishDocument($order, 'nachgutachten');
         $this->advance($order->fresh(), 'delivered');
@@ -470,10 +470,16 @@ class RepairCheckoutSettlementTest extends TestCase
         return $order->fresh();
     }
 
-    private function inRepair(string $amountNet = '600.00'): LeasybackOrder
+    private function inRepair(string $amountNet = '600.00', bool $zeroAfterAccept = false): LeasybackOrder
     {
         $order = $this->withPositions($this->b2cOrder());
-        $this->accept($order, $this->publishedOffer($order, $amountNet));
+        $offer = $this->publishedOffer($order, $amountNet);
+        $this->accept($order, $offer);
+
+        if ($zeroAfterAccept) {
+            $offer->fresh()->forceFill(['repair_cost_net' => '0.00', 'repair_cost_gross' => '0.00'])->save();
+        }
+
         $this->commission($order);
         $this->saveAppointment($order->fresh());
 
