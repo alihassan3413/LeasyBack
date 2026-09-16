@@ -33,7 +33,13 @@ class OrderMessageController extends Controller
 
         $page = max(1, (int) $request->query('page', 1));
 
-        return response()->json($this->messages->paginate($order, $request->user(), $page));
+        return response()->json([
+            ...$this->messages->paginate($order, $request->user(), $page),
+            // Reading a thread does not imply writing to it (a read-only
+            // company member may do the first only), so the composer is shown
+            // on the server's answer rather than guessed in the browser.
+            'can_send' => $request->user()->can('sendMessage', $order),
+        ]);
     }
 
     public function store(Request $request, string $orderId): JsonResponse

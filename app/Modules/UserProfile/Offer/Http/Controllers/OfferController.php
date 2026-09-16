@@ -4,7 +4,9 @@ namespace App\Modules\UserProfile\Offer\Http\Controllers;
 
 use App\Models\LeasybackOffer;
 use App\Models\LeasybackOrder;
+use App\Models\Vehicle;
 use App\Modules\UserProfile\Offer\Services\OfferService;
+use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -12,7 +14,10 @@ use Illuminate\Routing\Controller;
 
 class OfferController extends Controller
 {
-    public function __construct(private readonly OfferService $offerService) {}
+    public function __construct(
+        private readonly OfferService $offerService,
+        private readonly VehicleScopeService $scope,
+    ) {}
 
     /**
      * POST /admin/offers/create/{auftragsnummer}
@@ -125,21 +130,16 @@ class OfferController extends Controller
             return response()->json(['error' => 'Admin cannot use customer offer endpoint'], 400);
         }
 
-        // Only show published/selected offers for vehicles the user owns
+        // Only published/selected offers on vehicles the caller may reach.
+        // Resolved through VehicleScopeService — the rule every web page and
+        // policy uses — rather than "any company this user has a row in",
+        // which ignored the active company, a deactivated membership and a
+        // member restricted to their own vehicles.
+        $reachableVehicles = $this->scope->scopeQuery(Vehicle::query(), $user)->select('vehicle_id');
+
         $offers = LeasybackOffer::where('auftragsnummer', $auftragsnummer)
             ->whereIn('offer_status', ['published', 'selected'])
-            ->whereHas('order', function ($q) use ($user) {
-                $q->whereHas('vehicle', function ($vq) use ($user) {
-                    $vq->where(function ($inner) use ($user) {
-                        $inner->where('b2c_user_id', $user->id)
-                            ->orWhereHas('b2b', function ($b2bq) use ($user) {
-                                $b2bq->whereHas('users', function ($uq) use ($user) {
-                                    $uq->where('users.id', $user->id);
-                                });
-                            });
-                    });
-                });
-            })
+            ->whereHas('order', fn ($q) => $q->whereIn('vehicle_id', $reachableVehicles))
             ->orderBy('offer_sequence')
             ->get();
 

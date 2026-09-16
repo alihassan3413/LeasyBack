@@ -10,8 +10,10 @@ use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Order\Models\LogisticsAddressProfile;
 use App\Modules\UserProfile\Order\Models\OrderLogistics;
+use App\Services\Mail\OrderMailer;
 use DateTimeInterface;
 use Illuminate\Support\Collection;
+use Illuminate\Validation\ValidationException;
 
 /**
  * B2B-only collection appointment handling on top of the existing
@@ -27,9 +29,24 @@ class OrderCollectionService
 {
     public const ADDRESS_FIELDS = ['street', 'number', 'additional_address', 'zip_code', 'city', 'country'];
 
+    /**
+     * The statuses in which the collection appointment is still being planned.
+     * Once the vehicle has been collected the appointment is history; on a
+     * closed order there is nothing left to plan.
+     */
+    public const COLLECTION_EDITABLE_STATUSES = ['order_requested', 'order_placed', 'confirmed'];
+
+    /**
+     * The statuses in which a repair appointment can be entered: the workshop
+     * has been instructed and the repair has not finished. `reworkshop` is the
+     * B2C second repair round.
+     */
+    public const REPAIR_APPOINTMENT_STATUSES = ['workshop_commissioned', 'workshop', 'reworkshop'];
+
     public function __construct(
         private readonly TransitionOrderStatus $transitionOrderStatus,
         private readonly PartnerWebhookEvents $webhooks,
+        private readonly OrderMailer $orderMailer,
     ) {}
 
     /**
@@ -126,6 +143,18 @@ class OrderCollectionService
      */
     public function updateRepairAppointment(LeasybackOrder $order, Vehicle $vehicle, User $user, array $validated): void
     {
+        $order = $order->fresh() ?? $order;
+
+        // Only once the workshop is commissioned and until the repair is done.
+        // Saved any earlier, the appointment marked its own task as done while
+        // the transition into repair never happened, and the order sat in
+        // `workshop_commissioned` with no open task at all.
+        if (! in_array($order->order_status, self::REPAIR_APPOINTMENT_STATUSES, true)) {
+            throw ValidationException::withMessages([
+                'confirmed_repair_start_date' => 'Ein Reparaturtermin kann erst nach der Beauftragung der Werkstatt und nur bis zum Abschluss der Reparatur erfasst werden.',
+            ]);
+        }
+
         $existing = OrderLogistics::where('auftragsnummer', $order->auftragsnummer)->first();
         $date = $this->trimToNull($validated['confirmed_repair_start_date'] ?? null);
         $days = $validated['estimated_processing_days'] ?? null;
@@ -237,35 +266,117 @@ class OrderCollectionService
         );
     }
 
+    /**
+     * Admin's side of the appointment (§7): confirm the requested date or pick
+     * another, plus the address and an internal note.
+     *
+     * Only the fields actually sent are written. A request that carries just
+     * the address used to null the confirmed date and the internal note — and,
+     * with the date gone, re-open the confirmation task while partners still
+     * believed in the old appointment.
+     *
+     * Confirming a date is what moves the order to "Collection scheduled"
+     * (`confirmed`). A still-unreleased order is released on the way, because
+     * confirming LeasyBack's own collection *is* the review §6 asks for; both
+     * transitions are recorded individually by TransitionOrderStatus.
+     *
+     * @param  array<string, mixed>  $validated
+     */
     public function updateByAdmin(LeasybackOrder $order, Vehicle $vehicle, User $user, array $validated): void
     {
         if ($vehicle->vehicle_belongs !== 'B2B') {
             return;
         }
 
+        $order = $order->fresh() ?? $order;
+
+        if (! in_array($order->order_status, self::COLLECTION_EDITABLE_STATUSES, true)) {
+            throw ValidationException::withMessages([
+                'confirmed_collection_date' => 'Der Abholtermin kann nach der Abholung oder bei einem abgeschlossenen Auftrag nicht mehr geändert werden.',
+            ]);
+        }
+
         $logistics = OrderLogistics::where('auftragsnummer', $order->auftragsnummer)->first();
-        $address = $this->normalizeAddress($validated['collection_address'] ?? null);
-        $profileId = $logistics?->pickup_profile_id ?? $vehicle->collection_address_profile_id;
-        $profileDetails = $profileId === null
-            ? null
-            : LogisticsAddressProfile::where('id', $profileId)->value('details');
-
         $previousDate = $this->asDateString($logistics?->confirmed_collection_date);
-        $confirmedDate = $this->trimToNull($validated['confirmed_collection_date'] ?? null);
+        $confirmedDate = array_key_exists('confirmed_collection_date', $validated)
+            ? $this->trimToNull($validated['confirmed_collection_date'])
+            : $previousDate;
 
-        OrderLogistics::updateOrCreate(
-            ['auftragsnummer' => $order->auftragsnummer],
-            [
-                'confirmed_collection_date' => $confirmedDate,
-                'internal_note' => $this->trimToNull($validated['internal_note'] ?? null),
-                'updated_by_user_id' => $user->id,
-                ...($address === null && $logistics !== null
-                    ? []
-                    : $this->addressColumns($address, $profileId, $profileDetails)),
-            ],
-        );
+        // A new date cannot lie in the past; an unchanged one may, so saving
+        // the note on an order whose appointment is today or earlier still works.
+        if ($confirmedDate !== null && $confirmedDate !== $previousDate && $confirmedDate < now()->toDateString()) {
+            throw ValidationException::withMessages([
+                'confirmed_collection_date' => 'Der Abholtermin darf nicht in der Vergangenheit liegen.',
+            ]);
+        }
+
+        $attributes = ['updated_by_user_id' => $user->id];
+
+        if (array_key_exists('confirmed_collection_date', $validated)) {
+            $attributes['confirmed_collection_date'] = $confirmedDate;
+        }
+
+        if (array_key_exists('internal_note', $validated)) {
+            $attributes['internal_note'] = $this->trimToNull($validated['internal_note']);
+        }
+
+        if (array_key_exists('collection_address', $validated)) {
+            $address = $this->normalizeAddress($validated['collection_address']);
+            $profileId = $logistics?->pickup_profile_id ?? $vehicle->collection_address_profile_id;
+            $profileDetails = $profileId === null
+                ? null
+                : LogisticsAddressProfile::where('id', $profileId)->value('details');
+
+            if ($address !== null || $logistics === null) {
+                $attributes = [...$attributes, ...$this->addressColumns($address, $profileId, $profileDetails)];
+            }
+        } elseif ($logistics === null) {
+            $attributes = [...$attributes, ...$this->addressColumns(null, $vehicle->collection_address_profile_id, null)];
+        }
+
+        OrderLogistics::updateOrCreate(['auftragsnummer' => $order->auftragsnummer], $attributes);
 
         $this->announceCollectionChange($order, $vehicle, $previousDate, $confirmedDate);
+
+        if ($confirmedDate === null) {
+            return;
+        }
+
+        $this->scheduleCollection($order, $user);
+
+        // The first confirmation is announced by the `confirmed` status mail.
+        // A date that moves afterwards has no status change to carry it.
+        if ($previousDate !== null && $confirmedDate !== $previousDate) {
+            $this->orderMailer->collectionRescheduled($order->fresh() ?? $order, $vehicle);
+        }
+    }
+
+    /**
+     * Walks a not-yet-scheduled order to `confirmed` once its collection date
+     * is set. Each step goes through TransitionOrderStatus, so each is recorded
+     * and announced exactly as if it had been clicked separately.
+     */
+    private function scheduleCollection(LeasybackOrder $order, User $user): void
+    {
+        $label = $user->name ?? $user->email;
+        $ip = request()?->ip();
+
+        if ($order->order_status === 'order_requested') {
+            $order = $this->transitionOrderStatus->__invoke($order, 'order_placed', 'admin', $label, $user->id, $ip);
+
+            OrderAuditLog::create([
+                'order_id' => $order->id,
+                'vehicle_id' => $order->vehicle_id,
+                'action' => 'APPROVE_ORDER',
+                'old_values' => ['order_status' => 'order_requested'],
+                'new_values' => ['order_status' => 'order_placed'],
+                'changed_by_user_id' => $user->id,
+            ]);
+        }
+
+        if ($order->order_status === 'order_placed') {
+            $this->transitionOrderStatus->__invoke($order, 'confirmed', 'admin', $label, $user->id, $ip);
+        }
     }
 
     /**
@@ -371,7 +482,10 @@ class OrderCollectionService
      */
     private function addressColumns(?array $address, ?string $profileId, ?array $profileDetails): array
     {
-        if ($address === null || ($profileDetails !== null && $address === $profileDetails)) {
+        // Compared in normalised form: the profile's stored details may order
+        // their keys differently or omit empty ones, and a strict comparison of
+        // the raw arrays detached an unchanged address from its profile.
+        if ($address === null || ($profileDetails !== null && $address === $this->normalizeAddress($profileDetails))) {
             return ['pickup_profile_id' => $profileId, 'pickup_details' => null];
         }
 

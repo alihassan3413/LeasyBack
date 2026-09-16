@@ -239,7 +239,7 @@ const siblingOrders = computed<OrderHistoryEntry[]>(() =>
 
             <div class="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_320px] lg:items-start">
                 <div class="flex flex-col gap-5">
-                    <OfferComparison :offers="order.offers" />
+                    <OfferComparison :offers="order.offers" :vehicle-belongs="vehicle.vehicle_belongs" />
 
                     <section class="overflow-hidden rounded-[16px] border border-[#e6eded] bg-white">
                         <header class="border-b border-[#f1f5f5] px-5 py-4">

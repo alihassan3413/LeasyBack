@@ -22,6 +22,10 @@
  * Only the *paired* field is ever rewritten, never the one being typed in — a
  * two-way watcher reformats mid-keystroke and makes the inputs feel broken.
  *
+ * B2B is priced net only (b2b.txt §9): for a B2B order the gross column is
+ * not shown and not sent — OfferController::store() stores it as zero — so no
+ * admin is ever shown or asked for a gross a fleet customer never sees.
+ *
  * The running total is a preview of what will be stored, not an input:
  * LeasybackOffer's `saving` hook computes final_total_net/gross as the sum of
  * the four positions, so it is summed the same way here.
@@ -68,9 +72,13 @@ const props = withDefaults(
         orderId: string;
         /** Absent where the host has no order context — the menu on the vehicle list. */
         quotations?: AdminWorkshopQuotation[];
+        /** The order's channel. B2B offers are net only. Absent means B2C. */
+        vehicleBelongs?: 'B2B' | 'B2C' | null;
     }>(),
-    { quotations: () => [] },
+    { quotations: () => [], vehicleBelongs: null },
 );
+
+const isB2b = computed(() => props.vehicleBelongs === 'B2B');
 
 const emit = defineEmits<{ (e: 'update:open', value: boolean): void }>();
 
@@ -157,8 +165,10 @@ function formatDate(value: string | null): string {
     return formatPortalDate(value) || '—';
 }
 
-/** Every position must carry a number — the endpoint requires all eight. */
-const isComplete = computed(() => positions.every((position) => toNumber(form[position.net]) !== null && toNumber(form[position.gross]) !== null));
+/** Every position must carry a number — all eight for B2C, the four nets for B2B. */
+const isComplete = computed(() =>
+    positions.every((position) => toNumber(form[position.net]) !== null && (isB2b.value || toNumber(form[position.gross]) !== null)),
+);
 
 const busy = computed(() => form.processing || quotationForm.processing);
 const canSubmit = computed(() => (source.value === 'workshop' ? selectedQuotationId.value !== null : isComplete.value));
@@ -167,7 +177,9 @@ const title = computed(() => (source.value === 'workshop' ? 'Werkstattangebot ü
 const description = computed(() =>
     source.value === 'workshop'
         ? 'Wählen Sie das Werkstattangebot, das der Kunde erhalten soll. Der Entwurf wird erst durch „Veröffentlichen" sichtbar.'
-        : 'Manuelles Entwurfs-Angebot ohne Werkstattbezug. Netto und brutto werden automatisch umgerechnet.',
+        : isB2b.value
+          ? 'Manuelles Entwurfs-Angebot ohne Werkstattbezug. Firmenkunden erhalten ausschließlich Nettopreise.'
+          : 'Manuelles Entwurfs-Angebot ohne Werkstattbezug. Netto und brutto werden automatisch umgerechnet.',
 );
 
 watch(
@@ -205,7 +217,21 @@ function submit() {
         return;
     }
 
-    form.post(route('admin.orders.offers.store', props.orderId), {
+    form.transform((data) => {
+        if (!isB2b.value) {
+            return data;
+        }
+
+        // Net only: the gross keys are left out entirely rather than sent as
+        // the values the net inputs derived.
+        const netOnly: Partial<OfferFormFields> = { ...data };
+
+        for (const position of positions) {
+            delete netOnly[position.gross];
+        }
+
+        return netOnly;
+    }).post(route('admin.orders.offers.store', props.orderId), {
         preserveScroll: true,
         onSuccess: close,
     });
@@ -261,6 +287,7 @@ function submitFromQuotation() {
             <!-- ---- from a workshop quotation ---- -->
             <div v-if="source === 'workshop'" class="flex flex-col gap-2.5">
                 <InputError :message="quotationForm.errors.workshop_quotation_id" />
+                <InputError :message="(quotationForm.errors as Record<string, string | undefined>).offer" />
 
                 <!--
                     The label covers the summary only. Nesting the comparison
@@ -337,18 +364,30 @@ function submitFromQuotation() {
 
                 <p class="flex items-start gap-1.5 rounded-[13px] bg-[#f6f9f8] px-3 py-2.5 text-[11.5px] text-[#6f8585]">
                     <MdiCheckCircle class="mt-px size-3.5 shrink-0 text-[#00856a]" />
-                    Preise und Positionen werden aus dem Werkstattangebot übernommen. Der Bruttobetrag für den Kunden wird serverseitig berechnet.
+                    <template v-if="isB2b"
+                        >Preise und Positionen werden aus dem Werkstattangebot übernommen. Firmenkunden sehen nur Nettopreise.</template
+                    >
+                    <template v-else>
+                        Preise und Positionen werden aus dem Werkstattangebot übernommen. Der Bruttobetrag für den Kunden wird serverseitig berechnet.
+                    </template>
                 </p>
             </div>
 
             <!-- ---- entered by hand ---- -->
             <form v-else class="flex flex-col gap-3" @submit.prevent="submit">
-                <div class="grid grid-cols-[1fr_1fr] gap-x-4 px-1">
+                <InputError :message="(form.errors as Record<string, string | undefined>).offer" />
+
+                <div v-if="!isB2b" class="grid grid-cols-[1fr_1fr] gap-x-4 px-1">
                     <span class="text-[11px] font-bold tracking-[0.08em] text-[#9bb0af] uppercase">Netto</span>
                     <span class="text-[11px] font-bold tracking-[0.08em] text-[#9bb0af] uppercase">Brutto (inkl. 19% MwSt.)</span>
                 </div>
 
-                <div v-for="position in positions" :key="position.net" class="grid grid-cols-1 gap-x-4 gap-y-1 md:grid-cols-2">
+                <div
+                    v-for="position in positions"
+                    :key="position.net"
+                    class="grid grid-cols-1 gap-x-4 gap-y-1"
+                    :class="isB2b ? '' : 'md:grid-cols-2'"
+                >
                     <FormField v-slot="{ id, describedBy, invalid }" :label="`${position.label} (netto)`" required :error="form.errors[position.net]">
                         <Input
                             :id="id"
@@ -364,6 +403,7 @@ function submitFromQuotation() {
                     </FormField>
 
                     <FormField
+                        v-if="!isB2b"
                         v-slot="{ id, describedBy, invalid }"
                         :label="`${position.label} (brutto)`"
                         required
@@ -389,7 +429,11 @@ function submitFromQuotation() {
                         <p class="mt-0.5 text-[11.5px] text-[#6f8585]">Wird aus den vier Positionen berechnet.</p>
                     </div>
 
-                    <div class="text-right">
+                    <div v-if="isB2b" class="text-right">
+                        <p class="text-[17px] font-extrabold text-[#10393b] tabular-nums">{{ currency(totals.net) }}</p>
+                        <p class="mt-0.5 text-[11.5px] text-[#6f8585]">netto</p>
+                    </div>
+                    <div v-else class="text-right">
                         <p class="text-[17px] font-extrabold text-[#10393b] tabular-nums">{{ currency(totals.gross) }}</p>
                         <p class="mt-0.5 text-[11.5px] text-[#6f8585] tabular-nums">{{ currency(totals.net) }} netto</p>
                     </div>

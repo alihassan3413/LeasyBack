@@ -2,9 +2,11 @@
 
 namespace App\Modules\UserProfile\Order\Services;
 
+use App\Enums\OrderStatus;
 use App\Models\LeasybackOffer;
 use App\Models\OfferAuditLog;
 use App\Models\User;
+use App\Models\Vehicle;
 use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
 use App\Modules\UserProfile\Order\Models\AppraisalPosition;
 use App\Modules\UserProfile\Order\Models\B2bOfferPresentation;
@@ -93,9 +95,27 @@ class RepairOfferService
             $this->fail(422, 'Nur eingegangene Werkstattangebote können als Kundenangebot verwendet werden.');
         }
 
+        // Offers belong to the offer phase. Before it there is no appraisal to
+        // compare against; after it — or on a closed order — there is no
+        // decision left for a customer to make.
+        if (LeasybackOrder::whereKey($order->id)->value('order_status') !== OrderStatus::Inspected->value) {
+            $this->fail(422, 'Ein Kundenangebot kann nur in der Angebotsphase (Status „Begutachtet") erstellt werden.');
+        }
+
+        if (LeasybackOffer::where('order_id', $order->id)->where('offer_status', 'selected')->exists()) {
+            $this->fail(422, 'Für diesen Auftrag wurde bereits ein Angebot angenommen. Ein weiteres Angebot kann nicht erstellt werden.');
+        }
+
         $vatRate = OfferPricingPolicy::rateFor(TransitionOrderStatus::isB2bOrder($order));
         $lines = $this->buildLines($order->id, $quotation);
         $totals = $this->totals($lines);
+
+        // A workshop answering "cannot repair for this amount", or pricing
+        // nothing, is a real answer but not an offer: it would only produce a
+        // 0,00 € draft that publishOffer() must refuse anyway.
+        if (bccomp($totals['repair_total_net'], '0', 2) <= 0) {
+            $this->fail(422, 'Dieses Werkstattangebot enthält keine Preise und kann nicht als Kundenangebot verwendet werden.');
+        }
 
         return DB::transaction(function () use ($order, $user, $validated, $quotation, $lines, $totals, $vatRate) {
             // Serialises two admins — or two clicks — racing on the same
@@ -198,6 +218,23 @@ class RepairOfferService
                 $this->fail(400, 'Nur veröffentlichte Angebote können abgelehnt werden.');
             }
 
+            $orderStatus = LeasybackOrder::whereKey($locked->order_id)->value('order_status');
+
+            if ($orderStatus === null || in_array($orderStatus, OrderStatus::closedValues(), true)) {
+                $this->fail(422, 'Der Auftrag ist bereits abgeschlossen oder storniert. Über das Angebot kann nicht mehr entschieden werden.');
+            }
+
+            // Same rule as acceptance (OfferService::decide): an offer whose
+            // validity ran out is no longer on the table in either direction.
+            $expiredOn = $this->expiredOn($locked);
+
+            if ($expiredOn !== null) {
+                $this->fail(422, sprintf(
+                    'Dieses Angebot war bis zum %s gültig. Bitte fordern Sie ein neues Angebot an.',
+                    $expiredOn->format('d.m.Y'),
+                ));
+            }
+
             $locked->update(['offer_status' => self::STATUS_REJECTED]);
 
             B2bOfferPresentation::where('offer_id', $locked->offer_id)->update([
@@ -277,8 +314,12 @@ class RepairOfferService
             ->get()
             ->keyBy('offer_id');
 
+        // B2B only (§10). Quotation-backed offers now exist in both channels,
+        // and a private customer's offer follows the B2C communication, which
+        // has no 24 h reminder.
         $liveOrderIds = LeasybackOrder::whereIn('id', $offers->pluck('order_id')->unique()->all())
             ->whereNotIn('order_status', ['cancelled', 'discarded', 'completed'])
+            ->whereIn('vehicle_id', Vehicle::query()->where('vehicle_belongs', 'B2B')->select('vehicle_id'))
             ->pluck('id')
             ->all();
 
@@ -517,18 +558,25 @@ class RepairOfferService
         $appraisal = '0';
         $repair = '0';
 
+        $saving = '0';
+
         foreach ($lines as $line) {
             $appraisal = bcadd($appraisal, (string) $line['appraisal_amount_net'], 2);
 
             if ($line['repair_amount_net'] !== null) {
                 $repair = bcadd($repair, (string) $line['repair_amount_net'], 2);
+                $saving = bcadd($saving, bcsub((string) $line['appraisal_amount_net'], (string) $line['repair_amount_net'], 2), 2);
             }
         }
 
+        // The saving only counts positions the workshop actually priced. A
+        // position left unquoted or marked not repairable is still charged at
+        // its appraisal amount, so it saves nothing — subtracting the repair
+        // total from the *whole* appraisal used to count it as saved in full.
         return [
             'appraisal_total_net' => $appraisal,
             'repair_total_net' => $repair,
-            'saving_net' => bcsub($appraisal, $repair, 2),
+            'saving_net' => $saving,
         ];
     }
 

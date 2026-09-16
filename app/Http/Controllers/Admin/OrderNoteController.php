@@ -44,7 +44,7 @@ class OrderNoteController extends Controller
     {
         $this->resolveB2bOrder($orderId);
 
-        abort_unless($this->notes->delete($orderId, $noteId), 404);
+        abort_unless($this->notes->delete($orderId, $noteId, $request->user()), 404);
 
         return back()->with('success', 'Notiz wurde gelöscht.');
     }

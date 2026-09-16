@@ -2,6 +2,7 @@
 
 namespace App\Modules\UserProfile\B2B\Services;
 
+use App\Enums\OrderStatus;
 use App\Models\User;
 use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
 use Illuminate\Support\Facades\DB;
@@ -118,7 +119,10 @@ class B2bAnalyticsService
         return [
             ['key' => 'planned', 'label' => 'Eingeplant', 'count' => $planned, 'filter' => 'none'],
             ['key' => 'in_progress', 'label' => 'Laufend', 'count' => $inProgress, 'filter' => 'open'],
-            ['key' => 'completed', 'label' => 'Abgeschlossen', 'count' => $completed, 'filter' => 'delivered'],
+            // `completed` is the terminal status a B2B return ends in (§6);
+            // `delivered` is B2C-only and never occurs in a company fleet, so
+            // filtering on it always showed an empty table.
+            ['key' => 'completed', 'label' => 'Abgeschlossen', 'count' => $completed, 'filter' => OrderStatus::Completed->value],
             ['key' => 'cancelled', 'label' => 'Storniert', 'count' => $cancelled, 'filter' => null],
         ];
     }

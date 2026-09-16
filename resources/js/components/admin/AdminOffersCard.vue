@@ -13,11 +13,18 @@
  * a workshop quotation names the workshop; one typed into the fallback modal
  * says so. The two are told apart by the presence of a presentation row, not by
  * a flag — a hand-entered offer has no way to claim a source it does not have.
+ *
+ * B2B is priced net only (b2b.txt §9): a B2B offer's headline and repair figure
+ * are net and labelled so, never gross. B2C keeps its gross headline.
+ *
+ * Create and publish follow `editable` (the order is `inspected` and no offer
+ * has been accepted); cancel only ever applies to a draft or published offer.
+ * A refusal comes back under the `offer` error key and is shown above the list.
  */
 import CreateOfferModal from '@/components/admin/CreateOfferModal.vue';
 import type { AdminOfferRow, AdminWorkshopQuotation } from '@/types/admin';
 import { router } from '@inertiajs/vue3';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import MdiPlus from '~icons/mdi/plus';
 import MdiTagOutline from '~icons/mdi/tag-outline';
 
@@ -25,12 +32,40 @@ import MdiTagOutline from '~icons/mdi/tag-outline';
  * `quotations` is passed straight through to the create modal, so creating an
  * offer can start from a workshop's prices instead of an empty form.
  */
-withDefaults(defineProps<{ orderId: string; offers: AdminOfferRow[]; quotations?: AdminWorkshopQuotation[] }>(), { quotations: () => [] });
+const props = withDefaults(
+    defineProps<{
+        orderId: string;
+        offers: AdminOfferRow[];
+        quotations?: AdminWorkshopQuotation[];
+        vehicleBelongs: 'B2B' | 'B2C';
+        /** AdminOrderDetail.editable.offers — gates creating and publishing. */
+        editable: boolean;
+    }>(),
+    { quotations: () => [] },
+);
+
+const isB2b = computed(() => props.vehicleBelongs === 'B2B');
+
+/** The refusal of the last publish/cancel (`offer` error key); the flash toast says it too. */
+const offerError = ref<string | null>(null);
+
+function rememberError(errors: Record<string, string>) {
+    offerError.value = errors.offer ?? Object.values(errors)[0] ?? null;
+}
 
 const createModalOpen = ref(false);
 
 /** Driven by the tasks card, so a task opens this card's own modal. */
-defineExpose({ openCreate: () => (createModalOpen.value = true) });
+defineExpose({
+    /** True when the modal opened — false when offers can no longer be created. */
+    openCreate: (): boolean => {
+        if (props.editable) {
+            createModalOpen.value = true;
+        }
+
+        return props.editable;
+    },
+});
 const publishingId = ref<string | null>(null);
 const cancellingId = ref<string | null>(null);
 const confirmingCancelId = ref<string | null>(null);
@@ -51,6 +86,7 @@ const STATUS_LABELS: Record<AdminOfferRow['offer_status'], string> = {
     selected: 'Angenommen',
     closed: 'Geschlossen',
     cancelled: 'Storniert',
+    rejected: 'Abgelehnt',
 };
 
 const STATUS_PILLS: Record<AdminOfferRow['offer_status'], string> = {
@@ -59,7 +95,13 @@ const STATUS_PILLS: Record<AdminOfferRow['offer_status'], string> = {
     selected: 'bg-[#01B990]/10 text-[#00856a]',
     closed: 'bg-[#f4f7f6] text-[#9bb0af]',
     cancelled: 'bg-[#E5533D]/10 text-[#c0392b]',
+    rejected: 'bg-[#E5533D]/10 text-[#c0392b]',
 };
+
+/** An offer the server still lets Admin withdraw — OfferService::cancelOffer(). */
+function isCancellable(offer: AdminOfferRow): boolean {
+    return offer.offer_status === 'draft' || offer.offer_status === 'published';
+}
 
 function formatCurrency(value: string | number | null): string {
     if (value === null) {
@@ -71,16 +113,23 @@ function formatCurrency(value: string | number | null): string {
 
 function publish(offer: AdminOfferRow) {
     publishingId.value = offer.offer_id;
-    router.patch(route('admin.orders.offers.publish', offer.offer_id), {}, { preserveScroll: true, onFinish: () => (publishingId.value = null) });
+    offerError.value = null;
+    router.patch(
+        route('admin.orders.offers.publish', offer.offer_id),
+        {},
+        { preserveScroll: true, onError: rememberError, onFinish: () => (publishingId.value = null) },
+    );
 }
 
 function cancel(offer: AdminOfferRow) {
     cancellingId.value = offer.offer_id;
+    offerError.value = null;
     router.patch(
         route('admin.orders.offers.cancel', offer.offer_id),
         {},
         {
             preserveScroll: true,
+            onError: rememberError,
             onFinish: () => {
                 cancellingId.value = null;
                 confirmingCancelId.value = null;
@@ -104,6 +153,7 @@ function cancel(offer: AdminOfferRow) {
             </div>
 
             <button
+                v-if="editable"
                 type="button"
                 class="flex shrink-0 items-center gap-1.5 rounded-[13px] border border-[#e9efee] bg-white px-3.5 py-2 text-[12.5px] font-bold text-[#10393b] transition-all hover:border-[#10393b] hover:bg-[#f4f7f6]"
                 @click="createModalOpen = true"
@@ -112,6 +162,14 @@ function cancel(offer: AdminOfferRow) {
                 Angebot
             </button>
         </div>
+
+        <p
+            v-if="offerError"
+            role="alert"
+            class="mb-3 rounded-[11px] border border-[#c0392b]/25 bg-[#c0392b]/5 px-3 py-2 text-[12px] font-bold text-[#c0392b]"
+        >
+            {{ offerError }}
+        </p>
 
         <p v-if="!offers.length" class="py-10 text-center text-[13px] text-[#9bb0af]">Noch keine Angebote.</p>
 
@@ -145,22 +203,24 @@ function cancel(offer: AdminOfferRow) {
 
                 <div class="mt-3 flex items-baseline gap-2">
                     <p class="text-[22px] leading-none font-extrabold tracking-[-0.6px] text-[#10393b] tabular-nums">
-                        {{ formatCurrency(offer.final_total_gross) }}
+                        {{ formatCurrency(isB2b ? offer.final_total_net : offer.final_total_gross) }}
                     </p>
-                    <p class="text-[11px] font-bold tracking-[0.04em] text-[#9bb0af] uppercase">brutto</p>
+                    <p class="text-[11px] font-bold tracking-[0.04em] text-[#9bb0af] uppercase">{{ isB2b ? 'netto' : 'brutto' }}</p>
                 </div>
 
-                <dl class="mt-3 grid grid-cols-2 gap-2">
-                    <div class="rounded-[11px] bg-[#f8faf9] px-3 py-2">
+                <dl class="mt-3 grid gap-2" :class="isB2b ? 'grid-cols-1' : 'grid-cols-2'">
+                    <div v-if="!isB2b" class="rounded-[11px] bg-[#f8faf9] px-3 py-2">
                         <dt class="text-[10px] font-bold tracking-[0.05em] text-[#9bb0af] uppercase">Netto</dt>
                         <dd class="mt-0.5 text-[12.5px] font-bold text-[#10393b] tabular-nums">
                             {{ formatCurrency(offer.final_total_net) }}
                         </dd>
                     </div>
                     <div class="rounded-[11px] bg-[#f8faf9] px-3 py-2">
-                        <dt class="text-[10px] font-bold tracking-[0.05em] text-[#9bb0af] uppercase">Reparatur</dt>
+                        <dt class="text-[10px] font-bold tracking-[0.05em] text-[#9bb0af] uppercase">
+                            {{ isB2b ? 'Reparatur netto' : 'Reparatur brutto' }}
+                        </dt>
                         <dd class="mt-0.5 text-[12.5px] font-bold text-[#10393b] tabular-nums">
-                            {{ formatCurrency(offer.repair_cost_gross) }}
+                            {{ formatCurrency(isB2b ? offer.repair_cost_net : offer.repair_cost_gross) }}
                         </dd>
                     </div>
                 </dl>
@@ -173,10 +233,7 @@ function cancel(offer: AdminOfferRow) {
                     Grund: {{ offer.cancellation_reason }}
                 </p>
 
-                <div
-                    v-if="offer.offer_status === 'draft' || offer.offer_status === 'published'"
-                    class="mt-3.5 flex flex-wrap items-center gap-2 border-t border-[#f2f6f5] pt-3.5"
-                >
+                <div v-if="isCancellable(offer)" class="mt-3.5 flex flex-wrap items-center gap-2 border-t border-[#f2f6f5] pt-3.5">
                     <template v-if="confirmingCancelId === offer.offer_id">
                         <p class="mr-auto text-[12px] font-bold text-[#10393b]">
                             {{ offer.offer_status === 'draft' ? 'Angebot verwerfen?' : 'Angebot zurückziehen?' }}
@@ -200,7 +257,7 @@ function cancel(offer: AdminOfferRow) {
 
                     <template v-else>
                         <button
-                            v-if="offer.offer_status === 'draft'"
+                            v-if="offer.offer_status === 'draft' && editable"
                             type="button"
                             :disabled="publishingId === offer.offer_id"
                             class="rounded-[11px] bg-[#01B990] px-3.5 py-2 text-[12.5px] font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
@@ -222,7 +279,7 @@ function cancel(offer: AdminOfferRow) {
         </div>
     </div>
 
-    <CreateOfferModal v-model:open="createModalOpen" :order-id="orderId" :quotations="quotations" />
+    <CreateOfferModal v-model:open="createModalOpen" :order-id="orderId" :quotations="quotations" :vehicle-belongs="vehicleBelongs" />
 </template>
 
 <style scoped>

@@ -24,6 +24,8 @@ export function useOrderMessages(orderId: string, currentUserId: Ref<number | nu
     const loaded = ref(false);
     const sending = ref(false);
     const nextPage = ref<number | null>(null);
+    /** Server-decided (OrderPolicy::sendMessage): a read-only company member may read the thread but not write to it. */
+    const canSendMessages = ref(false);
 
     let channelName: string | null = null;
 
@@ -58,6 +60,7 @@ export function useOrderMessages(orderId: string, currentUserId: Ref<number | nu
             messages.value = page === 1 ? ordered : [...ordered, ...messages.value];
             unreadCount.value = data.unread_count;
             nextPage.value = data.next_page;
+            canSendMessages.value = data.can_send === true;
             loaded.value = true;
         } finally {
             loading.value = false;
@@ -73,7 +76,7 @@ export function useOrderMessages(orderId: string, currentUserId: Ref<number | nu
     async function send(body: string): Promise<void> {
         const trimmed = body.trim();
 
-        if (!trimmed || sending.value) {
+        if (!trimmed || sending.value || !canSendMessages.value) {
             return;
         }
 
@@ -133,6 +136,7 @@ export function useOrderMessages(orderId: string, currentUserId: Ref<number | nu
         loading,
         loaded,
         sending,
+        canSendMessages,
         hasOlder: computed(() => nextPage.value !== null),
         load: fetchPage,
         loadOlder,

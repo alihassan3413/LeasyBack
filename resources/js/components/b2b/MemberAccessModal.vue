@@ -10,7 +10,7 @@ import type { SelectFieldOption } from '@/components/form/SelectField.vue';
 import InputError from '@/components/InputError.vue';
 import { Input } from '@/components/ui/input';
 import { AppModal, AppModalButton } from '@/components/ui/modal';
-import type { B2bMemberAccessFormData, B2bMemberRow, B2bPermissionGroup } from '@/types/b2b';
+import type { B2bMemberAccessFormData, B2bMemberRow, B2bPermissionGroup, B2bRolePresetOption, B2bRolePresetValue } from '@/types/b2b';
 import { useForm } from '@inertiajs/vue3';
 import { computed, watch } from 'vue';
 
@@ -20,6 +20,9 @@ const props = defineProps<{
     /** The member being edited; ignored in invite mode. */
     member?: B2bMemberRow | null;
     catalog: B2bPermissionGroup[];
+    presets: B2bRolePresetOption[];
+    /** Preselected for a new invitation. */
+    defaultPreset: B2bRolePresetValue;
     roleOptions: SelectFieldOption[];
     vehicleScopeOptions: SelectFieldOption[];
     canAssignOwner: boolean;
@@ -31,21 +34,34 @@ const isInvite = computed(() => props.mode === 'invite');
 
 const form = useForm<B2bMemberAccessFormData & { email: string }>({
     email: '',
+    preset: props.defaultPreset,
     role: 'member',
     permissions: ['vehicles.view'],
     vehicle_scope: 'all',
 });
 
 const access = computed<B2bMemberAccessFormData>(() => ({
+    preset: form.preset,
     role: form.role,
     permissions: form.permissions,
     vehicle_scope: form.vehicle_scope,
 }));
 
 function applyAccess(next: B2bMemberAccessFormData) {
+    form.preset = next.preset;
     form.role = next.role;
     form.permissions = next.permissions;
     form.vehicle_scope = next.vehicle_scope;
+}
+
+/** The preset a new invitation starts on, resolved to its role/permissions. */
+function seedFromDefaultPreset() {
+    const preset = props.presets.find((option) => option.value === props.defaultPreset) ?? null;
+
+    form.preset = preset?.value ?? null;
+    form.role = preset?.role ?? 'member';
+    form.permissions = preset ? [...preset.permissions] : ['vehicles.view'];
+    form.vehicle_scope = 'all';
 }
 
 // Re-seeded whenever the dialog opens, so reopening it after a cancel never
@@ -59,9 +75,19 @@ watch(
 
         form.clearErrors();
         form.email = '';
-        form.role = props.member?.role ?? 'member';
-        form.permissions = props.member ? [...props.member.permissions] : ['vehicles.view'];
-        form.vehicle_scope = props.member?.vehicle_scope ?? 'all';
+
+        if (!props.member) {
+            seedFromDefaultPreset();
+
+            return;
+        }
+
+        // An existing member keeps exactly the rights they have — including a
+        // hand-picked set, which reopens the advanced editor on "Individuell".
+        form.preset = props.member.preset;
+        form.role = props.member.role;
+        form.permissions = [...props.member.permissions];
+        form.vehicle_scope = props.member.vehicle_scope;
     },
     { immediate: true },
 );
@@ -78,14 +104,20 @@ function submit() {
         onSuccess: () => close(),
     };
 
+    // useForm keeps whatever transform was set last, so each branch sets its
+    // own: an invitation sent after editing a member must still carry the
+    // email the edit branch strips.
     if (isInvite.value) {
-        form.post(route('b2b.invitations.store'), options);
+        form.transform((data) => data).post(route('b2b.invitations.store'), options);
 
         return;
     }
 
     if (props.member) {
-        form.transform(({ email, ...data }) => data).patch(route('b2b.members.update', props.member.user_id), options);
+        form.transform(({ preset, role, permissions, vehicle_scope }) => ({ preset, role, permissions, vehicle_scope })).patch(
+            route('b2b.members.update', props.member.user_id),
+            options,
+        );
     }
 }
 
@@ -124,6 +156,7 @@ const description = computed(() =>
             <MemberAccessFields
                 :model-value="access"
                 :catalog="catalog"
+                :presets="presets"
                 :role-options="roleOptions"
                 :vehicle-scope-options="vehicleScopeOptions"
                 :can-assign-owner="canAssignOwner"

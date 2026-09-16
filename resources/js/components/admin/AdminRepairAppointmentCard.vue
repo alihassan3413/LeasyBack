@@ -9,6 +9,9 @@
  *
  * Saving from `workshop_commissioned` also starts the repair phase; the server
  * owns that rule, this only says so.
+ *
+ * Outside the statuses the server accepts an appointment in (`editable`), the
+ * card is still shown when a date exists, but read-only.
  */
 import CalendarDateField from '@/components/form/CalendarDateField.vue';
 import RequiredMark from '@/components/form/RequiredMark.vue';
@@ -27,6 +30,8 @@ const props = defineProps<{
     collection: OrderCollectionData | null;
     /** The quotation the presented offer came from, when there is one. */
     sourceQuotation: AdminWorkshopQuotation | null;
+    /** AdminOrderDetail.editable.repair_appointment. */
+    editable: boolean;
 }>();
 
 const form = useForm(() => ({
@@ -41,7 +46,7 @@ const startsRepairPhase = computed(() => props.orderStatus === 'workshop_commiss
 const seed = computed(() => {
     const quotation = props.sourceQuotation;
 
-    if (!quotation || isConfirmed.value) {
+    if (!quotation || isConfirmed.value || !props.editable) {
         return null;
     }
 
@@ -58,6 +63,10 @@ function formatDate(value: string | null): string {
 }
 
 function submit() {
+    if (!props.editable) {
+        return;
+    }
+
     form.transform((data) => ({
         ...data,
         estimated_processing_days: data.estimated_processing_days === '' ? null : Number(data.estimated_processing_days),
@@ -74,7 +83,7 @@ function submit() {
             <div class="min-w-0 flex-1">
                 <h2 class="text-[15px] font-extrabold tracking-[-0.3px] text-[#10393b]">Reparaturtermin</h2>
                 <p class="mt-0.5 text-[11.5px] font-medium text-[#9bb0af]">
-                    {{ isConfirmed ? 'Bestätigt · jederzeit verschiebbar' : 'Noch nicht bestätigt' }}
+                    {{ isConfirmed ? (editable ? 'Bestätigt · jederzeit verschiebbar' : 'Bestätigt') : 'Noch nicht bestätigt' }}
                 </p>
             </div>
         </div>
@@ -83,28 +92,42 @@ function submit() {
             Aus dem Werkstattangebot übernommen — {{ seed }}
         </p>
 
+        <p v-if="!editable" class="mb-3 rounded-[11px] bg-[#f6f9f8] px-3 py-2 text-[11.5px] text-[#6f8585]">
+            Der Reparaturtermin kann nur zwischen Werkstattbeauftragung und Abschluss der Reparatur geändert werden.
+        </p>
+
         <form class="flex flex-col gap-3" @submit.prevent="submit">
-            <div class="flex flex-col gap-1">
-                <label class="text-[12px] font-bold text-[#10393b]">Bestätigter Reparaturbeginn<RequiredMark /></label>
-                <CalendarDateField v-model="form.confirmed_repair_start_date" allow-past :invalid="!!form.errors.confirmed_repair_start_date" />
-                <InputError :message="form.errors.confirmed_repair_start_date" />
-            </div>
+            <fieldset :disabled="!editable" class="flex min-w-0 flex-col gap-3">
+                <div class="flex flex-col gap-1">
+                    <label class="text-[12px] font-bold text-[#10393b]">Bestätigter Reparaturbeginn<RequiredMark /></label>
+                    <CalendarDateField
+                        v-model="form.confirmed_repair_start_date"
+                        allow-past
+                        :disabled="!editable"
+                        :invalid="!!form.errors.confirmed_repair_start_date"
+                    />
+                    <InputError :message="form.errors.confirmed_repair_start_date" />
+                </div>
 
-            <div class="flex flex-col gap-1">
-                <label class="text-[12px] font-bold text-[#10393b]">Voraussichtliche Dauer (Arbeitstage)</label>
-                <Input v-model="form.estimated_processing_days" type="number" min="0" max="365" step="1" />
-                <InputError :message="form.errors.estimated_processing_days" />
-            </div>
+                <div class="flex flex-col gap-1">
+                    <label class="text-[12px] font-bold text-[#10393b]">Voraussichtliche Dauer (Arbeitstage)</label>
+                    <Input v-model="form.estimated_processing_days" type="number" min="0" max="365" step="1" />
+                    <InputError :message="form.errors.estimated_processing_days" />
+                </div>
 
-            <p v-if="startsRepairPhase" class="text-[11.5px] text-[#6f8585]">Mit dem Speichern wechselt der Auftrag in die Reparaturphase.</p>
+                <p v-if="editable && startsRepairPhase" class="text-[11.5px] text-[#6f8585]">
+                    Mit dem Speichern wechselt der Auftrag in die Reparaturphase.
+                </p>
 
-            <button
-                type="submit"
-                :disabled="form.processing"
-                class="self-end rounded-[13px] bg-[#10393b] px-4 py-2.5 text-[13px] font-bold text-white transition-all hover:opacity-90 disabled:opacity-50"
-            >
-                {{ form.processing ? 'Speichert...' : isConfirmed ? 'Termin aktualisieren' : 'Termin bestätigen' }}
-            </button>
+                <button
+                    v-if="editable"
+                    type="submit"
+                    :disabled="form.processing"
+                    class="self-end rounded-[13px] bg-[#10393b] px-4 py-2.5 text-[13px] font-bold text-white transition-all hover:opacity-90 disabled:opacity-50"
+                >
+                    {{ form.processing ? 'Speichert...' : isConfirmed ? 'Termin aktualisieren' : 'Termin bestätigen' }}
+                </button>
+            </fieldset>
         </form>
     </div>
 </template>

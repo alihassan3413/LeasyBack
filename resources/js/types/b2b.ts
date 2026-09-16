@@ -100,6 +100,24 @@ export type B2bRoleValue = 'owner' | 'member';
 
 export type B2bVehicleScopeValue = 'all' | 'own';
 
+/** The three named company roles — see App\Enums\B2bRolePreset. */
+export type B2bRolePresetValue = 'company_administrator' | 'standard_user' | 'read_only';
+
+/**
+ * One entry of the role picker. `permissions` and `role` are what the preset
+ * resolves to, carried so the advanced editor can show what a preset would
+ * store without a round trip.
+ */
+export interface B2bRolePresetOption {
+    value: B2bRolePresetValue;
+    label: string;
+    description: string;
+    role: B2bRoleValue;
+    permissions: B2bPermissionValue[];
+    /** Only an owner may hand this one out. */
+    assigns_owner: boolean;
+}
+
 /** One company the signed-in user could act as. */
 export interface B2bCompanySummary {
     b2b_id: string;
@@ -139,6 +157,10 @@ export interface B2bMemberRow {
     is_active: boolean;
     role: B2bRoleValue;
     role_label: string;
+    /** null when the rights were hand-picked and match no preset. */
+    preset: B2bRolePresetValue | null;
+    /** The preset's label, or "Individuell" for a custom set. */
+    preset_label: string;
     vehicle_scope: B2bVehicleScopeValue;
     permissions: B2bPermissionValue[];
     joined_at: string | null;
@@ -152,6 +174,8 @@ export interface B2bInvitationRow {
     email: string;
     role: B2bRoleValue;
     role_label: string;
+    preset: B2bRolePresetValue | null;
+    preset_label: string;
     permissions: B2bPermissionValue[];
     vehicle_scope: B2bVehicleScopeValue;
     status: 'pending' | 'accepted' | 'revoked' | 'expired';
@@ -261,6 +285,13 @@ export interface B2bStatistics {
 
 /** Shape both the invite form and the member editor submit. */
 export interface B2bMemberAccessFormData {
+    /**
+     * The named role the picker selected. When set, the server derives role
+     * and permissions from it and ignores the two below — they are still sent
+     * so the advanced editor can show what the preset resolves to, and so a
+     * custom set (preset: null) posts as it always has.
+     */
+    preset: B2bRolePresetValue | null;
     role: B2bRoleValue;
     permissions: B2bPermissionValue[];
     vehicle_scope: B2bVehicleScopeValue;

@@ -49,6 +49,9 @@ class WorkshopCommissionService
 
     public const BLOCKED_LIFECYCLE = 'wrong_status';
 
+    /** The statuses in which the workshop's repair instruction is still live. */
+    public const RESENDABLE_STATUSES = ['workshop_commissioned', 'workshop', 'reworkshop'];
+
     public function __construct(
         private readonly TransitionOrderStatus $transitionOrderStatus,
     ) {}
@@ -80,6 +83,20 @@ class WorkshopCommissionService
     }
 
     /**
+     * Whether this order's workshop has to be instructed through commission()
+     * rather than by setting the status: there is an accepted, quotation-backed
+     * offer with an address to send the repair order to. Without one — a
+     * manual offer, or a workshop with no email — setting the status directly
+     * is the only way forward.
+     */
+    public function requiresCommissionAction(LeasybackOrder $order): bool
+    {
+        $target = $this->resolve($order);
+
+        return $target !== null && ! blank($target['workshop']['contact_email'] ?? null);
+    }
+
+    /**
      * Everything Admin needs to render the step: whether it can be done, why
      * not if not, and what has already happened. Computed rather than stored —
      * there is no commissioning state column to fall out of step with the order.
@@ -88,11 +105,94 @@ class WorkshopCommissionService
      */
     public function state(LeasybackOrder $order): array
     {
-        $target = $this->resolve($order);
-        $auditRow = $this->commissionAudit($order);
+        return $this->compose(
+            $order,
+            $this->resolve($order),
+            $this->commissionAudit($order),
+            LeasybackOffer::where('order_id', $order->id)->where('offer_status', 'selected')->exists(),
+            null,
+        );
+    }
+
+    /**
+     * The same state for many orders, in a fixed number of queries.
+     *
+     * Exists for the admin task dashboard, which needs this for every active
+     * order at once — asking per order cost three or four round trips each.
+     * Composition is shared with state(), so a batch answer and a single
+     * answer can never differ; only the loading is different.
+     *
+     * @param  iterable<int, LeasybackOrder>  $orders
+     * @return array<string, array<string, mixed>>
+     */
+    public function statesFor(iterable $orders): array
+    {
+        $orders = collect($orders);
+
+        if ($orders->isEmpty()) {
+            return [];
+        }
+
+        $orderIds = $orders->pluck('id')->all();
+
+        $selectedOffers = LeasybackOffer::whereIn('order_id', $orderIds)
+            ->where('offer_status', 'selected')
+            ->get()
+            ->keyBy('order_id');
+
+        $presentations = B2bOfferPresentation::whereIn('offer_id', $selectedOffers->pluck('offer_id')->all())
+            ->get()
+            ->keyBy('offer_id');
+
+        // Resolved here in one query because TransitionOrderStatus::isB2bOrder()
+        // looks the vehicle up per order — the last per-order query in the
+        // batch path, and the one that kept it scaling with N.
+        $channels = Vehicle::whereIn('vehicle_id', $orders->pluck('vehicle_id')->all())
+            ->pluck('vehicle_belongs', 'vehicle_id');
+
+        $audits = OrderAuditLog::whereIn('order_id', $orderIds)
+            ->where('action', self::AUDIT_ACTION)
+            ->orderBy('changed_at')
+            ->get()
+            ->groupBy('order_id');
+
+        $states = [];
+
+        foreach ($orders as $order) {
+            $offer = $selectedOffers->get($order->id);
+            $presentation = $offer === null ? null : $presentations->get($offer->offer_id);
+            $workshop = $presentation?->workshop;
+
+            $target = $offer !== null && $presentation !== null && is_array($workshop) && $workshop !== []
+                ? ['offer' => $offer, 'presentation' => $presentation, 'workshop' => $workshop]
+                : null;
+
+            $states[$order->id] = $this->compose(
+                $order,
+                $target,
+                $audits->get($order->id)?->first(),
+                $offer !== null,
+                $channels->get($order->vehicle_id) === 'B2B',
+            );
+        }
+
+        return $states;
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $target
+     * @return array<string, mixed>
+     */
+    private function compose(
+        LeasybackOrder $order,
+        ?array $target,
+        ?OrderAuditLog $auditRow,
+        bool $hasSelectedOffer,
+        ?bool $isB2b,
+    ): array {
         $commissioned = $auditRow !== null;
         $audited = $auditRow?->new_values ?? [];
-        $reason = $commissioned ? null : $this->blockingReason($order, $target);
+        $reason = $commissioned ? null : $this->blockingReason($order, $target, $hasSelectedOffer, $isB2b);
 
         return [
             'is_commissioned' => $commissioned,
@@ -102,9 +202,14 @@ class WorkshopCommissionService
             // commissioned even if the offer behind it is later disturbed.
             'workshop' => $target['workshop'] ?? ($audited['workshop'] ?? null),
             'offer_id' => $target['offer']->offer_id ?? ($audited['offer_id'] ?? null),
-            'offer_total_gross' => $target === null ? null : (string) $target['offer']->final_total_gross,
+            // A B2B offer is net-only: its gross columns are placeholders and
+            // rendered as "0,00 €" when passed through.
+            'offer_total_gross' => $target === null || ($isB2b ?? TransitionOrderStatus::isB2bOrder($order)) ? null : (string) $target['offer']->final_total_gross,
             'offer_total_net' => $target === null ? null : (string) $target['offer']->final_total_net,
-            'notified_at' => $target === null ? null : $target['presentation']->workshop_notified_at?->toISOString(),
+            'can_resend' => $commissioned && in_array($order->order_status, self::RESENDABLE_STATUSES, true),
+            // Read from the presentation the commission was sent for, which the
+            // audit row names — the currently selected offer may no longer be it.
+            'notified_at' => $this->notifiedAt($target, $audited),
             'can_commission' => ! $commissioned && $target !== null && $reason === null,
             'blocked_reason' => $reason,
         ];
@@ -140,7 +245,11 @@ class WorkshopCommissionService
             }
 
             $target = $this->resolve($locked);
-            $reason = $this->blockingReason($locked, $target);
+            $reason = $this->blockingReason(
+                $locked,
+                $target,
+                LeasybackOffer::where('order_id', $locked->id)->where('offer_status', 'selected')->exists(),
+            );
 
             if ($reason !== null) {
                 $this->fail(422, $this->message($reason));
@@ -208,6 +317,16 @@ class WorkshopCommissionService
             $this->fail(422, 'Für diesen Auftrag wurde noch keine Werkstatt beauftragt.');
         }
 
+        // A repeat of the repair instruction only makes sense while that
+        // instruction is still live. Resent after cancellation it told a
+        // workshop to repair a car for an order that no longer exists; after
+        // the repair it asks for work that is already done.
+        $status = LeasybackOrder::whereKey($order->id)->value('order_status');
+
+        if (! in_array($status, self::RESENDABLE_STATUSES, true)) {
+            $this->fail(422, 'Die Beauftragung kann in diesem Auftragsstatus nicht erneut gesendet werden.');
+        }
+
         $sent = $this->notify($order, $audit->new_values['presentation_id'] ?? null);
 
         OrderAuditLog::create([
@@ -227,17 +346,22 @@ class WorkshopCommissionService
      *
      * @param  array{offer: LeasybackOffer, presentation: B2bOfferPresentation, workshop: array<string, mixed>}|null  $target
      */
-    private function blockingReason(LeasybackOrder $order, ?array $target): ?string
+    /**
+     * `$hasSelectedOffer` is passed in rather than queried: the caller has
+     * already loaded the selected offer (singly or in bulk), and asking again
+     * here is what made the batch path a query per order.
+     */
+    private function blockingReason(LeasybackOrder $order, ?array $target, bool $hasSelectedOffer, ?bool $isB2b = null): ?string
     {
         if (! in_array('workshop_commissioned', TransitionOrderStatus::allowedNextStatuses(
             $order->order_status,
-            TransitionOrderStatus::isB2bOrder($order),
+            $isB2b ?? TransitionOrderStatus::isB2bOrder($order),
         ), true)) {
             return self::BLOCKED_LIFECYCLE;
         }
 
         if ($target === null) {
-            return LeasybackOffer::where('order_id', $order->id)->where('offer_status', 'selected')->exists()
+            return $hasSelectedOffer
                 ? self::BLOCKED_MANUAL
                 : self::BLOCKED_NO_SELECTED_OFFER;
         }
@@ -253,6 +377,25 @@ class WorkshopCommissionService
             self::BLOCKED_NO_CONTACT => 'Für die gewählte Werkstatt ist keine E-Mail-Adresse hinterlegt.',
             default => 'In diesem Auftragsstatus kann keine Werkstatt beauftragt werden.',
         };
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $target
+     * @param  array<string, mixed>  $audited
+     */
+    private function notifiedAt(?array $target, array $audited): ?string
+    {
+        $presentationId = $audited['presentation_id'] ?? null;
+
+        if ($target !== null && ($presentationId === null || $target['presentation']->id === $presentationId)) {
+            return $target['presentation']->workshop_notified_at?->toISOString();
+        }
+
+        if ($presentationId === null) {
+            return null;
+        }
+
+        return B2bOfferPresentation::whereKey($presentationId)->first()?->workshop_notified_at?->toISOString();
     }
 
     private function commissionAudit(LeasybackOrder $order): ?OrderAuditLog

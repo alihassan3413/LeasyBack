@@ -10,6 +10,7 @@ import OfferComparison from '@/components/vehicle/OfferComparison.vue';
 import OrderHistoryList from '@/components/vehicle/OrderHistoryList.vue';
 import UploadDocumentModal from '@/components/vehicle/UploadDocumentModal.vue';
 import VehiclePanelShell from '@/components/vehicle/VehiclePanelShell.vue';
+import { useB2bPermissions } from '@/composables/useB2bPermissions';
 import { formatGermanDateTime, getCustomerOrderFlowSteps, getCustomerOrderHeadline } from '@/lib/customerOrderFlow';
 import { formatPortalDate } from '@/lib/portalDate';
 import { toOrderTimelineEntries, type OrderTimelineEntry } from '@/lib/timeline';
@@ -68,6 +69,19 @@ const props = withDefaults(
 
 const editVehicleOpen = ref(false);
 const uploadDocsOpen = ref(false);
+
+const { can } = useB2bPermissions();
+
+/**
+ * What this viewer may do from the panel. `can()` is true for any account
+ * with no company membership — Admin and Privatkunde alike — so only company
+ * members are narrowed, and only in the UI. Every action is still refused
+ * server-side by `b2b.can:*` and the policies.
+ */
+const canEditVehicle = computed(() => props.admin || can('vehicles.update'));
+const canUploadDocument = computed(() => props.admin || can('vehicles.documents.upload'));
+/** Accepting or rejecting a repair offer commits the company to a bill. */
+const canDecideOffer = computed(() => can('offers.select'));
 
 const DOCUMENT_TYPE_LABELS: Record<string, string> = {
     leasingvertrag: 'Leasingvertrag',
@@ -148,6 +162,12 @@ function isReportLike(doc: PanelDocument): boolean {
 }
 
 function canDeleteDocument(doc: PanelDocument): boolean {
+    // Admin-uploaded reports and invoices are undeletable for everyone; on top
+    // of that, a company member needs the right to delete their own uploads.
+    if (!props.admin && !can('vehicles.documents.delete')) {
+        return false;
+    }
+
     if (doc.isReport) {
         return false;
     }
@@ -349,7 +369,7 @@ const timelineEntries = computed<OrderTimelineEntry[]>(() => {
         return [{ datetime: '', label: 'Keine Aufträge vorhanden', completed: false }];
     }
 
-    return toOrderTimelineEntries(customerFlowSteps.value, currentOrder.value.order_status);
+    return toOrderTimelineEntries(customerFlowSteps.value, currentOrder.value.order_status, props.vehicle.vehicle_belongs);
 });
 
 const offersData = computed<PanelOffer[]>(() =>
@@ -849,7 +869,11 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                 </div>
 
                 <div class="relative flex flex-col rounded-[16px] border bg-white" style="border-color: #ececec">
-                    <button class="absolute top-5 right-5 transition-opacity hover:opacity-60" @click="uploadDocsOpen = true">
+                    <button
+                        v-if="canUploadDocument"
+                        class="absolute top-5 right-5 transition-opacity hover:opacity-60"
+                        @click="uploadDocsOpen = true"
+                    >
                         <IconMdiFileUploadOutline class="size-[18.5px] shrink-0" style="color: #01b990" />
                     </button>
                     <div :class="hasNoDocuments ? 'px-6 pt-6' : 'p-6'">
@@ -1002,7 +1026,7 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                                 </table>
                             </div>
 
-                            <div v-if="!admin && offer.status === 'published'" class="mt-5 flex flex-wrap items-center gap-2">
+                            <div v-if="!admin && canDecideOffer && offer.status === 'published'" class="mt-5 flex flex-wrap items-center gap-2">
                                 <button
                                     type="button"
                                     class="rounded-[13px] px-5 py-2.5 text-[13px] font-bold text-white transition-all hover:opacity-90"
@@ -1022,7 +1046,7 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                                 </button>
                             </div>
 
-                            <div v-if="rejectOpen && !admin && offer.status === 'published'" class="mt-3 flex flex-col gap-2">
+                            <div v-if="rejectOpen && !admin && canDecideOffer && offer.status === 'published'" class="mt-3 flex flex-col gap-2">
                                 <p class="rounded-[13px] border border-amber-300 bg-amber-50 p-3 text-[13px] leading-relaxed text-amber-900">
                                     Wenn Sie dieses Reparaturangebot ablehnen, fällt eine Gebühr von
                                     <span class="font-bold">{{ cancellationFeeLabel }}</span> an.
@@ -1199,7 +1223,10 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                         </button>
                     </div>
 
-                    <div v-if="!admin && publishedOffer && !pendingPresentedOffer" class="flex flex-wrap items-center gap-2 px-6 pt-4">
+                    <div
+                        v-if="!admin && canDecideOffer && publishedOffer && !pendingPresentedOffer"
+                        class="flex flex-wrap items-center gap-2 px-6 pt-4"
+                    >
                         <button
                             type="button"
                             class="rounded-[13px] px-5 py-2.5 text-[13px] font-bold text-white transition-all hover:opacity-90"
@@ -1219,7 +1246,10 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                         </button>
                     </div>
 
-                    <div v-if="rejectOpen && !admin && publishedOffer && !pendingPresentedOffer" class="flex flex-col gap-2 px-6 pt-3">
+                    <div
+                        v-if="rejectOpen && !admin && canDecideOffer && publishedOffer && !pendingPresentedOffer"
+                        class="flex flex-col gap-2 px-6 pt-3"
+                    >
                         <p class="rounded-[13px] border border-amber-300 bg-amber-50 p-3 text-[13px] leading-relaxed text-amber-900">
                             Wenn Sie dieses Reparaturangebot ablehnen, fällt eine Gebühr von
                             <span class="font-bold">{{ cancellationFeeLabel }}</span> an.
@@ -1303,7 +1333,7 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                 </div>
 
                 <div class="relative flex w-full flex-col overflow-hidden rounded-3xl border bg-white" style="border-color: #ececec">
-                    <button class="absolute top-6 right-6 transition-opacity hover:opacity-60" @click="editVehicleOpen = true">
+                    <button v-if="canEditVehicle" class="absolute top-6 right-6 transition-opacity hover:opacity-60" @click="editVehicleOpen = true">
                         <IconMdiPencil class="size-5 shrink-0" style="color: #01b990" />
                     </button>
                     <div class="px-6 pt-6">
@@ -1459,7 +1489,7 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
         </div>
 
         <div class="relative flex flex-col rounded-[16px] border bg-white" style="border-color: #ececec">
-            <button class="absolute top-4 right-4 transition-opacity hover:opacity-60" @click="uploadDocsOpen = true">
+            <button v-if="canUploadDocument" class="absolute top-4 right-4 transition-opacity hover:opacity-60" @click="uploadDocsOpen = true">
                 <IconMdiFileUploadOutline class="size-[18.5px] shrink-0" style="color: #01b990" />
             </button>
             <div :class="hasNoDocuments ? 'px-4 pt-4' : 'p-4'">
@@ -1601,7 +1631,7 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                     </div>
                 </div>
 
-                <div v-if="!admin && publishedOffer" class="flex flex-wrap items-center gap-2 px-4 pt-4">
+                <div v-if="!admin && canDecideOffer && publishedOffer" class="flex flex-wrap items-center gap-2 px-4 pt-4">
                     <button
                         type="button"
                         class="rounded-[13px] px-4 py-2.5 text-[13px] font-bold text-white transition-all hover:opacity-90"
@@ -1621,7 +1651,7 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                     </button>
                 </div>
 
-                <div v-if="rejectOpen && !admin && publishedOffer" class="flex flex-col gap-2 px-4 pt-3">
+                <div v-if="rejectOpen && !admin && canDecideOffer && publishedOffer" class="flex flex-col gap-2 px-4 pt-3">
                     <p class="rounded-[13px] border border-amber-300 bg-amber-50 p-3 text-[13px] leading-relaxed text-amber-900">
                         Wenn Sie dieses Reparaturangebot ablehnen, fällt eine Gebühr von
                         <span class="font-bold">{{ cancellationFeeLabel }}</span> an.
@@ -1787,7 +1817,7 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
         "
     >
         <div class="px-2">
-            <OfferComparison :offers="rawOffers" :admin="admin" bare />
+            <OfferComparison :offers="rawOffers" :admin="admin" :vehicle-belongs="vehicle.vehicle_belongs" bare />
         </div>
     </AppModal>
 

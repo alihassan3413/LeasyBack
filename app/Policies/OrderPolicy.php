@@ -2,13 +2,18 @@
 
 namespace App\Policies;
 
+use App\Enums\B2bPermission;
 use App\Models\LeasybackOrder;
 use App\Models\User;
+use App\Modules\UserProfile\B2B\Services\B2bContext;
 use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
 
 class OrderPolicy
 {
-    public function __construct(private readonly VehicleScopeService $scope) {}
+    public function __construct(
+        private readonly VehicleScopeService $scope,
+        private readonly B2bContext $b2bContext,
+    ) {}
 
     public function view(User $user, LeasybackOrder $order): bool
     {
@@ -27,9 +32,33 @@ class OrderPolicy
         return $this->view($user, $order);
     }
 
+    /**
+     * Posting a customer-visible message is a write, so seeing the order is
+     * not enough for a company member: b2b.txt §3 has the read-only role
+     * "not modify" anything. A member needs one of the rights that already
+     * let them act on an order — creating orders or deciding on offers. An
+     * owner holds both implicitly.
+     *
+     * Admin and a private (B2C) customer on their own order are unchanged.
+     */
     public function sendMessage(User $user, LeasybackOrder $order): bool
     {
-        return $this->view($user, $order);
+        if (! $this->view($user, $order)) {
+            return false;
+        }
+
+        if ($user->isAdmin()) {
+            return true;
+        }
+
+        $membership = $this->b2bContext->activeMembership($user);
+
+        if ($membership === null) {
+            return true;
+        }
+
+        return $membership->can(B2bPermission::CreateOrders)
+            || $membership->can(B2bPermission::SelectOffers);
     }
 
     /**

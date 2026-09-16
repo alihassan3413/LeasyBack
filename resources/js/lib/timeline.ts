@@ -3,6 +3,24 @@ import { getOrderStatusLabel } from '@/lib/vehicleStatus';
 
 const CORE_PATH = ['confirmed', 'inspected', 'workshop', 'delivered', 'completed'] as const;
 
+/**
+ * The B2B return process (TransitionOrderStatus::B2B_ALLOWED_TRANSITIONS). A
+ * B2B order is never `delivered` — the B2C "Abholbereit" rung has no place in
+ * it — so it gets its own path rather than the B2C one.
+ */
+const B2B_PATH = [
+    'confirmed',
+    'vehicle_collected',
+    'inspected',
+    'workshop_commissioned',
+    'workshop',
+    'repair_completed',
+    'reinspection',
+    'vehicle_returned',
+    'invoice_processed',
+    'completed',
+] as const;
+
 const STATUS_CORE_INDEX: Record<string, number> = {
     order_requested: -1,
     order_placed: -1,
@@ -27,11 +45,20 @@ export interface UpcomingStep {
     label: string;
 }
 
-export function getUpcomingSteps(currentStatus?: string | null): UpcomingStep[] {
+export function getUpcomingSteps(currentStatus?: string | null, channel?: 'B2B' | 'B2C' | null): UpcomingStep[] {
     const status = (currentStatus ?? '').trim();
 
     if (!status || TERMINAL_STATUSES.has(status)) {
         return [];
+    }
+
+    if (channel === 'B2B') {
+        const position = (B2B_PATH as readonly string[]).indexOf(status);
+
+        return B2B_PATH.slice(position + 1).map((b2bStatus) => ({
+            status: b2bStatus,
+            label: getOrderStatusLabel(b2bStatus),
+        }));
     }
 
     const index = STATUS_CORE_INDEX[status] ?? -1;
@@ -73,7 +100,11 @@ export interface OrderTimelineEntry {
  * than in a page so the Admin order detail page and the customer dashboard's
  * VehicleExpandedPanel.vue show the same timeline from the same code.
  */
-export function toOrderTimelineEntries(steps: CustomerOrderFlowStep[] | null, fallbackStatus?: string | null): OrderTimelineEntry[] {
+export function toOrderTimelineEntries(
+    steps: CustomerOrderFlowStep[] | null,
+    fallbackStatus?: string | null,
+    channel?: 'B2B' | 'B2C' | null,
+): OrderTimelineEntry[] {
     if (steps) {
         // The payment rung being the current one is exactly the situation in
         // which collection is held rather than merely pending.
@@ -98,7 +129,7 @@ export function toOrderTimelineEntries(steps: CustomerOrderFlowStep[] | null, fa
         }));
     }
 
-    return getUpcomingSteps(fallbackStatus).map((step, index) => ({
+    return getUpcomingSteps(fallbackStatus, channel).map((step, index) => ({
         datetime: '',
         label: step.label,
         completed: false,

@@ -4,6 +4,7 @@ namespace App\Modules\UserProfile\B2B\Services;
 
 use App\Enums\B2bPermission;
 use App\Enums\B2bRole;
+use App\Enums\B2bRolePreset;
 use App\Enums\B2bVehicleScope;
 use App\Enums\UserType;
 use App\Models\User;
@@ -45,18 +46,30 @@ class B2bInvitationService
             ->whereNull('revoked_at')
             ->orderByDesc('created_at')
             ->get()
-            ->map(fn (B2bInvitation $invitation) => [
-                'invitation_id' => $invitation->invitation_id,
-                'email' => $invitation->email,
-                'role' => $invitation->role,
-                'role_label' => (B2bRole::tryFrom($invitation->role) ?? B2bRole::Member)->label(),
-                'permissions' => B2bPermissionSet::fromRaw($invitation->permissions)->toArray(),
-                'vehicle_scope' => $invitation->vehicle_scope,
-                'status' => $invitation->status(),
-                'expires_at' => $invitation->expires_at->toISOString(),
-                'created_at' => $invitation->created_at->toISOString(),
-                'invited_by_email' => $invitation->invitedBy?->email,
-            ])
+            ->map(function (B2bInvitation $invitation) {
+                $role = B2bRole::tryFrom($invitation->role) ?? B2bRole::Member;
+                // An owner holds everything, whatever an older row stored —
+                // the same rule B2bMembership::fromRow() applies once joined.
+                $permissions = $role === B2bRole::Owner
+                    ? B2bPermissionSet::all()
+                    : B2bPermissionSet::fromRaw($invitation->permissions);
+                $preset = B2bRolePreset::match($role, $permissions);
+
+                return [
+                    'invitation_id' => $invitation->invitation_id,
+                    'email' => $invitation->email,
+                    'role' => $role->value,
+                    'role_label' => B2bRolePreset::labelFor($role, $permissions),
+                    'preset' => $preset?->value,
+                    'preset_label' => $preset?->label() ?? B2bRolePreset::customLabel(),
+                    'permissions' => $permissions->toArray(),
+                    'vehicle_scope' => $invitation->vehicle_scope,
+                    'status' => $invitation->status(),
+                    'expires_at' => $invitation->expires_at->toISOString(),
+                    'created_at' => $invitation->created_at->toISOString(),
+                    'invited_by_email' => $invitation->invitedBy?->email,
+                ];
+            })
             ->all();
     }
 
@@ -81,6 +94,13 @@ class B2bInvitationService
             $this->fail(403, 'Nur Inhaber können weitere Inhaber einladen.');
         }
 
+        // The same delegation ceiling as updating a member
+        // (B2bMembership::mayGrant): an invitation cannot carry more access
+        // than the person sending it holds.
+        if (! $actor->mayGrant($role, $permissions, $scope)) {
+            $this->fail(403, 'Sie können niemanden mit Berechtigungen oder Fahrzeug-Sichtbarkeit einladen, die Sie selbst nicht besitzen.');
+        }
+
         $this->assertNotAlreadyMember($actor->b2bId, $email);
 
         $token = Str::random(64);
@@ -97,7 +117,9 @@ class B2bInvitationService
                 'b2b_id' => $actor->b2bId,
                 'email' => $email,
                 'role' => $role->value,
-                'permissions' => $permissions->toArray(),
+                // Written in full for an owner, as updateMember() does, so the
+                // stored row reads the same as the access it grants.
+                'permissions' => ($role === B2bRole::Owner ? B2bPermissionSet::all() : $permissions)->toArray(),
                 'vehicle_scope' => $role === B2bRole::Owner ? B2bVehicleScope::All->value : $scope->value,
                 'token_hash' => hash('sha256', $token),
                 'invited_by_user_id' => $inviter->id,
@@ -237,7 +259,9 @@ class B2bInvitationService
             companyName: $companyName,
             acceptUrl: route('b2b.invitations.show', ['token' => $token]),
             invitedByName: $inviter->name ?: $inviter->email,
-            roleLabel: $role->label(),
+            // The named company role, exactly as the invitation page and the
+            // team page will show it — not the bare "Inhaber"/"Mitglied".
+            roleLabel: B2bRolePreset::labelFor($role, $permissions),
             expiresInDays: self::EXPIRY_DAYS,
             invitedEmail: $invitation->email,
             expiresAt: $invitation->expires_at,

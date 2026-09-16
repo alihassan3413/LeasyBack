@@ -288,7 +288,8 @@ class OrderTaskPriorityRulesTest extends TestCase
 
         $this->travelTo($this->berlin('2026-09-30 09:00:00'));
 
-        $this->assertSame('request_workshop_quotations', $this->task($order)['key']);
+        // No positions yet, so the offer phase starts by capturing them.
+        $this->assertSame('capture_repair_positions', $this->task($order)['key']);
         $this->assertSame(TaskPriority::Neutral->value, $this->tasks($order)['priority']);
     }
 

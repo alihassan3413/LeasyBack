@@ -30,13 +30,17 @@ const page = usePage<SharedData>();
 /**
  * The order this vehicle's actions apply to.
  *
- * `payment` is emitted for B2C orders only, so its presence is also the channel
- * check — a B2B order carries none and offers nothing here. The server refuses
- * anything else, so this only decides whether to show an action, never whether
- * it is allowed.
+ * `payment` is emitted for B2C orders only and `b2b_cancellation` for B2B
+ * orders only, so which one is present is also the channel check. The server
+ * refuses anything else, so this only decides whether to show an action, never
+ * whether it is allowed.
  */
 const cancellableOrder = computed(() => {
     const order = props.vehicle.current_order;
+
+    if (order?.b2b_cancellation) {
+        return order.b2b_cancellation.can_cancel ? order : null;
+    }
 
     return order && order.payment != null && isCustomerCancellable(order.order_status) ? order : null;
 });
@@ -55,7 +59,7 @@ const feeLabel = computed(() => formatEuro((page.props.payments?.cancellation_fe
  * Re-deriving the 48-hour rule here is what told a customer with an accepted
  * offer that cancelling was free.
  */
-const cancellationPreview = computed(() => cancellableOrder.value?.payment?.cancellation ?? null);
+const cancellationPreview = computed(() => cancellableOrder.value?.payment?.cancellation ?? cancellableOrder.value?.b2b_cancellation ?? null);
 const feeApplies = computed(() => cancellationPreview.value?.fee_applies === true);
 
 function openConfirm() {

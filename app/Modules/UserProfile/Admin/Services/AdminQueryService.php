@@ -3,10 +3,13 @@
 namespace App\Modules\UserProfile\Admin\Services;
 
 use App\Enums\OrderStatus;
+use App\Modules\UserProfile\B2B\Data\B2bMembership;
+use App\Modules\UserProfile\B2B\Services\B2bServiceFeeService;
 use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Order\Services\AppraisalPositionService;
 use App\Modules\UserProfile\Order\Services\B2bBillingService;
+use App\Modules\UserProfile\Order\Services\B2bLexwareDraftService;
 use App\Modules\UserProfile\Order\Services\B2bOrderNoteService;
 use App\Modules\UserProfile\Order\Services\DetachedOrderTaskResolver;
 use App\Modules\UserProfile\Order\Services\OrderCollectionService;
@@ -87,10 +90,13 @@ class AdminQueryService
      * parameterized `search` support (name/email/city) — leasyback_web's
      * own admin panel fetched the *entire* customer list client-side and
      * searched in the browser; this repo shouldn't repeat that, and a
-     * bound `LIKE` clause is cheap to add safely. The aggregate
-     * total/total_active/total_inactive counts are intentionally
-     * unaffected by `is_active`/`search` — they're header stats over the
-     * whole Privatkunde population, not the currently filtered page.
+     * bound `LIKE` clause is cheap to add safely.
+     *
+     * The counts describe the rows the list actually pages through, see
+     * customerListCounts(): `total` follows search *and* status filter (it
+     * drives "Seite x von y" and "n Kunden gefunden"), while
+     * `total_active`/`total_inactive` follow the search only, so the status
+     * chips keep saying how many each would show.
      */
     public function b2cList(Request $request): array
     {
@@ -100,21 +106,17 @@ class AdminQueryService
         $isActive = $request->query('is_active');
         $search = trim((string) $request->query('search', ''));
 
-        $counts = DB::selectOne("
-            SELECT
-                COUNT(*) AS total,
-                SUM(CASE WHEN u.is_active THEN 1 ELSE 0 END) AS total_active,
-                SUM(CASE WHEN u.is_active THEN 0 ELSE 1 END) AS total_inactive
-            FROM users u WHERE u.user_type = 'Privatkunde'
-        ");
-
-        $query = DB::table('users as u')
+        $searched = DB::table('users as u')
             ->leftJoin('user_profiles as up', 'up.user_id', '=', 'u.id')
             ->leftJoin('contacts as c', 'c.contact_id', '=', 'up.contact_id')
             ->leftJoin('addresses as a', 'a.address_id', '=', 'c.address_id')
             ->where('u.user_type', 'Privatkunde')
-            ->when($isActive !== null, fn (Builder $q) => $q->where('u.is_active', $isActive === 'true'))
             ->when($search !== '', fn (Builder $q) => $this->applyCustomerSearch($q, $search, ['u.email', 'c.first_name', 'c.last_name', 'a.city']));
+
+        $counts = $this->customerListCounts($searched, 'u.is_active', $isActive);
+
+        $query = (clone $searched)
+            ->when($isActive !== null, fn (Builder $q) => $q->where('u.is_active', $isActive === 'true'));
 
         $users = (clone $query)
             ->select([
@@ -125,14 +127,13 @@ class AdminQueryService
                 'a.zip_code', 'a.city', 'a.country', 'u.created_at',
             ])
             ->orderByDesc('u.created_at')
+            ->orderByDesc('u.id')
             ->offset($offset)->limit($limit)->get();
 
         return [
             'page' => $page,
             'limit' => $limit,
-            'total' => (int) $counts->total,
-            'total_active' => (int) $counts->total_active,
-            'total_inactive' => (int) $counts->total_inactive,
+            ...$counts,
             'data' => $users,
         ];
     }
@@ -141,6 +142,11 @@ class AdminQueryService
      * Moved from AdminController::b2b() (unchanged query, unchanged response
      * shape — one row per (user, company) membership, same as before) plus
      * the same `search` addition as b2cList().
+     *
+     * The counts are over those same membership rows (customerListCounts()).
+     * They used to count distinct *companies*, ignoring search and status, so
+     * a company with three members produced one "Kunde" and three rows, and
+     * the page count was computed from the wrong number.
      */
     public function b2bList(Request $request): array
     {
@@ -150,25 +156,18 @@ class AdminQueryService
         $isActive = $request->query('is_active');
         $search = trim((string) $request->query('search', ''));
 
-        $counts = DB::selectOne("
-            SELECT
-                COUNT(DISTINCT b.b2b_id) AS total,
-                COUNT(DISTINCT CASE WHEN b.is_active THEN b.b2b_id END) AS total_active,
-                COUNT(DISTINCT CASE WHEN b.is_active THEN NULL ELSE b.b2b_id END) AS total_inactive
-            FROM users u
-            INNER JOIN user_b2b ub ON ub.user_id = u.id
-            INNER JOIN b2b b ON b.b2b_id = ub.b2b_id
-            WHERE u.user_type = 'Firmenkunde'
-        ");
-
-        $query = DB::table('users as u')
+        $searched = DB::table('users as u')
             ->join('user_b2b as ub', 'ub.user_id', '=', 'u.id')
             ->join('b2b as b', 'b.b2b_id', '=', 'ub.b2b_id')
             ->join('contacts as c', 'c.contact_id', '=', 'b.contact_id')
             ->join('addresses as a', 'a.address_id', '=', 'b.address_id')
             ->where('u.user_type', 'Firmenkunde')
-            ->when($isActive !== null, fn (Builder $q) => $q->where('b.is_active', $isActive === 'true'))
             ->when($search !== '', fn (Builder $q) => $this->applyCustomerSearch($q, $search, ['u.email', 'b.company_name', 'c.first_name', 'c.last_name', 'a.city']));
+
+        $counts = $this->customerListCounts($searched, 'b.is_active', $isActive);
+
+        $query = (clone $searched)
+            ->when($isActive !== null, fn (Builder $q) => $q->where('b.is_active', $isActive === 'true'));
 
         $users = (clone $query)
             ->select([
@@ -180,15 +179,42 @@ class AdminQueryService
                 'b.created_at',
             ])
             ->orderByDesc('b.created_at')
+            ->orderBy('u.id')
             ->offset($offset)->limit($limit)->get();
 
         return [
             'page' => $page,
             'limit' => $limit,
-            'total' => (int) $counts->total,
-            'total_active' => (int) $counts->total_active,
-            'total_inactive' => (int) $counts->total_inactive,
+            ...$counts,
             'data' => $users,
+        ];
+    }
+
+    /**
+     * Counts for a customer list, taken from the very query the rows come
+     * from so the header, the pager and the table can never disagree.
+     *
+     * @param  Builder  $searched  the list query with its search applied, but not its status filter
+     * @return array{total: int, total_active: int, total_inactive: int}
+     */
+    private function customerListCounts(Builder $searched, string $activeColumn, mixed $isActive): array
+    {
+        $row = (clone $searched)
+            ->selectRaw("COUNT(*) AS total_all, SUM(CASE WHEN {$activeColumn} THEN 1 ELSE 0 END) AS total_active")
+            ->first();
+
+        $all = (int) ($row->total_all ?? 0);
+        $active = (int) ($row->total_active ?? 0);
+        $inactive = $all - $active;
+
+        return [
+            'total' => match ($isActive) {
+                null => $all,
+                'true' => $active,
+                default => $inactive,
+            },
+            'total_active' => $active,
+            'total_inactive' => $inactive,
         ];
     }
 
@@ -286,12 +312,20 @@ class AdminQueryService
             return null;
         }
 
+        // `role_label` is the named company role the customer's own team
+        // page shows (B2bRolePreset::labelFor), not the raw owner/member.
         $members = DB::table('user_b2b as ub')
             ->join('users as u', 'u.id', '=', 'ub.user_id')
             ->where('ub.b2b_id', $b2bId)
             ->orderByDesc('ub.role')
             ->orderBy('u.created_at')
-            ->get(['u.id as user_id', 'u.email as user_email', 'ub.role'])
+            ->get(['u.id as user_id', 'u.email as user_email', 'ub.b2b_id', 'ub.role', 'ub.permissions', 'ub.vehicle_scope'])
+            ->map(fn (object $member) => [
+                'user_id' => (int) $member->user_id,
+                'user_email' => $member->user_email,
+                'role' => $member->role,
+                'role_label' => B2bMembership::fromRow($member)->roleLabel(),
+            ])
             ->all();
 
         return [...(array) $row, 'members' => $members];
@@ -490,16 +524,21 @@ class AdminQueryService
         // `completed` is also reachable from mid-flow statuses, but only as the
         // automatic close after a B2C fee settles — never as something Admin
         // picks from a dropdown. Confirming pickup from `delivered` stays.
-        $withheld = ['order_placed', 'discarded'];
+        $isB2bRow = $row->vehicle_belongs === 'B2B';
+        $order['available_transitions'] = $this->adminTransitions($orderId, $row->order_status, $isB2bRow);
 
-        if ($row->vehicle_belongs !== 'B2B' && $row->order_status !== OrderStatus::Delivered->value) {
-            $withheld[] = OrderStatus::Completed->value;
-        }
-
-        $order['available_transitions'] = array_values(array_diff(
-            TransitionOrderStatus::allowedNextStatuses($row->order_status, $row->vehicle_belongs === 'B2B'),
-            $withheld,
-        ));
+        // Which cards may still be edited, from the same constants the services
+        // enforce — so the page disables a form instead of letting an admin
+        // fill it in only to be refused on save.
+        $order['editable'] = [
+            'collection' => $isB2bRow && in_array($row->order_status, OrderCollectionService::COLLECTION_EDITABLE_STATUSES, true),
+            'repair_appointment' => in_array($row->order_status, OrderCollectionService::REPAIR_APPOINTMENT_STATUSES, true),
+            'positions' => in_array($row->order_status, AppraisalPositionService::EDITABLE_STATUSES, true)
+                && ! DB::table('leasyback_offers')->where('order_id', $orderId)->where('offer_status', 'selected')->exists(),
+            'billing' => $isB2bRow && in_array($row->order_status, B2bBillingService::EDITABLE_STATUSES, true),
+            'offers' => $row->order_status === OrderStatus::Inspected->value
+                && ! DB::table('leasyback_offers')->where('order_id', $orderId)->where('offer_status', 'selected')->exists(),
+        ];
 
         $order['vehicle_belongs'] = $row->vehicle_belongs;
         // Both channels now, because the repair appointment lives on this row
@@ -579,6 +618,12 @@ class AdminQueryService
             return $offer;
         }, $order['offers']);
 
+        $order['lexware_draft'] = $row->vehicle_belongs === 'B2B'
+            ? app(B2bLexwareDraftService::class)->summary($orderId)
+            : null;
+        $order['service_fee_amount'] = $row->vehicle_belongs === 'B2B' && $row->b2b_id !== null
+            ? app(B2bServiceFeeService::class)->amountOn($row->b2b_id, now())
+            : null;
         $order['lexware_invoice'] = $row->vehicle_belongs === 'B2B'
             ? null
             : $this->lexwareInvoiceSummary($orderId);
@@ -610,7 +655,15 @@ class AdminQueryService
         ];
     }
 
-    private function enrichOrders(Collection $rows): array
+    /**
+     * Public so OrderTaskHydrator can reuse it: it already batches the
+     * customer, confirmation date and document lookups across a set of
+     * orders, which is exactly the base shape the task path needs.
+     *
+     * @param  Collection<int, object>  $rows
+     * @return list<array<string, mixed>>
+     */
+    public function enrichOrders(Collection $rows): array
     {
         if ($rows->isEmpty()) {
             return [];
@@ -853,10 +906,7 @@ class AdminQueryService
             $order['request_payload'] = json_decode((string) ($payloads[$order['id']] ?? ''), false) ?: null;
             $order['status_updates'] = $statusUpdates->get($order['auftragsnummer'], collect())->values()->all();
             $order['offers'] = $offers->get($order['id'], collect())->values()->all();
-            $order['available_transitions'] = array_values(array_diff(
-                TransitionOrderStatus::allowedNextStatuses($order['order_status'], $isB2b),
-                ['order_placed', 'discarded'],
-            ));
+            $order['available_transitions'] = $this->adminTransitions($order['id'], $order['order_status'], $isB2b);
 
             return $order;
         }, $history);
@@ -974,10 +1024,9 @@ class AdminQueryService
                 // so unlike the rest of the detail-only hydration this one is
                 // free to compute for every row. Same exclusions as
                 // orderDetail()'s available_transitions.
-                'current_order_transitions' => $row->current_order_status === null ? [] : array_values(array_diff(
-                    TransitionOrderStatus::allowedNextStatuses($row->current_order_status, $row->vehicle_belongs === 'B2B'),
-                    ['order_placed', 'discarded'],
-                )),
+                'current_order_transitions' => $row->current_order_status === null
+                    ? []
+                    : $this->adminTransitions($row->current_order_id, $row->current_order_status, $row->vehicle_belongs === 'B2B'),
                 // Drives the row menu's "Auftrag erstellen" / "Dokumente
                 // abrufen" entries. Mirrors VehicleService::blocksNewOrder(),
                 // the rule OrderService actually enforces on create — renamed
@@ -1008,6 +1057,44 @@ class AdminQueryService
     /**
      * @return array<string, mixed>|null
      */
+    /**
+     * The statuses an admin status menu may offer for one order — the single
+     * definition every menu (order page, vehicle page, list row) shares, so
+     * no menu offers a button the backend refuses.
+     *
+     * `order_placed` is withheld (the approve action does it), `discarded` is
+     * B2B's "decline request" and withheld for B2C, a B2C order is completed
+     * only by confirming pickup from `delivered`, a B2B status whose
+     * underlying fact is missing is refused by TransitionOrderStatus, and a
+     * quotation-backed workshop is commissioned through its own action.
+     *
+     * @return list<string>
+     */
+    private function adminTransitions(string $orderId, string $status, bool $isB2b): array
+    {
+        $withheld = $isB2b ? ['order_placed'] : ['order_placed', 'discarded'];
+
+        if (! $isB2b && $status !== OrderStatus::Delivered->value) {
+            $withheld[] = OrderStatus::Completed->value;
+        }
+
+        $candidates = array_diff(TransitionOrderStatus::allowedNextStatuses($status, $isB2b), $withheld);
+
+        if ($candidates === []) {
+            return [];
+        }
+
+        $order = LeasybackOrder::find($orderId);
+
+        return array_values(array_filter(
+            $candidates,
+            fn (string $candidate) => $order === null || (
+                ! ($isB2b && TransitionOrderStatus::unmetB2bPrerequisite($order, $candidate) !== null)
+                && ! ($candidate === OrderStatus::WorkshopCommissioned->value && $this->workshopCommissionService->requiresCommissionAction($order))
+            ),
+        ));
+    }
+
     private function lexwareInvoiceSummary(string $orderId): ?array
     {
         $invoice = LexwareInvoice::where('order_id', $orderId)
@@ -1033,10 +1120,40 @@ class AdminQueryService
             ->where('purpose', $purpose->value)
             ->first();
 
-        if ($payment === null) {
-            return null;
+        return $payment === null ? null : self::presentPayment($payment);
+    }
+
+    /**
+     * Payments for many orders in one query: `[orderId][purpose] => summary`.
+     *
+     * Shares presentPayment() with the single-order path, so a batch summary
+     * and a detail summary can never describe the same payment differently.
+     *
+     * @param  array<int, string>  $orderIds
+     * @return array<string, array<string, array<string, mixed>>>
+     */
+    public function paymentSummaries(array $orderIds): array
+    {
+        if ($orderIds === []) {
+            return [];
         }
 
+        $summaries = [];
+
+        foreach (OrderPayment::whereIn('order_id', $orderIds)->get() as $payment) {
+            $summaries[$payment->order_id][$payment->purpose->value] = self::presentPayment($payment);
+        }
+
+        return $summaries;
+    }
+
+    /**
+     * The one description of a payment, used by both loading paths.
+     *
+     * @return array<string, mixed>
+     */
+    public static function presentPayment(OrderPayment $payment): array
+    {
         return [
             'purpose' => $payment->purpose->value,
             'trigger_reason' => $payment->trigger_reason?->value,

@@ -142,7 +142,7 @@ class B2bAnalyticsScopeTest extends TestCase
         $this->makeB2bVehicle($company, ['license_plate' => 'A-THEIRS 2']);
         $this->makeB2bVehicle($company, ['license_plate' => 'A-THEIRS 3']);
 
-        $response = $this->actingAs($scoped)->get(route('dashboard'));
+        $response = $this->actingAs($scoped)->get(route('vehicles.index'));
         $response->assertOk();
 
         $props = $response->viewData('page')['props'];
@@ -163,7 +163,7 @@ class B2bAnalyticsScopeTest extends TestCase
         $this->makeB2bVehicle($company, ['license_plate' => 'A-ONE 1']);
         $this->makeB2bVehicle($company, ['license_plate' => 'A-TWO 2']);
 
-        $response = $this->actingAs($this->makeOwner($company))->get(route('dashboard'));
+        $response = $this->actingAs($this->makeOwner($company))->get(route('vehicles.index'));
         $response->assertOk();
 
         $props = $response->viewData('page')['props'];
@@ -188,5 +188,33 @@ class B2bAnalyticsScopeTest extends TestCase
 
         $this->assertNull($props['analytics']);
         $this->assertCount(1, $props['vehicles']);
+    }
+
+    /**
+     * A B2B return ends in `completed`; `delivered` is B2C-only. The
+     * "Abgeschlossen" bucket used to link to status=delivered, which always
+     * showed an empty fleet table under a non-zero count.
+     */
+    public function test_the_completed_bucket_links_to_the_status_company_orders_end_in(): void
+    {
+        $company = $this->makeCompany();
+        $owner = $this->makeOwner($company);
+
+        $done = $this->makeB2bVehicle($company, ['license_plate' => 'A-DONE 1']);
+        $this->makeB2bOrder($done, 'completed');
+        $this->makeB2bOrder($this->makeB2bVehicle($company, ['license_plate' => 'A-OPEN 2']), 'inspected');
+
+        $states = collect($this->summaryFor($owner, $company->b2b_id)['states'])->keyBy('key');
+
+        $this->assertSame('completed', $states['completed']['filter']);
+        $this->assertSame(1, $states['completed']['count']);
+
+        $props = $this->actingAs($owner)
+            ->get(route('vehicles.index', ['status' => $states['completed']['filter']]))
+            ->assertOk()
+            ->viewData('page')['props'];
+
+        $this->assertCount($states['completed']['count'], $props['vehicles']);
+        $this->assertSame('A-DONE 1', $props['vehicles'][0]['license_plate']);
     }
 }

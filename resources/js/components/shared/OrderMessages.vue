@@ -27,7 +27,7 @@ const props = withDefaults(
 const page = usePage<SharedData>();
 const currentUserId = computed(() => page.props.auth?.user?.id ?? null);
 
-const { messages, unreadCount, loading, loaded, sending, hasOlder, load, loadOlder, send, markRead, listen } = useOrderMessages(
+const { messages, unreadCount, loading, loaded, sending, canSendMessages, hasOlder, load, loadOlder, send, markRead, listen } = useOrderMessages(
     props.orderId,
     currentUserId,
 );
@@ -38,7 +38,7 @@ const draft = ref('');
 const scroller = ref<HTMLElement | null>(null);
 const composer = ref<HTMLTextAreaElement | null>(null);
 
-const canSend = computed(() => draft.value.trim().length > 0 && !sending.value);
+const canSend = computed(() => canSendMessages.value && draft.value.trim().length > 0 && !sending.value);
 const remaining = computed(() => MAX_LENGTH - draft.value.length);
 
 /** The composer starts one line tall and grows with the draft up to the
@@ -196,7 +196,9 @@ function formatTime(value: string | null): string {
 
             <p v-if="!loaded && loading" class="py-10 text-center text-[13px] text-[#9aacac]">Nachrichten werden geladen …</p>
 
-            <p v-else-if="!messages.length" class="py-10 text-center text-[13px] text-[#9aacac]">Noch keine Nachrichten. Schreiben Sie die erste.</p>
+            <p v-else-if="!messages.length" class="py-10 text-center text-[13px] text-[#9aacac]">
+                {{ canSendMessages ? 'Noch keine Nachrichten. Schreiben Sie die erste.' : 'Noch keine Nachrichten.' }}
+            </p>
 
             <div
                 v-for="message in messages"
@@ -219,7 +221,12 @@ function formatTime(value: string | null): string {
             </div>
         </div>
 
-        <form class="flex flex-col gap-2 border-t border-[#f1f5f5] px-5 py-4" @submit.prevent="submit">
+        <!-- Hidden until the server has said this reader may write (OrderPolicy::sendMessage). -->
+        <p v-if="loaded && !canSendMessages" class="border-t border-[#f1f5f5] px-5 py-4 text-[12px] text-[#9aacac]">
+            Sie können diesen Verlauf lesen, aber keine Nachrichten senden.
+        </p>
+
+        <form v-else-if="canSendMessages" class="flex flex-col gap-2 border-t border-[#f1f5f5] px-5 py-4" @submit.prevent="submit">
             <div
                 class="flex items-end gap-2 rounded-[16px] border border-[#d8e4e3] bg-white px-3 py-2.5 transition-all focus-within:border-[#01B990] focus-within:ring-4 focus-within:ring-[#01B990]/12"
             >

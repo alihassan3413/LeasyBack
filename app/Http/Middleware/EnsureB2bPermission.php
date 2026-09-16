@@ -48,9 +48,17 @@ class EnsureB2bPermission
             // route's own policies to decide — several of these routes are
             // shared with Privatkunde, and refusing them here would lock B2C
             // out of its own dashboard.
-            return $user->user_type === UserType::Firmenkunde
+            if ($user->user_type !== UserType::Firmenkunde) {
+                return $next($request);
+            }
+
+            // A token client (the Sanctum API has no session) cannot follow
+            // a redirect into the onboarding wizard: a company user with no
+            // active company — never registered, removed, or whose
+            // membership was deactivated — is simply refused.
+            return $request->hasSession() && ! $request->expectsJson()
                 ? redirect()->route('onboarding.b2b.show')
-                : $next($request);
+                : abort(403, 'Ihnen fehlt die Berechtigung für diesen Bereich.');
         }
 
         foreach ($permissions as $permission) {

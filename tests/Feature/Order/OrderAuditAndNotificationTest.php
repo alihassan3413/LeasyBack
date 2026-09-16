@@ -5,6 +5,7 @@ namespace Tests\Feature\Order;
 use App\Enums\OrderStatus;
 use App\Enums\UserType;
 use App\Mail\Orders\AppointmentRequestedMail;
+use App\Mail\Orders\B2bCollectionRequestedMail;
 use App\Mail\Orders\InitialInspectionCompletedMail;
 use App\Mail\Orders\OrderCreatedAdminMail;
 use App\Mail\Orders\OrderCreatedCustomerMail;
@@ -93,7 +94,10 @@ class OrderAuditAndNotificationTest extends TestCase
             'action' => 'REQUEST_ORDER',
         ]);
 
-        Mail::assertQueued(AppointmentRequestedMail::class, fn ($mail) => $mail->hasTo('fleet@acme.example'));
+        // A fleet customer is collected from, so the B2B confirmation replaces
+        // the B2C station-appointment wording.
+        Mail::assertQueued(B2bCollectionRequestedMail::class, fn ($mail) => $mail->hasTo('fleet@acme.example'));
+        Mail::assertNotQueued(AppointmentRequestedMail::class);
     }
 
     public function test_approving_an_order_writes_an_approve_order_audit_entry(): void

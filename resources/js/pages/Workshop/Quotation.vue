@@ -90,6 +90,13 @@ function itemError(index: number, field: string): string | undefined {
     return form.errors[`items.${index}.${field}` as keyof typeof form.errors] as string | undefined;
 }
 
+/**
+ * The whole-list refusal ("at least one price") — keyed `items`, so no field
+ * owns it. Shown beside the positions and again at the submit button, which is
+ * where the workshop is looking when the send is refused.
+ */
+const itemsError = computed(() => (form.errors as Record<string, string | undefined>).items ?? null);
+
 function submit() {
     form.transform((data) => ({
         ...data,
@@ -181,6 +188,14 @@ function submit() {
                     <h2 class="mb-1 text-[15px] font-extrabold text-[#10393b]">Positionen</h2>
                     <p class="mb-3 text-[12px] text-[#9bb0af]">Alle Beträge netto in Euro.</p>
 
+                    <p
+                        v-if="itemsError"
+                        role="alert"
+                        class="mb-3 rounded-[13px] border border-[#c0392b]/25 bg-[#c0392b]/5 px-3 py-2.5 text-[12.5px] font-bold text-[#c0392b]"
+                    >
+                        {{ itemsError }}
+                    </p>
+
                     <p v-if="!quotation.positions.length" class="py-8 text-center text-[13px] text-[#9bb0af]">
                         Für diesen Auftrag sind keine Positionen hinterlegt.
                     </p>
@@ -224,6 +239,8 @@ function submit() {
                                 <input v-model="form.items[index].not_repairable" type="checkbox" class="size-3.5 accent-[#01b990]" />
                                 Diese Position kann nicht instand gesetzt werden
                             </label>
+                            <InputError :message="itemError(index, 'not_repairable')" />
+                            <InputError :message="itemError(index, 'appraisal_position_id')" />
                         </div>
                     </div>
 
@@ -248,6 +265,10 @@ function submit() {
                     />
                     <InputError :message="form.errors.cannot_repair_note" />
                 </section>
+
+                <p v-if="itemsError" role="alert" class="self-end text-right text-[12.5px] font-bold text-[#c0392b]">
+                    {{ itemsError }}
+                </p>
 
                 <button
                     type="submit"

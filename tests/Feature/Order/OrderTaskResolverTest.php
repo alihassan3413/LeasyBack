@@ -8,6 +8,7 @@ use App\Models\LeasybackOffer;
 use App\Models\User;
 use App\Modules\UserProfile\Order\Models\AppraisalPosition;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
+use App\Modules\UserProfile\Order\Models\OrderLogistics;
 use App\Modules\UserProfile\Order\Models\WorkshopQuotation;
 use App\Modules\UserProfile\Order\Services\OrderTaskResolver;
 use App\Modules\UserProfile\Order\Services\WorkshopQuotationService;
@@ -780,11 +781,13 @@ class OrderTaskResolverTest extends TestCase
      */
     private function setCollectionDate(LeasybackOrder $order): void
     {
-        $this->actingAs($this->makeAdmin())
-            ->from(route('admin.orders.show', $order->id))
-            ->patch(route('admin.orders.collection', $order->id), [
-                'confirmed_collection_date' => '2026-08-25',
-            ])->assertSessionHasNoErrors();
+        // Written directly: the collection endpoint only accepts a date while
+        // the collection is still being planned, and it moves the order on,
+        // while these tests pin orders at later statuses on purpose.
+        OrderLogistics::updateOrCreate(
+            ['auftragsnummer' => $order->auftragsnummer],
+            ['confirmed_collection_date' => '2026-08-25'],
+        );
     }
 
     private function withPositions(LeasybackOrder $order): LeasybackOrder

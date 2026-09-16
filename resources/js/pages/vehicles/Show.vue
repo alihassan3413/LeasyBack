@@ -7,6 +7,7 @@ import OrderCreationModal from '@/components/vehicle/OrderCreationModal.vue';
 import OrderHistoryList from '@/components/vehicle/OrderHistoryList.vue';
 import OrderProgress from '@/components/vehicle/OrderProgress.vue';
 import UploadDocumentModal from '@/components/vehicle/UploadDocumentModal.vue';
+import { useB2bPermissions } from '@/composables/useB2bPermissions';
 import { useLiveUpdates } from '@/composables/useLiveUpdates';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { NEW_ORDER_ACTION_LABEL, getCustomerOrderFlowSteps, newOrderAction } from '@/lib/customerOrderFlow';
@@ -23,6 +24,29 @@ import MdiTrashCanOutline from '~icons/mdi/trash-can-outline';
 import MdiTrayArrowUp from '~icons/mdi/tray-arrow-up';
 
 const props = defineProps<{ vehicle: VehicleData; stations: StationData[] }>();
+
+const { can, isCompanyUser } = useB2bPermissions();
+
+/**
+ * What this viewer may actually do here. `can()` is true for every account
+ * without a company membership, so a Privatkunde sees exactly what they
+ * always have — this only narrows a company member, and only in the UI. Every
+ * one of these is refused server-side regardless.
+ */
+const canStartOrder = computed(() => can('orders.create'));
+const canEditVehicle = computed(() => can('vehicles.update'));
+const canUploadDocument = computed(() => can('vehicles.documents.upload'));
+const canDeleteDocument = computed(() => can('vehicles.documents.delete'));
+
+/**
+ * Back to whichever page the vehicle was opened from: a company's fleet has
+ * its own page, a Privatkunde's fleet is their dashboard.
+ */
+const fleetLink = computed(() =>
+    isCompanyUser.value
+        ? { href: route('vehicles.index'), label: 'Zurück zu den Fahrzeugen' }
+        : { href: route('dashboard'), label: 'Zurück zum Dashboard' },
+);
 
 /**
  * This vehicle's own events, plus the few notification types that don't name a
@@ -147,7 +171,7 @@ function formatDateTime(value: string | undefined): string {
     <AppLayout>
         <template #header>
             <div class="flex min-w-0 items-center gap-3">
-                <BackButton :href="route('dashboard')" label="Zurück zum Dashboard" />
+                <BackButton :href="fleetLink.href" :label="fleetLink.label" />
 
                 <div class="flex min-w-0 items-center gap-2.5">
                     <h1 class="truncate text-[17px] leading-none font-extrabold tracking-tight text-[#10393b]">
@@ -169,7 +193,7 @@ function formatDateTime(value: string | undefined): string {
 
                 <div class="flex flex-wrap items-center gap-2">
                     <button
-                        v-if="orderAction"
+                        v-if="orderAction && canStartOrder"
                         type="button"
                         class="h-10 rounded-full px-5 text-[13px] font-semibold text-white shadow-lg transition-all"
                         style="background: #ef8450"
@@ -178,6 +202,7 @@ function formatDateTime(value: string | undefined): string {
                         {{ orderActionLabel }}
                     </button>
                     <button
+                        v-if="canUploadDocument"
                         type="button"
                         class="flex h-10 items-center gap-2 rounded-full border border-[#d8e4e3] bg-white px-4 text-[13px] font-semibold text-[#10393b] transition hover:border-[#01B990]"
                         @click="uploadOpen = true"
@@ -186,6 +211,7 @@ function formatDateTime(value: string | undefined): string {
                         Dokument
                     </button>
                     <button
+                        v-if="canEditVehicle"
                         type="button"
                         class="flex h-10 items-center gap-2 rounded-full border border-[#d8e4e3] bg-white px-4 text-[13px] font-semibold text-[#10393b] transition hover:border-[#01B990]"
                         @click="editOpen = true"
@@ -198,7 +224,7 @@ function formatDateTime(value: string | undefined): string {
 
             <div class="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_320px] lg:items-start">
                 <div class="flex flex-col gap-5">
-                    <OfferComparison :offers="offers" />
+                    <OfferComparison :offers="offers" :vehicle-belongs="vehicle.vehicle_belongs" />
 
                     <section class="overflow-hidden rounded-[16px] border border-[#e6eded] bg-white">
                         <header class="flex items-start justify-between gap-3 border-b border-[#f1f5f5] px-5 py-4">
@@ -227,7 +253,7 @@ function formatDateTime(value: string | undefined): string {
                                 the flow cannot place, and offering to start one there
                                 produced a button the server refuses.
                             -->
-                            <div v-else-if="orderAction" class="flex flex-col items-start gap-3 py-2">
+                            <div v-else-if="orderAction && canStartOrder" class="flex flex-col items-start gap-3 py-2">
                                 <p class="text-[13px] text-[#00000080]">Starten Sie den Vorgang, um einen Begutachtungstermin zu buchen.</p>
                                 <button
                                     type="button"
@@ -248,6 +274,7 @@ function formatDateTime(value: string | undefined): string {
                         <header class="flex items-center justify-between border-b border-[#f1f5f5] px-5 py-4">
                             <h2 class="text-[15px] font-bold text-[#10393b]">Dokumente</h2>
                             <button
+                                v-if="canUploadDocument"
                                 type="button"
                                 class="text-[12px] font-semibold text-[#01B990] transition-opacity hover:opacity-70"
                                 @click="uploadOpen = true"
@@ -286,6 +313,7 @@ function formatDateTime(value: string | undefined): string {
                                         <MdiOpenInNew class="text-[16px]" />
                                     </a>
                                     <button
+                                        v-if="canDeleteDocument"
                                         type="button"
                                         title="Löschen"
                                         aria-label="Löschen"

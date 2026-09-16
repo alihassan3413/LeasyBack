@@ -36,6 +36,8 @@ const props = defineProps<{
     status: InvitationStatus;
     invitation: InvitationDetails | null;
     viewer: Viewer | null;
+    /** True when the invited address already has an account — decides sign in vs. register. */
+    account_exists: boolean;
 }>();
 
 /** Why a dead link is dead — an instruction rather than a flat "invalid". */
@@ -176,20 +178,18 @@ function accept() {
                 </p>
 
                 <div class="mt-6 flex flex-col-reverse items-center gap-3 border-t pt-5 sm:flex-row sm:justify-end">
-                    <template v-if="!viewer">
-                        <Link
-                            :href="route('register')"
-                            class="bg-brand-orange hover:bg-brand-orange/90 w-full rounded-[5px] px-8 py-2.5 text-center text-sm font-bold text-white transition sm:w-auto"
-                        >
-                            Konto erstellen
-                        </Link>
-                        <Link
-                            :href="route('login')"
-                            class="bg-brand-green hover:bg-brand-green/90 w-full rounded-[5px] px-10 py-2.5 text-center text-sm font-bold text-white transition sm:w-auto"
-                        >
-                            Anmelden
-                        </Link>
-                    </template>
+                    <!--
+                        One route, not two. Which one is a fact the server
+                        already knows, so the reader is told what to do rather
+                        than asked to work out which button applies to them.
+                    -->
+                    <Link
+                        v-if="!viewer"
+                        :href="account_exists ? route('login') : route('register', { invitation: token })"
+                        class="bg-brand-green hover:bg-brand-green/90 w-full rounded-[5px] px-10 py-2.5 text-center text-sm font-bold text-white transition sm:w-auto"
+                    >
+                        {{ account_exists ? 'Anmelden' : 'Konto erstellen' }}
+                    </Link>
 
                     <Button
                         v-else
@@ -204,9 +204,14 @@ function accept() {
                 </div>
 
                 <p v-if="!viewer" class="text-muted-foreground mt-3 text-center text-xs sm:text-right">
-                    Haben Sie bereits ein Konto für <span class="font-semibold">{{ invitation.email }}</span
-                    >? Melden Sie sich damit an — es wird weiterverwendet. Andernfalls registrieren Sie sich mit dieser Adresse und öffnen Sie diesen
-                    Link erneut.
+                    <template v-if="account_exists">
+                        Für <span class="font-semibold">{{ invitation.email }}</span> besteht bereits ein Konto. Melden Sie sich damit an — Sie kehren
+                        anschließend hierher zurück und können die Einladung annehmen.
+                    </template>
+                    <template v-else>
+                        Für <span class="font-semibold">{{ invitation.email }}</span> besteht noch kein Konto. Erstellen Sie jetzt eines — Sie treten
+                        {{ invitation.company_name }} mit der Registrierung direkt bei.
+                    </template>
                 </p>
             </template>
         </div>

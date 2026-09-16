@@ -8,10 +8,14 @@ use App\Models\B2B;
 use App\Models\Contact;
 use App\Models\User;
 use App\Models\Vehicle as ShimVehicle;
+use App\Modules\UserProfile\Offer\Models\LeasybackOffer;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
+use App\Modules\UserProfile\Order\Models\OrderBilling;
+use App\Modules\UserProfile\Order\Models\OrderLogistics;
+use App\Modules\UserProfile\Vehicle\Models\Vehicle;
 // Canonical models, not the App\Models shims: the factories return canonical
 // instances, and a shim is a subclass of one rather than the other way round.
-use App\Modules\UserProfile\Vehicle\Models\Vehicle;
+use App\Modules\UserProfile\Vehicle\Models\VehicleReportDocument;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -84,6 +88,48 @@ trait BuildsB2bCompanies
     protected function shimVehicle(LeasybackOrder $order): ShimVehicle
     {
         return ShimVehicle::where('vehicle_id', $order->vehicle_id)->firstOrFail();
+    }
+
+    /**
+     * Records the fact a B2B status claims before the order is moved to it.
+     *
+     * TransitionOrderStatus refuses to move a B2B order to a status whose
+     * underlying fact does not exist (a confirmed collection date, an uploaded
+     * appraisal, an accepted offer, a repair appointment, processed billing).
+     * Tests that walk the graph for its own sake use this to satisfy that
+     * rule without re-enacting the whole business flow.
+     */
+    protected function meetB2bPrerequisite(LeasybackOrder $order, string $toStatus): void
+    {
+        match ($toStatus) {
+            'vehicle_collected' => OrderLogistics::updateOrCreate(
+                ['auftragsnummer' => $order->auftragsnummer],
+                ['confirmed_collection_date' => now()->toDateString()],
+            ),
+            'inspected' => VehicleReportDocument::factory()->create([
+                'auftragsnummer' => $order->auftragsnummer,
+                'vehicle_id' => $order->vehicle_id,
+                'document_type' => 'gutachten',
+            ]),
+            'workshop_commissioned' => LeasybackOffer::factory()->selected()->create([
+                'order_id' => $order->id,
+                'auftragsnummer' => $order->auftragsnummer,
+            ]),
+            'workshop' => OrderLogistics::updateOrCreate(
+                ['auftragsnummer' => $order->auftragsnummer],
+                ['confirmed_repair_start_date' => now()->toDateString()],
+            ),
+            'invoice_processed', 'completed' => OrderBilling::updateOrCreate(
+                ['order_id' => $order->id],
+                [
+                    'auftragsnummer' => $order->auftragsnummer,
+                    'billing_status' => OrderBilling::STATUS_PROCESSED,
+                    'invoice_reference' => 'RE-TEST',
+                    'processed_at' => now(),
+                ],
+            ),
+            default => null,
+        };
     }
 
     protected function makeB2bOrder(Vehicle $vehicle, string $status = 'order_requested'): LeasybackOrder

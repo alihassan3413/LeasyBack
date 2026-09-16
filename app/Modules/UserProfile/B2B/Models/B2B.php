@@ -48,6 +48,13 @@ class B2B extends Model
             if (empty($model->b2b_id)) {
                 $model->b2b_id = (string) Str::uuid();
             }
+
+            // §13: 1 January 2026 is the start date for *existing* customers
+            // (the column default). A company created now starts its
+            // agreement today.
+            if (empty($model->service_fee_effective_from)) {
+                $model->service_fee_effective_from = now()->toDateString();
+            }
         });
     }
 

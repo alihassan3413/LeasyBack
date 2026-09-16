@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\UserType;
 use App\Http\Controllers\Concerns\HandlesServiceValidationErrors;
 use App\Models\InspectionStation;
 use App\Models\LeasybackOrder;
@@ -27,6 +28,54 @@ class OrderController extends Controller
         private readonly VehicleService $vehicleService,
         private readonly B2bContext $b2bContext,
     ) {}
+
+    /**
+     * Every order the company has placed, across its whole fleet.
+     *
+     * Its own page rather than a tab of the fleet: an order outlives the state
+     * its vehicle is in, and a vehicle that has been through the process twice
+     * has two of them. Filtering is server-side for the same reason the fleet's
+     * is — the scope decides which rows exist at all, so it cannot be a
+     * client-side narrowing of a wider list.
+     *
+     * Company customers only. A Privatkunde reaches their order through the
+     * vehicle that owns it, on the dashboard they have always had; giving them
+     * a second list of the same handful of orders is not the same feature it
+     * is for a fleet of a hundred.
+     */
+    public function index(Request $request): Response|RedirectResponse
+    {
+        $user = $request->user();
+
+        if ($user->isAdmin()) {
+            return to_route('admin.orders.index');
+        }
+
+        $membership = $this->b2bContext->activeMembership($user);
+
+        if ($membership === null) {
+            // A Firmenkunde with no company has to register one first; a
+            // Privatkunde belongs on their dashboard.
+            return $user->user_type === UserType::Firmenkunde
+                ? to_route('onboarding.b2b.show')
+                : to_route('dashboard');
+        }
+
+        $filters = [
+            'search' => trim((string) $request->query('search', '')),
+            'status' => (string) $request->query('status', ''),
+        ];
+
+        return Inertia::render('orders/Index', [
+            'orders' => $this->vehicleService->listCustomerOrders(
+                $this->scope->resolveOwnerId($user),
+                'B2B',
+                $filters,
+                $user,
+            ),
+            'filters' => $filters,
+        ]);
+    }
 
     /**
      * One order in full, reached from the vehicle's Auftragsverlauf.

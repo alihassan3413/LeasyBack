@@ -1,9 +1,11 @@
 <laravel-boost-guidelines>
 === foundation rules ===
 
+For any dashboard UI work, follow docs/dashboard-redesign.md. Section 11 is the anti-template checklist.
+
 # Laravel Boost Guidelines
 
-The Laravel Boost guidelines are specifically curated by Laravel maintainers for this application. These guidelines should be followed closely to ensure the best experience when building Laravel applications.
+The Laravel Boost guidelines are specifically curated by Laravel maintainers for this application. These guidelines should be followed closely to ensure the best experience when buildinpg Laravel applications.
 
 ## Foundational Context
 

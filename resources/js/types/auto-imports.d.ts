@@ -7,7 +7,9 @@
 export {}
 declare global {
   const ADMIN_ORDER_STATUS_FILTERS: typeof import('../lib/adminStatus').ADMIN_ORDER_STATUS_FILTERS
+  const AVAILABILITY_LABELS: typeof import('../lib/services').AVAILABILITY_LABELS
   const B2B_ORDER_STAGE_SEQUENCE: typeof import('../lib/customerOrderFlow').B2B_ORDER_STAGE_SEQUENCE
+  const BOOKABLE_SERVICE: typeof import('../lib/services').BOOKABLE_SERVICE
   const CUSTOMER_ORDER_STAGE_SEQUENCE: typeof import('../lib/customerOrderFlow').CUSTOMER_ORDER_STAGE_SEQUENCE
   const DOCUMENT_TYPE_LABELS: typeof import('../lib/documentTypes').DOCUMENT_TYPE_LABELS
   const EffectScope: typeof import('vue').EffectScope
@@ -26,6 +28,7 @@ declare global {
   const PORTAL_LOCALE: typeof import('../lib/portalDate').PORTAL_LOCALE
   const PORTAL_TIME_ZONE: typeof import('../lib/portalDate').PORTAL_TIME_ZONE
   const REPORT_DOCUMENT_TYPES: typeof import('../lib/documentTypes').REPORT_DOCUMENT_TYPES
+  const SERVICES: typeof import('../lib/services').SERVICES
   const VEHICLE_BRANDS: typeof import('../lib/vehicleBrands').VEHICLE_BRANDS
   const VEHICLE_BRAND_OPTIONS: typeof import('../lib/vehicleBrands').VEHICLE_BRAND_OPTIONS
   const VEHICLE_STATUS_FILTER_OPTIONS: typeof import('../lib/vehicleStatus').VEHICLE_STATUS_FILTER_OPTIONS
@@ -161,6 +164,7 @@ declare global {
   const validatePlateLetters: typeof import('../lib/licensePlate').validatePlateLetters
   const validatePlateNumber: typeof import('../lib/licensePlate').validatePlateNumber
   const validatePlateParts: typeof import('../lib/licensePlate').validatePlateParts
+  const vehicleStatusFilterOptions: typeof import('../lib/vehicleStatus').vehicleStatusFilterOptions
   const watch: typeof import('vue').watch
   const watchEffect: typeof import('vue').watchEffect
   const watchPostEffect: typeof import('vue').watchPostEffect
@@ -202,6 +206,9 @@ declare global {
   export type { PortalDateTimeStyle } from '../lib/portalDate'
   import('../lib/portalDate')
   // @ts-ignore
+  export type { ServiceAvailability, ServiceDefinition } from '../lib/services'
+  import('../lib/services')
+  // @ts-ignore
   export type { UpcomingStep, OrderTimelineEntry } from '../lib/timeline'
   import('../lib/timeline')
   // @ts-ignore
@@ -215,7 +222,9 @@ declare module 'vue' {
   interface GlobalComponents {}
   interface ComponentCustomProperties {
     readonly ADMIN_ORDER_STATUS_FILTERS: UnwrapRef<typeof import('../lib/adminStatus')['ADMIN_ORDER_STATUS_FILTERS']>
+    readonly AVAILABILITY_LABELS: UnwrapRef<typeof import('../lib/services')['AVAILABILITY_LABELS']>
     readonly B2B_ORDER_STAGE_SEQUENCE: UnwrapRef<typeof import('../lib/customerOrderFlow')['B2B_ORDER_STAGE_SEQUENCE']>
+    readonly BOOKABLE_SERVICE: UnwrapRef<typeof import('../lib/services')['BOOKABLE_SERVICE']>
     readonly CUSTOMER_ORDER_STAGE_SEQUENCE: UnwrapRef<typeof import('../lib/customerOrderFlow')['CUSTOMER_ORDER_STAGE_SEQUENCE']>
     readonly DOCUMENT_TYPE_LABELS: UnwrapRef<typeof import('../lib/documentTypes')['DOCUMENT_TYPE_LABELS']>
     readonly EffectScope: UnwrapRef<typeof import('vue')['EffectScope']>
@@ -234,6 +243,7 @@ declare module 'vue' {
     readonly PORTAL_LOCALE: UnwrapRef<typeof import('../lib/portalDate')['PORTAL_LOCALE']>
     readonly PORTAL_TIME_ZONE: UnwrapRef<typeof import('../lib/portalDate')['PORTAL_TIME_ZONE']>
     readonly REPORT_DOCUMENT_TYPES: UnwrapRef<typeof import('../lib/documentTypes')['REPORT_DOCUMENT_TYPES']>
+    readonly SERVICES: UnwrapRef<typeof import('../lib/services')['SERVICES']>
     readonly VEHICLE_BRANDS: UnwrapRef<typeof import('../lib/vehicleBrands')['VEHICLE_BRANDS']>
     readonly VEHICLE_BRAND_OPTIONS: UnwrapRef<typeof import('../lib/vehicleBrands')['VEHICLE_BRAND_OPTIONS']>
     readonly VEHICLE_STATUS_FILTER_OPTIONS: UnwrapRef<typeof import('../lib/vehicleStatus')['VEHICLE_STATUS_FILTER_OPTIONS']>
@@ -369,6 +379,7 @@ declare module 'vue' {
     readonly validatePlateLetters: UnwrapRef<typeof import('../lib/licensePlate')['validatePlateLetters']>
     readonly validatePlateNumber: UnwrapRef<typeof import('../lib/licensePlate')['validatePlateNumber']>
     readonly validatePlateParts: UnwrapRef<typeof import('../lib/licensePlate')['validatePlateParts']>
+    readonly vehicleStatusFilterOptions: UnwrapRef<typeof import('../lib/vehicleStatus')['vehicleStatusFilterOptions']>
     readonly watch: UnwrapRef<typeof import('vue')['watch']>
     readonly watchEffect: UnwrapRef<typeof import('vue')['watchEffect']>
     readonly watchPostEffect: UnwrapRef<typeof import('vue')['watchPostEffect']>

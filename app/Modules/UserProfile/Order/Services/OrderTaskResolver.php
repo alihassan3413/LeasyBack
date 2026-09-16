@@ -273,7 +273,9 @@ class OrderTaskResolver
                 ->contains(fn (array $quotation) => ($quotation['status'] ?? null) === 'submitted'),
             'published_offer' => $publishedOffer,
             'published_offer_expired' => (bool) ($publishedOffer['presentation']['is_expired'] ?? false),
-            'selected_offer' => $offers->first(fn (array $offer) => in_array($offer['offer_status'] ?? null, ['selected', 'closed'], true)),
+            // Only the accepted offer itself. A `closed` offer is a sibling
+            // that lost to it — never the one the workshop is commissioned for.
+            'selected_offer' => $offers->first(fn (array $offer) => ($offer['offer_status'] ?? null) === 'selected'),
             'draft_offer' => $liveOffers->first(fn (array $offer) => ($offer['offer_status'] ?? null) === 'draft'),
             'is_commissioned' => (bool) ($commission['is_commissioned'] ?? false),
             'can_commission' => (bool) ($commission['can_commission'] ?? false),
@@ -376,27 +378,81 @@ class OrderTaskResolver
                 dateLabel: 'Gutachten vom',
                 action: $this->statusAction($orderId, 'inspected', 'Begutachtung abschließen'),
             ),
+            // The offer phase mirrors the B2C tree step for step (§8–§10). It
+            // used to jump from "request quotations" straight to "publish", so
+            // an order with a submitted quotation but no draft had no task at
+            // all, an expired offer waited on the customer forever, and the
+            // publish step's button opened the create dialog instead.
+            $this->definition(
+                key: 'capture_repair_positions',
+                title: 'Gutachtenpositionen erfassen',
+                description: 'Die Begutachtung ist abgeschlossen, aber es sind noch keine Gutachtenpositionen erfasst. Übernehmen Sie Schäden und Beträge aus dem Erstgutachten — sie sind die Grundlage jeder Werkstattanfrage.',
+                section: self::SECTION_POSITIONS,
+                done: $context['position_count'] > 0 || $context['has_live_offer'] || $rank >= 5,
+                open: $rank === 4,
+                date: $dates['inspected'] ?? $context['gutachten']['created_at'] ?? null,
+                dateLabel: 'Begutachtung abgeschlossen',
+                action: $this->inlineAction(self::SECTION_POSITIONS, 'Positionen erfassen'),
+            ),
             $this->definition(
                 key: 'request_workshop_quotations',
                 title: 'Werkstattangebote anfordern',
-                description: 'Das Erstgutachten ist abgeschlossen. Erstellen Sie Werkstattlinks und warten Sie auf mindestens ein eingegangenes Angebot.',
+                description: 'Die Gutachtenpositionen stehen. Erstellen Sie Werkstattlinks, damit Werkstätten ihre Nettopreise je Position abgeben können.',
                 section: self::SECTION_OFFERS,
-                done: $context['has_submitted_quotation'] || $rank >= 5,
-                open: $rank === 4 && ! $context['has_submitted_quotation'],
-                date: $context['gutachten']['created_at'] ?? $dates['inspected'] ?? null,
+                done: $context['pending_quotation_count'] > 0 || $context['has_submitted_quotation'] || $context['has_live_offer'] || $rank >= 5,
+                open: $rank === 4 && $context['position_count'] > 0,
+                date: $dates['inspected'] ?? $context['gutachten']['created_at'] ?? null,
                 dateLabel: 'Begutachtung abgeschlossen',
                 action: $this->inlineAction(self::SECTION_OFFERS, 'Werkstatt einladen'),
             ),
             $this->definition(
+                key: 'await_workshop_quotations',
+                title: 'Werkstattangebote abwarten',
+                description: 'Mindestens eine Werkstatt wurde angefragt, aber es liegt noch kein Angebot vor. Derzeit ist keine Aktion durch Leasyback erforderlich.',
+                section: self::SECTION_OFFERS,
+                done: $context['has_submitted_quotation'] || $context['has_live_offer'] || $rank >= 5,
+                open: $rank === 4 && $context['pending_quotation_count'] > 0,
+                date: null,
+                dateLabel: 'Angefragt',
+                state: 'waiting',
+                actor: self::ACTOR_WORKSHOP,
+                action: null,
+                priorityDate: $context['quotation_requested_at'],
+            ),
+            $this->definition(
+                key: 'create_customer_offer',
+                title: 'Kundenangebot erstellen',
+                description: 'Es liegt mindestens ein Werkstattangebot vor. Vergleichen Sie die Angebote mit dem Gutachten und übernehmen Sie das gewählte als Kundenangebot.',
+                section: self::SECTION_OFFERS,
+                done: $context['has_live_offer'] || $rank >= 5,
+                open: $rank === 4 && $context['has_submitted_quotation'],
+                date: null,
+                dateLabel: 'Werkstattangebot eingegangen',
+                action: $this->modalAction(self::UI_CREATE_OFFER, 'Angebot erstellen'),
+            ),
+            $this->definition(
                 key: 'prepare_customer_offer',
                 title: 'Kundenangebot veröffentlichen',
-                description: 'Es liegt ein Angebotsentwurf vor, aber noch kein veröffentlichtes Angebot. Prüfen und veröffentlichen Sie das Angebot.',
+                description: 'Das Kundenangebot liegt als Entwurf vor und ist für den Kunden noch nicht sichtbar. Prüfen und veröffentlichen Sie es.',
                 section: self::SECTION_OFFERS,
                 done: $context['published_offer'] !== null || $context['selected_offer'] !== null || $rank >= 5,
-                open: $rank === 4 && $context['has_offer'] && $context['published_offer'] === null && $context['selected_offer'] === null,
+                open: $rank === 4 && $context['draft_offer'] !== null,
                 date: $context['draft_offer']['created_at'] ?? null,
                 dateLabel: 'Entwurf vom',
-                action: $this->modalAction(self::UI_CREATE_OFFER, 'Angebot erstellen'),
+                action: $this->offerAction('patch', 'admin.orders.offers.publish', $context['draft_offer']['offer_id'] ?? null, 'Angebot veröffentlichen'),
+            ),
+            // Ahead of the waiting step, so an offer nobody can accept any more
+            // stops presenting as "waiting for the customer" indefinitely.
+            $this->definition(
+                key: 'renew_expired_offer',
+                title: 'Abgelaufenes Angebot erneuern',
+                description: 'Die Gültigkeit des veröffentlichten Angebots ist abgelaufen — der Kunde kann es nicht mehr freigeben. Stornieren Sie es und erstellen Sie ein neues Angebot aus einem Werkstattangebot.',
+                section: self::SECTION_OFFERS,
+                done: $context['selected_offer'] !== null || $rank >= 5,
+                open: $rank === 4 && $context['published_offer'] !== null && $context['published_offer_expired'],
+                date: $context['published_offer']['presentation']['valid_until'] ?? null,
+                dateLabel: 'Gültig bis',
+                action: $this->offerAction('patch', 'admin.orders.offers.cancel', $context['published_offer']['offer_id'] ?? null, 'Angebot stornieren'),
             ),
             $this->definition(
                 key: 'await_customer_approval',
@@ -413,14 +469,18 @@ class OrderTaskResolver
             ),
             $this->definition(
                 key: 'commission_workshop',
-                title: 'Werkstatt beauftragen',
-                description: 'Der Kunde hat das Angebot freigegeben. Beauftragen Sie die Werkstatt mit der Reparatur.',
-                section: self::SECTION_STATUS,
-                done: $rank >= 5,
+                title: $context['can_commission'] ? 'Werkstatt beauftragen' : 'Werkstatt manuell beauftragen',
+                description: $this->commissionDescription($context),
+                // The commissioning card and its own endpoint. The status menu
+                // refuses `workshop_commissioned` whenever a quotation-backed
+                // workshop exists, so pointing this button there meant it could
+                // only ever fail.
+                section: self::SECTION_COMMISSION,
+                done: $context['is_commissioned'] || $rank >= 5,
                 open: $rank === 4 && $context['selected_offer'] !== null,
-                date: $dates['workshop_commissioned'] ?? $context['selected_offer']['selected_at'] ?? null,
+                date: $dates['workshop_commissioned'] ?? $context['commissioned_at'] ?? $context['selected_offer']['selected_at'] ?? null,
                 dateLabel: $rank >= 5 ? 'Beauftragt am' : 'Freigegeben am',
-                action: $this->statusAction($orderId, 'workshop_commissioned', 'Werkstatt beauftragen'),
+                action: $this->b2bCommissionAction($context),
             ),
             $this->definition(
                 key: 'enter_repair_appointment',
@@ -831,6 +891,26 @@ class OrderTaskResolver
             WorkshopCommissionService::BLOCKED_NO_CONTACT => 'Das angenommene Angebot stammt aus einer Werkstattanfrage, enthält aber keine Kontaktdaten. Beauftragen Sie die Werkstatt außerhalb des Systems und starten Sie die Reparaturphase.',
             default => 'Der Kunde hat das Angebot angenommen. Die Werkstatt kann derzeit nicht automatisch beauftragt werden — prüfen Sie den Abschnitt „Werkstattbeauftragung".',
         };
+    }
+
+    /**
+     * B2B's commissioning always moves the order to `workshop_commissioned`.
+     * A quotation-backed workshop is instructed through its own endpoint; an
+     * offer with no workshop to notify (manual, or no contact address) has the
+     * status set directly — which the status endpoint allows exactly then.
+     *
+     * @param  array<string, mixed>  $context
+     * @return array<string, mixed>|null
+     */
+    private function b2bCommissionAction(array $context): ?array
+    {
+        if ($context['can_commission']) {
+            return $this->action('post', 'admin.orders.commission-workshop', $context['order_id'], 'Werkstatt beauftragen');
+        }
+
+        return in_array($context['commission_blocked_reason'], [WorkshopCommissionService::BLOCKED_MANUAL, WorkshopCommissionService::BLOCKED_NO_CONTACT], true)
+            ? $this->statusAction($context['order_id'], 'workshop_commissioned', 'Als beauftragt markieren')
+            : null;
     }
 
     /**

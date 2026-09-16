@@ -31,6 +31,7 @@ class B2bAuditTrailTest extends TestCase
         $path = ['order_placed', 'confirmed', 'vehicle_collected', 'inspected'];
 
         foreach ($path as $next) {
+            $this->meetB2bPrerequisite($order, $next);
             $order = $action($order, $next, 'admin', 'Admin Anna');
         }
 

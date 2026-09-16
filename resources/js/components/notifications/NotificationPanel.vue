@@ -53,12 +53,16 @@ function relativeTime(value: string | null): string {
 }
 
 async function open(notification: AppNotification) {
+    // Badge first, so it settles even if the visit navigates away.
     await markRead(notification.id);
 
-    if (notification.url) {
-        emit('close');
-        router.visit(notification.url);
-    }
+    emit('close');
+
+    // Through the server, not straight to `notification.url`: only the server
+    // can tell which context owns the vehicle a notification is about and
+    // switch to it before landing. Visiting the stored url directly is what
+    // made a notification from the other context do nothing.
+    router.visit(route('notifications.open', notification.id));
 }
 
 function togglePush() {

@@ -268,6 +268,7 @@ class B2cRepairToClosureTest extends TestCase
             'workshop_commissioned', 'workshop', 'repair_completed', 'reinspection',
             'vehicle_returned', 'invoice_processed',
         ] as $next) {
+            $this->meetB2bPrerequisite($order, $next);
             $order = $this->advance($order, $next);
         }
 

@@ -38,6 +38,7 @@ import {
 import { AppModal } from '@/components/ui/modal';
 import OrderCreationModal from '@/components/vehicle/OrderCreationModal.vue';
 import { getAdminDashboardStatus } from '@/lib/adminStatus';
+import type { AdminWorkshopQuotation } from '@/types/admin';
 import type { StationData } from '@/types/order';
 import type { VehicleCollectionAddress } from '@/types/vehicle';
 import { router } from '@inertiajs/vue3';
@@ -66,6 +67,14 @@ const props = withDefaults(
         vehicleBelongs?: 'B2B' | 'B2C' | null;
         /** The B2B vehicle's default pickup address, prefilled into the collection form. */
         collectionAddress?: VehicleCollectionAddress | null;
+        /**
+         * The order's workshop quotations, where the host has them. With a
+         * submitted one, "Angebot erstellen" opens on the quotation-backed flow
+         * rather than the manual form.
+         */
+        quotations?: AdminWorkshopQuotation[];
+        /** False where the host knows offers can no longer be created (AdminOrderDetail.editable.offers). */
+        canCreateOffer?: boolean;
     }>(),
     {
         orderId: null,
@@ -78,6 +87,8 @@ const props = withDefaults(
         canPullDocuments: false,
         vehicleBelongs: null,
         collectionAddress: null,
+        quotations: () => [],
+        canCreateOffer: true,
     },
 );
 
@@ -90,6 +101,12 @@ const hasOrder = computed(() => !!props.orderId && !!props.auftragsnummer);
  */
 const canApprove = computed(() => hasOrder.value && props.orderStatus === 'order_requested');
 
+/**
+ * Exactly the server's `available_transitions` — already filtered to what
+ * `admin.orders.status` will accept (prerequisites, commissioning done through
+ * its own action). Nothing is added here; `cancelled` only moves to its own
+ * confirmed menu entry.
+ */
 const transitions = computed(() => (hasOrder.value ? props.availableTransitions.filter((status) => status !== 'cancelled') : []));
 const canCancel = computed(() => hasOrder.value && props.availableTransitions.includes('cancelled'));
 
@@ -200,7 +217,11 @@ function openUpload(variant: UploadVariant) {
  */
 defineExpose({
     openUpload,
-    openCreateOffer: () => (createOfferOpen.value = true),
+    openCreateOffer: () => {
+        if (props.canCreateOffer) {
+            createOfferOpen.value = true;
+        }
+    },
 });
 
 function transitionTo(status: string) {
@@ -247,8 +268,16 @@ function approve() {
     router.post(route('admin.orders.approve', props.orderId), {}, { preserveScroll: true, onFinish: () => (busy.value = false) });
 }
 
+/**
+ * Menu wording where the action reads differently from the status it lands
+ * on: moving a B2B request to `discarded` is turning the request down.
+ */
+const TRANSITION_ACTION_LABELS: Record<string, string> = {
+    discarded: 'Anfrage ablehnen',
+};
+
 function statusLabel(status: string): string {
-    return getAdminDashboardStatus(status).label;
+    return TRANSITION_ACTION_LABELS[status] ?? getAdminDashboardStatus(status).label;
 }
 </script>
 
@@ -299,7 +328,7 @@ function statusLabel(status: string): string {
                 Termin nicht wahrgenommen
             </DropdownMenuItem>
 
-            <DropdownMenuItem :disabled="!hasOrder" @select="createOfferOpen = true">
+            <DropdownMenuItem :disabled="!hasOrder || !canCreateOffer" @select="createOfferOpen = true">
                 <IconMdiTagPlusOutline />
                 Angebot erstellen
             </DropdownMenuItem>
@@ -423,7 +452,7 @@ function statusLabel(status: string): string {
         </template>
     </AppModal>
 
-    <CreateOfferModal v-if="orderId" v-model:open="createOfferOpen" :order-id="orderId" />
+    <CreateOfferModal v-if="orderId" v-model:open="createOfferOpen" :order-id="orderId" :quotations="quotations" :vehicle-belongs="vehicleBelongs" />
 
     <UploadReportDocumentModal
         v-model:open="uploadOpen"

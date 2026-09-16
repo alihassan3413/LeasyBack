@@ -6,6 +6,7 @@ use App\Enums\NotificationType;
 use App\Enums\UserType;
 use App\Models\LeasybackOffer;
 use App\Models\User;
+use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
 use App\Notifications\NotificationPayload;
 use App\Services\Notifier;
 use Illuminate\Support\Collection;
@@ -37,9 +38,14 @@ class AdminOfferDecisionAnnouncer
 
     public function accepted(LeasybackOffer $offer): void
     {
-        $total = $offer->final_total_gross === null
-            ? null
-            : number_format((float) $offer->final_total_gross, 2, ',', '.').' € brutto';
+        // A B2B offer is net-only (§9/§21): its
+        // stored gross columns are placeholders, and quoting them read
+        // "0,00 € brutto". The net total is the figure that channel agreed on.
+        $isB2b = $offer->order !== null && TransitionOrderStatus::isB2bOrder($offer->order);
+
+        $total = $isB2b
+            ? ($offer->final_total_net === null ? null : number_format((float) $offer->final_total_net, 2, ',', '.').' € netto')
+            : ($offer->final_total_gross === null ? null : number_format((float) $offer->final_total_gross, 2, ',', '.').' € brutto');
 
         $this->announce(
             $offer,

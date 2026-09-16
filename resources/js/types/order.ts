@@ -103,3 +103,24 @@ export interface B2bOfferPresentationData {
     rejected_at: string | null;
     customer_comment: string | null;
 }
+
+/**
+ * One line of the customer's orders page — see
+ * VehicleService::listCustomerOrders(). Flat by design: the row links to
+ * `orders.show` for the full record.
+ */
+export interface CustomerOrderRow {
+    id: string;
+    auftragsnummer: string;
+    order_status: string;
+    created_at: string;
+    vehicle_id: string;
+    license_plate: string;
+    make: string | null;
+    model: string | null;
+    vehicle_belongs: 'B2B' | 'B2C';
+    /** Collection date for a company order, inspection appointment for a private one. */
+    appointment: string | null;
+    /** Inspection station name; null for a collection, which happens at the customer's address. */
+    location: string | null;
+}

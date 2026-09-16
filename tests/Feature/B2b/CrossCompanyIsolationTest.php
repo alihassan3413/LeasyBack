@@ -32,7 +32,7 @@ class CrossCompanyIsolationTest extends TestCase
         $this->makeB2bVehicle($alpha, ['license_plate' => 'A-AA 1111']);
         $this->makeB2bVehicle($beta, ['license_plate' => 'B-BB 2222']);
 
-        $response = $this->actingAs($this->makeOwner($alpha))->get(route('dashboard'));
+        $response = $this->actingAs($this->makeOwner($alpha))->get(route('vehicles.index'));
 
         $response->assertOk();
         $plates = collect($response->viewData('page')['props']['vehicles'])->pluck('license_plate');
@@ -55,7 +55,7 @@ class CrossCompanyIsolationTest extends TestCase
         $this->makeB2bVehicle($alpha, ['license_plate' => 'A-AA 2222', 'make' => 'BMW', 'model' => 'X3']);
         $this->makeB2bVehicle($beta, ['license_plate' => 'B-BB 2222', 'make' => 'BMW', 'model' => 'X5']);
 
-        $response = $this->actingAs($this->makeOwner($alpha))->get(route('dashboard', ['search' => 'BMW X5']));
+        $response = $this->actingAs($this->makeOwner($alpha))->get(route('vehicles.index', ['search' => 'BMW X5']));
 
         $response->assertOk();
         $plates = collect($response->viewData('page')['props']['vehicles'])->pluck('license_plate');
@@ -139,7 +139,7 @@ class CrossCompanyIsolationTest extends TestCase
         $this->makeB2bVehicle($alpha, ['license_plate' => 'A-MINE 1', 'created_by_user_id' => $scoped->id]);
         $this->makeB2bVehicle($alpha, ['license_plate' => 'A-THEIRS 2']);
 
-        $response = $this->actingAs($scoped)->get(route('dashboard'));
+        $response = $this->actingAs($scoped)->get(route('vehicles.index'));
 
         $response->assertOk();
         $plates = collect($response->viewData('page')['props']['vehicles'])->pluck('license_plate');
@@ -162,7 +162,7 @@ class CrossCompanyIsolationTest extends TestCase
         $this->makeB2bVehicle($alpha, ['license_plate' => 'A-MINE 1', 'created_by_user_id' => $companyWide->id]);
         $this->makeB2bVehicle($alpha, ['license_plate' => 'A-THEIRS 2']);
 
-        $response = $this->actingAs($companyWide)->get(route('dashboard'));
+        $response = $this->actingAs($companyWide)->get(route('vehicles.index'));
 
         $response->assertOk();
         $plates = collect($response->viewData('page')['props']['vehicles'])->pluck('license_plate');
@@ -177,7 +177,7 @@ class CrossCompanyIsolationTest extends TestCase
 
         $this->makeB2bVehicle($alpha, ['license_plate' => 'A-THEIRS 2']);
 
-        $response = $this->actingAs($this->makeOwner($alpha))->get(route('dashboard'));
+        $response = $this->actingAs($this->makeOwner($alpha))->get(route('vehicles.index'));
 
         $response->assertOk();
         $plates = collect($response->viewData('page')['props']['vehicles'])->pluck('license_plate');

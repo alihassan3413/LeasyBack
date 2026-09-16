@@ -36,9 +36,10 @@ Route::middleware(['auth', 'active', 'verified', 'admin'])->prefix('admin')->nam
         // session route orders.store already serves it. VehicleScopeService's
         // Admin branch is unfiltered by design, so an admin may book for any
         // vehicle, and OrderService records created_by_user_id as the admin.
-        // (Note the resulting order goes straight to order_placed rather than
-        // the order_requested staging a Firmenkunde gets — that staging
-        // exists so an admin can approve, and here the admin *is* the actor.)
+        // A B2C order booked this way goes straight to order_placed. A B2B
+        // collection order always starts at order_requested, whoever books
+        // it; confirming its collection date releases and schedules it in one
+        // step (OrderCollectionService::updateByAdmin).
         Route::post('{vehicleId}/reports', [VehicleReportController::class, 'upload'])->whereUuid('vehicleId')->name('reports.upload');
         Route::post('{vehicleId}/reports/pull', [VehicleReportController::class, 'pull'])->whereUuid('vehicleId')->name('reports.pull');
         Route::patch('reports/{documentId}/publish', [VehicleReportController::class, 'publish'])->whereUuid('documentId')->name('reports.publish');
@@ -67,6 +68,8 @@ Route::middleware(['auth', 'active', 'verified', 'admin'])->prefix('admin')->nam
             ->whereUuid('orderId')->name('commission-workshop.resend');
         Route::patch('{orderId}/billing', [OrderBillingController::class, 'update'])
             ->whereUuid('orderId')->name('billing');
+        Route::post('{orderId}/billing/lexware-draft', [OrderBillingController::class, 'lexwareDraft'])
+            ->whereUuid('orderId')->name('billing.lexware-draft');
         Route::put('{orderId}/appraisal-positions', [AppraisalPositionController::class, 'update'])->whereUuid('orderId')->name('appraisal-positions');
 
         /*

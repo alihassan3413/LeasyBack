@@ -5,6 +5,7 @@ namespace App\Modules\UserProfile\B2B\Services;
 use App\Enums\OrderStatus;
 use App\Modules\UserProfile\B2B\Data\B2bMembership;
 use App\Support\OrderStatusLabel;
+use App\Support\PortalTimestamp;
 use Carbon\Carbon;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
@@ -360,21 +361,27 @@ class B2bStatisticsService
      * with a database date function so SQLite and Postgres produce identical
      * buckets. Months with no orders are kept so the chart keeps an even axis.
      *
+     * Months are German calendar months (PortalTimestamp::TIME_ZONE), not
+     * UTC ones: `created_at` is stored in UTC, so an order placed at 00:30 on
+     * 1 March in Berlin is still 28/29 February in UTC and used to be counted
+     * in the wrong month. The window start is converted back to UTC for the
+     * query.
+     *
      * @return list<array{month: string, label: string, count: int}>
      */
     private function monthlyVolume(B2bMembership $membership, int $userId): array
     {
-        $start = now()->startOfMonth()->subMonths(self::VOLUME_MONTHS - 1);
+        $start = Carbon::now(PortalTimestamp::TIME_ZONE)->startOfMonth()->subMonthsNoOverflow(self::VOLUME_MONTHS - 1);
 
         $buckets = [];
 
         for ($offset = 0; $offset < self::VOLUME_MONTHS; $offset++) {
-            $month = $start->copy()->addMonths($offset);
+            $month = $start->copy()->addMonthsNoOverflow($offset);
             $buckets[$month->format('Y-m')] = 0;
         }
 
         $created = $this->scopedOrders($membership, $userId)
-            ->where('lo.created_at', '>=', $start)
+            ->where('lo.created_at', '>=', $start->copy()->utc())
             ->pluck('lo.created_at');
 
         foreach ($created as $value) {
@@ -384,7 +391,7 @@ class B2bStatisticsService
                 continue;
             }
 
-            $key = $date->format('Y-m');
+            $key = $date->copy()->setTimezone(PortalTimestamp::TIME_ZONE)->format('Y-m');
 
             if (array_key_exists($key, $buckets)) {
                 $buckets[$key]++;

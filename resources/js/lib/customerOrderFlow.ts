@@ -546,6 +546,13 @@ const B2B_STATUS_STAGE_INDEX: Record<string, number> = {
     completed: 14,
 };
 
+/**
+ * B2B's closed-early statuses. `discarded` is Leasyback turning a request down
+ * from `order_requested` — without it here the flow had no steps at all for a
+ * rejected request and fell back to the generic B2C-shaped list.
+ */
+const B2B_TERMINAL_STATUSES = new Set(['cancelled', 'discarded']);
+
 function resolveB2bProgressIndex(status: string, relevantOffer: CustomerOrderOffer | null): number | null {
     if (status === 'inspected') {
         if (relevantOffer?.offer_status === 'selected') return 7;
@@ -1001,30 +1008,41 @@ function buildB2bStep(
         isNext: boolean;
         isCancelled: boolean;
         cancelledBy?: string | null;
+        /** Leasyback turned the request down (`discarded`) — not a cancellation. */
+        isRejected?: boolean;
     },
 ): CustomerOrderFlowStep {
     let label = B2B_STAGE_SHORT_LABEL[stage];
+    let shortLabel = B2B_STAGE_SHORT_LABEL[stage];
     let subtitle = b2bStageSubtitle(stage, ctx, relevantOffer, state.isCurrent);
+    let tooltipDescription = B2B_STAGE_TOOLTIP[stage];
 
-    if (state.isCancelled) {
+    if (state.isRejected) {
+        label = 'Anfrage abgelehnt';
+        shortLabel = 'Anfrage abgelehnt';
+        subtitle = 'Leasyback hat diese Rückgabeanfrage abgelehnt. Bei Fragen wenden Sie sich bitte an Ihren Ansprechpartner.';
+        tooltipDescription = 'Diese Rückgabeanfrage wurde abgelehnt und wird nicht weiter bearbeitet.';
+    } else if (state.isCancelled) {
         const actor = cancellationActor(state.cancelledBy);
 
         label = `Auftrag storniert${actor ? ` durch ${actor}` : ''}`;
+        shortLabel = 'Auftrag storniert';
         subtitle = `Der Auftrag wurde bei „${B2B_STAGE_SHORT_LABEL[stage]}" beendet. Bei Fragen wenden Sie sich bitte an Ihren Ansprechpartner.`;
+        tooltipDescription = 'Dieser Auftrag wurde storniert und wird nicht weiter bearbeitet.';
     }
 
     const step: CustomerOrderFlowStep = {
         stage,
         label,
-        shortLabel: state.isCancelled ? 'Auftrag storniert' : B2B_STAGE_SHORT_LABEL[stage],
+        shortLabel,
         subtitle,
-        tooltipDescription: state.isCancelled ? 'Dieser Auftrag wurde storniert und wird nicht weiter bearbeitet.' : B2B_STAGE_TOOLTIP[stage],
+        tooltipDescription,
         datetime: state.datetime,
         completed: state.completed,
         isCurrent: state.isCurrent,
         isNext: state.isNext,
-        isCancelled: state.isCancelled,
-        isRejected: false,
+        isCancelled: state.isCancelled && !state.isRejected,
+        isRejected: state.isRejected ?? false,
     };
 
     if (stage === 'initial_appraisal' && gutachtenDoc) {
@@ -1051,10 +1069,11 @@ function getB2bOrderFlowSteps(ctx: CustomerOrderFlowInput): CustomerOrderFlowSte
     const nachgutachtenDoc = findLatestDoc(publishedDocs, 'nachgutachten');
     const rechnungDoc = findLatestDoc(publishedDocs, 'rechnung');
 
-    if (TERMINAL_STATUSES.has(status)) {
+    if (B2B_TERMINAL_STATUSES.has(status)) {
         const terminalEntry = ctx.statusHistory.find((entry) => entry.new_status === status);
         const priorStatus = (terminalEntry?.old_status ?? '').trim();
         const priorIndex = Math.min(resolveB2bProgressIndex(priorStatus, relevantOffer) ?? 0, B2B_ORDER_STAGE_SEQUENCE.length - 1);
+        const isRejected = status === 'discarded';
         const terminalDate = terminalEntry?.created_at ?? '';
         const priorCtx: CustomerOrderFlowInput = { ...ctx, orderStatus: priorStatus };
 
@@ -1072,6 +1091,7 @@ function getB2bOrderFlowSteps(ctx: CustomerOrderFlowInput): CustomerOrderFlowSte
                 isCurrent: false,
                 isNext: false,
                 isCancelled: isTerminalHere,
+                isRejected: isTerminalHere && isRejected,
                 cancelledBy: terminalEntry?.auth_source,
             });
         });

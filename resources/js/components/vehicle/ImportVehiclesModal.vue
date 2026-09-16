@@ -92,7 +92,8 @@ function close() {
             <div class="rounded-[12px] border border-gray-200 bg-[#f8fafa] p-4">
                 <p class="text-sm font-medium text-[#10393b]">Spaltenvorlage</p>
                 <p class="mt-1 text-xs text-[#6f8585]">
-                    Die Datei muss eine Kopfzeile mit einer Spalte „Kennzeichen" enthalten. Alle weiteren Spalten sind optional.
+                    Die Datei braucht eine Kopfzeile. Pflichtangaben je Zeile sind „Kennzeichen", „FIN", „Hersteller" und „Leasinggeber" (tragen Sie
+                    „unbekannt" ein, wenn er Ihnen nicht vorliegt). Alle weiteren Spalten sind optional; Zeilen mit Fehlern werden einzeln gemeldet.
                 </p>
                 <a
                     :href="route('vehicles.import.template')"

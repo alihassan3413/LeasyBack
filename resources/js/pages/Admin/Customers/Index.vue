@@ -111,6 +111,14 @@ function displayName(customer: AdminCustomerListItem): string {
     return [customer.salutation, customer.first_name, customer.last_name].filter(Boolean).join(' ') || customer.user_email;
 }
 
+/**
+ * B2B rows are one per membership, so the same user appears once per company
+ * they belong to — `user_id` alone collides and Vue reuses the wrong row.
+ */
+function rowKey(customer: AdminCustomerListItem): string {
+    return props.type === 'b2b' ? `${customer.b2b_id ?? ''}:${customer.user_id}` : String(customer.user_id);
+}
+
 function ownerId(customer: AdminCustomerListItem): string {
     return props.type === 'b2b' ? (customer.b2b_id ?? '') : String(customer.user_id);
 }
@@ -275,7 +283,7 @@ function openCreateVehicle(customer: AdminCustomerListItem) {
 
                             <tr
                                 v-for="customer in loading ? [] : customers.data"
-                                :key="customer.user_id"
+                                :key="rowKey(customer)"
                                 class="group cursor-pointer border-b border-[#eef3f2] transition-colors hover:bg-[#f6f9f8]"
                                 @click="openDetail(customer)"
                             >

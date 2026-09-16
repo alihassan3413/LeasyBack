@@ -114,11 +114,13 @@ const form = useForm(() => ({
 
 const selectedStation = computed(() => props.stations.find((station) => station.station_id === form.station_id) ?? null);
 
+/**
+ * The processing-fee acknowledgement is a B2C rule — a B2B return carries no
+ * cancellation fee — so it is neither shown nor required for a B2B vehicle.
+ * The B2B payload sends only the collection fields: b2bOrderRules() prohibits
+ * station_id, termin, provider and remarks outright.
+ */
 const canSubmit = computed(() => {
-    if (!form.fee_acknowledged) {
-        return false;
-    }
-
     if (isB2bOrder.value) {
         return (
             form.requested_collection_date !== '' &&
@@ -128,7 +130,7 @@ const canSubmit = computed(() => {
         );
     }
 
-    return form.station_id !== '' && form.date !== '' && form.time !== '';
+    return form.fee_acknowledged && form.station_id !== '' && form.date !== '' && form.time !== '';
 });
 
 watch(selectedBundesland, () => {
@@ -304,7 +306,13 @@ function submit() {
                 <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
                     <div class="flex flex-col gap-1">
                         <label class="text-sm font-semibold text-black">Wunschtermin Abholung<RequiredMark /></label>
-                        <CalendarDateField v-model="form.requested_collection_date" :invalid="!!form.errors.requested_collection_date" />
+                        <!-- Today at the earliest: the server refuses a past date (after_or_equal:today). -->
+                        <CalendarDateField
+                            v-model="form.requested_collection_date"
+                            :min-days-ahead="0"
+                            :allow-past="false"
+                            :invalid="!!form.errors.requested_collection_date"
+                        />
                         <InputError :message="form.errors.requested_collection_date" />
                     </div>
 
@@ -362,7 +370,7 @@ function submit() {
                 </div>
             </template>
 
-            <div class="mt-4 rounded-2xl bg-gray-50 p-4 text-sm">
+            <div v-if="!isB2bOrder" class="mt-4 rounded-2xl bg-gray-50 p-4 text-sm">
                 <p class="text-[#00000080]">
                     Mit dem Buchen eines Termins starten Sie den Leasyback-Prozess. Wird der Prozess nicht abgeschlossen, kann eine Bearbeitungsgebühr
                     anfallen.

@@ -97,6 +97,12 @@ class OrderController extends Controller
             $this->orderService->approveOrder($order, $request->user(), $request->ip());
         } catch (ValidationException $e) {
             return back()->withErrors(['status' => $e->getMessage()])->with('error', $e->getMessage());
+        } catch (HttpResponseException $e) {
+            // The TÜV SÜD booking failed (or is already in progress): the order
+            // was left unchanged, and the admin is told why.
+            $message = $e->getResponse()->getData(true)['error'] ?? 'Die Buchung bei TÜV SÜD ist fehlgeschlagen.';
+
+            return back()->withErrors(['status' => $message])->with('error', $message);
         }
 
         return back()->with('success', 'Auftrag wurde freigegeben.');
@@ -114,9 +120,13 @@ class OrderController extends Controller
         $order = LeasybackOrder::find($orderId);
         abort_unless($order !== null, 404);
 
+        $isB2b = TransitionOrderStatus::isB2bOrder($order);
+
+        // `discarded` is how a B2B request LeasyBack will not take on is
+        // declined (§6's review step); B2C keeps it withheld as before.
         $allowed = array_values(array_diff(
-            TransitionOrderStatus::allowedNextStatuses($order->order_status, TransitionOrderStatus::isB2bOrder($order)),
-            ['order_placed', 'discarded'],
+            TransitionOrderStatus::allowedNextStatuses($order->order_status, $isB2b),
+            $isB2b ? ['order_placed'] : ['order_placed', 'discarded'],
         ));
 
         $validated = $request->validate([
@@ -128,7 +138,7 @@ class OrderController extends Controller
         // sends them the repair order. Letting this generic endpoint set
         // `workshop_commissioned` while a real winning workshop exists would
         // produce an order that claims a workshop was instructed when none was.
-        if ($validated['status'] === 'workshop_commissioned' && $this->workshopCommissionService->resolve($order) !== null) {
+        if ($validated['status'] === 'workshop_commissioned' && $this->workshopCommissionService->requiresCommissionAction($order)) {
             $message = 'Bitte beauftragen Sie die gewählte Werkstatt über die Aktion „Gewählte Werkstatt beauftragen".';
 
             return back()->withErrors(['status' => $message])->with('error', $message);

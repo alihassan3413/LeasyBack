@@ -5,7 +5,7 @@ import RequiredMark from '@/components/form/RequiredMark.vue';
 import AdminLayout from '@/layouts/AdminLayout.vue';
 import { getAdminDashboardStatus as getStatus } from '@/lib/adminStatus';
 import { formatPortalDate } from '@/lib/portalDate';
-import type { AdminCustomerDetail, AdminCustomerOrder, AdminCustomerType, AdminCustomerVehicle } from '@/types/admin';
+import type { AdminCustomerCounts, AdminCustomerDetail, AdminCustomerOrder, AdminCustomerType, AdminCustomerVehicle } from '@/types/admin';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 
@@ -14,6 +14,7 @@ const props = defineProps<{
     customer: AdminCustomerDetail;
     vehicles: AdminCustomerVehicle[];
     orders: AdminCustomerOrder[];
+    counts: AdminCustomerCounts;
 }>();
 
 const identifier = computed(() => (props.type === 'b2b' ? (props.customer.b2b_id ?? '') : String(props.customer.user_id ?? '')));
@@ -50,8 +51,10 @@ const addressLines = computed(() => {
     return [streetLine, props.customer.additional_address, cityLine, props.customer.country].filter((line): line is string => !!line);
 });
 
-const activeVehicles = computed(() => props.vehicles.filter((vehicle) => vehicle.current_order_status !== null).length);
-const openOrders = computed(() => props.orders.filter((order) => !['delivered', 'cancelled', 'discarded'].includes(order.order_status)).length);
+// Server-counted over the whole customer (OrderStatus::activeValues()): the
+// `vehicles`/`orders` lists are only the first page.
+const activeVehicles = computed(() => props.counts.vehicles_in_process);
+const openOrders = computed(() => props.counts.orders_open);
 
 const statusUpdating = ref(false);
 const impersonating = ref(false);
@@ -231,7 +234,7 @@ function submitServiceFee() {
                                 </div>
                             </div>
 
-                            <p class="text-[26px] leading-none font-extrabold text-[#10393b]">{{ vehicles.length }}</p>
+                            <p class="text-[26px] leading-none font-extrabold text-[#10393b]">{{ counts.vehicles }}</p>
                         </div>
 
                         <div class="flex items-center justify-between rounded-[13px] bg-[#f4f7f6] px-4 py-3.5">
@@ -245,7 +248,7 @@ function submitServiceFee() {
                                 </div>
                             </div>
 
-                            <p class="text-[26px] leading-none font-extrabold text-[#10393b]">{{ orders.length }}</p>
+                            <p class="text-[26px] leading-none font-extrabold text-[#10393b]">{{ counts.orders }}</p>
                         </div>
 
                         <button
@@ -374,7 +377,7 @@ function submitServiceFee() {
 
                             <p class="min-w-0 flex-1 truncate text-[13px] font-semibold text-[#10393b]">{{ member.user_email }}</p>
 
-                            <span class="rounded-full bg-[#f4f7f6] px-2.5 py-1 text-[11px] font-bold text-[#6f8585]">{{ member.role }}</span>
+                            <span class="rounded-full bg-[#f4f7f6] px-2.5 py-1 text-[11px] font-bold text-[#6f8585]">{{ member.role_label }}</span>
                         </div>
                     </div>
                 </section>
@@ -383,7 +386,7 @@ function submitServiceFee() {
                     <div class="content-card">
                         <div class="mb-4">
                             <h2 class="text-[17px] font-extrabold tracking-[-0.3px] text-[#10393b]">Fahrzeuge</h2>
-                            <p class="mt-0.5 text-[12px] font-medium text-[#9bb0af]">{{ vehicles.length }} Fahrzeuge</p>
+                            <p class="mt-0.5 text-[12px] font-medium text-[#9bb0af]">{{ counts.vehicles }} Fahrzeuge</p>
                         </div>
 
                         <div class="flex flex-col gap-1">
@@ -428,7 +431,7 @@ function submitServiceFee() {
                     <div class="content-card">
                         <div class="mb-4">
                             <h2 class="text-[17px] font-extrabold tracking-[-0.3px] text-[#10393b]">Aufträge</h2>
-                            <p class="mt-0.5 text-[12px] font-medium text-[#9bb0af]">{{ orders.length }} Aufträge</p>
+                            <p class="mt-0.5 text-[12px] font-medium text-[#9bb0af]">{{ counts.orders }} Aufträge</p>
                         </div>
 
                         <div class="flex flex-col gap-1">

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import AppSidebar from '@/components/AppSidebar.vue';
 import AppSidebarHeader from '@/components/AppSidebarHeader.vue';
+import CompanySwitcher from '@/components/b2b/CompanySwitcher.vue';
 import ImpersonationBanner from '@/components/ImpersonationBanner.vue';
 import { useB2bPermissions } from '@/composables/useB2bPermissions';
 import { useSessionGuard } from '@/composables/useSessionGuard';
@@ -11,7 +12,9 @@ import { router, usePage } from '@inertiajs/vue3';
 import { computed, type Component } from 'vue';
 import MdiAccountGroupOutline from '~icons/mdi/account-group-outline';
 import MdiAccountOutline from '~icons/mdi/account-outline';
+import MdiCarOutline from '~icons/mdi/car-outline';
 import MdiChartBoxOutline from '~icons/mdi/chart-box-outline';
+import MdiFileDocumentOutline from '~icons/mdi/file-document-outline';
 import MdiLogout from '~icons/mdi/logout';
 import MdiViewDashboardOutline from '~icons/mdi/view-dashboard-outline';
 
@@ -42,6 +45,8 @@ const navByRole: Record<UserType, NavItem[]> = {
     ],
     Firmenkunde: [
         { label: 'Mein Dashboard', icon: MdiViewDashboardOutline, name: 'dashboard', permission: 'vehicles.view' },
+        { label: 'Fahrzeuge', icon: MdiCarOutline, name: 'vehicles.index', permission: 'vehicles.view' },
+        { label: 'Aufträge', icon: MdiFileDocumentOutline, name: 'orders.index', permission: 'vehicles.view' },
         { label: 'Team', icon: MdiAccountGroupOutline, name: 'b2b.members.index', permission: 'members.view' },
         { label: 'Statistik', icon: MdiChartBoxOutline, name: 'b2b.statistics.index', permission: 'analytics.view' },
         // Company master data is a section of this page — see AppSidebar.
@@ -51,12 +56,25 @@ const navByRole: Record<UserType, NavItem[]> = {
     Admin: [],
 };
 
-const { can } = useB2bPermissions();
+const { can, canSwitchCompany, isCompanyUser } = useB2bPermissions();
+
+/**
+ * The role the navigation is built for — the *effective* one, not the raw
+ * `user_type` column.
+ *
+ * A Privatkunde who accepted a company invitation keeps `user_type =
+ * Privatkunde` and gains a membership, so while they act as that company the
+ * column still says "private". Keying the nav off it gave them the two-entry
+ * B2C menu with no route to Fahrzeuge, Aufträge or Team — the company they
+ * were looking at was unreachable from its own navigation. Mirrors
+ * B2bContext::effectiveUserType() on the server.
+ */
+const navRole = computed<UserType | undefined>(() => (isCompanyUser.value ? 'Firmenkunde' : user.value?.user_type));
 
 // Mirrors AppSidebar: hide what the server would refuse. `can()` is true for
 // every non-Firmenkunde account, so other roles are unaffected.
 const navItems = computed<NavItem[]>(() => {
-    const role = user.value?.user_type;
+    const role = navRole.value;
 
     if (!role) {
         return [];
@@ -104,6 +122,10 @@ const handleLogout = () => {
                 <AppSidebarHeader :breadcrumbs="breadcrumbs">
                     <template v-if="$slots.header" #default><slot name="header" /></template>
                 </AppSidebarHeader>
+
+                <div v-if="canSwitchCompany" class="border-border shrink-0 border-b px-4 py-2.5">
+                    <CompanySwitcher variant="bar" />
+                </div>
 
                 <div class="min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-4">
                     <slot />

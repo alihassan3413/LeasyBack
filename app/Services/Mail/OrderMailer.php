@@ -4,6 +4,12 @@ namespace App\Services\Mail;
 
 use App\Mail\Orders\AppointmentConfirmedMail;
 use App\Mail\Orders\AppointmentRequestedMail;
+use App\Mail\Orders\B2bCollectionRequestedMail;
+use App\Mail\Orders\B2bCollectionRescheduledMail;
+use App\Mail\Orders\B2bCollectionScheduledMail;
+use App\Mail\Orders\B2bFinalInspectionCompletedMail;
+use App\Mail\Orders\B2bVehicleCollectedMail;
+use App\Mail\Orders\B2bVehicleReturnedMail;
 use App\Mail\Orders\FinalInspectionCompletedMail;
 use App\Mail\Orders\InitialInspectionCompletedMail;
 use App\Mail\Orders\OfferApprovalReminderMail;
@@ -43,6 +49,25 @@ class OrderMailer
         'completed' => OrderCompletedMail::class,
     ];
 
+    /**
+     * The B2B return process (b2b.txt §1): LeasyBack collects the vehicle, so
+     * nothing here may tell a fleet customer to bring a car to a station or
+     * to pick it up. Statuses without an entry fall back to the generic
+     * status update.
+     *
+     * @var array<string, class-string<OrderEventMail>>
+     */
+    private const B2B_STATUS_MAILABLES = [
+        'order_requested' => B2bCollectionRequestedMail::class,
+        'confirmed' => B2bCollectionScheduledMail::class,
+        'vehicle_collected' => B2bVehicleCollectedMail::class,
+        'inspected' => InitialInspectionCompletedMail::class,
+        'workshop' => VehicleInRepairMail::class,
+        'reinspection' => B2bFinalInspectionCompletedMail::class,
+        'vehicle_returned' => B2bVehicleReturnedMail::class,
+        'completed' => OrderCompletedMail::class,
+    ];
+
     public function __construct(
         private readonly OrderEmailDataFactory $dataFactory,
         private readonly MailRecipientResolver $recipients,
@@ -58,9 +83,11 @@ class OrderMailer
             new OrderCreatedAdminMail($this->dataFactory->forAdmin($order, $vehicle)),
         );
 
-        $customerMailable = $order->order_status === 'order_requested'
-            ? AppointmentRequestedMail::class
-            : OrderCreatedCustomerMail::class;
+        $customerMailable = match (true) {
+            $vehicle?->vehicle_belongs === 'B2B' => B2bCollectionRequestedMail::class,
+            $order->order_status === 'order_requested' => AppointmentRequestedMail::class,
+            default => OrderCreatedCustomerMail::class,
+        };
 
         $this->sendToCustomer($order, $vehicle, $customerMailable);
     }
@@ -69,9 +96,20 @@ class OrderMailer
     {
         $vehicle ??= $order->vehicle;
 
-        $mailable = self::STATUS_MAILABLES[(string) $order->order_status] ?? OrderStatusUpdatedMail::class;
+        $mailables = $vehicle?->vehicle_belongs === 'B2B' ? self::B2B_STATUS_MAILABLES : self::STATUS_MAILABLES;
+        $mailable = $mailables[(string) $order->order_status] ?? OrderStatusUpdatedMail::class;
 
         $this->sendToCustomer($order, $vehicle, $mailable);
+    }
+
+    /**
+     * §18 "Appointment confirmed": a confirmed collection date that moves
+     * afterwards is news the customer has to act on. The first confirmation
+     * is announced by the `confirmed` status mail itself.
+     */
+    public function collectionRescheduled(LeasybackOrder $order, ?Vehicle $vehicle = null): void
+    {
+        $this->sendToCustomer($order, $vehicle ?? $order->vehicle, B2bCollectionRescheduledMail::class);
     }
 
     public function repairQuotationAvailable(LeasybackOffer $offer): void

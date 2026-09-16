@@ -13,6 +13,8 @@ use App\Support\PortalTimestamp;
 use App\Support\TaskPriorityRule;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Tests\Feature\B2b\Concerns\BuildsB2bCompanies;
 use Tests\TestCase;
@@ -29,6 +31,9 @@ class OrderTaskPriorityTest extends TestCase
     use RefreshDatabase;
 
     private const PLACED_AT = '2026-09-01 08:00:00';
+
+    /** Never a real host: `.test` is reserved and cannot resolve. */
+    private const FAKE_TUVSUD_URL = 'https://tuvsud.test/api/rest/auftraege/beauftragung';
 
     protected function setUp(): void
     {
@@ -84,10 +89,34 @@ class OrderTaskPriorityTest extends TestCase
         $this->assertSame('release_order', $this->tasks($order)['next']['key']);
         $this->assertSame(TaskPriority::Red->value, $this->priority($order));
 
+        // Releasing a B2C order books it with TÜV SÜD (OrderService::approveOrder).
+        // The booking is the business condition that closes the red task, so it
+        // is performed — against a fake endpoint with fake credentials, never
+        // the real portal or the token in .env.
+        config([
+            'services.tuvsud.url' => self::FAKE_TUVSUD_URL,
+            'services.tuvsud.username' => 'test-user',
+            'services.tuvsud.token' => 'test-token',
+        ]);
+        Http::preventStrayRequests();
+        Http::fake([self::FAKE_TUVSUD_URL => Http::response(['ok' => true], 200)]);
+
+        $bookedPayload = $order->request_payload;
+
         $this->actingAs($this->makeAdmin())
             ->from(route('admin.orders.show', $order->id))
             ->post(route('admin.orders.approve', $order->id))
             ->assertSessionHasNoErrors();
+
+        Http::assertSentCount(1);
+        Http::assertSent(fn (Request $request) => $request->method() === 'POST'
+            && $request->url() === self::FAKE_TUVSUD_URL
+            && $request->data() == [
+                ...$bookedPayload,
+                'authentifizierung' => ['benutzername' => 'test-user', 'token' => 'test-token'],
+            ]);
+
+        $this->assertSame('order_placed', $order->fresh()->order_status);
 
         $tasks = $this->tasks($order->fresh());
 

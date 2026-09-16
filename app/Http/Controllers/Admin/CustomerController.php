@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\B2B;
 use App\Modules\UserProfile\Admin\Services\AdminQueryService;
+use App\Modules\UserProfile\B2B\Services\B2bServiceFeeService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -66,6 +67,15 @@ class CustomerController extends Controller
             'customer' => $customer,
             'vehicles' => $vehicles['data'],
             'orders' => $orders['data'],
+            // The lists above are one page (20 rows); the tiles need the real
+            // figures, which vehicles()/orders() already count over the whole
+            // unpaginated set with OrderStatus::activeValues().
+            'counts' => [
+                'vehicles' => (int) $vehicles['total'],
+                'vehicles_in_process' => (int) $vehicles['total_active'],
+                'orders' => (int) $orders['total'],
+                'orders_open' => (int) $orders['total_active'],
+            ],
         ]);
     }
 
@@ -96,11 +106,17 @@ class CustomerController extends Controller
         abort_unless($company !== null, 404);
 
         $validated = $request->validate([
-            'service_fee_amount' => ['required', 'numeric', 'min:0', 'max:99999999.99'],
+            // At most two decimals: the column is decimal(10,2), and a third
+            // decimal used to be rounded away silently.
+            'service_fee_amount' => ['required', 'numeric', 'decimal:0,2', 'min:0', 'max:99999999.99'],
             'service_fee_effective_from' => ['required', 'date_format:Y-m-d'],
         ]);
 
-        $company->update($validated);
+        app(B2bServiceFeeService::class)->update(
+            $company,
+            number_format((float) $validated['service_fee_amount'], 2, '.', ''),
+            $validated['service_fee_effective_from'],
+        );
 
         return back()->with('success', 'Servicepauschale wurde aktualisiert.');
     }

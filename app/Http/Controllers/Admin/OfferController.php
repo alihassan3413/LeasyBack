@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\LeasybackOffer;
 use App\Models\LeasybackOrder;
 use App\Modules\UserProfile\Offer\Services\OfferService;
+use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -19,19 +20,37 @@ class OfferController extends Controller
         $order = LeasybackOrder::find($orderId);
         abort_unless($order !== null, 404);
 
+        // B2B is priced net only (b2b.txt §9): the manual form sends no gross,
+        // so the gross columns are optional there and stored as zero. B2C still
+        // has to state both.
+        $isB2b = TransitionOrderStatus::isB2bOrder($order);
+        $grossRule = $isB2b ? 'nullable|numeric|min:0' : 'required|numeric|min:0';
+
         $validated = $request->validate([
             'repair_cost_net' => 'required|numeric|min:0',
-            'repair_cost_gross' => 'required|numeric|min:0',
+            'repair_cost_gross' => $grossRule,
             'depreciation_value_net' => 'required|numeric|min:0',
-            'depreciation_value_gross' => 'required|numeric|min:0',
+            'depreciation_value_gross' => $grossRule,
             'workshop_repair_quote_net' => 'required|numeric|min:0',
-            'workshop_repair_quote_gross' => 'required|numeric|min:0',
+            'workshop_repair_quote_gross' => $grossRule,
             'missing_parts_cost_net' => 'required|numeric|min:0',
-            'missing_parts_cost_gross' => 'required|numeric|min:0',
+            'missing_parts_cost_gross' => $grossRule,
             'additional_notes' => 'nullable|string',
         ]);
 
-        $this->offerService->createOffer($order, $validated, $request->user());
+        if ($isB2b) {
+            foreach (['repair_cost_gross', 'depreciation_value_gross', 'workshop_repair_quote_gross', 'missing_parts_cost_gross'] as $grossField) {
+                $validated[$grossField] ??= '0';
+            }
+        }
+
+        try {
+            $this->offerService->createOffer($order, $validated, $request->user());
+        } catch (HttpResponseException $e) {
+            $message = $e->getResponse()->getData(true)['error'] ?? 'Angebot konnte nicht erstellt werden.';
+
+            return back()->withErrors(['offer' => $message])->with('error', $message);
+        }
 
         return back()->with('success', 'Angebot wurde erstellt.');
     }
@@ -86,7 +105,13 @@ class OfferController extends Controller
         $offer = LeasybackOffer::find($offerId);
         abort_unless($offer !== null, 404);
 
-        $this->offerService->cancelOffer($offer, $validated['cancellation_reason'] ?? null, $request->user());
+        try {
+            $this->offerService->cancelOffer($offer, $validated['cancellation_reason'] ?? null, $request->user());
+        } catch (HttpResponseException $e) {
+            $message = $e->getResponse()->getData(true)['error'] ?? 'Angebot konnte nicht storniert werden.';
+
+            return back()->withErrors(['offer' => $message])->with('error', $message);
+        }
 
         return back()->with('success', 'Angebot wurde storniert.');
     }

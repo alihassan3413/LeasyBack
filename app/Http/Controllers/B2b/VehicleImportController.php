@@ -14,10 +14,10 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
 /**
  * Bulk vehicle import for company users (§5).
  *
- * Firmenkunde-only. `EnsureB2bPermission` deliberately waves every other
- * account type — Privatkunde, Werkstatt, Admin — straight through, so the
- * route middleware alone is not the boundary; the user type is re-checked
- * here, exactly as StatisticsController does for the same reason. There is no
+ * Company-context only. `EnsureB2bPermission` deliberately waves every caller
+ * not acting as a company — a Privatkunde on their private side, Werkstatt,
+ * Admin — straight through, so the route middleware alone is not the
+ * boundary; the acting context is re-checked here. There is no
  * Admin import surface and no B2C one, by construction rather than by UI.
  *
  * No company id is accepted from the request or the file: VehicleService
@@ -53,7 +53,7 @@ class VehicleImportController extends Controller
 
         $result = $this->importer->import($request->user(), $validated['file']);
 
-        return to_route('dashboard')
+        return to_route('vehicles.index')
             ->with('vehicle_import', $result)
             ->with($result['imported'] > 0 ? 'success' : 'warning', $this->summaryMessage($result));
     }
@@ -103,14 +103,19 @@ class VehicleImportController extends Controller
     }
 
     /**
-     * The import belongs to a company. A Privatkunde reaching this point has
-     * passed the permission middleware by design and is refused here.
+     * The import belongs to a company. Decided on the context the caller is
+     * *acting in* — the same B2bContext::effectiveUserType() rule
+     * `vehicles.store` follows — not the raw `user_type` column: a
+     * Privatkunde who joined a company and is acting as it is a company
+     * member here, held to their `vehicles.create` grant by the route
+     * middleware. Anyone acting privately (or an Admin) passed that
+     * middleware by design and is refused here.
      */
     private function authoriseCompanyUser(Request $request): void
     {
         $user = $request->user();
 
-        abort_if($user->user_type !== UserType::Firmenkunde, 403);
+        abort_if($this->context->effectiveUserType($user) !== UserType::Firmenkunde, 403);
         abort_if($this->context->activeMembership($user) === null, 403);
     }
 }

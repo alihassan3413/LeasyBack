@@ -2,6 +2,7 @@
 
 namespace App\Modules\UserProfile\Vehicle\Services;
 
+use App\Enums\B2bPermission;
 use App\Enums\OrderStatus;
 use App\Enums\UserType;
 use App\Models\User;
@@ -585,6 +586,147 @@ class VehicleService
     }
 
     /**
+     * Every order the customer has placed, newest first, for the orders page.
+     *
+     * Scoped through the same vehicle query as the fleet list, so a member who
+     * only sees their own vehicles only sees their own orders — access to an
+     * order follows access to its vehicle, which is the rule OrderPolicy and
+     * findOrderDetail() already apply one order at a time.
+     *
+     * Rows are flat on purpose: the page shows a line per order and opens the
+     * full record via `orders.show`, so nothing here needs an order's offers,
+     * documents or status history loaded.
+     *
+     * `$limit` is for the dashboard's overview card, which wants the newest
+     * few rather than the page's whole list — applied in SQL so a long fleet
+     * history is never loaded to show five lines of it.
+     *
+     * @param  array{search?: string, status?: 'open'|'closed'|string}  $filters
+     * @return list<array<string, mixed>>
+     */
+    public function listCustomerOrders(?string $ownerId, string $belongs, array $filters = [], ?User $viewer = null, ?int $limit = null): array
+    {
+        $query = $this->scopedVehicleQuery($ownerId, $belongs, $viewer)
+            ->join('leasyback_orders as o', 'o.vehicle_id', '=', 'v.vehicle_id');
+
+        $status = (string) ($filters['status'] ?? '');
+
+        // `open`/`closed` are groups rather than statuses, the same shorthand
+        // the fleet filter uses — OrderStatus::closedValues() is the single
+        // definition of which side a status falls on.
+        if ($status === 'open') {
+            $query->whereNotIn('o.order_status', OrderStatus::closedValues());
+        } elseif ($status === 'closed') {
+            $query->whereIn('o.order_status', OrderStatus::closedValues());
+        } elseif ($status !== '') {
+            $query->where('o.order_status', $status);
+        }
+
+        if (($search = trim((string) ($filters['search'] ?? ''))) !== '') {
+            $query->where(fn (Builder $inner) => $inner
+                ->where('o.auftragsnummer', 'like', "%{$search}%")
+                ->orWhere('v.license_plate', 'like', "%{$search}%")
+                ->orWhere('v.make', 'like', "%{$search}%")
+                ->orWhere('v.model', 'like', "%{$search}%"));
+        }
+
+        if ($limit !== null) {
+            $query->limit($limit);
+        }
+
+        $orders = $query->orderByDesc('o.created_at')->get([
+            'o.id',
+            'o.auftragsnummer',
+            'o.order_status',
+            'o.created_at',
+            'o.request_payload',
+            'v.vehicle_id',
+            'v.license_plate',
+            'v.make',
+            'v.model',
+            'v.vehicle_belongs',
+        ]);
+
+        // A B2B order is a collection, and its date lives in order_logistics
+        // rather than in the partner request payload a B2C station booking
+        // carries. One lookup for the whole page, not one per row.
+        $collections = $this->orderCollectionService->forOrders(
+            $orders->where('vehicle_belongs', 'B2B')->pluck('auftragsnummer')->unique()->all(),
+        );
+
+        return $orders->map(function (object $order) use ($collections) {
+            $payload = json_decode((string) $order->request_payload, true) ?: [];
+            $besichtigungsort = $payload['besichtigungsort'] ?? [];
+            $collection = $collections[$order->auftragsnummer] ?? null;
+
+            return [
+                'id' => $order->id,
+                'auftragsnummer' => $order->auftragsnummer,
+                'order_status' => $order->order_status,
+                'created_at' => $order->created_at,
+                'vehicle_id' => $order->vehicle_id,
+                'license_plate' => $order->license_plate,
+                'make' => $order->make,
+                'model' => $order->model,
+                'vehicle_belongs' => $order->vehicle_belongs,
+                'appointment' => $collection['confirmed_collection_date']
+                    ?? $collection['requested_collection_date']
+                    ?? ($besichtigungsort['termin'] ?? null),
+                'location' => $collection === null ? ($besichtigungsort['name'] ?? null) : null,
+            ];
+        })->all();
+    }
+
+    /**
+     * The vehicles a new order can still be started for, for the dashboard's
+     * service picker: exactly those `blocksNewOrder()` would clear, asked once
+     * for the whole fleet instead of once per row.
+     *
+     * Deliberately not hydrated. The picker shows a plate, a model and a
+     * leasing end date, and hands the chosen vehicle to OrderCreationModal,
+     * which reads only `vehicle_belongs` and `collection_address` — none of
+     * which needs a vehicle's orders, offers or documents loaded.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function listBookableVehicles(?string $ownerId, string $belongs, ?User $viewer = null): array
+    {
+        $vehicles = $this->scopedVehicleQuery($ownerId, $belongs, $viewer)
+            ->whereNotExists(fn (Builder $query) => $query
+                ->select(DB::raw(1))
+                ->from('leasyback_orders as o')
+                ->whereColumn('o.vehicle_id', 'v.vehicle_id')
+                ->whereNotIn('o.order_status', OrderStatus::reorderableValues()))
+            ->orderBy('v.created_at', 'desc')
+            ->get([
+                'v.vehicle_id',
+                'v.license_plate',
+                'v.make',
+                'v.model',
+                'v.vin',
+                'v.leasing_end_date',
+                'v.vehicle_belongs',
+                'v.collection_address_profile_id',
+            ]);
+
+        $addresses = LogisticsAddressProfile::whereIn(
+            'id',
+            $vehicles->where('vehicle_belongs', 'B2B')->pluck('collection_address_profile_id')->filter()->unique()->all(),
+        )->get()->mapWithKeys(fn (LogisticsAddressProfile $profile) => [$profile->id => $profile->details]);
+
+        return $vehicles->map(fn (object $vehicle) => [
+            'vehicle_id' => $vehicle->vehicle_id,
+            'license_plate' => $vehicle->license_plate,
+            'make' => $vehicle->make,
+            'model' => $vehicle->model,
+            'vin' => $vehicle->vin,
+            'leasing_end_date' => $vehicle->leasing_end_date,
+            'vehicle_belongs' => $vehicle->vehicle_belongs,
+            'collection_address' => $addresses[$vehicle->collection_address_profile_id] ?? null,
+        ])->all();
+    }
+
+    /**
      * The company/owner half of vehicle access, plus the member-level half
      * when a viewer is supplied.
      *
@@ -822,6 +964,18 @@ class VehicleService
                             $viewer,
                         ),
                     ]),
+                    // The B2B counterpart of `payment.cancellation`: whether this
+                    // viewer may call the return off now, and what that means.
+                    ...($isB2bOffer ? [
+                        'b2b_cancellation' => [
+                            'can_cancel' => $viewer !== null
+                                && ! $viewer->isAdmin()
+                                && in_array($order->order_status, OrderStatus::b2bCustomerCancellableValues(), true)
+                                && $this->b2bContext->can($viewer, B2bPermission::CreateOrders),
+                            'fee_applies' => false,
+                            'message' => 'Die Stornierung ist kostenfrei, solange das Fahrzeug noch nicht abgeholt wurde.',
+                        ],
+                    ] : []),
                     'collection' => $orderCollections[$order->auftragsnummer] ?? null,
                     // Order notes stay B2B — §16 gives company users the right
                     // to see them, and there is no B2C equivalent.

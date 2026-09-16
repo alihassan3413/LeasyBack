@@ -9,6 +9,9 @@
  * a real business. Every enable/disable decision below mirrors a server-side
  * rule rather than standing in for one — the button being visible is never what
  * makes the action legal.
+ *
+ * B2B is priced net only, so a B2B commission carries no gross total
+ * (`offer_total_gross` is null) and the accepted offer is shown net.
  */
 import { AppModal, AppModalButton } from '@/components/ui/modal';
 import { formatPortalDate } from '@/lib/portalDate';
@@ -20,7 +23,13 @@ import MdiCheckCircleOutline from '~icons/mdi/check-circle-outline';
 import MdiEmailFastOutline from '~icons/mdi/email-fast-outline';
 import MdiWrenchOutline from '~icons/mdi/wrench-outline';
 
-const props = defineProps<{ orderId: string; commission: AdminWorkshopCommission }>();
+const props = defineProps<{ orderId: string; commission: AdminWorkshopCommission; vehicleBelongs: 'B2B' | 'B2C' }>();
+
+/** Net only for B2B — and wherever the server withheld the gross. */
+const isNetOnly = computed(() => props.vehicleBelongs === 'B2B' || props.commission.offer_total_gross === null);
+
+/** The accepted offer's headline figure, in the channel's own terms. */
+const offerTotal = computed(() => (isNetOnly.value ? props.commission.offer_total_net : props.commission.offer_total_gross));
 
 const confirmOpen = ref(false);
 const busy = ref(false);
@@ -51,7 +60,7 @@ function formatDate(value: string | null | undefined): string {
     return formatPortalDate(value) || '—';
 }
 
-function commission() {
+function commissionWorkshop() {
     busy.value = true;
     router.post(
         route('admin.orders.commission-workshop', props.orderId),
@@ -105,9 +114,12 @@ function resend() {
                     <dt class="text-[#9bb0af]">Dauer</dt>
                     <dd class="text-[#10393b]">{{ commission.workshop.processing_days }} Arbeitstage</dd>
                 </div>
-                <div v-if="commission.offer_total_gross" class="flex justify-between gap-3">
+                <div v-if="offerTotal" class="flex justify-between gap-3">
                     <dt class="text-[#9bb0af]">Angenommenes Angebot</dt>
-                    <dd class="font-bold text-[#10393b] tabular-nums">{{ formatCurrency(commission.offer_total_gross) }}</dd>
+                    <dd class="font-bold text-[#10393b] tabular-nums">
+                        {{ formatCurrency(offerTotal) }}
+                        <span class="text-[10.5px] font-bold text-[#9bb0af]">{{ isNetOnly ? 'netto' : 'brutto' }}</span>
+                    </dd>
                 </div>
             </dl>
         </div>
@@ -128,6 +140,7 @@ function resend() {
             </p>
 
             <button
+                v-if="commission.can_resend"
                 type="button"
                 :disabled="busy"
                 class="self-start text-[11.5px] font-bold text-[#10393b] hover:opacity-70 disabled:opacity-50"
@@ -169,8 +182,12 @@ function resend() {
                 </div>
                 <div class="flex justify-between gap-3">
                     <dt class="text-[#6f8585]">Angenommenes Angebot</dt>
-                    <dd class="text-right font-bold text-[#10393b] tabular-nums">
-                        {{ formatCurrency(commission.offer_total_gross) }}
+                    <dd v-if="isNetOnly" class="text-right font-bold text-[#10393b] tabular-nums">
+                        {{ formatCurrency(commission.offer_total_net) }}
+                        <span class="block text-[11.5px] font-normal text-[#9bb0af]">netto</span>
+                    </dd>
+                    <dd v-else class="text-right font-bold text-[#10393b] tabular-nums">
+                        {{ formatCurrency(commission.offer_total_gross) }} brutto
                         <span v-if="commission.offer_total_net" class="block text-[11.5px] font-normal text-[#9bb0af]">
                             {{ formatCurrency(commission.offer_total_net) }} netto
                         </span>
@@ -188,7 +205,7 @@ function resend() {
 
             <template #footer>
                 <AppModalButton variant="secondary" :disabled="busy" @click="confirmOpen = false">Abbrechen</AppModalButton>
-                <AppModalButton :disabled="busy" @click="commission">
+                <AppModalButton :disabled="busy" @click="commissionWorkshop">
                     {{ busy ? 'Wird beauftragt…' : 'Verbindlich beauftragen' }}
                 </AppModalButton>
             </template>

@@ -3,8 +3,10 @@
 namespace App\Modules\UserProfile\Order\Services;
 
 use App\Enums\NotificationType;
+use App\Enums\OrderStatus;
 use App\Enums\UserType;
 use App\Mail\Workshop\WorkshopQuotationRequestedMail;
+use App\Models\LeasybackOffer;
 use App\Models\OrderAuditLog;
 use App\Models\User;
 use App\Models\Vehicle;
@@ -82,7 +84,9 @@ class WorkshopQuotationService
             'cannot_repair_for_amount' => ['nullable', 'boolean'],
             'cannot_repair_note' => ['nullable', 'string', 'max:2000'],
             'items' => ['present', 'array', 'max:200'],
-            'items.*.appraisal_position_id' => ['required', 'uuid', 'in:'.implode(',', $positionIds)],
+            // `distinct`: one price per position. A repeated id used to reach
+            // the unique index on the items table and surface as a 500.
+            'items.*.appraisal_position_id' => ['required', 'uuid', 'distinct', 'in:'.implode(',', $positionIds)],
             'items.*.amount_net' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
             'items.*.repair_method' => ['nullable', 'string', 'max:255'],
             'items.*.not_repairable' => ['nullable', 'boolean'],
@@ -196,6 +200,22 @@ class WorkshopQuotationService
      */
     public function invite(LeasybackOrder $order, User $user, array $validated): array
     {
+        // Workshops quote against the appraisal positions, in the offer phase.
+        // Without positions the form has nothing to price — the workshop's only
+        // possible answer would be "cannot repair" — and outside the offer
+        // phase (a closed order above all) nobody is waiting for the answer.
+        if (LeasybackOrder::whereKey($order->id)->value('order_status') !== OrderStatus::Inspected->value) {
+            $this->fail(422, 'Werkstattangebote können nur in der Angebotsphase (Status „Begutachtet") angefragt werden.');
+        }
+
+        if (LeasybackOffer::where('order_id', $order->id)->where('offer_status', 'selected')->exists()) {
+            $this->fail(422, 'Für diesen Auftrag wurde bereits ein Angebot angenommen. Weitere Werkstattangebote werden nicht benötigt.');
+        }
+
+        if (! AppraisalPosition::where('order_id', $order->id)->exists()) {
+            $this->fail(422, 'Bitte erfassen Sie zuerst die Gutachtenpositionen, bevor Sie Werkstattangebote anfragen.');
+        }
+
         $token = Str::random(64);
         $ttlDays = (int) ($validated['ttl_days'] ?? self::DEFAULT_TTL_DAYS);
 
@@ -301,6 +321,13 @@ class WorkshopQuotationService
             return;
         }
 
+        // A submitted quotation is a record of what the workshop offered and
+        // must stay visible (§9), above all once an offer was built from it.
+        // Revoking only ever made sense for a link still waiting for an answer.
+        if ($quotation->isSubmitted()) {
+            $this->fail(422, 'Ein eingegangenes Werkstattangebot kann nicht widerrufen werden.');
+        }
+
         $quotation->update(['revoked_at' => now(), 'revoked_by_user_id' => $user->id]);
     }
 
@@ -313,7 +340,9 @@ class WorkshopQuotationService
     {
         $quotation = WorkshopQuotation::where('token_hash', $this->hash($token))->first();
 
-        return $quotation !== null && $quotation->isOpenForSubmission() ? $quotation : null;
+        return $quotation !== null && $quotation->isOpenForSubmission() && $this->orderIsOpen($quotation)
+            ? $quotation
+            : null;
     }
 
     /**
@@ -337,7 +366,7 @@ class WorkshopQuotationService
         DB::transaction(function () use ($quotation, $validated) {
             $locked = WorkshopQuotation::whereKey($quotation->id)->lockForUpdate()->firstOrFail();
 
-            if (! $locked->isOpenForSubmission()) {
+            if (! $locked->isOpenForSubmission() || ! $this->orderIsOpen($locked)) {
                 $this->fail(410, 'Dieser Link ist nicht mehr gültig.');
             }
 
@@ -519,6 +548,43 @@ class WorkshopQuotationService
      *
      * @return array<int, array<string, mixed>>
      */
+    /**
+     * Quotation *state* for many orders in one query, keyed by order id.
+     *
+     * Deliberately not forOrder() in bulk: that method builds a per-position
+     * comparison matrix for the admin card, which would mean loading every
+     * appraisal position and quotation item in the portal to answer a question
+     * the task tree asks of `status` and `created_at` alone. This returns the
+     * quotation rows themselves, priced at one query however many orders are
+     * asked about.
+     *
+     * `status()` is the model's own accessor — the same one forOrder() reads —
+     * so a quotation is never "invited" here and "submitted" there.
+     *
+     * @param  array<int, string>  $orderIds
+     * @return array<string, list<array<string, mixed>>>
+     */
+    public function statesForOrders(array $orderIds): array
+    {
+        if ($orderIds === []) {
+            return [];
+        }
+
+        return WorkshopQuotation::whereIn('order_id', $orderIds)
+            ->orderByDesc('created_at')
+            ->get()
+            ->groupBy('order_id')
+            ->map(fn ($quotations) => $quotations->map(fn (WorkshopQuotation $quotation) => [
+                'id' => $quotation->id,
+                'created_at' => $quotation->created_at?->toISOString(),
+                'status' => $quotation->status(),
+                'submitted_at' => $quotation->submitted_at?->toISOString(),
+                'expires_at' => $quotation->expires_at?->toISOString(),
+                'revoked_at' => $quotation->revoked_at?->toISOString(),
+            ])->values()->all())
+            ->all();
+    }
+
     public function forOrder(string $orderId): array
     {
         $positions = $this->positionsFor($orderId)->keyBy('id');
@@ -626,6 +692,19 @@ class WorkshopQuotationService
         }
 
         return $total;
+    }
+
+    /**
+     * A link stays usable only while its order can still use the answer. The
+     * links are revoked when an order is cancelled (TransitionOrderStatus), but
+     * the order is checked here as well so a link from before that existed —
+     * or a status changed some other way — cannot reopen a closed case.
+     */
+    private function orderIsOpen(WorkshopQuotation $quotation): bool
+    {
+        $status = LeasybackOrder::whereKey($quotation->order_id)->value('order_status');
+
+        return $status !== null && ! in_array($status, OrderStatus::closedValues(), true);
     }
 
     private function hash(string $token): string

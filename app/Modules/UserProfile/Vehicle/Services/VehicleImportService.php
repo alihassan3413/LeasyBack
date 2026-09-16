@@ -98,6 +98,15 @@ class VehicleImportService
     /** @var list<string> */
     private const DATE_FIELDS = ['first_registration_date', 'leasing_end_date'];
 
+    /**
+     * Cell values that mean "the leasing company is not known" — the import's
+     * equivalent of the manual form's "liegt mir nicht vor" checkbox, already
+     * normalised the way headings are.
+     *
+     * @var list<string>
+     */
+    private const UNKNOWN_LEASINGGEBER = ['unbekannt', 'nichtbekannt', 'liegtnichtvor', 'unknown'];
+
     public function __construct(private readonly VehicleService $vehicleService) {}
 
     /**
@@ -154,10 +163,10 @@ class VehicleImportService
         $errors = [];
 
         foreach ($rows as $row) {
-            $payload = $this->buildPayload($map, $row['values']);
+            [$payload, $cellErrors] = $this->buildPayload($map, $row['values']);
             $plate = is_string($payload['license_plate'] ?? null) ? $payload['license_plate'] : null;
 
-            $messages = $this->persist($user, $payload);
+            $messages = $this->persist($user, $payload, $cellErrors);
 
             if ($messages === []) {
                 $imported++;
@@ -189,20 +198,35 @@ class VehicleImportService
      * Every failure mode is contained here so the caller's loop cannot be
      * interrupted by one bad row.
      *
+     * The rules are the manual web form's (StoreWebVehicleRequest): the
+     * shared creation rules plus VehicleRules::mandatoryWebFields() — FIN,
+     * manufacturer and leasing company. A row the form would refuse must not
+     * slip in through a spreadsheet with only a registration number.
+     *
      * @param  array<string, mixed>  $payload
+     * @param  list<string>  $cellErrors  problems found while reading the cells
      * @return list<string>
      */
-    private function persist(User $user, array $payload): array
+    private function persist(User $user, array $payload, array $cellErrors = []): array
     {
         $validator = Validator::make(
             $payload,
-            VehicleRules::forCreation(true),
-            VehicleRules::messages(),
+            [
+                ...VehicleRules::forCreation(true),
+                ...VehicleRules::mandatoryWebFields(),
+            ],
+            [
+                ...VehicleRules::messages(),
+                'leasinggeber.required_unless' => 'Bitte geben Sie den Leasinggeber an (oder „unbekannt“, wenn er Ihnen nicht vorliegt).',
+            ],
             VehicleRules::attributes(),
         );
 
-        if ($validator->fails()) {
-            return array_values($validator->errors()->all());
+        if ($validator->fails() || $cellErrors !== []) {
+            return array_values(array_unique([
+                ...$cellErrors,
+                ...$validator->errors()->all(),
+            ]));
         }
 
         try {
@@ -311,14 +335,19 @@ class VehicleImportService
      * the end even though no heading can produce one — the strip is the rule,
      * the alias table is just the first line of it.
      *
+     * A date cell that holds *something* but cannot be read as a date is
+     * reported as a cell error and left out of the payload — never imported
+     * as an empty date, which would silently lose what the user typed.
+     *
      * @param  array<int, string>  $map
      * @param  list<mixed>  $values
-     * @return array<string, mixed>
+     * @return array{0: array<string, mixed>, 1: list<string>}
      */
     private function buildPayload(array $map, array $values): array
     {
         $payload = [];
         $address = [];
+        $cellErrors = [];
 
         foreach ($map as $index => $field) {
             $raw = $values[$index] ?? null;
@@ -334,8 +363,40 @@ class VehicleImportService
                 continue;
             }
 
+            if (in_array($field, self::DATE_FIELDS, true)) {
+                $date = $this->date($raw);
+
+                if ($date === false) {
+                    $cellErrors[] = sprintf(
+                        '%s „%s“ ist kein gültiges Datum (z. B. 15.03.2022).',
+                        VehicleRules::attributes()[$field] ?? $field,
+                        $this->text($raw),
+                    );
+
+                    continue;
+                }
+
+                $payload[$field] = $date;
+
+                continue;
+            }
+
+            if ($field === 'leasinggeber') {
+                $leasinggeber = $this->text($raw);
+
+                if ($leasinggeber !== null && in_array($this->normaliseHeading($leasinggeber), self::UNKNOWN_LEASINGGEBER, true)) {
+                    $payload['leasinggeber'] = null;
+                    $payload['leasinggeber_unknown'] = true;
+
+                    continue;
+                }
+
+                $payload['leasinggeber'] = $leasinggeber;
+
+                continue;
+            }
+
             $payload[$field] = match (true) {
-                in_array($field, self::DATE_FIELDS, true) => $this->date($raw),
                 $field === 'mileage' => $this->integer($raw),
                 $field === 'license_plate' => $this->plate($raw),
                 default => $this->text($raw),
@@ -350,7 +411,7 @@ class VehicleImportService
             unset($payload[$key]);
         }
 
-        return $payload;
+        return [$payload, $cellErrors];
     }
 
     /**
@@ -419,19 +480,24 @@ class VehicleImportService
     /**
      * Normalises to `Y-m-d` before validation.
      *
-     * This changes the accepted *format*, never the rule: the value still has
-     * to satisfy `nullable|date`. Without it, a German `15.03.2022` cell would
-     * depend on PHP's parser guessing right, and an xlsx date that lost its
-     * cell format would arrive as the raw serial number.
+     * Returns null for an empty cell and **false** for a cell that holds
+     * something unreadable, so the caller can report the row instead of
+     * importing it with the date silently dropped.
+     *
+     * Without this a German `15.03.2022` cell would depend on PHP's parser
+     * guessing right, and an xlsx date that lost its cell format would arrive
+     * as the raw serial number. An all-digit value is read as `YYYYMMDD` when
+     * it has eight digits and forms a real date (`20220315`), and as an Excel
+     * day serial otherwise.
      */
-    private function date(mixed $value): ?string
+    private function date(mixed $value): string|false|null
     {
         if ($value instanceof DateTimeInterface) {
             return $value->format('Y-m-d');
         }
 
-        if (is_int($value) || is_float($value)) {
-            return $this->fromExcelSerial((float) $value);
+        if (is_float($value) && floor($value) !== $value) {
+            return $this->fromExcelSerial($value) ?? false;
         }
 
         $text = $this->text($value);
@@ -441,7 +507,7 @@ class VehicleImportService
         }
 
         if (preg_match('/^\d+$/', $text) === 1) {
-            return $this->fromExcelSerial((float) $text);
+            return $this->fromCompactDate($text) ?? $this->fromExcelSerial((float) $text) ?? false;
         }
 
         foreach (['d.m.Y', 'd/m/Y', 'd-m-Y', 'Y-m-d', 'Y/m/d'] as $format) {
@@ -458,9 +524,27 @@ class VehicleImportService
             }
         }
 
-        // Unrecognised — hand the original text to the `date` rule so the row
-        // is rejected with a readable message rather than a wrong date.
-        return $text;
+        return false;
+    }
+
+    /**
+     * `20220315` → `2022-03-15`, only when the digits round-trip to a real
+     * calendar date in a plausible range — `20221332` is not a date, and an
+     * eight-digit Excel serial would lie millennia in the future anyway.
+     */
+    private function fromCompactDate(string $digits): ?string
+    {
+        if (preg_match('/^(\d{4})(\d{2})(\d{2})$/', $digits, $parts) !== 1) {
+            return null;
+        }
+
+        [, $year, $month, $day] = $parts;
+
+        if ((int) $year < 1900 || (int) $year > 2200 || ! checkdate((int) $month, (int) $day, (int) $year)) {
+            return null;
+        }
+
+        return "{$year}-{$month}-{$day}";
     }
 
     /**

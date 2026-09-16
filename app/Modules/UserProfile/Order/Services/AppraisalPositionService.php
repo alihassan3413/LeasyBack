@@ -2,11 +2,15 @@
 
 namespace App\Modules\UserProfile\Order\Services;
 
+use App\Models\LeasybackOffer;
 use App\Models\User;
 use App\Modules\UserProfile\Order\Models\AppraisalPosition;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
+use App\Modules\UserProfile\Order\Models\WorkshopQuotation;
+use App\Modules\UserProfile\Order\Models\WorkshopQuotationItem;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 /**
  * The repair positions of an order's initial appraisal (§8). The whole set is
@@ -28,6 +32,13 @@ use Illuminate\Validation\Rule;
  */
 class AppraisalPositionService
 {
+    /**
+     * Where the positions can still change: from the appraisal being available
+     * (B2C `confirmed` at the station, B2B `vehicle_collected`) through the
+     * offer phase (`inspected`).
+     */
+    public const EDITABLE_STATUSES = ['confirmed', 'vehicle_collected', 'inspected'];
+
     /**
      * Values are entered by hand in both channels, for different reasons. A B2B
      * collection order is never `leasyback_partner = 'tuvsud'`, so the TÜV SÜD
@@ -81,10 +92,15 @@ class AppraisalPositionService
      * Reconcile the order's positions against the submitted set, in one
      * transaction.
      *
-     * Deliberately no lifecycle gate: a published offer freezes its own snapshot
-     * (RepairOfferService::snapshotOnPublish), so a later correction here cannot
-     * rewrite what a customer was shown, and an admin keeps being able to fix a
-     * mistyped appraisal at any point in the case.
+     * Gated to the appraisal and offer phase (§8): positions are what workshops
+     * price, so they can be captured once the appraisal exists and corrected
+     * until the customer has decided. After an offer is accepted — and on a
+     * closed order — the positions are the record the decision was made on.
+     *
+     * A position a workshop has already priced cannot be removed either: the
+     * quotation items reference it with a cascading foreign key, so deleting it
+     * silently erased part of a submitted quotation (§9 requires submissions to
+     * stay visible) and let a later publish re-derive a 0,00 € offer.
      *
      * @param  array<string, mixed>  $validated
      */
@@ -92,8 +108,40 @@ class AppraisalPositionService
     {
         $submitted = array_values($validated['positions'] ?? []);
 
+        $status = LeasybackOrder::whereKey($order->id)->value('order_status');
+
+        if (! in_array($status, self::EDITABLE_STATUSES, true)) {
+            throw ValidationException::withMessages([
+                'positions' => 'Gutachtenpositionen können nur zwischen Begutachtung und Angebotsfreigabe bearbeitet werden.',
+            ]);
+        }
+
+        if (LeasybackOffer::where('order_id', $order->id)->where('offer_status', 'selected')->exists()) {
+            throw ValidationException::withMessages([
+                'positions' => 'Der Kunde hat bereits ein Angebot freigegeben. Die Gutachtenpositionen können nicht mehr geändert werden.',
+            ]);
+        }
+
         DB::transaction(function () use ($order, $user, $submitted) {
-            $existing = AppraisalPosition::where('order_id', $order->id)->get()->keyBy('id');
+            $existing = AppraisalPosition::where('order_id', $order->id)->lockForUpdate()->get()->keyBy('id');
+            $submittedIds = collect($submitted)->pluck('id')->filter()->all();
+            $removed = $existing->keys()->diff($submittedIds);
+
+            $quoted = $removed->isEmpty() ? collect() : WorkshopQuotationItem::query()
+                ->whereIn('appraisal_position_id', $removed->all())
+                ->whereIn('quotation_id', WorkshopQuotation::query()->whereNotNull('submitted_at')->select('id'))
+                ->pluck('appraisal_position_id')
+                ->unique();
+
+            if ($quoted->isNotEmpty()) {
+                throw ValidationException::withMessages([
+                    'positions' => sprintf(
+                        'Diese Positionen wurden bereits von einer Werkstatt bepreist und können nicht gelöscht werden: %s.',
+                        $existing->only($quoted->all())->pluck('component')->implode(', '),
+                    ),
+                ]);
+            }
+
             $keptIds = [];
 
             foreach ($submitted as $index => $position) {
@@ -140,19 +188,52 @@ class AppraisalPositionService
         return AppraisalPosition::where('order_id', $orderId)
             ->orderBy('sort_order')
             ->get()
-            ->map(fn (AppraisalPosition $position) => [
-                'id' => $position->id,
-                'sort_order' => $position->sort_order,
-                'component' => $position->component,
-                'damage_description' => $position->damage_description,
-                'original_amount_net' => $position->original_amount_net,
-                'chargeable_amount_net' => $position->chargeable_amount_net,
-                'effective_amount_net' => $position->effectiveAmountNet(),
-                'repair_method' => $position->repair_method,
-                'source' => $position->source,
-                'damage_image_document_ids' => $position->damage_image_document_ids ?? [],
-            ])
+            ->map($this->present(...))
             ->all();
+    }
+
+    /**
+     * The same rows for many orders in one query, keyed by order id.
+     *
+     * Exists for the admin task dashboard, which resolves every active order
+     * at once: asking per order turned one page into a query per order per
+     * relation. Shares `present()` with forOrder(), so a batch row and a
+     * single row can never describe the same position differently.
+     *
+     * @param  array<int, string>  $orderIds
+     * @return array<string, list<array<string, mixed>>>
+     */
+    public function forOrders(array $orderIds): array
+    {
+        if ($orderIds === []) {
+            return [];
+        }
+
+        return AppraisalPosition::whereIn('order_id', $orderIds)
+            ->orderBy('sort_order')
+            ->get()
+            ->groupBy('order_id')
+            ->map(fn ($positions) => $positions->map($this->present(...))->values()->all())
+            ->all();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function present(AppraisalPosition $position): array
+    {
+        return [
+            'id' => $position->id,
+            'sort_order' => $position->sort_order,
+            'component' => $position->component,
+            'damage_description' => $position->damage_description,
+            'original_amount_net' => $position->original_amount_net,
+            'chargeable_amount_net' => $position->chargeable_amount_net,
+            'effective_amount_net' => $position->effectiveAmountNet(),
+            'repair_method' => $position->repair_method,
+            'source' => $position->source,
+            'damage_image_document_ids' => $position->damage_image_document_ids ?? [],
+        ];
     }
 
     /**

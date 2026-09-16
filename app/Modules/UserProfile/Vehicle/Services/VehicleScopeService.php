@@ -6,6 +6,7 @@ use App\Enums\B2bPermission;
 use App\Models\B2B;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Modules\UserProfile\B2B\Data\B2bMembership;
 use App\Modules\UserProfile\B2B\Services\B2bContext;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle as CanonicalVehicle;
 use Illuminate\Database\Eloquent\Builder;
@@ -142,7 +143,13 @@ class VehicleScopeService
      */
     /**
      * Every user who should be notified about this vehicle: the B2C owner, or
-     * all members of the owning B2B company.
+     * the members of the owning B2B company who can actually open it.
+     *
+     * "Can open it" is the same rule scopeQuery() enforces, applied to each
+     * membership rather than to the request user: an active membership that
+     * holds `vehicles.view`, and — for a member limited to their own vehicles
+     * — only when they registered this one. Notifying anyone else sent them a
+     * link that 404s, and told them a vehicle they may not see exists.
      *
      * @return Collection<int, User>
      */
@@ -153,12 +160,37 @@ class VehicleScopeService
         }
 
         if ($vehicle->vehicle_belongs === 'B2B' && $vehicle->b2b_id) {
-            $userIds = DB::table('user_b2b')->where('b2b_id', $vehicle->b2b_id)->pluck('user_id');
+            $userIds = DB::table('user_b2b')
+                ->where('b2b_id', $vehicle->b2b_id)
+                ->where('status', 'active')
+                ->get(['user_id', 'b2b_id', 'role', 'permissions', 'vehicle_scope'])
+                ->map(fn (object $row) => B2bMembership::fromRow($row))
+                ->filter(fn (B2bMembership $membership) => $this->membershipCanSeeVehicle($membership, $vehicle))
+                ->map(fn (B2bMembership $membership) => $membership->userId)
+                ->values();
 
             return User::whereIn('id', $userIds)->get();
         }
 
         return collect();
+    }
+
+    /**
+     * The per-membership half of scopeQuery()'s Firmenkunde branch: company,
+     * `vehicles.view`, and the own-vehicles restriction.
+     */
+    private function membershipCanSeeVehicle(B2bMembership $membership, CanonicalVehicle $vehicle): bool
+    {
+        if ($vehicle->vehicle_belongs !== 'B2B' || $membership->b2bId !== (string) $vehicle->b2b_id) {
+            return false;
+        }
+
+        if (! $membership->can(B2bPermission::ViewVehicles)) {
+            return false;
+        }
+
+        return ! $membership->seesOwnVehiclesOnly()
+            || (int) $vehicle->created_by_user_id === $membership->userId;
     }
 
     public function resolveOwnerContact(CanonicalVehicle $vehicle): ?array

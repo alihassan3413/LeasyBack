@@ -2,13 +2,18 @@
 
 namespace App\Modules\UserProfile\Order\Actions;
 
+use App\Enums\DocumentType;
 use App\Enums\NotificationType;
 use App\Enums\OrderStatus;
+use App\Models\LeasybackOffer;
+use App\Models\OfferAuditLog;
 use App\Models\Vehicle;
 use App\Modules\PartnerApi\Services\PartnerWebhookEvents;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Order\Models\OrderBilling;
+use App\Modules\UserProfile\Order\Models\OrderLogistics;
 use App\Modules\UserProfile\Order\Models\OrderStatusUpdate;
+use App\Modules\UserProfile\Order\Models\WorkshopQuotation;
 use App\Modules\UserProfile\Payment\Enums\PaymentPurpose;
 use App\Modules\UserProfile\Payment\Jobs\IssueRepairInvoice;
 use App\Modules\UserProfile\Payment\Models\OrderPayment;
@@ -186,7 +191,15 @@ class TransitionOrderStatus
                 ]);
             }
 
+            if ($isB2b) {
+                $this->guardB2bPrerequisites($locked, $toStatus);
+            }
+
             $locked->update([...$additionalAttributes, 'order_status' => $toStatus]);
+
+            if (in_array($toStatus, [OrderStatus::Cancelled->value, OrderStatus::Discarded->value], true)) {
+                $this->closeOpenWork($locked, $changedByUserId, $updatedByLabel);
+            }
 
             OrderStatusUpdate::create([
                 'auftragsnummer' => $locked->auftragsnummer,
@@ -216,17 +229,24 @@ class TransitionOrderStatus
         });
 
         if ($realTransition) {
-            // Runs before the status mail so it can claim ownership of the
-            // "ready for pickup" message: a B2C car is only collectable once
-            // its repair is paid for, and exactly one sender may say so.
-            $paymentOwnsPickupMail = $toStatus === OrderStatus::Delivered->value
-                && $this->repairPayments->startForDeliveredOrder($result, self::isB2bOrder($result));
+            // Deferred to the commit of the *outermost* transaction. Callers
+            // such as WorkshopCommissionService and OrderCollectionService
+            // transition inside a transaction of their own; sending straight
+            // away told the customer about a change that could still roll back
+            // with them. Outside any transaction this runs immediately.
+            DB::afterCommit(function () use ($result, $toStatus) {
+                // Runs before the status mail so it can claim ownership of the
+                // "ready for pickup" message: a B2C car is only collectable once
+                // its repair is paid for, and exactly one sender may say so.
+                $paymentOwnsPickupMail = $toStatus === OrderStatus::Delivered->value
+                    && $this->repairPayments->startForDeliveredOrder($result, self::isB2bOrder($result));
 
-            if ($toStatus === OrderStatus::Delivered->value && ! self::isB2bOrder($result)) {
-                IssueRepairInvoice::dispatch($result->id);
-            }
+                if ($toStatus === OrderStatus::Delivered->value && ! self::isB2bOrder($result)) {
+                    IssueRepairInvoice::dispatch($result->id);
+                }
 
-            $this->notifyStatusChange($result, $paymentOwnsPickupMail);
+                $this->notifyStatusChange($result, $paymentOwnsPickupMail);
+            });
         }
 
         return $result;
@@ -359,6 +379,104 @@ class TransitionOrderStatus
         throw ValidationException::withMessages([
             'order_status' => 'Das Fahrzeug kann erst nach Zahlungseingang der Reparaturkosten abgeholt werden.',
         ]);
+    }
+
+    /**
+     * The B2B graph is linear, but a status is a claim about the world — "the
+     * vehicle was collected", "the customer approved the repair" — and the
+     * generic status endpoint must not be able to make that claim before the
+     * fact behind it exists. Each check names the one record that proves the
+     * step happened; the task tree (OrderTaskResolver) asks for exactly the
+     * same records, so the two cannot disagree about what is due.
+     *
+     * Checked inside the locked transaction, in the single writer of
+     * `order_status`, so no controller or task action can route around it.
+     */
+    private function guardB2bPrerequisites(LeasybackOrder $order, string $toStatus): void
+    {
+        $message = self::unmetB2bPrerequisite($order, $toStatus);
+
+        if ($message !== null) {
+            throw ValidationException::withMessages(['order_status' => $message]);
+        }
+    }
+
+    /**
+     * Why a B2B order cannot move to `$toStatus` yet, or null when the fact
+     * behind that status exists. Public so the admin status menu can leave out
+     * transitions the guard would refuse, instead of offering a button that
+     * only ever produces an error.
+     */
+    public static function unmetB2bPrerequisite(LeasybackOrder $order, string $toStatus): ?string
+    {
+        return match ($toStatus) {
+            OrderStatus::VehicleCollected->value => OrderLogistics::where('auftragsnummer', $order->auftragsnummer)
+                ->whereNotNull('confirmed_collection_date')->exists()
+                ? null
+                : 'Das Fahrzeug kann erst als abgeholt erfasst werden, wenn ein Abholtermin bestätigt ist.',
+            OrderStatus::Inspected->value => DB::table('vehicle_report_documents')
+                ->where('auftragsnummer', $order->auftragsnummer)
+                ->where('document_type', DocumentType::Gutachten->value)
+                ->exists()
+                ? null
+                : 'Bitte laden Sie zuerst das Erstgutachten hoch, bevor Sie die Begutachtung abschließen.',
+            OrderStatus::WorkshopCommissioned->value => LeasybackOffer::where('order_id', $order->id)
+                ->where('offer_status', 'selected')->exists()
+                ? null
+                : 'Die Werkstatt kann erst beauftragt werden, wenn der Kunde ein Angebot freigegeben hat.',
+            OrderStatus::Workshop->value => OrderLogistics::where('auftragsnummer', $order->auftragsnummer)
+                ->whereNotNull('confirmed_repair_start_date')->exists()
+                ? null
+                : 'Bitte tragen Sie zuerst den bestätigten Reparaturtermin ein.',
+            OrderStatus::InvoiceProcessed->value => OrderBilling::where('order_id', $order->id)->first()?->isProcessed() === true
+                ? null
+                : 'Der Status „Rechnung verarbeitet" kann erst gesetzt werden, wenn die Abrechnung als verarbeitet markiert ist.',
+            default => null,
+        };
+    }
+
+    /**
+     * §6: "Cancellation must close all open tasks and prevent outdated
+     * reminders." The tasks are derived and close on their own; what is not
+     * derived is the work still waiting on someone outside LeasyBack — an
+     * offer the customer could still accept (acceptance is a repair
+     * authorisation) and workshop links that still accept a quotation. Both
+     * are withdrawn in the same transaction as the status change.
+     *
+     * Decided offers (selected, rejected, closed) are history and stay as
+     * they are; so do submitted quotations.
+     */
+    private function closeOpenWork(LeasybackOrder $order, ?int $changedByUserId, string $updatedByLabel): void
+    {
+        $openOffers = LeasybackOffer::where('order_id', $order->id)
+            ->whereIn('offer_status', ['draft', 'published'])
+            ->get();
+
+        foreach ($openOffers as $offer) {
+            $oldStatus = $offer->offer_status;
+
+            $offer->update([
+                'offer_status' => 'cancelled',
+                'cancelled_at' => now(),
+                'cancelled_by_user_id' => $changedByUserId,
+                'cancellation_reason' => 'Auftrag storniert',
+            ]);
+
+            OfferAuditLog::create([
+                'auftragsnummer' => $offer->auftragsnummer,
+                'offer_id' => $offer->offer_id,
+                'order_id' => $offer->order_id,
+                'action' => 'cancelled_with_order',
+                'old_values' => ['offer_status' => $oldStatus],
+                'new_values' => ['offer_status' => 'cancelled', 'by' => $updatedByLabel],
+                'changed_by_user_id' => $changedByUserId,
+            ]);
+        }
+
+        WorkshopQuotation::where('order_id', $order->id)
+            ->whereNull('submitted_at')
+            ->whereNull('revoked_at')
+            ->update(['revoked_at' => now(), 'revoked_by_user_id' => $changedByUserId]);
     }
 
     private function guardChannel(string $toStatus, bool $isB2b): void

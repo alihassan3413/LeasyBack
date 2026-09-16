@@ -22,6 +22,11 @@ class OrderEmailData
         public readonly ?string $actionUrl = null,
         public readonly ?string $invoiceNumber = null,
         public readonly ?string $documentUrl = null,
+        public readonly ?string $offerTotalNet = null,
+        public readonly ?string $requestedCollectionDate = null,
+        public readonly ?string $confirmedCollectionDate = null,
+        public readonly ?string $collectionAddress = null,
+        public readonly ?string $repairStartDate = null,
     ) {}
 
     public function vehicleLabel(): ?string
@@ -47,7 +52,12 @@ class OrderEmailData
             'Prüfstation' => $this->stationName,
             'Adresse' => $this->stationAddress,
             'Dienstleister' => $this->provider,
+            'Wunschtermin Abholung' => $this->requestedCollectionDate,
+            'Bestätigter Abholtermin' => $this->confirmedCollectionDate,
+            'Abholadresse' => $this->collectionAddress,
+            'Reparaturbeginn' => $this->repairStartDate,
             'Gesamtbetrag (brutto)' => $this->offerTotalGross,
+            'Gesamtbetrag (netto)' => $this->offerTotalNet,
             'Bemerkung' => $this->remarks,
         ];
 

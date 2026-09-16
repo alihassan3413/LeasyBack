@@ -93,6 +93,21 @@ export const VEHICLE_STATUS_FILTER_OPTIONS: { value: string; label: string }[] =
         .map(([value, display]) => ({ value, label: display.label })),
 ];
 
+/** Statuses only one channel can ever hold (mirrors OrderStatus::b2bOnlyValues / b2cOnlyValues). */
+const B2B_ONLY_STATUSES = new Set(['vehicle_collected', 'repair_completed', 'vehicle_returned', 'invoice_processed']);
+const B2C_ONLY_STATUSES = new Set(['delivered', 'reworkshop']);
+
+/**
+ * The status filter for one channel. A fleet customer is never "Abholbereit" and
+ * a private customer's car is never collected by LeasyBack, so offering those
+ * filters only ever produced an empty list.
+ */
+export function vehicleStatusFilterOptions(channel: 'B2B' | 'B2C'): { value: string; label: string }[] {
+    const excluded = channel === 'B2B' ? B2C_ONLY_STATUSES : B2B_ONLY_STATUSES;
+
+    return VEHICLE_STATUS_FILTER_OPTIONS.filter((option) => !excluded.has(option.value));
+}
+
 /**
  * Wording for the derived stages that override a raw status.
  *

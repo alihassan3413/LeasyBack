@@ -75,6 +75,8 @@ export interface VehicleOrderData {
     notes?: CustomerOrderNote[];
     /** B2C orders only — the B2B channel has no customer-card flow. */
     payment?: OrderPaymentState | null;
+    /** B2B orders only: whether this viewer may cancel the return now (free, before collection). */
+    b2b_cancellation?: { can_cancel: boolean; fee_applies: false; message: string };
 }
 
 export interface OrderPaymentState {
@@ -221,6 +223,23 @@ export interface VehicleData {
     driver_name?: string | null;
     driver_contact?: string | null;
     collection_address?: VehicleCollectionAddress | null;
+}
+
+/**
+ * A row of the dashboard's service picker — see
+ * VehicleService::listBookableVehicles(). Only vehicles no order still holds
+ * appear, and only the columns the picker shows plus the two
+ * OrderCreationModal branches on.
+ */
+export interface BookableVehicleData {
+    vehicle_id: string;
+    license_plate: string;
+    make: string | null;
+    model: string | null;
+    vin: string | null;
+    leasing_end_date: string | null;
+    vehicle_belongs: 'B2B' | 'B2C';
+    collection_address: VehicleCollectionAddress | null;
 }
 
 /** One rejected row from a bulk import, as returned by VehicleImportService. */

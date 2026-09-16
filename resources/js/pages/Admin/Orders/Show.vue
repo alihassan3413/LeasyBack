@@ -22,7 +22,7 @@ import { toOrderTimelineEntries } from '@/lib/timeline';
 import { getOrderStatusLabel } from '@/lib/vehicleStatus';
 import type { AdminOrderDetail, AdminOrderTaskAction } from '@/types/admin';
 import { Head, Link } from '@inertiajs/vue3';
-import { computed, ref } from 'vue';
+import { computed, nextTick, onMounted, ref } from 'vue';
 
 const props = defineProps<{ order: AdminOrderDetail }>();
 
@@ -94,12 +94,6 @@ const customerFlowSteps = computed(() =>
 const customerHeadline = computed(() => getCustomerOrderHeadline(customerFlowSteps.value));
 
 /**
- * The repair appointment only becomes relevant once the workshop is
- * commissioned, and stays visible afterwards so it can be rescheduled.
- */
-const REPAIR_APPOINTMENT_STATUSES = new Set(['workshop_commissioned', 'workshop', 'repair_completed']);
-
-/**
  * Shown only where there is something to say: a workshop that can be
  * commissioned, one already commissioned, or a blocker an admin has to act on
  * themselves. The server decides whether the action is legal; this only decides
@@ -113,12 +107,16 @@ const showCommissionCard = computed(
         props.order.workshop_commission.blocked_reason === 'no_workshop_contact',
 );
 
-const showRepairAppointment = computed(
-    () => REPAIR_APPOINTMENT_STATUSES.has(props.order.order_status) || !!props.order.collection?.confirmed_repair_start_date,
-);
+/**
+ * The repair appointment is editable exactly where the server accepts one
+ * (`editable.repair_appointment`); outside that window the card stays as a
+ * read-only record once a date was confirmed.
+ */
+const showRepairAppointment = computed(() => props.order.editable.repair_appointment || !!props.order.collection?.confirmed_repair_start_date);
 
 const actionsMenu = ref<InstanceType<typeof AdminOrderActionsMenu> | null>(null);
 const offersCard = ref<InstanceType<typeof AdminOffersCard> | null>(null);
+const quotationsCard = ref<InstanceType<typeof AdminWorkshopQuotationsCard> | null>(null);
 
 /**
  * Where a task's `modal` action is carried out. Keyed by the resolver's UI
@@ -128,10 +126,17 @@ const offersCard = ref<InstanceType<typeof AdminOffersCard> | null>(null);
  */
 const TASK_MODAL_HANDLERS: Record<string, (preset: Record<string, string>) => void> = {
     upload_report: (preset) => actionsMenu.value?.openUpload(preset.document_type ?? 'gutachten'),
-    create_offer: () => offersCard.value?.openCreate() ?? actionsMenu.value?.openCreateOffer(),
+    create_offer: () => offersCard.value?.openCreate() || actionsMenu.value?.openCreateOffer(),
 };
 
-function focusSection(section: string) {
+/** The section whose form a task or deep link lands on needs opening first. */
+const SECTION_OPENERS: Record<string, () => Promise<unknown> | void> = {
+    angebote: () => quotationsCard.value?.openInvite(),
+};
+
+async function focusSection(section: string) {
+    await SECTION_OPENERS[section]?.();
+
     const target = document.getElementById(`order-section-${section}`);
 
     if (!target) {
@@ -151,9 +156,25 @@ function focusSection(section: string) {
     field?.focus({ preventScroll: true });
 }
 
+/**
+ * `?section=…` — the dashboard's task rows link straight to the section their
+ * task lives in. Run after the first render (and a frame, so the masonry grid
+ * has placed its cards) or the scroll target is still moving.
+ */
+onMounted(async () => {
+    const section = new URLSearchParams(window.location.search).get('section');
+
+    if (!section) {
+        return;
+    }
+
+    await nextTick();
+    window.requestAnimationFrame(() => void focusSection(section));
+});
+
 function handleTaskAction(action: AdminOrderTaskAction) {
     if (action.type === 'inline') {
-        focusSection(action.key);
+        void focusSection(action.key);
 
         return;
     }
@@ -199,7 +220,7 @@ const timelineHeaderLabel = computed(
     () => `STATUS: ${(customerHeadline.value?.label ?? getOrderStatusLabel(props.order.order_status)).toUpperCase()}`,
 );
 
-const timelineEntries = computed(() => toOrderTimelineEntries(customerFlowSteps.value, props.order.order_status));
+const timelineEntries = computed(() => toOrderTimelineEntries(customerFlowSteps.value, props.order.order_status, props.order.vehicle_belongs));
 
 const specs = computed(() => [
     { label: 'Kennzeichen', value: props.order.license_plate, mono: true },
@@ -250,6 +271,8 @@ function formatDateTime(value: string | null): string {
                         :vehicle-belongs="order.vehicle_belongs"
                         :available-transitions="order.available_transitions"
                         :can-pull-documents="order.can_pull_documents"
+                        :quotations="order.workshop_quotations"
+                        :can-create-offer="order.editable.offers"
                     />
                 </div>
             </div>
@@ -399,6 +422,7 @@ function formatDateTime(value: string | null): string {
                         id="order-section-abholung"
                         :order-id="order.id"
                         :collection="order.collection"
+                        :editable="order.editable.collection"
                     />
 
                     <AdminOrderNotesCard
@@ -422,6 +446,7 @@ function formatDateTime(value: string | null): string {
                         :order-id="order.id"
                         :billing="order.billing"
                         :report-documents="order.report_documents"
+                        :editable="order.editable.billing"
                     />
 
                     <!--
@@ -435,6 +460,7 @@ function formatDateTime(value: string | null): string {
                         id="order-section-beauftragung"
                         :order-id="order.id"
                         :commission="order.workshop_commission"
+                        :vehicle-belongs="order.vehicle_belongs"
                     />
 
                     <AdminRepairAppointmentCard
@@ -444,6 +470,7 @@ function formatDateTime(value: string | null): string {
                         :order-status="order.order_status"
                         :collection="order.collection"
                         :source-quotation="offerSourceQuotation"
+                        :editable="order.editable.repair_appointment"
                     />
 
                     <div id="order-section-dokumente" class="content-card">
@@ -552,6 +579,7 @@ function formatDateTime(value: string | null): string {
                     :positions="order.appraisal_positions"
                     :totals="order.appraisal_totals"
                     :report-documents="order.report_documents"
+                    :editable="order.editable.positions"
                 />
 
                 <!--
@@ -569,12 +597,21 @@ function formatDateTime(value: string | null): string {
                 -->
                 <section id="order-section-angebote" class="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
                     <AdminWorkshopQuotationsCard
+                        ref="quotationsCard"
                         :order-id="order.id"
                         :quotations="order.workshop_quotations"
                         :has-positions="!!order.appraisal_positions.length"
+                        :editable="order.editable.offers"
                     />
 
-                    <AdminOffersCard ref="offersCard" :order-id="order.id" :offers="order.offers" :quotations="order.workshop_quotations" />
+                    <AdminOffersCard
+                        ref="offersCard"
+                        :order-id="order.id"
+                        :offers="order.offers"
+                        :quotations="order.workshop_quotations"
+                        :vehicle-belongs="order.vehicle_belongs"
+                        :editable="order.editable.offers"
+                    />
                 </section>
             </main>
         </div>

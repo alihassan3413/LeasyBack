@@ -3,6 +3,7 @@
 namespace Tests\Feature\B2b;
 
 use App\Enums\B2bPermission;
+use App\Enums\B2bRolePreset;
 use App\Enums\UserType;
 use App\Models\User;
 use App\Modules\UserProfile\B2B\Models\B2bInvitation;
@@ -63,6 +64,23 @@ class B2bInvitationFlowTest extends TestCase
         $this->assertNotNull($token, 'No invitation token was emailed.');
 
         return $token;
+    }
+
+    /**
+     * Drop the authentication inviteAndCaptureToken() leaves behind.
+     *
+     * `actingAs()` keeps the user on the guard for the rest of the test, so a
+     * request meant to arrive as a stranger with a link has to say so.
+     */
+    private function asGuest(): void
+    {
+        $this->app['auth']->guard()->logout();
+        $this->app['auth']->forgetGuards();
+    }
+
+    private function invitationFor(string $token): B2bInvitation
+    {
+        return B2bInvitation::where('token_hash', hash('sha256', $token))->firstOrFail();
     }
 
     private function makePrivateCustomer(string $email): User
@@ -214,7 +232,7 @@ class B2bInvitationFlowTest extends TestCase
         $this->actingAs($existing)->post(route('b2b.invitations.accept', $token));
 
         // Accepting lands them in the company they just joined.
-        $plates = collect($this->actingAs($existing->fresh())->get(route('dashboard'))
+        $plates = collect($this->actingAs($existing->fresh())->get(route('vehicles.index'))
             ->viewData('page')['props']['vehicles'])->pluck('license_plate');
 
         $this->assertContains('A-AA 1111', $plates);
@@ -254,6 +272,254 @@ class B2bInvitationFlowTest extends TestCase
                 ->where('viewer.email_matches', false)
                 ->where('viewer.email', 'jemand.anderes@example.com')
             );
+    }
+
+    /**
+     * The guest landing on the link is told which single thing to do. Getting
+     * this wrong sent people to "Konto erstellen" for an address that already
+     * had one, which then refuses the registration.
+     */
+    public function test_show_page_tells_a_known_address_to_sign_in(): void
+    {
+        $company = $this->makeCompany('Alpha GmbH');
+        $owner = $this->makeOwner($company);
+        $this->makePrivateCustomer('kennt.uns@example.com');
+
+        $token = $this->inviteAndCaptureToken($owner, 'kennt.uns@example.com');
+        $this->asGuest();
+
+        $this->get(route('b2b.invitations.show', $token))
+            ->assertInertia(fn ($page) => $page
+                ->where('account_exists', true)
+                ->where('viewer', null)
+            );
+    }
+
+    public function test_show_page_tells_an_unknown_address_to_register(): void
+    {
+        $company = $this->makeCompany('Alpha GmbH');
+        $owner = $this->makeOwner($company);
+
+        $token = $this->inviteAndCaptureToken($owner, 'ganz.neu@example.com');
+        $this->asGuest();
+
+        $this->get(route('b2b.invitations.show', $token))
+            ->assertInertia(fn ($page) => $page->where('account_exists', false));
+    }
+
+    /** Address matching is case-insensitive, as it is everywhere else. */
+    public function test_a_known_address_is_recognised_regardless_of_case(): void
+    {
+        $company = $this->makeCompany('Alpha GmbH');
+        $owner = $this->makeOwner($company);
+        $this->makePrivateCustomer('gemischt@example.com');
+
+        $token = $this->inviteAndCaptureToken($owner, 'GeMiScHt@Example.COM');
+        $this->asGuest();
+
+        $this->get(route('b2b.invitations.show', $token))
+            ->assertInertia(fn ($page) => $page->where('account_exists', true));
+    }
+
+    /** Signing in has to come back here, or the invitation is left unaccepted. */
+    public function test_viewing_the_link_as_a_guest_makes_login_return_to_it(): void
+    {
+        $company = $this->makeCompany('Alpha GmbH');
+        $owner = $this->makeOwner($company);
+        $this->makePrivateCustomer('rueckkehr@example.com');
+
+        $token = $this->inviteAndCaptureToken($owner, 'rueckkehr@example.com');
+        $this->asGuest();
+
+        $this->get(route('b2b.invitations.show', $token))->assertOk();
+
+        $this->assertSame(route('b2b.invitations.show', $token), session('url.intended'));
+    }
+
+    /** An already-signed-in viewer is past the sign-in/register fork entirely. */
+    public function test_a_signed_in_viewer_is_not_offered_an_account_route(): void
+    {
+        $company = $this->makeCompany('Alpha GmbH');
+        $owner = $this->makeOwner($company);
+        $invitee = $this->makePrivateCustomer('drin@example.com');
+
+        $token = $this->inviteAndCaptureToken($owner, 'drin@example.com');
+
+        $this->actingAs($invitee)
+            ->get(route('b2b.invitations.show', $token))
+            ->assertInertia(fn ($page) => $page
+                ->where('account_exists', false)
+                ->where('viewer.email_matches', true)
+            );
+    }
+
+    /** The card names the company role, not the raw "Mitglied". */
+    public function test_show_page_names_the_company_role(): void
+    {
+        $company = $this->makeCompany('Alpha GmbH');
+        $owner = $this->makeOwner($company);
+
+        $token = $this->inviteAndCaptureToken($owner, 'rolle@example.com', [
+            'preset' => B2bRolePreset::StandardUser->value,
+            'vehicle_scope' => 'all',
+        ]);
+        $this->asGuest();
+
+        $this->get(route('b2b.invitations.show', $token))
+            ->assertInertia(fn ($page) => $page
+                ->where('invitation.role_label', B2bRolePreset::StandardUser->label())
+            );
+    }
+
+    // ------------------------------------------------- register from a link
+
+    /**
+     * Someone with no account registers straight from the invitation and is
+     * in the company when the form returns.
+     *
+     * Before this, "Konto erstellen" dropped them on the generic form, where
+     * picking "Firmenkunde" sent them into the *company registration* wizard
+     * — the opposite of joining one — and the invitation was never accepted.
+     */
+    public function test_registering_from_an_invitation_joins_the_company(): void
+    {
+        $company = $this->makeCompany('Alpha GmbH');
+        $owner = $this->makeOwner($company);
+        $token = $this->inviteAndCaptureToken($owner, 'neuling@example.com');
+        $this->asGuest();
+
+        $this->post(route('register'), [
+            'email' => 'neuling@example.com',
+            'password' => 'sicher-genug-123',
+            'invitation' => $token,
+        ])->assertRedirect(route('dashboard'));
+
+        $user = User::whereRaw('LOWER(email) = ?', ['neuling@example.com'])->firstOrFail();
+
+        $this->assertSame(UserType::Firmenkunde, $user->user_type);
+        $this->assertDatabaseHas('user_b2b', [
+            'user_id' => $user->id,
+            'b2b_id' => $company->b2b_id,
+            'status' => 'active',
+        ]);
+        $this->assertNotNull($this->invitationFor($token)->accepted_at);
+    }
+
+    /**
+     * What the browser actually posts: the form object still carries an empty
+     * `user_type`, because the select is hidden rather than removed from the
+     * payload. An empty string counts as absent to `required_*`, so the rule
+     * has to be off entirely when a token is present — and the resulting error
+     * landed on a field nobody could see, which is why the page only said
+     * "Bitte prüfen Sie Ihre Eingaben."
+     */
+    public function test_registering_from_an_invitation_ignores_an_empty_account_type(): void
+    {
+        $company = $this->makeCompany('Alpha GmbH');
+        $owner = $this->makeOwner($company);
+        $token = $this->inviteAndCaptureToken($owner, 'leerfeld@example.com');
+        $this->asGuest();
+
+        $this->post(route('register'), [
+            'email' => 'leerfeld@example.com',
+            'password' => 'sicher-genug-123',
+            'user_type' => '',
+            'invitation' => $token,
+        ])
+            ->assertSessionHasNoErrors()
+            ->assertRedirect(route('dashboard'));
+
+        $this->assertDatabaseHas('users', ['email' => 'leerfeld@example.com']);
+    }
+
+    public function test_the_register_page_carries_the_invitation_context(): void
+    {
+        $company = $this->makeCompany('Alpha GmbH');
+        $owner = $this->makeOwner($company);
+        $token = $this->inviteAndCaptureToken($owner, 'kontext@example.com', [
+            'preset' => B2bRolePreset::StandardUser->value,
+            'vehicle_scope' => 'all',
+        ]);
+        $this->asGuest();
+
+        $this->get(route('register', ['invitation' => $token]))
+            ->assertInertia(fn ($page) => $page
+                ->component('auth/Register')
+                ->where('invitation.email', 'kontext@example.com')
+                ->where('invitation.company_name', 'Alpha GmbH')
+                ->where('invitation.role_label', B2bRolePreset::StandardUser->label())
+            );
+    }
+
+    /** Without a token the form is unchanged — account type still required. */
+    public function test_ordinary_registration_is_untouched(): void
+    {
+        $this->get(route('register'))
+            ->assertInertia(fn ($page) => $page->where('invitation', null));
+
+        $this->post(route('register'), [
+            'email' => 'privat@example.com',
+            'password' => 'sicher-genug-123',
+        ])->assertSessionHasErrors('user_type');
+
+        $this->post(route('register'), [
+            'email' => 'privat@example.com',
+            'password' => 'sicher-genug-123',
+            'user_type' => UserType::Privatkunde->value,
+        ])->assertRedirect(route('onboarding.show'));
+    }
+
+    /**
+     * A forwarded link must not become an account in someone else's name:
+     * the token authorises exactly the address it was sent to.
+     */
+    public function test_registering_a_different_address_with_the_token_is_refused(): void
+    {
+        $company = $this->makeCompany('Alpha GmbH');
+        $owner = $this->makeOwner($company);
+        $token = $this->inviteAndCaptureToken($owner, 'eingeladen@example.com');
+        $this->asGuest();
+
+        $this->post(route('register'), [
+            'email' => 'jemand.anderes@example.com',
+            'password' => 'sicher-genug-123',
+            'invitation' => $token,
+        ])->assertSessionHasErrors('email');
+
+        $this->assertDatabaseMissing('users', ['email' => 'jemand.anderes@example.com']);
+    }
+
+    /** The account type is the invitation's to decide, not the form's. */
+    public function test_a_posted_account_type_cannot_override_the_invitation(): void
+    {
+        $company = $this->makeCompany('Alpha GmbH');
+        $owner = $this->makeOwner($company);
+        $token = $this->inviteAndCaptureToken($owner, 'werkstatt@example.com');
+        $this->asGuest();
+
+        $this->post(route('register'), [
+            'email' => 'werkstatt@example.com',
+            'password' => 'sicher-genug-123',
+            'user_type' => UserType::Werkstatt->value,
+            'invitation' => $token,
+        ])->assertRedirect(route('dashboard'));
+
+        $user = User::whereRaw('LOWER(email) = ?', ['werkstatt@example.com'])->firstOrFail();
+
+        $this->assertSame(UserType::Firmenkunde, $user->user_type);
+    }
+
+    /** A dead token sends them to the page that explains why. */
+    public function test_the_register_page_bounces_a_stale_token_to_the_invitation(): void
+    {
+        $company = $this->makeCompany('Alpha GmbH');
+        $owner = $this->makeOwner($company);
+        $token = $this->inviteAndCaptureToken($owner, 'abgelaufen@example.com');
+        $this->invitationFor($token)->update(['expires_at' => now()->subDay()]);
+        $this->asGuest();
+
+        $this->get(route('register', ['invitation' => $token]))
+            ->assertRedirect(route('b2b.invitations.show', $token));
     }
 
     public function test_accepting_twice_does_not_create_a_second_membership(): void
@@ -347,7 +613,7 @@ class B2bInvitationFlowTest extends TestCase
             ->get(route('vehicles.show', $foreign->vehicle_id))
             ->assertNotFound();
 
-        $plates = collect($this->actingAs($existing->fresh())->get(route('dashboard'))
+        $plates = collect($this->actingAs($existing->fresh())->get(route('vehicles.index'))
             ->viewData('page')['props']['vehicles'])->pluck('license_plate');
 
         $this->assertNotContains('B-BB 2222', $plates);
@@ -394,6 +660,44 @@ class B2bInvitationFlowTest extends TestCase
         $this->actingAs($existing->fresh())
             ->get(route('b2b.members.index'))
             ->assertForbidden();
+    }
+
+    /**
+     * The private area must not be a one-way door.
+     *
+     * The switcher is rendered from `auth.b2b`: it needs the companies to
+     * switch *to* and the flag saying a private side exists, both while that
+     * private side is the active one. The sidebar used to gate the control on
+     * having an active membership instead, which hid it precisely here.
+     */
+    public function test_a_user_in_their_private_area_keeps_a_way_back_to_their_company(): void
+    {
+        $company = $this->makeCompany('Alpha GmbH');
+        $owner = $this->makeOwner($company);
+        $existing = $this->makePrivateCustomer('privat@example.com');
+
+        $token = $this->inviteAndCaptureToken($owner, 'privat@example.com');
+        $this->actingAs($existing)->post(route('b2b.invitations.accept', $token));
+
+        $this->actingAs($existing->fresh())
+            ->post(route('b2b.switch'), ['b2b_id' => null])
+            ->assertRedirect(route('dashboard'));
+
+        // Acting privately: no active membership, but everything the switcher
+        // needs to offer a way back.
+        $props = $this->actingAs($existing->fresh())->get(route('dashboard'))->viewData('page')['props'];
+
+        $this->assertNull($props['auth']['b2b']['active']);
+        $this->assertTrue($props['auth']['b2b']['personal_available']);
+        $this->assertCount(1, $props['auth']['b2b']['memberships']);
+        $this->assertSame($company->b2b_id, $props['auth']['b2b']['memberships'][0]['b2b_id']);
+
+        // And the way back actually works.
+        $this->actingAs($existing->fresh())
+            ->post(route('b2b.switch'), ['b2b_id' => $company->b2b_id])
+            ->assertRedirect(route('dashboard'));
+
+        $this->assertSame($company->b2b_id, $existing->fresh()->active_b2b_id);
     }
 
     public function test_context_resolution_reports_the_right_side_for_a_dual_context_user(): void

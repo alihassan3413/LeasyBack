@@ -9,9 +9,11 @@ export interface OrderMessage {
     created_at: string | null;
 }
 
-/** Matches OrderMessageService::paginate()'s envelope. */
+/** Matches OrderMessageController::index() — OrderMessageService::paginate()'s envelope plus the send permission. */
 export interface OrderMessagePage {
     data: OrderMessage[];
     unread_count: number;
     next_page: number | null;
+    /** OrderPolicy::sendMessage for the reader — false for a read-only company member. */
+    can_send: boolean;
 }

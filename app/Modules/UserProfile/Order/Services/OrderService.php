@@ -2,6 +2,7 @@
 
 namespace App\Modules\UserProfile\Order\Services;
 
+use App\Enums\OrderStatus;
 use App\Models\InspectionStation;
 use App\Models\OrderAuditLog;
 use App\Models\User;
@@ -12,9 +13,14 @@ use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Vehicle\Services\VehicleService;
 use App\Services\Mail\OrderMailer;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Http\Client\Response;
 use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
+use Throwable;
 
 /**
  * Order-creation logic extracted from the Sanctum API OrderController so
@@ -255,11 +261,25 @@ class OrderService
      * Send an order_requested order to TÜV SÜD and transition it to
      * order_placed on success. Extracted from the Sanctum OrderController
      * so the new Admin web OrderController (Checkpoint 11) can reuse the
-     * exact same external-call/persistence logic. The caller is
-     * responsible for the "is this order actually approvable right now"
-     * pre-check (via TransitionOrderStatus::allowedNextStatuses) — this
-     * method lets a genuine race-condition ValidationException from
-     * __invoke() propagate uncaught, same as the original inline code did.
+     * exact same external-call/persistence logic.
+     *
+     * The order only moves once TÜV SÜD has accepted the booking. The
+     * integration contract this app relies on is the HTTP layer — the portal's
+     * response body carries no documented success field, and nothing in this
+     * app has ever interpreted one — so a 2xx answer is a booking, and a
+     * non-2xx answer, a timeout or any other transport error is not. On
+     * failure the order stays exactly as it was (`order_requested`, no
+     * `sent_at`, no response recorded), the failed attempt is audited, and the
+     * caller receives an HttpResponseException (502) to report.
+     *
+     * Two guards keep a retry from booking twice:
+     * - a short lock per order serialises concurrent approvals, and
+     * - the order's status is re-checked inside that lock, so an approval that
+     *   queued behind a successful one is refused (ValidationException, as
+     *   before) instead of sending a second booking.
+     *
+     * The TÜV SÜD credentials are added only to the outgoing request. They are
+     * never written to `request_payload`, which is shown to customers.
      */
     public function approveOrder(LeasybackOrder $order, User $user, ?string $callerIp): LeasybackOrder
     {
@@ -267,31 +287,45 @@ class OrderService
             return $this->approveB2bCollectionOrder($order, $user, $callerIp);
         }
 
-        $requestBody = $order->request_payload;
-        $requestBody['authentifizierung'] = [
-            'benutzername' => config('services.tuvsud.username'),
-            'token' => config('services.tuvsud.token'),
-        ];
+        $lock = Cache::lock('tuvsud-booking:'.$order->id, 60);
 
-        $response = Http::timeout(30)->post(config('services.tuvsud.url'), $requestBody);
-        $status = $response->status();
-        $respJson = $response->json() ?? ['ok' => false, 'status' => $status];
+        if (! $lock->get()) {
+            $this->fail(409, 'Die Buchung bei TÜV SÜD für diesen Auftrag läuft bereits. Bitte versuchen Sie es in einem Moment erneut.');
+        }
 
-        $order = $this->transitionOrderStatus->__invoke(
-            $order,
-            'order_placed',
-            'admin',
-            $user->name ?? $user->email,
-            $user->id,
-            $callerIp,
-            null,
-            [
-                'sent_at' => now(),
-                'response_status' => $status,
-                'response_body' => $respJson,
-                'request_payload' => $requestBody,
-            ],
-        );
+        try {
+            $order = $order->fresh() ?? $order;
+
+            if (! in_array(OrderStatus::OrderPlaced->value, TransitionOrderStatus::allowedNextStatuses($order->order_status), true)) {
+                throw ValidationException::withMessages([
+                    'order_status' => "Cannot transition order from '{$order->order_status}' to 'order_placed'.",
+                ]);
+            }
+
+            $bookingPayload = self::withoutTuvsudCredentials((array) ($order->request_payload ?? []));
+            $response = $this->bookWithTuvsud($order, $bookingPayload, $user);
+            $status = $response->status();
+
+            $order = $this->transitionOrderStatus->__invoke(
+                $order,
+                OrderStatus::OrderPlaced->value,
+                'admin',
+                $user->name ?? $user->email,
+                $user->id,
+                $callerIp,
+                null,
+                [
+                    'sent_at' => now(),
+                    'response_status' => $status,
+                    'response_body' => $response->json() ?? ['ok' => false, 'status' => $status],
+                    // Rewritten without credentials, which also cleans a row
+                    // stored by earlier code that did include them.
+                    'request_payload' => $bookingPayload,
+                ],
+            );
+        } finally {
+            $lock->release();
+        }
 
         // "Approval with its external-call context" — an audit_log-worthy
         // lifecycle event beyond the plain status flip TransitionOrderStatus
@@ -302,6 +336,75 @@ class OrderService
         $this->auditOrder($order, 'APPROVE_ORDER', ['order_status' => 'order_requested'], ['order_status' => 'order_placed'], $user->id);
 
         return $order;
+    }
+
+    /**
+     * The booking payload as it may be stored and shown: everything the
+     * application reads (`auftrag`, `besichtigungsort`, …) without the
+     * `authentifizierung` block carrying the TÜV SÜD username and token.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    public static function withoutTuvsudCredentials(array $payload): array
+    {
+        unset($payload['authentifizierung']);
+
+        return $payload;
+    }
+
+    /**
+     * One booking request. Returns the response only when TÜV SÜD accepted it;
+     * every other outcome is audited and turned into a 502 for the caller,
+     * before anything about the order has been written.
+     *
+     * @param  array<string, mixed>  $bookingPayload
+     */
+    private function bookWithTuvsud(LeasybackOrder $order, array $bookingPayload, User $user): Response
+    {
+        try {
+            $response = Http::timeout(30)->post(config('services.tuvsud.url'), [
+                ...$bookingPayload,
+                'authentifizierung' => [
+                    'benutzername' => config('services.tuvsud.username'),
+                    'token' => config('services.tuvsud.token'),
+                ],
+            ]);
+        } catch (Throwable $e) {
+            $this->recordFailedBooking($order, $user, null, $e::class);
+
+            $this->fail(502, 'TÜV SÜD ist derzeit nicht erreichbar. Der Auftrag wurde nicht gebucht und bleibt angefragt.');
+        }
+
+        if (! $response->successful()) {
+            $this->recordFailedBooking($order, $user, $response->status(), null);
+
+            $this->fail(502, sprintf(
+                'TÜV SÜD hat die Buchung nicht angenommen (HTTP %d). Der Auftrag wurde nicht gebucht und bleibt angefragt.',
+                $response->status(),
+            ));
+        }
+
+        return $response;
+    }
+
+    /**
+     * Only the outcome is recorded — never the request or TÜV SÜD's response
+     * body, either of which may echo the credentials.
+     */
+    private function recordFailedBooking(LeasybackOrder $order, User $user, ?int $httpStatus, ?string $exception): void
+    {
+        Log::warning('TÜV SÜD booking failed; order left unchanged', [
+            'order_id' => $order->id,
+            'auftragsnummer' => $order->auftragsnummer,
+            'http_status' => $httpStatus,
+            'exception' => $exception,
+        ]);
+
+        $this->auditOrder($order, 'TUVSUD_BOOKING_FAILED', ['order_status' => $order->order_status], [
+            'http_status' => $httpStatus,
+            'exception' => $exception,
+        ], $user->id);
     }
 
     /**

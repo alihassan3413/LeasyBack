@@ -2,9 +2,11 @@
 
 namespace App\Modules\UserProfile\Payment\Services;
 
+use App\Enums\B2bPermission;
 use App\Enums\OrderStatus;
 use App\Models\LeasybackOrder as OrderRecord;
 use App\Models\User;
+use App\Modules\UserProfile\B2B\Services\B2bContext;
 use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 
@@ -82,9 +84,32 @@ class PaymentAuthorizer
             return false;
         }
 
-        return $user->can('cancel', $record)
-            && $this->isB2cOrder($record)
-            && OrderStatus::isCustomerCancellable($record->order_status);
+        if (! $user->can('cancel', $record)) {
+            return false;
+        }
+
+        if ($this->isB2cOrder($record)) {
+            return OrderStatus::isCustomerCancellable($record->order_status);
+        }
+
+        return $this->allowsB2bCancellation($user, $record);
+    }
+
+    /**
+     * §6: "A cancellation path must be available where permitted." A fleet
+     * customer may call off a return while LeasyBack is still only planning
+     * it — once the vehicle has been collected, work and cost have been
+     * committed on the customer's behalf and a cancellation goes through
+     * LeasyBack. It carries no fee: the B2C cancellation fee does not exist in
+     * this channel (B2cFeeService refuses B2B orders).
+     *
+     * Deciding to cancel is an order decision, so it needs the same right as
+     * creating one; read-only members never get it (§3).
+     */
+    public function allowsB2bCancellation(User $user, LeasybackOrder $order): bool
+    {
+        return in_array($order->order_status, OrderStatus::b2bCustomerCancellableValues(), true)
+            && app(B2bContext::class)->can($user, B2bPermission::CreateOrders);
     }
 
     /**

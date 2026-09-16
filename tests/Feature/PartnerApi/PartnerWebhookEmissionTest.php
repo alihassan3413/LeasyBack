@@ -17,6 +17,7 @@ use App\Modules\UserProfile\Order\Services\OrderCollectionService;
 use App\Modules\UserProfile\Order\Services\OrderService;
 use App\Modules\UserProfile\Order\Services\PartnerOfferAnnouncer;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle;
+use App\Modules\UserProfile\Vehicle\Models\VehicleReportDocument;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
@@ -122,6 +123,11 @@ class PartnerWebhookEmissionTest extends TestCase
         $this->makeSubscription($client);
 
         $order = $this->makeOrderFor($client->b2b_id, 'vehicle_collected');
+        VehicleReportDocument::factory()->create([
+            'auftragsnummer' => $order->auftragsnummer,
+            'vehicle_id' => $order->vehicle_id,
+            'document_type' => 'gutachten',
+        ]);
 
         app(TransitionOrderStatus::class)($order, 'inspected', 'test', 'Test');
 

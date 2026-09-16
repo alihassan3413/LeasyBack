@@ -3,9 +3,11 @@
 namespace App\Modules\UserProfile\Order\Services;
 
 use App\Models\B2bOrderNote;
+use App\Models\OrderAuditLog;
 use App\Models\User;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 /**
@@ -110,11 +112,37 @@ class B2bOrderNoteService
         ]);
     }
 
-    public function delete(string $orderId, string $noteId): bool
+    /**
+     * §19: a note — above all a customer-visible one — is part of the order's
+     * record, so removing it leaves an audit entry with what was removed.
+     */
+    public function delete(string $orderId, string $noteId, ?User $user = null): bool
     {
-        return B2bOrderNote::where('order_id', $orderId)
-            ->where('id', $noteId)
-            ->delete() > 0;
+        return DB::transaction(function () use ($orderId, $noteId, $user) {
+            $note = B2bOrderNote::where('order_id', $orderId)->where('id', $noteId)->lockForUpdate()->first();
+
+            if ($note === null) {
+                return false;
+            }
+
+            $note->delete();
+
+            OrderAuditLog::create([
+                'order_id' => $orderId,
+                'vehicle_id' => LeasybackOrder::whereKey($orderId)->value('vehicle_id'),
+                'action' => 'NOTE_DELETED',
+                'old_values' => [
+                    'note_id' => $note->id,
+                    'visibility' => $note->visibility,
+                    'body' => $note->body,
+                    'author_name' => $note->author_name,
+                ],
+                'new_values' => null,
+                'changed_by_user_id' => $user?->id,
+            ]);
+
+            return true;
+        });
     }
 
     /**

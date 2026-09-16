@@ -4,8 +4,12 @@ namespace Tests\Feature\Admin;
 
 use App\Enums\UserType;
 use App\Models\User;
+use App\Modules\UserProfile\B2B\Models\B2B;
 use App\Modules\UserProfile\Offer\Models\LeasybackOffer;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
+use App\Modules\UserProfile\Profile\Models\Address;
+use App\Modules\UserProfile\Profile\Models\Contact;
+use App\Modules\UserProfile\Vehicle\Models\Vehicle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -80,6 +84,51 @@ class OfferControllerTest extends TestCase
 
         $this->assertSame('375.00', (string) $offer->final_total_net);
         $this->assertSame('446.25', (string) $offer->final_total_gross);
+    }
+
+    /**
+     * B2B is priced net only (b2b.txt §9): CreateOfferModal sends no gross for a
+     * B2B order, so the endpoint must accept the four nets alone and store the
+     * gross columns as zero rather than refuse the offer.
+     */
+    public function test_a_b2b_manual_offer_can_be_created_from_net_amounts_alone(): void
+    {
+        $b2b = B2B::create([
+            'contact_id' => Contact::factory()->create()->contact_id,
+            'address_id' => Address::factory()->create()->address_id,
+            'company_name' => 'Acme GmbH',
+            'contact_email' => 'fleet@acme.example',
+        ]);
+        $order = LeasybackOrder::factory()->create([
+            'vehicle_id' => Vehicle::factory()->forB2b($b2b->b2b_id)->create()->vehicle_id,
+        ]);
+
+        $this->actingAs($this->admin())->post(route('admin.orders.offers.store', $order->id), [
+            'repair_cost_net' => 100,
+            'depreciation_value_net' => 50,
+            'workshop_repair_quote_net' => 0,
+            'missing_parts_cost_net' => 25,
+        ])->assertRedirect()->assertSessionHasNoErrors();
+
+        $offer = LeasybackOffer::where('order_id', $order->id)->firstOrFail();
+
+        $this->assertEquals(175, (float) $offer->final_total_net);
+        $this->assertEquals(0, (float) $offer->final_total_gross);
+        $this->assertEquals(0, (float) $offer->repair_cost_gross);
+    }
+
+    public function test_a_b2c_manual_offer_still_requires_the_gross_amounts(): void
+    {
+        $order = LeasybackOrder::factory()->create();
+
+        $this->actingAs($this->admin())->post(route('admin.orders.offers.store', $order->id), [
+            'repair_cost_net' => 100,
+            'depreciation_value_net' => 50,
+            'workshop_repair_quote_net' => 0,
+            'missing_parts_cost_net' => 25,
+        ])->assertSessionHasErrors(['repair_cost_gross', 'depreciation_value_gross', 'workshop_repair_quote_gross', 'missing_parts_cost_gross']);
+
+        $this->assertDatabaseMissing('leasyback_offers', ['order_id' => $order->id]);
     }
 
     public function test_offer_sequence_increments_per_order(): void

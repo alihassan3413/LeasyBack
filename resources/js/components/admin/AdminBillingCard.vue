@@ -7,6 +7,11 @@
  * completion gate reads. Marking processed is one-way: the server does not
  * offer un-marking, because a completed order would then lose the
  * justification it was completed on.
+ *
+ * "Processed" must point at an actual invoice — a reference or an attached
+ * document — and the server refuses it otherwise; the form says so before the
+ * round trip. Editable only in `vehicle_returned` / `invoice_processed`
+ * (`editable`); afterwards the card is the read-only record.
  */
 import InputError from '@/components/InputError.vue';
 import { Input } from '@/components/ui/input';
@@ -20,6 +25,8 @@ const props = defineProps<{
     orderId: string;
     billing: AdminOrderBilling;
     reportDocuments: AdminReportDocument[];
+    /** AdminOrderDetail.editable.billing. */
+    editable: boolean;
 }>();
 
 const form = useForm(() => ({
@@ -30,6 +37,11 @@ const form = useForm(() => ({
 
 const isProcessed = computed(() => props.billing.is_processed);
 
+/** Mirrors B2bBillingService: a processed billing has to name its invoice. */
+const hasInvoice = computed(() => form.invoice_reference.trim() !== '' || form.invoice_document_id !== '');
+const invoiceMissing = computed(() => (form.mark_processed || isProcessed.value) && !hasInvoice.value);
+const canSubmit = computed(() => props.editable && !form.processing && !invoiceMissing.value);
+
 function formatDateTime(value: string | null): string {
     return formatPortalDateTimeShort(value) || '—';
 }
@@ -39,6 +51,10 @@ function documentLabel(document: AdminReportDocument): string {
 }
 
 function submit() {
+    if (!canSubmit.value) {
+        return;
+    }
+
     form.transform((data) => ({
         ...data,
         invoice_document_id: data.invoice_document_id === '' ? null : data.invoice_document_id,
@@ -70,39 +86,50 @@ function submit() {
             Der Auftrag kann erst abgeschlossen werden, wenn die Abrechnung als verarbeitet markiert ist.
         </p>
 
+        <p v-if="!editable" class="mb-3 rounded-[11px] bg-[#f6f9f8] px-3 py-2 text-[11.5px] text-[#6f8585]">
+            Die Abrechnung kann nur nach der Rückgabe an den Leasinggeber und vor dem Abschluss des Auftrags bearbeitet werden.
+        </p>
+
         <form class="flex flex-col gap-3" @submit.prevent="submit">
-            <div class="flex flex-col gap-1">
-                <label class="text-[12px] font-bold text-[#10393b]">Rechnungsnummer / Referenz</label>
-                <Input v-model="form.invoice_reference" placeholder="optional" />
-                <InputError :message="form.errors.invoice_reference" />
-            </div>
+            <fieldset :disabled="!editable" class="flex min-w-0 flex-col gap-3">
+                <div class="flex flex-col gap-1">
+                    <label class="text-[12px] font-bold text-[#10393b]">Rechnungsnummer / Referenz</label>
+                    <Input v-model="form.invoice_reference" :aria-invalid="!!form.errors.invoice_reference" />
+                    <InputError :message="form.errors.invoice_reference" />
+                </div>
 
-            <div class="flex flex-col gap-1">
-                <label class="text-[12px] font-bold text-[#10393b]">Rechnungsdokument</label>
-                <select
-                    v-model="form.invoice_document_id"
-                    class="w-full rounded-[13px] border border-[#e9efee] px-3 py-2 text-[12.5px] outline-none focus:border-[#01b990]"
+                <div class="flex flex-col gap-1">
+                    <label class="text-[12px] font-bold text-[#10393b]">Rechnungsdokument</label>
+                    <select
+                        v-model="form.invoice_document_id"
+                        class="w-full rounded-[13px] border border-[#e9efee] px-3 py-2 text-[12.5px] outline-none focus:border-[#01b990]"
+                    >
+                        <option value="">Kein Dokument verknüpft</option>
+                        <option v-for="document in reportDocuments" :key="document.id" :value="document.id">
+                            {{ documentLabel(document) }}
+                        </option>
+                    </select>
+                    <InputError :message="form.errors.invoice_document_id" />
+                </div>
+
+                <label v-if="!isProcessed" class="flex cursor-pointer items-center gap-2 text-[12px] font-bold text-[#10393b]">
+                    <input v-model="form.mark_processed" type="checkbox" class="size-3.5 accent-[#01b990]" />
+                    Abrechnung als verarbeitet markieren
+                </label>
+
+                <p v-if="editable && invoiceMissing" class="text-[11.5px] font-medium text-[#c0392b]">
+                    Für eine verarbeitete Abrechnung ist eine Rechnungsnummer oder ein Rechnungsdokument erforderlich.
+                </p>
+
+                <button
+                    v-if="editable"
+                    type="submit"
+                    :disabled="!canSubmit"
+                    class="self-end rounded-[13px] bg-[#10393b] px-4 py-2.5 text-[13px] font-bold text-white transition-all hover:opacity-90 disabled:opacity-50"
                 >
-                    <option value="">Kein Dokument verknüpft</option>
-                    <option v-for="document in reportDocuments" :key="document.id" :value="document.id">
-                        {{ documentLabel(document) }}
-                    </option>
-                </select>
-                <InputError :message="form.errors.invoice_document_id" />
-            </div>
-
-            <label v-if="!isProcessed" class="flex cursor-pointer items-center gap-2 text-[12px] font-bold text-[#10393b]">
-                <input v-model="form.mark_processed" type="checkbox" class="size-3.5 accent-[#01b990]" />
-                Abrechnung als verarbeitet markieren
-            </label>
-
-            <button
-                type="submit"
-                :disabled="form.processing"
-                class="self-end rounded-[13px] bg-[#10393b] px-4 py-2.5 text-[13px] font-bold text-white transition-all hover:opacity-90 disabled:opacity-50"
-            >
-                {{ form.processing ? 'Speichert...' : 'Abrechnung speichern' }}
-            </button>
+                    {{ form.processing ? 'Speichert...' : 'Abrechnung speichern' }}
+                </button>
+            </fieldset>
         </form>
     </div>
 </template>

@@ -136,6 +136,22 @@ enum OrderStatus: string
     }
 
     /**
+     * The B2B statuses in which a company user may cancel their own return:
+     * while the collection is still being planned, before LeasyBack has taken
+     * the vehicle.
+     *
+     * @return array<string>
+     */
+    public static function b2bCustomerCancellableValues(): array
+    {
+        return [
+            self::OrderRequested->value,
+            self::OrderPlaced->value,
+            self::Confirmed->value,
+        ];
+    }
+
+    /**
      * Whether a customer may still cancel their own order at this point.
      *
      * Stricter than "not closed", and deliberately so. `delivered` means the

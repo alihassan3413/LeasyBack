@@ -43,6 +43,18 @@ class OfferService
      */
     public function createOffer(LeasybackOrder $order, array $validated, User $user): LeasybackOffer
     {
+        // The same boundaries as a quotation-backed offer: nothing to offer on
+        // a closed order, and no second offer once the customer has decided.
+        $status = LeasybackOrder::whereKey($order->id)->value('order_status');
+
+        if ($status === null || in_array($status, OrderStatus::closedValues(), true)) {
+            $this->fail(422, 'Für einen abgeschlossenen oder stornierten Auftrag kann kein Angebot mehr erstellt werden.');
+        }
+
+        if (LeasybackOffer::where('order_id', $order->id)->where('offer_status', 'selected')->exists()) {
+            $this->fail(422, 'Für diesen Auftrag wurde bereits ein Angebot angenommen. Ein weiteres Angebot kann nicht erstellt werden.');
+        }
+
         return DB::transaction(function () use ($order, $validated, $user) {
             $maxSeq = LeasybackOffer::where('order_id', $order->id)->max('offer_sequence') ?? 0;
 
@@ -80,6 +92,13 @@ class OfferService
             $this->fail(422, 'Der Auftrag ist bereits abgeschlossen. Für einen abgeschlossenen Auftrag kann kein Angebot mehr veröffentlicht werden.');
         }
 
+        // Once the customer has accepted an offer the decision is made (see
+        // replayOrConflict()). Publishing a second one would put an
+        // acceptance button in front of them that can only ever fail.
+        if (LeasybackOffer::where('order_id', $offer->order_id)->whereIn('offer_status', ['selected'])->exists()) {
+            $this->fail(422, 'Für diesen Auftrag wurde bereits ein Angebot angenommen. Ein weiteres Angebot kann nicht veröffentlicht werden.');
+        }
+
         /*
          * Net, not gross: a B2B offer carries no gross at all
          * (OfferPricingPolicy stamps no rate for that channel), so a gross
@@ -105,6 +124,15 @@ class OfferService
             // manually created offer, which has no presentation row to freeze.
             $this->repairOfferService->snapshotOnPublish($offer);
 
+            // The snapshot re-derives the totals from the positions as they
+            // stand now, so the 0,00 € guard above has to hold for the frozen
+            // figures too — otherwise a position edited away between drafting
+            // and publishing slips a 0,00 € offer past it. Raised inside the
+            // transaction, so the snapshot rolls back with it.
+            if (bccomp((string) ($offer->fresh()?->final_total_net ?? '0'), '0', 2) <= 0) {
+                $this->fail(422, 'Ein Angebot über 0,00 € kann nicht veröffentlicht werden. Bitte prüfen Sie die Beträge.');
+            }
+
             $this->auditOffer($offer, 'published', ['offer_status' => 'draft'], ['offer_status' => 'published'], $user->id);
 
             $published = $offer->fresh();
@@ -129,7 +157,18 @@ class OfferService
     public function cancelOffer(LeasybackOffer $offer, ?string $reason, User $user): LeasybackOffer
     {
         return DB::transaction(function () use ($offer, $reason, $user) {
+            /** @var LeasybackOffer $offer */
+            $offer = LeasybackOffer::whereKey($offer->getKey())->lockForUpdate()->firstOrFail();
             $oldStatus = $offer->offer_status;
+
+            // Only an offer nobody has decided on can be withdrawn. An accepted
+            // offer is the customer's repair authorisation — cancelling it
+            // would leave its closed siblings with no way back and silently
+            // drop the order out of the savings figures — and a rejected one
+            // is the customer's answer, which must not be overwritten.
+            if (! in_array($oldStatus, ['draft', 'published'], true)) {
+                $this->fail(422, 'Nur Entwürfe und veröffentlichte Angebote können storniert werden.');
+            }
 
             $offer->update([
                 'offer_status' => 'cancelled',
@@ -231,6 +270,15 @@ class OfferService
 
         if ($locked->offer_status !== 'published') {
             $this->fail(400, 'This offer is no longer available');
+        }
+
+        // Acceptance is the repair authorisation (§10). A cancelled or
+        // otherwise closed order has nothing left to authorise, whether the
+        // customer clicks or an admin accepts on their behalf.
+        $orderStatus = LeasybackOrder::whereKey($locked->order_id)->value('order_status');
+
+        if ($orderStatus === null || in_array($orderStatus, OrderStatus::closedValues(), true)) {
+            $this->fail(422, 'Der Auftrag ist bereits abgeschlossen oder storniert. Das Angebot kann nicht mehr angenommen werden.');
         }
 
         // A quotation-backed offer may carry a validity date (§10). Enforced

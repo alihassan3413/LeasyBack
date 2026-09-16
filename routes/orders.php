@@ -6,6 +6,16 @@ use App\Http\Controllers\OrderMessageController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(['auth', 'active', 'verified'])->group(function () {
+    /*
+     * Every order the customer has, across their fleet. Gated on
+     * `vehicles.view` for the same reason `orders.show` is: an order is a
+     * vehicle's process, and which vehicles a company member reaches is
+     * already settled by VehicleScopeService — which the listing query runs
+     * through.
+     */
+    Route::get('auftraege', [OrderController::class, 'index'])
+        ->middleware('b2b.can:vehicles.view')->name('orders.index');
+
     Route::post('vehicles/{vehicleId}/orders', [OrderController::class, 'store'])
         ->middleware('b2b.can:orders.create')->name('orders.store');
 

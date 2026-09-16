@@ -628,13 +628,23 @@ class QuotationBackedOfferTest extends TestCase
     }
 
     /**
+     * The page listing this order's owner's fleet: its own page for a
+     * company, the dashboard for a Privatkunde, whose fleet is their
+     * dashboard. Both render the same payload (BuildsFleetPage).
+     */
+    private function fleetPagePath(LeasybackOrder $order): string
+    {
+        return $order->vehicle->vehicle_belongs === 'B2B' ? '/fahrzeuge' : '/dashboard';
+    }
+
+    /**
      * Every customer-visible offer on this order, in payload order.
      *
      * @return array<int, array<string, mixed>>
      */
     private function customerOffers(LeasybackOrder $order): array
     {
-        $page = $this->actingAs($this->ownerOf($order))->get('/dashboard')->viewData('page');
+        $page = $this->actingAs($this->ownerOf($order))->get($this->fleetPagePath($order))->viewData('page');
 
         foreach ($page['props']['vehicles'] ?? [] as $vehicle) {
             foreach ($vehicle['orders'] ?? [] as $payloadOrder) {
@@ -652,7 +662,7 @@ class QuotationBackedOfferTest extends TestCase
      */
     private function customerOffer(LeasybackOrder $order): array
     {
-        $page = $this->actingAs($this->ownerOf($order))->get('/dashboard')->viewData('page');
+        $page = $this->actingAs($this->ownerOf($order))->get($this->fleetPagePath($order))->viewData('page');
 
         foreach ($page['props']['vehicles'] ?? [] as $vehicle) {
             foreach ($vehicle['orders'] ?? [] as $payloadOrder) {

@@ -10,12 +10,17 @@
  *
  * Notes are not the message thread. Replies, read state and unread counts
  * belong to OrderMessages and are deliberately absent here.
+ *
+ * Deleting is a separate router visit, never the writing form: a successful
+ * useForm request snapshots the form's current values as its defaults, so
+ * deleting through it turned the half-written draft into what the next save
+ * "reset" back to.
  */
 import InputError from '@/components/InputError.vue';
 import { formatPortalDateTimeShort } from '@/lib/portalDate';
 import type { AdminOrderNote } from '@/types/admin';
-import { useForm } from '@inertiajs/vue3';
-import { computed } from 'vue';
+import { router, useForm } from '@inertiajs/vue3';
+import { computed, ref } from 'vue';
 import MdiNoteEditOutline from '~icons/mdi/note-edit-outline';
 
 const props = defineProps<{
@@ -23,10 +28,15 @@ const props = defineProps<{
     notes: AdminOrderNote[];
 }>();
 
-const form = useForm({
+// Function form, so `reset()` always returns to an empty note rather than to
+// whatever the defaults were last snapshotted as.
+const form = useForm(() => ({
     body: '',
     visibility: '' as '' | 'internal' | 'customer',
-});
+}));
+
+const deletingId = ref<string | null>(null);
+const deleteError = ref<string | null>(null);
 
 const canSubmit = computed(() => form.body.trim() !== '' && form.visibility !== '');
 
@@ -37,7 +47,10 @@ function submit() {
 
     form.post(route('admin.orders.notes.store', props.orderId), {
         preserveScroll: true,
-        onSuccess: () => form.reset(),
+        onSuccess: () => {
+            form.reset();
+            form.clearErrors();
+        },
     });
 }
 
@@ -46,7 +59,14 @@ function remove(note: AdminOrderNote) {
         return;
     }
 
-    form.delete(route('admin.orders.notes.destroy', [props.orderId, note.id]), { preserveScroll: true });
+    deletingId.value = note.id;
+    deleteError.value = null;
+
+    router.delete(route('admin.orders.notes.destroy', [props.orderId, note.id]), {
+        preserveScroll: true,
+        onError: (errors) => (deleteError.value = Object.values(errors)[0] ?? 'Die Notiz konnte nicht gelöscht werden.'),
+        onFinish: () => (deletingId.value = null),
+    });
 }
 
 function formatDateTime(value: string | null): string {
@@ -119,6 +139,8 @@ function formatDateTime(value: string | null): string {
         </form>
 
         <div v-if="notes.length" class="mt-5 space-y-3 border-t border-gray-100 pt-4">
+            <InputError :message="deleteError ?? undefined" />
+
             <div
                 v-for="note in notes"
                 :key="note.id"
@@ -133,7 +155,14 @@ function formatDateTime(value: string | null): string {
                         {{ note.visibility === 'customer' ? 'Kunde sichtbar' : 'Intern' }}
                     </span>
                     <span class="text-xs text-[#6f8585]">{{ note.author_name }} · {{ formatDateTime(note.created_at) }}</span>
-                    <button type="button" class="ml-auto text-xs text-red-600 hover:underline" @click="remove(note)">Löschen</button>
+                    <button
+                        type="button"
+                        :disabled="deletingId !== null"
+                        class="ml-auto text-xs text-red-600 hover:underline disabled:opacity-50"
+                        @click="remove(note)"
+                    >
+                        {{ deletingId === note.id ? 'Wird gelöscht…' : 'Löschen' }}
+                    </button>
                 </div>
                 <p class="text-sm whitespace-pre-line text-[#10393b]">{{ note.body }}</p>
             </div>

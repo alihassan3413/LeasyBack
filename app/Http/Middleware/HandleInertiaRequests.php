@@ -171,7 +171,7 @@ class HandleInertiaRequests extends Middleware
                     'company_name' => $membership->companyName,
                     'logo_url' => $membership->companyLogoUrl,
                     'role' => $membership->role->value,
-                    'role_label' => $membership->role->label(),
+                    'role_label' => $membership->roleLabel(),
                 ],
                 $memberships,
             ),

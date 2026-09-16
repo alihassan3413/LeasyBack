@@ -63,7 +63,18 @@ export interface AdminCustomerDetail {
     contact_email?: string | null;
     service_fee_amount?: string | null;
     service_fee_effective_from?: string | null;
-    members?: { user_id: number; user_email: string; role: string }[];
+    /** `role_label` is the named company role (B2bRolePreset::labelFor), matching the customer's team page. */
+    members?: { user_id: number; user_email: string; role: string; role_label: string }[];
+}
+
+/** CustomerController::show()'s `counts` — whole-customer figures, not the length of the capped lists. */
+export interface AdminCustomerCounts {
+    vehicles: number;
+    /** Vehicles whose latest order is in OrderStatus::activeValues(). */
+    vehicles_in_process: number;
+    orders: number;
+    /** Orders in OrderStatus::activeValues(). */
+    orders_open: number;
 }
 
 /** Minimal subset of AdminQueryService::vehicles()'s per-row shape, for the customer detail page's Fahrzeuge tab. */
@@ -213,11 +224,14 @@ export interface AdminWorkshopCommission {
     commissioned_at: string | null;
     workshop: AdminOfferWorkshop | null;
     offer_id: string | null;
+    /** Always null on a B2B order — B2B is priced net only. */
     offer_total_gross: string | null;
     offer_total_net: string | null;
     /** When the workshop actually received the repair order; null means it did not. */
     notified_at: string | null;
     can_commission: boolean;
+    /** True when the commission mail may be sent again. */
+    can_resend: boolean;
     /** Why not, when `can_commission` is false — see WorkshopCommissionService's BLOCKED_* constants. */
     blocked_reason: 'no_selected_offer' | 'manual_offer' | 'no_workshop_contact' | 'wrong_status' | null;
 }
@@ -369,9 +383,11 @@ export interface AdminLexwareInvoice {
 export interface AdminOrderDetail extends AdminOrderRow {
     offers: AdminOfferRow[];
     status_updates: AdminOrderStatusUpdate[];
-    /** Never includes `order_placed` (approve()'s job) or `discarded` (reject — not yet a confirmed feature). */
+    /** Already filtered server-side to what the backend accepts. Never `order_placed` (approve()'s job); `discarded` only for B2B. */
     available_transitions: string[];
     vehicle_belongs: 'B2B' | 'B2C';
+    /** Which cards the backend will still accept edits for, in the order's current status. */
+    editable: AdminOrderEditable;
     collection: OrderCollectionData | null;
     workshop_commission: AdminWorkshopCommission;
     /** Newest message the customer sent on the order thread, or null. */
@@ -398,6 +414,15 @@ export interface AdminOrderDetail extends AdminOrderRow {
     repair_payment_stage: RepairPaymentStage;
     /** Both audiences. null for a B2C order, which has no note surface. */
     notes: AdminOrderNote[] | null;
+}
+
+/** AdminQueryService::orderDetail()'s `editable` — mirrors the services' status guards. */
+export interface AdminOrderEditable {
+    collection: boolean;
+    repair_appointment: boolean;
+    positions: boolean;
+    billing: boolean;
+    offers: boolean;
 }
 
 /** B2C repair charge, as Admin sees it. Admin can read it but never settle it. */
@@ -528,4 +553,38 @@ export interface AdminVehicleList {
     total_inspected: number;
     total_delivered: number;
     data: AdminVehicleRow[];
+}
+
+/** One row of the admin dashboard's task list — AdminTaskQueryService::openTasks(). */
+export interface AdminOpenTask {
+    order_id: string;
+    auftragsnummer: string | null;
+    license_plate: string | null;
+    /** Company name for a fleet customer, account email for a private one. */
+    customer: string | null;
+    vehicle_belongs: 'B2B' | 'B2C' | null;
+    order_status: string | null;
+    key: string | null;
+    title: string | null;
+    section: string | null;
+    priority: AdminOrderTaskPriority;
+    /** TaskPriority::rank() — 4 (immediate_red) down to 0 (neutral). */
+    rank: number;
+    priority_date: string | null;
+    /** A follow-up (e.g. call the customer) rather than a step of the process. */
+    is_detached: boolean;
+}
+
+export interface AdminOpenTaskList {
+    /** Every open admin task across all active orders — a real total, not a floor. */
+    count: number;
+    /** Of those, how many are red or immediate — over all tasks, not the page. */
+    urgent: number;
+    /** Active orders resolved to produce it. */
+    scanned: number;
+    /** The channel the list is narrowed to, or null for both. */
+    channel: 'B2B' | 'B2C' | null;
+    /** Open admin tasks per channel — independent of `channel`, so the filter can show both. */
+    channel_counts: { B2B: number; B2C: number };
+    data: AdminOpenTask[];
 }

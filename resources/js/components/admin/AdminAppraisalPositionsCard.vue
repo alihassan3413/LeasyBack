@@ -10,13 +10,18 @@
  * Rendered for B2B and B2C alike. The damage images offered are the order's own
  * report documents, and the server re-derives that list rather than trusting
  * the ids posted back.
+ *
+ * Editable only while the server accepts positions (`editable`: before an
+ * offer is accepted, in confirmed / vehicle_collected / inspected). A position
+ * a workshop has already priced cannot be deleted; the server refuses that
+ * under the `positions` key, shown next to the save action.
  */
 import RequiredMark from '@/components/form/RequiredMark.vue';
 import InputError from '@/components/InputError.vue';
 import { Input } from '@/components/ui/input';
 import type { AdminAppraisalPosition, AdminAppraisalTotals, AdminReportDocument } from '@/types/admin';
 import { useForm } from '@inertiajs/vue3';
-import { computed, ref } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import MdiChevronDown from '~icons/mdi/chevron-down';
 import MdiClipboardListOutline from '~icons/mdi/clipboard-list-outline';
 import MdiPlus from '~icons/mdi/plus';
@@ -37,6 +42,8 @@ const props = defineProps<{
     positions: AdminAppraisalPosition[];
     totals: AdminAppraisalTotals | null;
     reportDocuments: AdminReportDocument[];
+    /** AdminOrderDetail.editable.positions. */
+    editable: boolean;
 }>();
 
 function toRow(position: AdminAppraisalPosition): PositionRow {
@@ -51,6 +58,8 @@ function toRow(position: AdminAppraisalPosition): PositionRow {
     };
 }
 
+// Function form: `form.reset()` re-reads `props.positions`, which is how the
+// form picks up the server's ids after a save.
 const form = useForm<{ positions: PositionRow[] }>(() => ({ positions: props.positions.map(toRow) }));
 
 /**
@@ -59,8 +68,33 @@ const form = useForm<{ positions: PositionRow[] }>(() => ({ positions: props.pos
  * turned a list of four into a page of blank boxes. A position that already
  * carries either starts open, so nothing filled in is hidden behind a chevron.
  */
-const openRows = ref(
-    new Set(props.positions.flatMap((position, index) => (position.damage_description || position.damage_image_document_ids.length ? [index] : []))),
+function initiallyOpenRows(positions: AdminAppraisalPosition[]): Set<number> {
+    return new Set(positions.flatMap((position, index) => (position.damage_description || position.damage_image_document_ids.length ? [index] : [])));
+}
+
+const openRows = ref(initiallyOpenRows(props.positions));
+
+/**
+ * Re-seeds the form from the stored positions. Without this a saved new row
+ * kept `id: null` in the form (Inertia preserves component state), so the
+ * next save deleted and re-created it — cascading away every workshop price
+ * attached to it.
+ */
+function reseedFromProps() {
+    form.reset();
+    form.clearErrors();
+    openRows.value = initiallyOpenRows(props.positions);
+}
+
+// Fresh positions from elsewhere (a live update, another card's save) replace a
+// form the admin has not touched; an edit in progress is left alone.
+watch(
+    () => props.positions,
+    () => {
+        if (!form.isDirty && !form.processing) {
+            reseedFromProps();
+        }
+    },
 );
 
 function toggleRow(index: number) {
@@ -110,6 +144,10 @@ function formatEuro(value: number | string | null | undefined): string {
 }
 
 function addPosition() {
+    if (!props.editable) {
+        return;
+    }
+
     form.positions.push({
         id: null,
         component: '',
@@ -148,7 +186,20 @@ function error(index: number, field: string): string | undefined {
 }
 
 function submit() {
-    form.put(route('admin.orders.appraisal-positions', props.orderId), { preserveScroll: true });
+    if (!props.editable) {
+        return;
+    }
+
+    form.put(route('admin.orders.appraisal-positions', props.orderId), {
+        preserveScroll: true,
+        // Awaited by useForm before it snapshots the defaults, so the re-seeded
+        // rows (with their server ids) become the new clean state. nextTick lets
+        // the fresh page props reach this component first.
+        onSuccess: async () => {
+            await nextTick();
+            reseedFromProps();
+        },
+    });
 }
 </script>
 
@@ -170,6 +221,10 @@ function submit() {
                 <span class="font-bold text-[#10393b] tabular-nums">{{ formatEuro(storedTotals.chargeable_total_net) }}</span> anrechenbar
             </p>
         </div>
+
+        <p v-if="!editable" class="mb-3 rounded-[11px] bg-[#f6f9f8] px-3 py-2 text-[11.5px] text-[#6f8585]">
+            Positionen können nur bis zur Annahme eines Angebots und nur zwischen Auftragsbestätigung und Begutachtung bearbeitet werden.
+        </p>
 
         <form class="flex flex-col gap-3" @submit.prevent="submit">
             <p v-if="!form.positions.length" class="rounded-[13px] bg-[#f6f9f8] py-8 text-center text-[12.5px] text-[#9bb0af]">
@@ -210,19 +265,27 @@ function submit() {
                         <div class="grid min-w-0 flex-1 gap-x-3 gap-y-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1.2fr)_132px_132px]">
                             <div class="flex min-w-0 flex-col gap-1">
                                 <label class="text-[12px] font-bold text-[#10393b] lg:sr-only">Bauteil / Position<RequiredMark /></label>
-                                <Input v-model="row.component" placeholder="z. B. Stoßfänger vorne" />
+                                <Input v-model="row.component" :disabled="!editable" placeholder="z. B. Stoßfänger vorne" />
                                 <InputError :message="error(index, 'component')" />
                             </div>
 
                             <div class="flex min-w-0 flex-col gap-1">
                                 <label class="text-[12px] font-bold text-[#10393b] lg:sr-only">Reparaturweg</label>
-                                <Input v-model="row.repair_method" placeholder="z. B. Lackierung" />
+                                <Input v-model="row.repair_method" :disabled="!editable" placeholder="z. B. Lackierung" />
                                 <InputError :message="error(index, 'repair_method')" />
                             </div>
 
                             <div class="flex min-w-0 flex-col gap-1">
                                 <label class="text-[12px] font-bold text-[#10393b] lg:sr-only">Gutachten netto (€)<RequiredMark /></label>
-                                <Input v-model="row.original_amount_net" type="number" step="0.01" min="0" inputmode="decimal" class="tabular-nums" />
+                                <Input
+                                    v-model="row.original_amount_net"
+                                    :disabled="!editable"
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    inputmode="decimal"
+                                    class="tabular-nums"
+                                />
                                 <InputError :message="error(index, 'original_amount_net')" />
                             </div>
 
@@ -230,6 +293,7 @@ function submit() {
                                 <label class="text-[12px] font-bold text-[#10393b] lg:sr-only">Anrechenbar netto (€)</label>
                                 <Input
                                     v-model="row.chargeable_amount_net"
+                                    :disabled="!editable"
                                     type="number"
                                     step="0.01"
                                     min="0"
@@ -258,6 +322,7 @@ function submit() {
                             </button>
 
                             <button
+                                v-if="editable"
                                 type="button"
                                 class="flex h-8 w-8 items-center justify-center rounded-[9px] text-[#bcccca] transition-all hover:bg-[#c0392b] hover:text-white"
                                 title="Position entfernen"
@@ -273,6 +338,7 @@ function submit() {
                             <label class="text-[11px] font-bold tracking-[0.04em] text-[#9bb0af] uppercase">Schadenbeschreibung</label>
                             <textarea
                                 v-model="row.damage_description"
+                                :disabled="!editable"
                                 rows="2"
                                 class="w-full resize-y rounded-[13px] border border-[#e9efee] bg-white px-3 py-2 text-[12.5px] outline-none focus:border-[#01b990]"
                                 placeholder="Optional"
@@ -295,6 +361,7 @@ function submit() {
                                     <input
                                         type="checkbox"
                                         :checked="row.damage_image_document_ids.includes(document.id)"
+                                        :disabled="!editable"
                                         class="size-3.5 shrink-0 accent-[#01b990]"
                                         @change="toggleImage(row, document.id)"
                                     />
@@ -307,6 +374,7 @@ function submit() {
             </div>
 
             <button
+                v-if="editable"
                 type="button"
                 class="flex items-center justify-center gap-1.5 rounded-[13px] border border-dashed border-[#cbd9d7] py-2.5 text-[12.5px] font-bold text-[#00856a] transition-colors hover:bg-[#f6f9f8]"
                 @click="addPosition"
@@ -315,7 +383,13 @@ function submit() {
                 Position hinzufügen
             </button>
 
-            <InputError :message="form.errors.positions" />
+            <p
+                v-if="form.errors.positions"
+                role="alert"
+                class="rounded-[11px] border border-[#c0392b]/25 bg-[#c0392b]/5 px-3 py-2 text-[12px] font-bold text-[#c0392b]"
+            >
+                {{ form.errors.positions }}
+            </p>
 
             <!--
                 Totals and the save action share one bar. The figures sit right next to
@@ -339,6 +413,7 @@ function submit() {
                 </dl>
 
                 <button
+                    v-if="editable"
                     type="submit"
                     :disabled="form.processing || !isDirty"
                     class="shrink-0 rounded-[13px] bg-[#10393b] px-5 py-2.5 text-[13px] font-bold text-white transition-all hover:opacity-90 disabled:opacity-50"
@@ -348,7 +423,7 @@ function submit() {
             </div>
 
             <button
-                v-else
+                v-else-if="editable"
                 type="submit"
                 :disabled="form.processing || !isDirty"
                 class="self-end rounded-[13px] bg-[#10393b] px-5 py-2.5 text-[13px] font-bold text-white transition-all hover:opacity-90 disabled:opacity-50"

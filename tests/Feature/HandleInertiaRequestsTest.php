@@ -17,7 +17,7 @@ class HandleInertiaRequestsTest extends TestCase
         $user = User::factory()->create(['user_type' => UserType::Firmenkunde]);
 
         $this->actingAs($user)
-            ->get(route('dashboard'))
+            ->get(route('onboarding.b2b.show'))
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->where('auth.user.name', $user->name)
                 ->where('auth.user.email', $user->email)

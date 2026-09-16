@@ -6,9 +6,12 @@ use App\Models\User;
 use App\Models\Vehicle;
 use App\Modules\PartnerApi\Services\PartnerWebhookEvents;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
+use App\Modules\UserProfile\Order\Models\OrderAuditLog;
 use App\Modules\UserProfile\Order\Models\OrderBilling;
+use App\Modules\UserProfile\Payment\Models\LexwareInvoice;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Minimal internal B2B billing (§13, §21).
@@ -26,6 +29,9 @@ use Illuminate\Validation\Rule;
  */
 class B2bBillingService
 {
+    /** Billing is prepared once the vehicle is back with the leasing company. */
+    public const EDITABLE_STATUSES = ['vehicle_returned', 'invoice_processed'];
+
     public function __construct(private readonly PartnerWebhookEvents $webhooks) {}
 
     /**
@@ -68,40 +74,102 @@ class B2bBillingService
             return;
         }
 
-        $billing = OrderBilling::where('order_id', $order->id)->first();
-        $markProcessed = (bool) ($validated['mark_processed'] ?? false);
-        $alreadyProcessed = $billing?->isProcessed() ?? false;
+        $status = LeasybackOrder::whereKey($order->id)->value('order_status');
 
-        $attributes = [
-            'auftragsnummer' => $order->auftragsnummer,
-            'invoice_reference' => $this->trimToNull($validated['invoice_reference'] ?? null),
-            'invoice_document_id' => $this->trimToNull($validated['invoice_document_id'] ?? null),
-            'updated_by_user_id' => $user->id,
-        ];
-
-        if ($markProcessed && ! $alreadyProcessed) {
-            $attributes['billing_status'] = OrderBilling::STATUS_PROCESSED;
-            $attributes['processed_at'] = now();
-            $attributes['processed_by_user_id'] = $user->id;
-        }
-
-        if ($billing === null) {
-            OrderBilling::create([
-                'order_id' => $order->id,
-                'billing_status' => OrderBilling::STATUS_PENDING,
-                'created_by_user_id' => $user->id,
-                ...$attributes,
+        // Billing follows the return to the leasing company (§6, §13). Before
+        // that there is nothing to bill; after completion the billing is the
+        // record the order was closed on and must not change underneath it.
+        if (! in_array($status, self::EDITABLE_STATUSES, true)) {
+            throw ValidationException::withMessages([
+                'invoice_reference' => 'Die Abrechnung kann nur nach der Rückgabe an den Leasinggeber und vor dem Abschluss des Auftrags bearbeitet werden.',
             ]);
-        } else {
-            $billing->update($attributes);
         }
+
+        $becameProcessed = DB::transaction(function () use ($order, $user, $validated): bool {
+            $billing = OrderBilling::where('order_id', $order->id)->lockForUpdate()->first();
+            $markProcessed = (bool) ($validated['mark_processed'] ?? false);
+            $alreadyProcessed = $billing?->isProcessed() ?? false;
+
+            // Only the fields actually sent are written, so saving the reference
+            // cannot wipe the attached document and vice versa.
+            $reference = array_key_exists('invoice_reference', $validated)
+                ? $this->trimToNull($validated['invoice_reference'])
+                : $billing?->invoice_reference;
+            $documentId = array_key_exists('invoice_document_id', $validated)
+                ? $this->trimToNull($validated['invoice_document_id'])
+                : $billing?->invoice_document_id;
+
+            // "Processed" is what unlocks completion, so it has to point at an
+            // actual invoice — and keep pointing at one once it is set.
+            $hasLexwareDraft = LexwareInvoice::where('order_id', $order->id)
+                ->where('purpose', B2bLexwareDraftService::PURPOSE)
+                ->exists();
+
+            if (($markProcessed || $alreadyProcessed) && $reference === null && $documentId === null && ! $hasLexwareDraft) {
+                throw ValidationException::withMessages([
+                    'invoice_reference' => 'Bitte erstellen Sie den Lexware-Rechnungsentwurf, geben Sie eine Rechnungsnummer an oder hängen Sie das Rechnungsdokument an, bevor die Abrechnung als verarbeitet gilt.',
+                ]);
+            }
+
+            $attributes = [
+                'auftragsnummer' => $order->auftragsnummer,
+                'invoice_reference' => $reference,
+                'invoice_document_id' => $documentId,
+                'updated_by_user_id' => $user->id,
+            ];
+
+            if ($markProcessed && ! $alreadyProcessed) {
+                $attributes['billing_status'] = OrderBilling::STATUS_PROCESSED;
+                $attributes['processed_at'] = now();
+                $attributes['processed_by_user_id'] = $user->id;
+            }
+
+            $old = $billing === null ? null : [
+                'billing_status' => $billing->billing_status,
+                'invoice_reference' => $billing->invoice_reference,
+                'invoice_document_id' => $billing->invoice_document_id,
+            ];
+
+            if ($billing === null) {
+                $billing = OrderBilling::create([
+                    'order_id' => $order->id,
+                    'billing_status' => OrderBilling::STATUS_PENDING,
+                    'created_by_user_id' => $user->id,
+                    ...$attributes,
+                ]);
+            } else {
+                $billing->update($attributes);
+            }
+
+            $new = [
+                'billing_status' => $billing->billing_status,
+                'invoice_reference' => $billing->invoice_reference,
+                'invoice_document_id' => $billing->invoice_document_id,
+            ];
+
+            // §19: billing is what gates completion, so every change to it is
+            // part of the audit history. A save that changes nothing writes
+            // nothing.
+            if ($old != $new) {
+                OrderAuditLog::create([
+                    'order_id' => $order->id,
+                    'vehicle_id' => $order->vehicle_id,
+                    'action' => $markProcessed && ! $alreadyProcessed ? 'BILLING_PROCESSED' : 'BILLING_UPDATED',
+                    'old_values' => $old,
+                    'new_values' => $new,
+                    'changed_by_user_id' => $user->id,
+                ]);
+            }
+
+            return $markProcessed && ! $alreadyProcessed;
+        });
 
         // Only on the transition into processed, and only once — `update()`
         // refuses to unmark, so this can never fire twice for one order. The
         // event carries the state, not the figures: no partner endpoint serves
         // billing amounts, and a webhook must not be a side door into data no
         // endpoint serves.
-        if ($markProcessed && ! $alreadyProcessed) {
+        if ($becameProcessed) {
             $this->webhooks->billingCompleted($order->fresh() ?? $order, $vehicle);
         }
     }
@@ -120,8 +188,41 @@ class B2bBillingService
      */
     public function forOrder(string $orderId): ?array
     {
-        $billing = OrderBilling::where('order_id', $orderId)->first();
+        return $this->present(OrderBilling::where('order_id', $orderId)->first());
+    }
 
+    /**
+     * Billing for many orders in one query, keyed by order id.
+     *
+     * An order with no billing row still gets the pending default, exactly as
+     * forOrder() returns it — the caller must not have to tell "no row yet"
+     * apart from "not loaded".
+     *
+     * @param  array<int, string>  $orderIds
+     * @return array<string, array<string, mixed>>
+     */
+    public function forOrders(array $orderIds): array
+    {
+        if ($orderIds === []) {
+            return [];
+        }
+
+        $rows = OrderBilling::whereIn('order_id', $orderIds)->get()->keyBy('order_id');
+
+        $billing = [];
+
+        foreach ($orderIds as $orderId) {
+            $billing[$orderId] = $this->present($rows->get($orderId));
+        }
+
+        return $billing;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function present(?OrderBilling $billing): array
+    {
         if ($billing === null) {
             return [
                 'billing_status' => OrderBilling::STATUS_PENDING,

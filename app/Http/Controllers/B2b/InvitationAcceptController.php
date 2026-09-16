@@ -3,9 +3,11 @@
 namespace App\Http\Controllers\B2b;
 
 use App\Enums\B2bRole;
+use App\Enums\B2bRolePreset;
 use App\Enums\UserType;
 use App\Http\Controllers\Concerns\HandlesServiceValidationErrors;
 use App\Http\Controllers\Controller;
+use App\Models\User;
 use App\Modules\UserProfile\B2B\Data\B2bPermissionSet;
 use App\Modules\UserProfile\B2B\Services\B2bInvitationService;
 use Illuminate\Http\RedirectResponse;
@@ -43,19 +45,46 @@ class InvitationAcceptController extends Controller
                 'token' => $token,
                 'invitation' => null,
                 'status' => $invitation?->status() ?? 'invalid',
+                'account_exists' => false,
                 'viewer' => null,
             ]);
+        }
+
+        $role = B2bRole::tryFrom($invitation->role) ?? B2bRole::Member;
+        $permissions = $role === B2bRole::Owner
+            ? B2bPermissionSet::all()
+            : B2bPermissionSet::fromRaw($invitation->permissions);
+
+        /*
+         * Whether the invited address already has an account decides which one
+         * thing this page asks for: sign in, or register. Offering both and
+         * explaining the difference in a paragraph made the reader do the
+         * lookup we can do for them.
+         *
+         * Not account enumeration: answering requires a valid, pending
+         * invitation token, and whoever holds it was sent this address in the
+         * first place — the page prints it either way.
+         */
+        $accountExists = $user === null && User::whereRaw('LOWER(email) = ?', [Str::lower($invitation->email)])->exists();
+
+        // So signing in returns here instead of dropping them on the dashboard
+        // with the invitation still unaccepted (login uses redirect()->intended).
+        if ($user === null) {
+            $request->session()->put('url.intended', $request->fullUrl());
         }
 
         return Inertia::render('b2b/InvitationAccept', [
             'token' => $token,
             'status' => 'pending',
+            'account_exists' => $accountExists,
             'invitation' => [
                 'company_name' => $invitation->company?->company_name ?? '',
                 'company_logo_url' => $invitation->company?->logo_url,
                 'email' => $invitation->email,
-                'role_label' => (B2bRole::tryFrom($invitation->role) ?? B2bRole::Member)->label(),
-                'permissions' => B2bPermissionSet::fromRaw($invitation->permissions)->toArray(),
+                // The named company role, matching what the team page shows —
+                // "Mitglied" said nothing about what they may actually do.
+                'role_label' => B2bRolePreset::labelFor($role, $permissions),
+                'permissions' => $permissions->toArray(),
                 'vehicle_scope' => $invitation->vehicle_scope,
                 'expires_at' => $invitation->expires_at->toISOString(),
             ],

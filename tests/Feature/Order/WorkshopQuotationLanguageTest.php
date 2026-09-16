@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Order;
 
+use App\Modules\UserProfile\Order\Models\AppraisalPosition;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Order\Services\WorkshopQuotationService;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle;
@@ -25,6 +26,12 @@ class WorkshopQuotationLanguageTest extends TestCase
 
         $vehicle = Vehicle::factory()->create(['vehicle_belongs' => 'B2C', 'b2b_id' => null]);
         $order = LeasybackOrder::factory()->create(['vehicle_id' => $vehicle->vehicle_id, 'order_status' => 'inspected']);
+        AppraisalPosition::create([
+            'order_id' => $order->id,
+            'auftragsnummer' => $order->auftragsnummer,
+            'component' => 'Stoßfänger vorne',
+            'original_amount_net' => '500.00',
+        ]);
 
         $invite = app(WorkshopQuotationService::class)
             ->invite($order, $this->makeAdmin(), ['workshop_label' => 'Karosserie Meier GmbH']);
@@ -48,6 +55,12 @@ class WorkshopQuotationLanguageTest extends TestCase
 
         $vehicle = Vehicle::factory()->create(['vehicle_belongs' => 'B2C', 'b2b_id' => null]);
         $order = LeasybackOrder::factory()->create(['vehicle_id' => $vehicle->vehicle_id, 'order_status' => 'inspected']);
+        AppraisalPosition::create([
+            'order_id' => $order->id,
+            'auftragsnummer' => $order->auftragsnummer,
+            'component' => 'Stoßfänger vorne',
+            'original_amount_net' => '500.00',
+        ]);
 
         $invite = app(WorkshopQuotationService::class)
             ->invite($order, $this->makeAdmin(), ['workshop_label' => 'Karosserie Meier GmbH']);

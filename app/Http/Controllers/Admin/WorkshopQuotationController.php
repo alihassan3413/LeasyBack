@@ -30,7 +30,13 @@ class WorkshopQuotationController extends Controller
 
         $validated = $request->validate(WorkshopQuotationService::inviteRules());
 
-        $result = $this->workshopQuotationService->invite($order, $request->user(), $validated);
+        try {
+            $result = $this->workshopQuotationService->invite($order, $request->user(), $validated);
+        } catch (HttpResponseException $e) {
+            $message = $e->getResponse()->getData(true)['error'] ?? 'Werkstattlink konnte nicht erstellt werden.';
+
+            return back()->withErrors(['workshop_label' => $message])->with('error', $message);
+        }
 
         // The link is flashed regardless of how the send went. When the email
         // failed it is the fallback an admin sends by hand; when no address was
@@ -78,7 +84,13 @@ class WorkshopQuotationController extends Controller
 
         $this->order($quotation->order_id);
 
-        $this->workshopQuotationService->revoke($quotation, $request->user());
+        try {
+            $this->workshopQuotationService->revoke($quotation, $request->user());
+        } catch (HttpResponseException $e) {
+            $message = $e->getResponse()->getData(true)['error'] ?? 'Werkstattlink konnte nicht widerrufen werden.';
+
+            return back()->withErrors(['quotation' => $message])->with('error', $message);
+        }
 
         return back()->with('success', 'Werkstattlink wurde widerrufen.');
     }

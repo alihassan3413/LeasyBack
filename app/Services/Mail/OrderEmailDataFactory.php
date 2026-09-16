@@ -4,6 +4,8 @@ namespace App\Services\Mail;
 
 use App\Modules\UserProfile\Offer\Models\LeasybackOffer;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
+use App\Modules\UserProfile\Order\Models\LogisticsAddressProfile;
+use App\Modules\UserProfile\Order\Models\OrderLogistics;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle;
 use App\Support\OrderStatusLabel;
 use Carbon\CarbonInterface;
@@ -79,6 +81,12 @@ class OrderEmailDataFactory
         ?string $documentUrl = null,
     ): OrderEmailData {
         $station = $this->stationPayload($order);
+        $isB2b = $vehicle?->vehicle_belongs === 'B2B';
+        $logistics = $isB2b ? OrderLogistics::where('auftragsnummer', $order->auftragsnummer)->first() : null;
+
+        // A B2B offer is net-only (§9/§21). Its gross columns are placeholders
+        // and must never be presented as a gross price.
+        $netOnly = $offer !== null && $isB2b;
 
         return new OrderEmailData(
             recipientName: trim($recipientName) !== '' ? trim($recipientName) : 'Kunde',
@@ -94,10 +102,17 @@ class OrderEmailDataFactory
             stationAddress: $this->stationAddress($station),
             provider: $this->providerLabel($order->leasyback_partner),
             remarks: $this->stringOrNull($order->request_payload['auftrag']['bemerkung'] ?? null),
-            offerTotalGross: $this->money($offer?->final_total_gross),
+            offerTotalGross: $netOnly ? null : $this->money($offer?->final_total_gross),
             actionUrl: $actionUrl,
             invoiceNumber: $invoiceNumber,
             documentUrl: $documentUrl,
+            offerTotalNet: $netOnly ? $this->money($offer->final_total_net) : null,
+            requestedCollectionDate: $this->plainDate($logistics?->requested_collection_date),
+            confirmedCollectionDate: $this->plainDate($logistics?->confirmed_collection_date),
+            collectionAddress: $this->collectionAddress($logistics),
+            repairStartDate: in_array($order->order_status, ['workshop_commissioned', 'workshop'], true)
+                ? $this->plainDate($logistics?->confirmed_repair_start_date)
+                : null,
         );
     }
 
@@ -168,6 +183,38 @@ class OrderEmailDataFactory
         }
 
         return number_format((float) $amount, 2, ',', '.').' €';
+    }
+
+    /**
+     * Collection and repair dates are plain calendar days — no time and no
+     * timezone conversion, or a date near midnight would move by a day.
+     */
+    private function plainDate(mixed $date): ?string
+    {
+        return $date instanceof CarbonInterface ? $date->format('d.m.Y') : null;
+    }
+
+    private function collectionAddress(?OrderLogistics $logistics): ?string
+    {
+        if ($logistics === null) {
+            return null;
+        }
+
+        $address = $logistics->pickup_details;
+
+        if ($address === null && $logistics->pickup_profile_id !== null) {
+            $address = LogisticsAddressProfile::where('id', $logistics->pickup_profile_id)->value('details');
+        }
+
+        if (! is_array($address)) {
+            return null;
+        }
+
+        $street = trim(($address['street'] ?? '').' '.($address['number'] ?? ''));
+        $city = trim(($address['zip_code'] ?? '').' '.($address['city'] ?? ''));
+        $line = trim(implode(', ', array_filter([$street, $city])), ', ');
+
+        return $line !== '' ? $line : null;
     }
 
     private function formatDate(CarbonInterface $date): string

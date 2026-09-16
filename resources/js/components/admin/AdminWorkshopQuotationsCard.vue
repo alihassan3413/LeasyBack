@@ -19,6 +19,12 @@
  * into a customer offer used to be hidden for B2C because the endpoint refused
  * it; the quotation-backed offer flow serves both channels, so the action is
  * offered wherever there is a submitted quotation to take.
+ *
+ * Inviting and taking a quotation as an offer follow `editable`
+ * (AdminOrderDetail.editable.offers: `inspected`, nothing accepted yet). A
+ * refusal comes back under `workshop_label` (invite), `offer` (take) or
+ * `quotation` (revoke) and is shown in the card. A submitted quotation is never
+ * revocable.
  */
 import WorkshopQuotationComparison from '@/components/admin/WorkshopQuotationComparison.vue';
 import RequiredMark from '@/components/form/RequiredMark.vue';
@@ -27,7 +33,7 @@ import { Input } from '@/components/ui/input';
 import { formatPortalDate } from '@/lib/portalDate';
 import type { AdminWorkshopQuotation } from '@/types/admin';
 import { router, useForm, usePage } from '@inertiajs/vue3';
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, ref, useTemplateRef, watch } from 'vue';
 import MdiContentCopy from '~icons/mdi/content-copy';
 import MdiLinkVariant from '~icons/mdi/link-variant';
 import MdiPlus from '~icons/mdi/plus';
@@ -36,6 +42,8 @@ const props = defineProps<{
     orderId: string;
     quotations: AdminWorkshopQuotation[];
     hasPositions: boolean;
+    /** AdminOrderDetail.editable.offers — gates inviting workshops and creating offers. */
+    editable: boolean;
 }>();
 
 const page = usePage();
@@ -60,6 +68,32 @@ const issuedLink = computed(() => (page.props.flash as Record<string, string | u
  * off the bottom of the column.
  */
 const inviteOpen = ref(false);
+const inviteFormElement = useTemplateRef<HTMLFormElement>('inviteForm');
+
+/**
+ * Opens the invite form and puts the cursor in its first field — the task
+ * card's "Werkstatt einladen" and a `?section=angebote` deep link both land
+ * here. Returns false when inviting is not possible right now.
+ */
+async function openInvite(): Promise<boolean> {
+    if (!props.editable) {
+        return false;
+    }
+
+    inviteOpen.value = true;
+    await nextTick();
+    inviteFormElement.value?.querySelector<HTMLElement>('input:not([type=hidden]):not([disabled])')?.focus({ preventScroll: true });
+
+    return true;
+}
+
+defineExpose({ openInvite });
+
+/** The refusal of the last revoke — a plain router visit, so tracked here. */
+const revokeError = ref<string | null>(null);
+
+/** Refusals of the row actions: taking a quotation as an offer, or revoking a link. */
+const rowError = computed(() => (offerForm.errors as Record<string, string | undefined>).offer ?? revokeError.value);
 
 // A freshly issued link is displayed once and never again, so a reload that
 // lands on a collapsed card must still put it in front of the admin.
@@ -100,7 +134,11 @@ function submit() {
 }
 
 function revoke(quotationId: string) {
-    router.delete(route('admin.orders.workshop-quotations.revoke', quotationId), { preserveScroll: true });
+    revokeError.value = null;
+    router.delete(route('admin.orders.workshop-quotations.revoke', quotationId), {
+        preserveScroll: true,
+        onError: (errors) => (revokeError.value = errors.quotation ?? Object.values(errors)[0] ?? null),
+    });
 }
 
 /**
@@ -138,6 +176,7 @@ async function copyLink(link: string) {
             </div>
 
             <button
+                v-if="editable"
                 type="button"
                 class="flex shrink-0 items-center gap-1.5 rounded-[13px] border border-[#e9efee] bg-white px-3 py-1.5 text-[12px] font-bold text-[#10393b] transition-all hover:border-[#10393b] hover:bg-[#f4f7f6]"
                 @click="inviteOpen = !inviteOpen"
@@ -166,7 +205,28 @@ async function copyLink(link: string) {
             Erfassen Sie zuerst die Gutachtenpositionen — eine Werkstatt kann sonst nichts bepreisen.
         </p>
 
-        <form v-if="inviteOpen" class="mb-4 flex flex-col gap-2 rounded-[13px] border border-[#e9efee] p-3" @submit.prevent="submit">
+        <p
+            v-if="form.errors.workshop_label && !(inviteOpen && editable)"
+            role="alert"
+            class="mb-4 rounded-[11px] border border-[#c0392b]/25 bg-[#c0392b]/5 px-3 py-2 text-[12px] font-bold text-[#c0392b]"
+        >
+            {{ form.errors.workshop_label }}
+        </p>
+
+        <p
+            v-if="rowError"
+            role="alert"
+            class="mb-4 rounded-[11px] border border-[#c0392b]/25 bg-[#c0392b]/5 px-3 py-2 text-[12px] font-bold text-[#c0392b]"
+        >
+            {{ rowError }}
+        </p>
+
+        <form
+            v-if="inviteOpen && editable"
+            ref="inviteForm"
+            class="mb-4 flex flex-col gap-2 rounded-[13px] border border-[#e9efee] p-3"
+            @submit.prevent="submit"
+        >
             <div class="flex flex-col gap-1">
                 <label class="text-[12px] font-bold text-[#10393b]">Werkstatt<RequiredMark /></label>
                 <Input v-model="form.workshop_label" placeholder="Name der Werkstatt" />
@@ -243,7 +303,7 @@ async function copyLink(link: string) {
                     </button>
 
                     <button
-                        v-if="quotation.status === 'submitted' && !quotation.customer_offer"
+                        v-if="quotation.status === 'submitted' && !quotation.customer_offer && editable"
                         type="button"
                         :disabled="offerForm.processing"
                         class="text-[11.5px] font-bold text-[#10393b] hover:opacity-70 disabled:opacity-50"
