@@ -136,6 +136,35 @@ enum OrderStatus: string
     }
 
     /**
+     * The Admin order list's "Offen" filter tab: a request or appointment
+     * exists, but no real operational work — appraisal, workshop, return —
+     * has started yet.
+     *
+     * @return array<string>
+     */
+    public static function openValues(): array
+    {
+        return [
+            self::OrderRequested->value,
+            self::OrderPlaced->value,
+            self::Confirmed->value,
+        ];
+    }
+
+    /**
+     * The Admin order list's "In Bearbeitung" filter tab: every active status
+     * once real operational work is underway — everything activeValues()
+     * covers that openValues() does not. Derived from the two, so it can
+     * never drift out of sync with either.
+     *
+     * @return array<string>
+     */
+    public static function inProgressValues(): array
+    {
+        return array_values(array_diff(self::activeValues(), self::openValues()));
+    }
+
+    /**
      * The B2B statuses in which a company user may cancel their own return:
      * while the collection is still being planned, before LeasyBack has taken
      * the vehicle.

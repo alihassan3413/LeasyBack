@@ -29,6 +29,7 @@ declare global {
   const PORTAL_TIME_ZONE: typeof import('../lib/portalDate').PORTAL_TIME_ZONE
   const REPORT_DOCUMENT_TYPES: typeof import('../lib/documentTypes').REPORT_DOCUMENT_TYPES
   const SERVICES: typeof import('../lib/services').SERVICES
+  const TASK_PRIORITY_STYLE: typeof import('../lib/adminTaskPriority').TASK_PRIORITY_STYLE
   const VEHICLE_BRANDS: typeof import('../lib/vehicleBrands').VEHICLE_BRANDS
   const VEHICLE_BRAND_OPTIONS: typeof import('../lib/vehicleBrands').VEHICLE_BRAND_OPTIONS
   const VEHICLE_STATUS_FILTER_OPTIONS: typeof import('../lib/vehicleStatus').VEHICLE_STATUS_FILTER_OPTIONS
@@ -118,6 +119,7 @@ declare global {
   const splitOrderHistory: typeof import('../lib/orderHistory').splitOrderHistory
   const storeToRefs: typeof import('pinia').storeToRefs
   const summariseOrder: typeof import('../lib/orderHistory').summariseOrder
+  const taskPriorityStyle: typeof import('../lib/adminTaskPriority').taskPriorityStyle
   const timelineDotStyle: typeof import('../lib/timeline').timelineDotStyle
   const timelineLineStyle: typeof import('../lib/timeline').timelineLineStyle
   const toOrderTimelineEntries: typeof import('../lib/timeline').toOrderTimelineEntries
@@ -244,6 +246,7 @@ declare module 'vue' {
     readonly PORTAL_TIME_ZONE: UnwrapRef<typeof import('../lib/portalDate')['PORTAL_TIME_ZONE']>
     readonly REPORT_DOCUMENT_TYPES: UnwrapRef<typeof import('../lib/documentTypes')['REPORT_DOCUMENT_TYPES']>
     readonly SERVICES: UnwrapRef<typeof import('../lib/services')['SERVICES']>
+    readonly TASK_PRIORITY_STYLE: UnwrapRef<typeof import('../lib/adminTaskPriority')['TASK_PRIORITY_STYLE']>
     readonly VEHICLE_BRANDS: UnwrapRef<typeof import('../lib/vehicleBrands')['VEHICLE_BRANDS']>
     readonly VEHICLE_BRAND_OPTIONS: UnwrapRef<typeof import('../lib/vehicleBrands')['VEHICLE_BRAND_OPTIONS']>
     readonly VEHICLE_STATUS_FILTER_OPTIONS: UnwrapRef<typeof import('../lib/vehicleStatus')['VEHICLE_STATUS_FILTER_OPTIONS']>
@@ -333,6 +336,7 @@ declare module 'vue' {
     readonly splitOrderHistory: UnwrapRef<typeof import('../lib/orderHistory')['splitOrderHistory']>
     readonly storeToRefs: UnwrapRef<typeof import('pinia')['storeToRefs']>
     readonly summariseOrder: UnwrapRef<typeof import('../lib/orderHistory')['summariseOrder']>
+    readonly taskPriorityStyle: UnwrapRef<typeof import('../lib/adminTaskPriority')['taskPriorityStyle']>
     readonly timelineDotStyle: UnwrapRef<typeof import('../lib/timeline')['timelineDotStyle']>
     readonly timelineLineStyle: UnwrapRef<typeof import('../lib/timeline')['timelineLineStyle']>
     readonly toOrderTimelineEntries: UnwrapRef<typeof import('../lib/timeline')['toOrderTimelineEntries']>

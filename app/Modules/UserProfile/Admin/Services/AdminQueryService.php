@@ -3,6 +3,7 @@
 namespace App\Modules\UserProfile\Admin\Services;
 
 use App\Enums\OrderStatus;
+use App\Enums\TaskPriority;
 use App\Modules\UserProfile\B2B\Data\B2bMembership;
 use App\Modules\UserProfile\B2B\Services\B2bServiceFeeService;
 use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
@@ -331,6 +332,17 @@ class AdminQueryService
         return [...(array) $row, 'members' => $members];
     }
 
+    /**
+     * The order list's status-*group* filter keywords — the "Offen" / "In
+     * Bearbeitung" / "Abgeschlossen" tabs — accepted on the same `status`
+     * parameter as the 16 exact OrderStatus values, never instead of them.
+     * None collides with a real OrderStatus value, so one parameter can
+     * carry either.
+     *
+     * @var list<string>
+     */
+    private const STATUS_GROUPS = ['open', 'in_progress', 'closed'];
+
     /** @return array{page:int,limit:int,start:?CarbonImmutable,end:?CarbonImmutable,status:?string} */
     private function filters(Request $request): array
     {
@@ -344,7 +356,7 @@ class AdminQueryService
         ]);
 
         $status = strtolower(trim((string) ($validated['order_status'] ?? $validated['status'] ?? ''))) ?: null;
-        if ($status !== null && ! in_array($status, OrderStatus::values(), true)) {
+        if ($status !== null && ! in_array($status, OrderStatus::values(), true) && ! in_array($status, self::STATUS_GROUPS, true)) {
             throw ValidationException::withMessages(['order_status' => 'Invalid order status']);
         }
 
@@ -396,7 +408,14 @@ class AdminQueryService
     {
         $query->when($filters['start'], fn (Builder $q, $date) => $q->where($dateColumn, '>=', $date));
         $query->when($filters['end'], fn (Builder $q, $date) => $q->where($dateColumn, '<=', $date));
-        $query->when($filters['status'], fn (Builder $q, $status) => $q->where('o.order_status', $status));
+        $query->when($filters['status'], function (Builder $q, string $status) {
+            match ($status) {
+                'open' => $q->whereIn('o.order_status', OrderStatus::openValues()),
+                'in_progress' => $q->whereIn('o.order_status', OrderStatus::inProgressValues()),
+                'closed' => $q->whereIn('o.order_status', OrderStatus::closedValues()),
+                default => $q->where('o.order_status', $status),
+            };
+        });
     }
 
     /**
@@ -428,6 +447,22 @@ class AdminQueryService
         }
     }
 
+    /**
+     * The columns orders() and its urgency ranking both need from the base
+     * query — kept in one place so the two never drift apart.
+     *
+     * @return list<string>
+     */
+    private function orderListColumns(): array
+    {
+        return [
+            'o.id', 'o.vehicle_id', 'o.auftragsnummer', 'o.leasyback_partner',
+            'o.order_status', 'o.sent_at', 'o.created_at', 'o.response_status', 'o.response_body',
+            'v.license_plate', 'v.vin', 'v.make', 'v.model',
+            'v.b2c_user_id', 'v.b2b_id',
+        ];
+    }
+
     public function orders(Request $request, ?string $userType = null, int|string|null $userId = null, ?string $b2bId = null): array
     {
         $filters = $this->filters($request);
@@ -438,35 +473,149 @@ class AdminQueryService
         $this->applyListSearch($base, $request, ['o.auftragsnummer', 'v.license_plate', 'v.vin', 'v.make', 'v.model']);
 
         $counts = $this->orderCounts($base);
-        $rows = (clone $base)
-            ->select([
-                'o.id', 'o.vehicle_id', 'o.auftragsnummer', 'o.leasyback_partner',
-                'o.order_status', 'o.sent_at', 'o.created_at', 'o.response_status', 'o.response_body',
-                'v.license_plate', 'v.vin', 'v.make', 'v.model',
-                'v.b2c_user_id', 'v.b2b_id',
-            ])
-            ->when(
-                $request->input('sort_by') === 'license_plate',
-                function (Builder $query) use ($request) {
-                    $direction = strtolower((string) $request->input('sort_order', 'asc'));
-                    if (! in_array($direction, ['asc', 'desc'], true)) {
-                        throw ValidationException::withMessages(['sort_order' => 'Supported values: asc, desc']);
-                    }
-                    $query->orderBy('v.license_plate', $direction);
-                },
-                fn (Builder $query) => $query->orderByDesc('o.created_at')
-            )
-            ->orderByDesc('o.id')
-            ->offset(($filters['page'] - 1) * $filters['limit'])
-            ->limit($filters['limit'])
-            ->get();
+        $columns = $this->orderListColumns();
+
+        if ($request->input('sort_by') === 'license_plate') {
+            // An explicit column sort is a deliberate override of the default
+            // ordering below — it stays a plain SQL sort, paginated in the
+            // database as before. Priority is still attached to the page's
+            // rows afterwards, so the urgency badge remains visible whatever
+            // order the list is in.
+            $direction = strtolower((string) $request->input('sort_order', 'asc'));
+            if (! in_array($direction, ['asc', 'desc'], true)) {
+                throw ValidationException::withMessages(['sort_order' => 'Supported values: asc, desc']);
+            }
+
+            $rows = (clone $base)
+                ->select($columns)
+                ->orderBy('v.license_plate', $direction)
+                ->orderByDesc('o.id')
+                ->offset(($filters['page'] - 1) * $filters['limit'])
+                ->limit($filters['limit'])
+                ->get();
+
+            $priorityById = array_map(
+                fn (array $entry) => $entry['priority'],
+                $this->priorityForOpenOrders(array_flip($rows->pluck('id')->all())),
+            );
+        } else {
+            [$orderedIds, $priorityById] = $this->rankOrdersByUrgency($base);
+            $pageIds = array_slice($orderedIds, ($filters['page'] - 1) * $filters['limit'], $filters['limit']);
+
+            $rowsById = (clone $base)->select($columns)->whereIn('o.id', $pageIds)->get()->keyBy('id');
+            // whereIn() does not preserve order, so the page is rebuilt in the
+            // rank order rankOrdersByUrgency() already decided.
+            $rows = collect($pageIds)->map(fn ($id) => $rowsById->get($id))->filter()->values();
+        }
 
         $data = $this->enrichOrders($rows);
+
+        foreach ($data as &$row) {
+            $priority = $priorityById[$row['id']] ?? null;
+            $row['priority'] = $priority?->value;
+        }
+        unset($row);
 
         return array_merge([
             'page' => $filters['page'],
             'limit' => $filters['limit'],
         ], $counts, ['data' => $data]);
+    }
+
+    /**
+     * Every id for this request's filtered set, ordered the way the client
+     * asked for: open orders first, most urgent first; closed orders
+     * (completed/cancelled/discarded) always after, however recent.
+     *
+     * Priority is derived, not a database column, so this cannot be a plain
+     * `ORDER BY` — the open tier is ranked in PHP, exactly the way
+     * AdminTaskQueryService::openTasks() already ranks the dashboard's task
+     * list, then the closed tier (which never carries a priority) is
+     * appended after it.
+     *
+     * @return array{0: list<string>, 1: array<string, TaskPriority>}
+     */
+    private function rankOrdersByUrgency(Builder $base): array
+    {
+        $openIds = array_flip((clone $base)->whereIn('o.order_status', OrderStatus::activeValues())->pluck('o.id')->all());
+        $closedIds = (clone $base)
+            ->whereIn('o.order_status', OrderStatus::closedValues())
+            ->orderByDesc('o.created_at')
+            ->orderByDesc('o.id')
+            ->pluck('o.id')
+            ->all();
+
+        $priorityById = $this->priorityForOpenOrders($openIds);
+
+        // Most urgent first (TaskPriority::rank() descending); among equals,
+        // the task waiting longest (priority_date ascending, nulls last);
+        // final tie-break created_at descending — the client's own order.
+        // Falls back to Neutral/nulls for an id the hydrator did not return
+        // (it shouldn't — both queries share the same active-status filter —
+        // but a missing entry must sort last within its tier, never vanish).
+        $openIdsRanked = array_keys($openIds);
+        usort($openIdsRanked, function (string $a, string $b) use ($priorityById): int {
+            $entryA = $priorityById[$a] ?? null;
+            $entryB = $priorityById[$b] ?? null;
+
+            $rankA = ($entryA['priority'] ?? TaskPriority::Neutral)->rank();
+            $rankB = ($entryB['priority'] ?? TaskPriority::Neutral)->rank();
+
+            return $rankB <=> $rankA
+                ?: ($entryA['priority_date'] ?? '9999-12-31') <=> ($entryB['priority_date'] ?? '9999-12-31')
+                ?: (string) ($entryB['created_at'] ?? '') <=> (string) ($entryA['created_at'] ?? '');
+        });
+
+        return [
+            [...$openIdsRanked, ...$closedIds],
+            array_map(fn (array $entry) => $entry['priority'], $priorityById),
+        ];
+    }
+
+    /**
+     * TaskPriority for a set of active order ids, keyed by id — reusing
+     * OrderTaskHydrator's batch loader (already proven affordable: a fixed
+     * number of queries for every active order, whatever the page asks for)
+     * and the exact resolver pair orderDetail() already calls for one order.
+     *
+     * Never a second definition of "urgent": this is the same
+     * OrderTaskResolver -> OrderTaskPriorityResolver pipeline, and the same
+     * TaskPriority::rank() AdminTaskQueryService::openTasks() ranks the
+     * dashboard's task list with.
+     *
+     * Resolved via the container rather than constructor injection:
+     * OrderTaskHydrator itself depends on AdminQueryService (it reuses
+     * enrichOrders()), so wiring it as a constructor dependency here would
+     * be circular. The container just builds a second, equally stateless
+     * AdminQueryService to satisfy it.
+     *
+     * @param  array<string, int>  $ids  Lookup set (id => array index) of the open ids to resolve.
+     * @return array<string, array{priority: TaskPriority, priority_date: string|null, created_at: string|null}>
+     */
+    private function priorityForOpenOrders(array $ids): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+
+        $priorities = [];
+
+        foreach (app(OrderTaskHydrator::class)->forActiveOrders() as $order) {
+            if (! isset($ids[$order['id']])) {
+                continue;
+            }
+
+            $tasks = $this->orderTaskResolver->forOrderDetail($order);
+            $priority = $this->orderTaskPriorityResolver->forOrderTasks($tasks, ($order['vehicle_belongs'] ?? null) === 'B2B');
+
+            $priorities[$order['id']] = [
+                'priority' => $priority,
+                'priority_date' => $tasks['next']['priority_date'] ?? null,
+                'created_at' => $order['created_at'] ?? null,
+            ];
+        }
+
+        return $priorities;
     }
 
     /**
@@ -652,6 +801,12 @@ class AdminQueryService
             'total_confirmed' => (clone $base)->where('o.order_status', 'confirmed')->distinct()->count('o.id'),
             'total_inspected' => (clone $base)->where('o.order_status', 'inspected')->distinct()->count('o.id'),
             'total_delivered' => (clone $base)->whereIn('o.order_status', OrderStatus::completedValues())->distinct()->count('o.id'),
+            // Same three buckets the order list's filter tabs use — counted
+            // here so the tab labels and the header summary can never
+            // disagree with what a tab actually filters to.
+            'total_open' => (clone $base)->whereIn('o.order_status', OrderStatus::openValues())->distinct()->count('o.id'),
+            'total_in_progress' => (clone $base)->whereIn('o.order_status', OrderStatus::inProgressValues())->distinct()->count('o.id'),
+            'total_closed' => (clone $base)->whereIn('o.order_status', OrderStatus::closedValues())->distinct()->count('o.id'),
         ];
     }
 

@@ -206,6 +206,21 @@ export interface AdminOrderRow {
     can_pull_documents: boolean;
 }
 
+/**
+ * A row from AdminQueryService::orders() specifically — it stamps
+ * OrderTaskPriorityResolver's verdict on the order's next task directly onto
+ * the row, the same ranking AdminTaskQueryService uses for the dashboard's
+ * task list. Not part of the shared AdminOrderRow shape: orderDetail() (the
+ * Show page) carries the equivalent verdict nested under `tasks.priority`
+ * instead, so adding it here would claim a field that page never sends.
+ *
+ * Null for a closed order (completed/cancelled/discarded) — there is no open
+ * task left to rank, so there is nothing to show as urgent.
+ */
+export interface AdminOrderListRow extends AdminOrderRow {
+    priority: AdminOrderTaskPriority | null;
+}
+
 /** Matches AdminQueryService::orders()'s response envelope. */
 export interface AdminOrderList {
     page: number;
@@ -215,8 +230,19 @@ export interface AdminOrderList {
     total_confirmed: number;
     total_inspected: number;
     total_delivered: number;
-    data: AdminOrderRow[];
+    /** The order list's own filter-tab buckets — see AdminOrderStatusGroup. */
+    total_open: number;
+    total_in_progress: number;
+    total_closed: number;
+    data: AdminOrderListRow[];
 }
+
+/**
+ * The order list's status-*group* filter tabs — Offen / In Bearbeitung /
+ * Abgeschlossen — accepted on the same `status` query param AdminQueryService
+ * already validates the 16 exact OrderStatus values against. `null` is "Alle".
+ */
+export type AdminOrderStatusGroup = 'open' | 'in_progress' | 'closed';
 
 /** AdminQueryService::orderDetail()'s `workshop_commission` block — derived, never stored. */
 export interface AdminWorkshopCommission {

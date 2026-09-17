@@ -151,6 +151,7 @@ declare module 'vue' {
     IconMdiCheckCircleOutline: typeof import('~icons/mdi/check-circle-outline')['default']
     IconMdiCheckDecagramOutline: typeof import('~icons/mdi/check-decagram-outline')['default']
     IconMdiChevronDown: typeof import('~icons/mdi/chevron-down')['default']
+    IconMdiChevronRight: typeof import('~icons/mdi/chevron-right')['default']
     IconMdiClipboardPlusOutline: typeof import('~icons/mdi/clipboard-plus-outline')['default']
     IconMdiClipboardTextClockOutline: typeof import('~icons/mdi/clipboard-text-clock-outline')['default']
     IconMdiClipboardTextOutline: typeof import('~icons/mdi/clipboard-text-outline')['default']

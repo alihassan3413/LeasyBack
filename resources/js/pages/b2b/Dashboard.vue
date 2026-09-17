@@ -9,7 +9,7 @@ import { useOnboarding } from '@/composables/useOnboarding';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { ONBOARDING_VIDEO_POSTER_URL, ONBOARDING_VIDEO_URL } from '@/lib/onboarding';
 import { formatPortalDate } from '@/lib/portalDate';
-import { AVAILABILITY_LABELS, SERVICES, type ServiceDefinition } from '@/lib/services';
+import { AVAILABILITY_LABELS, BOOKABLE_SERVICE, SERVICES, type ServiceDefinition } from '@/lib/services';
 import { getVehicleStatusDisplay } from '@/lib/vehicleStatus';
 import { type SharedData } from '@/types';
 import type { B2bAnalytics, B2bStatistics } from '@/types/b2b';
@@ -18,7 +18,6 @@ import { formatEuro } from '@/types/payment';
 import type { BookableVehicleData, VehicleData } from '@/types/vehicle';
 import { Head, Link, usePage } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
-import MdiArrowRight from '~icons/mdi/arrow-right';
 
 /**
  * The company's landing page: what LeasyBack does, and the way into booking
@@ -70,10 +69,11 @@ const DASH = '—';
  *
  * `analytics.view` is the existing permission for "Kennzahlen und
  * Auswertungen", and an owner holds every permission implicitly — so a
- * Company Administrator sees the whole dashboard while a Standard User and a
- * Read-only member get the service catalogue alone. Driven by the props the
- * server did or did not send, so the template can never show what the payload
- * does not contain.
+ * Company Administrator sees the whole overview while a Standard User and a
+ * Read-only member get their own scoped figures instead. Driven by the props
+ * the server did or did not send, so the template can never show what the
+ * payload does not contain. Complementary with `myOverview` by construction
+ * (DashboardController only ever populates one of the two).
  */
 const showCompanyOverview = computed(() => props.statistics !== null);
 
@@ -166,6 +166,9 @@ const orderVehicle = ref<BookableVehicleData | null>(null);
 /** How many services the reader could actually start right now. */
 const bookableCount = computed(() => SERVICES.filter((service) => service.availability === 'bookable').length);
 
+/** Everything but the one workflow the page leads with — the reference list beneath it. */
+const futureServices = computed(() => SERVICES.filter((service) => service.key !== BOOKABLE_SERVICE.key));
+
 /** A row is a button only when it can actually start something. */
 function isLaunchable(service: ServiceDefinition): boolean {
     return service.availability === 'bookable' && canBook.value;
@@ -204,60 +207,133 @@ function onOnboardingOpenChange(value: boolean) {
 
     <AppLayout>
         <div class="flex flex-col">
-            <header class="mb-6">
-                <h1 class="text-brand-teal text-[22px] font-semibold md:text-[28px]">Mein Dashboard</h1>
-                <p class="text-muted-foreground mt-1 text-sm">Leistung wählen, Fahrzeug zuordnen, Termin buchen.</p>
+            <header class="mb-6 flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+                <div>
+                    <h1 class="text-brand-teal text-[22px] font-semibold md:text-[28px]">Mein Dashboard</h1>
+                    <p class="text-muted-foreground mt-1 text-sm">Leistung wählen, Fahrzeug zuordnen, Termin buchen.</p>
+                </div>
+
+                <!-- Was a floating pill over the content; a plain text action
+                     next to the title is discoverable without sitting on top
+                     of the page. -->
+                <button
+                    type="button"
+                    class="text-muted-foreground hover:text-brand-teal mt-1 shrink-0 text-[12.5px] font-medium transition-colors hover:underline"
+                    @click="openOnboarding"
+                >
+                    Einführung ansehen
+                </button>
             </header>
 
-            <!--
-                Ordered by what a company administrator comes here to find
-                out: how the account stands, then what is moving, and only
-                then what can be started. Services used to lead the page with
-                four tall marketing cards, which pushed every operational
-                figure below the fold.
-            -->
+            <!-- ════════════════════════════════════════════════════════════
+                 Leistungen — the primary workflow, and the first section on
+                 the page for every role. Starting a return is what a company
+                 account comes here to do; everything below is the record of
+                 what is already running, not the reason to visit.
 
-            <!-- ── 1. Company overview — Company Administrator only ── -->
-            <section v-if="showCompanyOverview">
+                 Content sits directly on the page, not inside a panel: the
+                 one real workflow (Leasingrückgabe) is its own row, closed
+                 off by a hairline rule, and every announced-but-not-yet-
+                 bookable service follows as its own plain, headed list. A
+                 rule and a heading do the separating a card would otherwise
+                 be reached for — this is a workspace, not a widget.
+            ═════════════════════════════════════════════════════════════ -->
+            <section>
+                <div class="flex flex-wrap items-baseline justify-between gap-2">
+                    <h2 class="text-brand-teal text-[20px] leading-tight font-bold">Leistungen</h2>
+                    <span class="text-muted-foreground text-[12.5px]">{{ bookableCount }} von {{ SERVICES.length }} verfügbar</span>
+                </div>
+
+                <!-- The one real workflow. Weight comes from type scale, a
+                     real CTA and the accent border — not from a box or a
+                     tinted background. -->
+                <component
+                    :is="isLaunchable(BOOKABLE_SERVICE) ? 'button' : 'div'"
+                    :type="isLaunchable(BOOKABLE_SERVICE) ? 'button' : undefined"
+                    class="border-border border-brand-orange mt-4 flex w-full items-center gap-4 border-b border-l-2 py-5 pl-4 text-left transition-colors"
+                    :class="isLaunchable(BOOKABLE_SERVICE) ? 'hover:bg-muted/30 cursor-pointer' : ''"
+                    @click="startService(BOOKABLE_SERVICE)"
+                >
+                    <span class="min-w-0 flex-1">
+                        <span class="text-brand-teal block text-[18px] font-bold">{{ BOOKABLE_SERVICE.title }}</span>
+                        <span class="text-muted-foreground mt-1 block text-[13.5px]">{{ BOOKABLE_SERVICE.summary }}</span>
+                    </span>
+
+                    <span
+                        v-if="isLaunchable(BOOKABLE_SERVICE)"
+                        class="bg-brand-orange hover:bg-brand-orange/90 shrink-0 rounded-[6px] px-5 py-2.5 text-[13.5px] font-bold whitespace-nowrap text-white transition-colors"
+                    >
+                        Starten
+                    </span>
+                    <span v-else class="text-muted-foreground shrink-0 text-[12px] whitespace-nowrap">Keine Berechtigung</span>
+                </component>
+
+                <!-- Everything else LeasyBack has announced, as a plain
+                     reference list under its own heading: no icons, no
+                     per-row box, availability as text. A catalogue entry, not
+                     a second action. -->
+                <div class="mt-6">
+                    <h3 class="text-brand-teal text-[16px] font-semibold">Weitere Leistungen</h3>
+
+                    <ul class="divide-border mt-2 divide-y">
+                        <li v-for="service in futureServices" :key="service.key" class="flex items-center justify-between gap-3 py-2">
+                            <span class="text-muted-foreground truncate text-[13px] font-medium">{{ service.title }}</span>
+                            <span class="text-muted-foreground shrink-0 text-[12px] whitespace-nowrap">{{
+                                AVAILABILITY_LABELS[service.availability]
+                            }}</span>
+                        </li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- ════════════════════════════════════════════════════════════
+                 Everything below is supporting information: the record of
+                 what is already running, scoped by the same `analytics.view`
+                 permission as before. Headings step down a size from
+                 "Leistungen" so the page reads as one workflow with a status
+                 record beneath it, not several equally-weighted sections.
+            ═════════════════════════════════════════════════════════════ -->
+
+            <!-- ── Company overview — Company Administrator / Read-only ── -->
+            <section v-if="showCompanyOverview" class="mt-8">
                 <div class="flex flex-wrap items-center justify-between gap-2">
-                    <h2 class="text-muted-foreground text-[11px] font-semibold tracking-[0.13em] uppercase">Unternehmen im Überblick</h2>
+                    <h3 class="text-brand-teal text-[16px] font-semibold">Unternehmen im Überblick</h3>
                     <!--
                         A member limited to their own vehicles is looking at
                         their own figures, not the company's. Saying so is the
                         difference between a small number and a wrong one.
                     -->
-                    <span v-if="!stats.scope.company_wide" class="text-muted-foreground text-[11px]"> Nur Ihre eigenen Fahrzeuge </span>
+                    <span v-if="!stats.scope.company_wide" class="text-muted-foreground text-[12px]"> Nur Ihre eigenen Fahrzeuge </span>
                 </div>
 
-                <!-- Separate tiles rather than one divided block: each figure
-                     gets its own edge, which is what makes a row of five
-                     scannable at a glance. -->
-                <dl class="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-                    <div v-for="kpi in kpis" :key="kpi.key" class="border-border bg-card min-w-0 rounded-xl border px-4 py-3.5">
+                <!-- A plain figure row, not a tile grid: no fill, no border
+                     box, just hairline dividers between values — a status
+                     readout, not a set of stat cards asking for attention. -->
+                <dl class="divide-border mt-3 flex divide-x overflow-x-auto">
+                    <div v-for="kpi in kpis" :key="kpi.key" class="min-w-[120px] flex-1 shrink-0 px-4 py-1 first:pl-0">
                         <dt class="text-muted-foreground truncate text-[11px] font-semibold tracking-[0.06em] uppercase">{{ kpi.label }}</dt>
-                        <dd class="text-brand-teal mt-2 truncate text-[26px] leading-none font-bold tabular-nums">{{ kpi.value }}</dd>
-                        <p class="text-muted-foreground mt-2 truncate text-[11.5px]">{{ kpi.hint }}</p>
+                        <dd class="text-brand-teal mt-1 truncate text-[18px] leading-none font-semibold tabular-nums">{{ kpi.value }}</dd>
+                        <p class="text-muted-foreground mt-1 truncate text-[11.5px]">{{ kpi.hint }}</p>
                     </div>
                 </dl>
             </section>
 
-            <!-- ── 2. Fleet + returns — travels with the overview ── -->
             <FleetOverview v-if="showCompanyOverview && analytics" :analytics="analytics" class="mt-4" />
 
-            <!-- ── 3. Recent processes ──
+            <!-- ── Recent processes ──
                 Deliberately a short read-only list and not a second orders
                 page: it answers "what is moving right now", and every row
                 opens the order it names.
             -->
             <section v-if="showCompanyOverview" class="mt-8">
                 <div class="flex items-center justify-between gap-3">
-                    <h2 class="text-muted-foreground text-[11px] font-semibold tracking-[0.13em] uppercase">Letzte Vorgänge</h2>
+                    <h3 class="text-brand-teal text-[16px] font-semibold">Letzte Vorgänge</h3>
                     <Link :href="route('orders.index')" class="text-brand-teal text-[12px] font-semibold hover:underline">Alle Aufträge</Link>
                 </div>
 
-                <div class="border-border bg-card mt-3 overflow-hidden rounded-xl border">
+                <div class="border-border bg-card mt-3 overflow-hidden rounded-[10px] border">
                     <p v-if="!recentOrders.length" class="text-muted-foreground px-5 py-8 text-center text-[13px]">
-                        Noch keine Vorgänge. Buchen Sie unten eine Leistung für eines Ihrer Fahrzeuge.
+                        Noch keine Vorgänge. Buchen Sie oben eine Leistung für eines Ihrer Fahrzeuge.
                     </p>
 
                     <ul v-else class="divide-border divide-y">
@@ -288,19 +364,18 @@ function onOnboardingOpenChange(value: boolean) {
                 </div>
             </section>
 
-            <!-- ── Member view: Meine Übersicht ──
-                Shown instead of the company overview, never alongside it.
+            <!-- ── Member view: Meine Übersicht — Standard User ──
                 Three counts, all scoped to what this reader may actually
                 reach — no savings, no processing time, nobody else's work.
             -->
-            <section v-if="myOverview">
-                <h2 class="text-muted-foreground text-[11px] font-semibold tracking-[0.13em] uppercase">Meine Übersicht</h2>
+            <section v-if="myOverview" class="mt-8">
+                <h3 class="text-brand-teal text-[16px] font-semibold">Meine Übersicht</h3>
 
-                <dl class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                    <div v-for="kpi in myKpis" :key="kpi.key" class="border-border bg-card min-w-0 rounded-xl border px-4 py-3.5">
+                <dl class="divide-border mt-3 flex divide-x overflow-x-auto">
+                    <div v-for="kpi in myKpis" :key="kpi.key" class="min-w-[120px] flex-1 shrink-0 px-4 py-1 first:pl-0">
                         <dt class="text-muted-foreground truncate text-[11px] font-semibold tracking-[0.06em] uppercase">{{ kpi.label }}</dt>
-                        <dd class="text-brand-teal mt-2 text-[26px] leading-none font-bold tabular-nums">{{ kpi.value }}</dd>
-                        <p class="text-muted-foreground mt-2 truncate text-[11.5px]">{{ kpi.hint }}</p>
+                        <dd class="text-brand-teal mt-1 truncate text-[18px] leading-none font-semibold tabular-nums">{{ kpi.value }}</dd>
+                        <p class="text-muted-foreground mt-1 truncate text-[11.5px]">{{ kpi.hint }}</p>
                     </div>
                 </dl>
             </section>
@@ -312,11 +387,11 @@ function onOnboardingOpenChange(value: boolean) {
             -->
             <section v-if="myOverview" class="mt-8">
                 <div class="flex items-center justify-between gap-3">
-                    <h2 class="text-muted-foreground text-[11px] font-semibold tracking-[0.13em] uppercase">Meine Fahrzeuge</h2>
+                    <h3 class="text-brand-teal text-[16px] font-semibold">Meine Fahrzeuge</h3>
                     <Link :href="route('vehicles.index')" class="text-brand-teal text-[12px] font-semibold hover:underline">Alle Fahrzeuge</Link>
                 </div>
 
-                <div class="border-border bg-card mt-3 overflow-hidden rounded-xl border">
+                <div class="border-border bg-card mt-3 overflow-hidden rounded-[10px] border">
                     <p v-if="!myVehicles.length" class="text-muted-foreground px-5 py-8 text-center text-[13px]">
                         Ihnen ist derzeit kein Fahrzeug zugeordnet.
                     </p>
@@ -345,77 +420,7 @@ function onOnboardingOpenChange(value: boolean) {
                     </ul>
                 </div>
             </section>
-
-            <!-- ── 4. Services ──
-                A dense panel of rows, not a grid of cards: this is the last
-                block on an operations page, and six services as cards would
-                take back all the height the reorder just freed. Icon, name,
-                one line, and either the action or the reason there isn't one.
-            -->
-            <section class="mt-8">
-                <div class="flex flex-wrap items-center justify-between gap-2">
-                    <h2 class="text-muted-foreground text-[11px] font-semibold tracking-[0.13em] uppercase">Leistungen</h2>
-                    <span class="text-muted-foreground text-[11px]">{{ bookableCount }} von {{ SERVICES.length }} verfügbar</span>
-                </div>
-
-                <div class="border-border bg-card mt-3 grid overflow-hidden rounded-xl border sm:grid-cols-2 xl:grid-cols-3">
-                    <component
-                        :is="isLaunchable(service) ? 'button' : 'div'"
-                        v-for="service in SERVICES"
-                        :key="service.key"
-                        :type="isLaunchable(service) ? 'button' : undefined"
-                        class="border-border group flex items-center gap-3 border-r border-b px-4 py-3 text-left transition-colors last:border-b-0"
-                        :class="isLaunchable(service) ? 'hover:bg-muted/60 cursor-pointer' : ''"
-                        @click="startService(service)"
-                    >
-                        <span
-                            class="flex size-8 shrink-0 items-center justify-center rounded-lg"
-                            :class="service.availability === 'bookable' ? 'bg-brand-green/10 text-brand-teal' : 'bg-muted text-muted-foreground/70'"
-                        >
-                            <component :is="service.icon" class="size-[18px]" aria-hidden="true" />
-                        </span>
-
-                        <span class="min-w-0 flex-1">
-                            <span
-                                class="block truncate text-[13.5px] font-semibold"
-                                :class="service.availability === 'bookable' ? 'text-brand-teal' : 'text-muted-foreground'"
-                            >
-                                {{ service.title }}
-                            </span>
-                            <span class="text-muted-foreground block truncate text-[11.5px]">{{ service.summary }}</span>
-                        </span>
-
-                        <!-- The right edge always says what can be done here:
-                             the action, or why there is none. -->
-                        <span v-if="isLaunchable(service)" class="text-brand-orange flex shrink-0 items-center gap-1 text-[12px] font-semibold">
-                            <span class="hidden sm:inline">Starten</span>
-                            <MdiArrowRight class="size-4 transition-transform duration-150 group-hover:translate-x-0.5" aria-hidden="true" />
-                        </span>
-
-                        <span
-                            v-else
-                            class="bg-muted text-muted-foreground shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-medium whitespace-nowrap"
-                        >
-                            {{ service.availability === 'bookable' ? 'Keine Berechtigung' : AVAILABILITY_LABELS[service.availability] }}
-                        </span>
-                    </component>
-                </div>
-            </section>
         </div>
-
-        <button
-            type="button"
-            aria-label="Einführung ansehen"
-            title="Einführung ansehen"
-            class="focus-visible:ring-brand-green/40 fixed right-4 bottom-20 z-[60] flex items-center gap-2 rounded-full py-2.5 pr-4 pl-2.5 text-white shadow-lg transition-all duration-200 hover:shadow-xl focus:outline-none focus-visible:ring-2 md:right-8 md:bottom-8"
-            style="background-color: #10393b"
-            @click="openOnboarding"
-        >
-            <span class="flex h-6 w-6 items-center justify-center rounded-full" style="background-color: #01b990">
-                <IconMdiPlay class="h-4 w-4" />
-            </span>
-            <span class="text-sm font-medium">Einführung</span>
-        </button>
 
         <!-- Step 1: which vehicle. Step 2: the appointment itself. -->
         <SelectVehicleModal v-model:open="selectVehicleOpen" :service="activeService" :vehicles="bookableVehicles" @confirm="onVehicleChosen" />
