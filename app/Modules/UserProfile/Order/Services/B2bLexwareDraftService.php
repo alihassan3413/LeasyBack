@@ -2,8 +2,10 @@
 
 namespace App\Modules\UserProfile\Order\Services;
 
+use App\Enums\DocumentType;
 use App\Models\LeasybackOffer;
 use App\Models\User;
+use App\Modules\UserProfile\Admin\Services\VehicleReportService;
 use App\Modules\UserProfile\B2B\Services\B2bServiceFeeService;
 use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
 use App\Modules\UserProfile\Order\Models\B2bOfferPresentation;
@@ -13,6 +15,7 @@ use App\Modules\UserProfile\Payment\Contracts\LexwareGateway;
 use App\Modules\UserProfile\Payment\Data\LexwareContactRequest;
 use App\Modules\UserProfile\Payment\Data\LexwareInvoiceLine;
 use App\Modules\UserProfile\Payment\Data\LexwareInvoiceRequest;
+use App\Modules\UserProfile\Payment\Data\LexwareInvoiceResult;
 use App\Modules\UserProfile\Payment\Enums\LexwareInvoiceStatus;
 use App\Modules\UserProfile\Payment\Exceptions\LexwareGatewayException;
 use App\Modules\UserProfile\Payment\Models\LexwareContact;
@@ -39,7 +42,10 @@ class B2bLexwareDraftService
 {
     public const PURPOSE = 'b2b_billing';
 
-    public function __construct(private readonly B2bServiceFeeService $serviceFees) {}
+    public function __construct(
+        private readonly B2bServiceFeeService $serviceFees,
+        private readonly VehicleReportService $documents,
+    ) {}
 
     /**
      * @return array<string, array<int, string>>
@@ -109,7 +115,7 @@ class B2bLexwareDraftService
                 : 'Der Rechnungsentwurf konnte nicht an Lexware übertragen werden: '.$e->getMessage());
         }
 
-        return DB::transaction(function () use ($order, $user, $result, $lines) {
+        $invoice = DB::transaction(function () use ($order, $user, $result, $lines) {
             $invoice = LexwareInvoice::create([
                 'order_id' => $order->id,
                 'auftragsnummer' => $order->auftragsnummer,
@@ -140,10 +146,49 @@ class B2bLexwareDraftService
 
             return $invoice;
         });
+
+        // Best-effort: the draft already exists in Lexware and locally at this
+        // point, which is what "created" means here. A failed PDF download
+        // must not undo either — it only leaves nothing to open from the
+        // portal until the admin retries by reopening the order.
+        $this->attachDraftDocument($invoice, $order, $gateway, $result);
+
+        return $invoice->fresh() ?? $invoice;
     }
 
     /**
-     * @return array{lexware_invoice_id: string|null, voucher_status: string|null, submitted_at: string|null}|null
+     * Downloads the draft's PDF and files it alongside the order's other
+     * documents — unpublished, since accounting has not reviewed it yet
+     * (§13). It is visible to admin immediately (report_documents has no
+     * `published` filter) and to the company only once someone explicitly
+     * publishes it.
+     */
+    private function attachDraftDocument(LexwareInvoice $invoice, LeasybackOrder $order, LexwareGateway $gateway, LexwareInvoiceResult $result): void
+    {
+        try {
+            $file = $gateway->downloadInvoiceFile($result->id);
+        } catch (LexwareGatewayException $e) {
+            Log::warning('B2B Lexware draft PDF download failed', ['order_id' => $order->id, 'error' => $e->getMessage()]);
+
+            return;
+        }
+
+        $document = $this->documents->storeGeneratedDocument(
+            auftragsnummer: (string) $order->auftragsnummer,
+            vehicleId: (string) $order->vehicle_id,
+            filename: sprintf('Rechnungsentwurf-%s.pdf', $result->voucherNumber ?? $result->id),
+            contents: $file->contents,
+            documentType: DocumentType::Rechnung->value,
+            documentTitle: trim(sprintf('Rechnungsentwurf %s', $result->voucherNumber ?? '')),
+            notifyCustomer: false,
+            published: false,
+        );
+
+        $invoice->update(['document_id' => $document->id]);
+    }
+
+    /**
+     * @return array{lexware_invoice_id: string|null, voucher_number: string|null, voucher_status: string|null, submitted_at: string|null, document_id: string|null}|null
      */
     public function summary(string $orderId): ?array
     {
@@ -151,8 +196,10 @@ class B2bLexwareDraftService
 
         return $invoice === null ? null : [
             'lexware_invoice_id' => $invoice->lexware_invoice_id,
+            'voucher_number' => $invoice->voucher_number,
             'voucher_status' => $invoice->voucher_status,
             'submitted_at' => $invoice->submitted_at?->toISOString(),
+            'document_id' => $invoice->document_id,
         ];
     }
 

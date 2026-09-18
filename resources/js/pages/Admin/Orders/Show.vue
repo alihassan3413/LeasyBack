@@ -2,6 +2,7 @@
 import AdminAppraisalPositionsCard from '@/components/admin/AdminAppraisalPositionsCard.vue';
 import AdminBillingCard from '@/components/admin/AdminBillingCard.vue';
 import AdminCollectionCard from '@/components/admin/AdminCollectionCard.vue';
+import AdminLexwareDraftCard from '@/components/admin/AdminLexwareDraftCard.vue';
 import AdminOffersCard from '@/components/admin/AdminOffersCard.vue';
 import AdminOrderActionsMenu from '@/components/admin/AdminOrderActionsMenu.vue';
 import AdminOrderNotesCard from '@/components/admin/AdminOrderNotesCard.vue';
@@ -438,6 +439,15 @@ function formatDateTime(value: string | null): string {
                         :invoice="order.lexware_invoice"
                         :payment="order.repair_payment"
                         :stage="order.repair_payment_stage"
+                    />
+
+                    <AdminLexwareDraftCard
+                        v-if="order.vehicle_belongs === 'B2B' && showBilling"
+                        id="order-section-lexware-entwurf"
+                        :order-id="order.id"
+                        :draft="order.lexware_draft"
+                        :report-documents="order.report_documents"
+                        :editable="order.editable.billing"
                     />
 
                     <AdminBillingCard

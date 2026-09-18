@@ -19,6 +19,7 @@ declare module 'vue' {
     AdminBillingCard: typeof import('./../components/admin/AdminBillingCard.vue')['default']
     AdminCollectionCard: typeof import('./../components/admin/AdminCollectionCard.vue')['default']
     AdminLayout: typeof import('./../layouts/AdminLayout.vue')['default']
+    AdminLexwareDraftCard: typeof import('./../components/admin/AdminLexwareDraftCard.vue')['default']
     AdminOffersCard: typeof import('./../components/admin/AdminOffersCard.vue')['default']
     AdminOrderActionsMenu: typeof import('./../components/admin/AdminOrderActionsMenu.vue')['default']
     AdminOrderNotesCard: typeof import('./../components/admin/AdminOrderNotesCard.vue')['default']

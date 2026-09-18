@@ -405,6 +405,19 @@ export interface AdminLexwareInvoice {
     documented_at: string | null;
 }
 
+/**
+ * Matches B2bLexwareDraftService::summary(). B2B only; null until a draft
+ * exists — and only one draft is ever created per order.
+ */
+export interface AdminB2bLexwareDraft {
+    lexware_invoice_id: string | null;
+    voucher_number: string | null;
+    voucher_status: string | null;
+    submitted_at: string | null;
+    /** The `vehicle_report_documents` row for the downloaded draft PDF, once it exists. */
+    document_id: string | null;
+}
+
 /** Matches AdminQueryService::orderDetail()'s response shape. */
 export interface AdminOrderDetail extends AdminOrderRow {
     offers: AdminOfferRow[];
@@ -426,6 +439,8 @@ export interface AdminOrderDetail extends AdminOrderRow {
     workshop_quotations: AdminWorkshopQuotation[];
     /** B2B only — null on a B2C order, which has no internal billing record. */
     billing: AdminOrderBilling | null;
+    /** B2B only — null on a B2C order, and until a Lexware draft is created. */
+    lexware_draft: AdminB2bLexwareDraft | null;
     /** The B2C counterpart of `billing`. Null for B2B, and until `delivered`. */
     repair_payment: AdminRepairPayment | null;
     /** The B2C €200 fee, separate from the repair charge. */

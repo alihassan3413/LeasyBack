@@ -154,6 +154,7 @@ class VehicleReportService
         string $documentType,
         string $documentTitle,
         bool $notifyCustomer = true,
+        bool $published = true,
     ): VehicleReportDocument {
         $path = "vehicle-reports/{$auftragsnummer}/{$filename}";
 
@@ -175,25 +176,25 @@ class VehicleReportService
             return $existing;
         }
 
-        $doc = DB::transaction(function () use ($auftragsnummer, $vehicleId, $documentType, $documentTitle, $path) {
+        $doc = DB::transaction(function () use ($auftragsnummer, $vehicleId, $documentType, $documentTitle, $path, $published) {
             $doc = VehicleReportDocument::create([
                 'auftragsnummer' => $auftragsnummer,
                 'vehicle_id' => $vehicleId,
                 'document_type' => $documentType,
                 'document_title' => $documentTitle,
                 'path' => $path,
-                'published' => true,
+                'published' => $published,
                 'created_by_user_id' => null,
                 'updated_by_user_id' => null,
             ]);
 
             $this->auditDocument($doc, 'uploaded', null);
-            $this->announceDocument($doc, 'available');
+            $this->announceDocument($doc, $published ? 'available' : null);
 
             return $doc;
         });
 
-        if ($notifyCustomer) {
+        if ($notifyCustomer && $published) {
             $this->notifyDocumentPublished($doc);
         }
 
