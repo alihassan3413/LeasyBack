@@ -70,6 +70,11 @@ Route::middleware(['auth', 'active', 'verified', 'admin'])->prefix('admin')->nam
             ->whereUuid('orderId')->name('billing');
         Route::post('{orderId}/billing/lexware-draft', [OrderBillingController::class, 'lexwareDraft'])
             ->whereUuid('orderId')->name('billing.lexware-draft');
+
+        // Separate from the draft: finalizing is the step accounting's review
+        // gates, and the only point at which Lexware has a PDF to hand back.
+        Route::post('{orderId}/billing/lexware-finalize', [OrderBillingController::class, 'lexwareFinalize'])
+            ->whereUuid('orderId')->name('billing.lexware-finalize');
         Route::put('{orderId}/appraisal-positions', [AppraisalPositionController::class, 'update'])->whereUuid('orderId')->name('appraisal-positions');
 
         /*

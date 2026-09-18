@@ -523,25 +523,123 @@ class B2bOrderFlowRegressionTest extends TestCase
         $this->assertEquals(310, $lines['Servicepauschale']);
         $this->assertEquals(120.5, $lines['Transport']);
 
-        // The draft's PDF is downloaded and filed alongside the order's other
-        // documents so admin can open it — but unpublished, since accounting
-        // has not reviewed it yet, so the company must not see it.
-        $this->assertContains('downloadInvoiceFile', $lexware->methods());
-        $document = VehicleReportDocument::where('auftragsnummer', $order->auftragsnummer)
-            ->where('document_type', 'rechnung')
-            ->firstOrFail();
-        $this->assertFalse($document->published);
-        Storage::disk('documents')->assertExists($document->path);
+        // Creating the draft downloads nothing: a draft voucher has no invoice
+        // number and no renderable PDF, so asking for one could only fail —
+        // which is what used to leave the document forever "being generated".
+        $this->assertNotContains('downloadInvoiceFile', $lexware->methods());
+        $this->assertSame(0, VehicleReportDocument::where('auftragsnummer', $order->auftragsnummer)->count());
         $this->assertDatabaseHas('lexware_invoices', [
             'order_id' => $order->id,
             'purpose' => 'b2b_billing',
-            'document_id' => $document->id,
+            'document_id' => null,
+            'voucher_number' => null,
         ]);
 
         // The draft is the invoice behind "processed".
         $this->adminPatch(route('admin.orders.billing', $order->id), ['mark_processed' => true])->assertSessionHasNoErrors();
 
         $this->adminPost(route('admin.orders.billing.lexware-draft', $order->id))->assertSessionHasErrors('lexware');
+    }
+
+    public function test_finalizing_the_draft_is_what_produces_the_invoice_document(): void
+    {
+        $lexware = new FakeLexwareGateway;
+        $this->app->instance(LexwareGateway::class, $lexware);
+
+        $order = $this->inspectedOrder(['1000']);
+        $this->accept($this->publishedOffer($order, ['800']));
+        $order->forceFill(['order_status' => 'vehicle_returned'])->save();
+
+        $this->adminPost(route('admin.orders.billing.lexware-draft', $order->id))->assertSessionHasNoErrors();
+        $this->adminPost(route('admin.orders.billing.lexware-finalize', $order->id))->assertSessionHasNoErrors();
+
+        // Finalizing first, then the download — the order the real API requires.
+        $this->assertSame(
+            ['finalizeInvoice', 'downloadInvoiceFile'],
+            array_values(array_filter($lexware->methods(), fn (string $m) => in_array($m, ['finalizeInvoice', 'downloadInvoiceFile'], true))),
+        );
+
+        // The PDF is filed with the order's other documents but stays invisible
+        // to the company until somebody publishes it (§13).
+        $document = VehicleReportDocument::where('auftragsnummer', $order->auftragsnummer)
+            ->where('document_type', 'rechnung')
+            ->firstOrFail();
+        $this->assertFalse($document->published);
+        Storage::disk('documents')->assertExists($document->path);
+
+        $invoice = DB::table('lexware_invoices')->where('order_id', $order->id)->first();
+        $this->assertSame($document->id, $invoice->document_id);
+        $this->assertNotNull($invoice->voucher_number);
+        $this->assertDatabaseHas('leasyback_order_audit_log', [
+            'order_id' => $order->id,
+            'action' => 'LEXWARE_INVOICE_FINALIZED',
+        ]);
+
+        // One invoice per order: fetching it twice is refused, not duplicated.
+        $this->adminPost(route('admin.orders.billing.lexware-finalize', $order->id))->assertSessionHasErrors('lexware');
+    }
+
+    public function test_publishing_the_invoice_closes_the_billing_in_one_step(): void
+    {
+        $lexware = new FakeLexwareGateway;
+        $this->app->instance(LexwareGateway::class, $lexware);
+
+        $order = $this->inspectedOrder(['1000']);
+        $this->accept($this->publishedOffer($order, ['800']));
+        $order->forceFill(['order_status' => 'vehicle_returned'])->save();
+
+        $this->adminPost(route('admin.orders.billing.lexware-draft', $order->id))->assertSessionHasNoErrors();
+        $this->adminPost(route('admin.orders.billing.lexware-finalize', $order->id))->assertSessionHasNoErrors();
+
+        $document = VehicleReportDocument::where('auftragsnummer', $order->auftragsnummer)
+            ->where('document_type', 'rechnung')
+            ->firstOrFail();
+
+        $this->adminPatch(route('admin.orders.billing', $order->id), [
+            'invoice_document_id' => $document->id,
+            'mark_processed' => true,
+            'publish_invoice_document' => true,
+        ])->assertSessionHasNoErrors();
+
+        $this->assertTrue($document->fresh()->published);
+        $this->assertDatabaseHas('b2b_order_billing', [
+            'order_id' => $order->id,
+            'invoice_document_id' => $document->id,
+            'billing_status' => 'processed',
+        ]);
+    }
+
+    public function test_finalizing_without_a_draft_is_refused(): void
+    {
+        $lexware = new FakeLexwareGateway;
+        $this->app->instance(LexwareGateway::class, $lexware);
+
+        $order = $this->makeB2bOrder($this->makeB2bVehicle($this->company), 'vehicle_returned');
+
+        $this->adminPost(route('admin.orders.billing.lexware-finalize', $order->id))->assertSessionHasErrors('lexware');
+        $this->assertSame([], $lexware->methods());
+    }
+
+    public function test_a_failed_finalize_is_reported_and_leaves_no_half_written_invoice(): void
+    {
+        $lexware = new FakeLexwareGateway;
+        $this->app->instance(LexwareGateway::class, $lexware);
+
+        $order = $this->inspectedOrder(['1000']);
+        $this->accept($this->publishedOffer($order, ['800']));
+        $order->forceFill(['order_status' => 'vehicle_returned'])->save();
+
+        $this->adminPost(route('admin.orders.billing.lexware-draft', $order->id))->assertSessionHasNoErrors();
+
+        $lexware->failDownload = LexwareGatewayException::apiError('file not ready', 404);
+        $this->adminPost(route('admin.orders.billing.lexware-finalize', $order->id))->assertSessionHasErrors('lexware');
+
+        // Nothing filed, nothing claimed — and the admin can simply try again.
+        $this->assertSame(0, VehicleReportDocument::where('auftragsnummer', $order->auftragsnummer)->count());
+        $this->assertDatabaseHas('lexware_invoices', ['order_id' => $order->id, 'document_id' => null]);
+
+        $this->adminPost(route('admin.orders.billing.lexware-finalize', $order->id))->assertSessionHasNoErrors();
+        $this->assertSame(1, VehicleReportDocument::where('auftragsnummer', $order->auftragsnummer)->count());
     }
 
     public function test_the_lexware_draft_reports_a_disabled_integration(): void
@@ -552,10 +650,9 @@ class B2bOrderFlowRegressionTest extends TestCase
         $this->adminPost(route('admin.orders.billing.lexware-draft', $order->id))->assertSessionHasErrors('lexware');
     }
 
-    public function test_a_failed_pdf_download_does_not_undo_an_otherwise_created_draft(): void
+    public function test_creating_the_draft_touches_no_document_and_cannot_be_repeated(): void
     {
         $lexware = new FakeLexwareGateway;
-        $lexware->failDownload = LexwareGatewayException::apiError('file not ready', 404);
         $this->app->instance(LexwareGateway::class, $lexware);
 
         $order = $this->inspectedOrder(['1000']);

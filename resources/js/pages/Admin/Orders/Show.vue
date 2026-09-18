@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import AdminAppraisalPositionsCard from '@/components/admin/AdminAppraisalPositionsCard.vue';
-import AdminBillingCard from '@/components/admin/AdminBillingCard.vue';
 import AdminCollectionCard from '@/components/admin/AdminCollectionCard.vue';
-import AdminLexwareDraftCard from '@/components/admin/AdminLexwareDraftCard.vue';
+import AdminInvoiceCard from '@/components/admin/AdminInvoiceCard.vue';
 import AdminOffersCard from '@/components/admin/AdminOffersCard.vue';
 import AdminOrderActionsMenu from '@/components/admin/AdminOrderActionsMenu.vue';
 import AdminOrderNotesCard from '@/components/admin/AdminOrderNotesCard.vue';
@@ -448,22 +447,22 @@ function formatDateTime(value: string | null): string {
                         :stage="order.repair_payment_stage"
                     />
 
-                    <AdminLexwareDraftCard
-                        v-if="order.vehicle_belongs === 'B2B' && showBilling"
-                        id="order-section-lexware-entwurf"
-                        :order-id="order.id"
-                        :draft="order.lexware_draft"
-                        :report-documents="order.report_documents"
-                        :editable="order.editable.billing"
-                    />
-
-                    <AdminBillingCard
+                    <!--
+                        One card for the whole invoice step. It used to be two — a
+                        Lexware card and a separate billing form asking for an invoice
+                        number and a document picked from a list that only ever held
+                        the Gutachten — which left the admin choosing between options
+                        that were not the invoice.
+                    -->
+                    <AdminInvoiceCard
                         v-if="order.vehicle_belongs === 'B2B' && order.billing && showBilling"
                         id="order-section-abrechnung"
                         :order-id="order.id"
+                        :auftragsnummer="order.auftragsnummer"
+                        :vehicle-id="order.vehicle_id"
                         :billing="order.billing"
-                        :report-documents="order.report_documents"
                         :lexware-draft="order.lexware_draft"
+                        :report-documents="order.report_documents"
                         :editable="order.editable.billing"
                     />
 

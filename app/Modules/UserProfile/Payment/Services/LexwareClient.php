@@ -73,6 +73,26 @@ class LexwareClient implements LexwareGateway
         );
     }
 
+    public function finalizeInvoice(string $invoiceId): LexwareInvoiceResult
+    {
+        $path = '/v1/invoices/'.rawurlencode($invoiceId);
+        $voucher = $this->send('get', $path);
+
+        // Accounting may have finalized it inside Lexware during the review —
+        // the normal case for a draft that sat there for a while. Nothing left
+        // to do but report the number it was given.
+        if (($voucher['voucherStatus'] ?? 'draft') !== 'draft') {
+            return LexwareInvoiceResult::fromResponse($voucher);
+        }
+
+        // Lexware finalizes through the voucher's own representation, so the
+        // body is the one just read back — which also carries whatever
+        // accounting edited, and the `version` the API checks for conflicts.
+        return LexwareInvoiceResult::fromResponse(
+            $this->send('put', $path.'?finalize=true', $voucher),
+        );
+    }
+
     public function downloadInvoiceFile(string $invoiceId): LexwareFile
     {
         $path = '/v1/invoices/'.rawurlencode($invoiceId).'/file';

@@ -27,6 +27,18 @@ interface LexwareGateway
     public function retrieveInvoice(string $invoiceId): LexwareInvoiceResult;
 
     /**
+     * Finalizes a draft voucher, which is the moment it first receives an
+     * invoice number and a renderable PDF — a draft has neither, so
+     * downloadInvoiceFile() cannot succeed before this.
+     *
+     * A voucher somebody already finalized inside Lexware is returned as it
+     * stands rather than refused: the desired end state is reached either way.
+     *
+     * @throws LexwareGatewayException
+     */
+    public function finalizeInvoice(string $invoiceId): LexwareInvoiceResult;
+
+    /**
      * @throws LexwareGatewayException
      */
     public function downloadInvoiceFile(string $invoiceId): LexwareFile;

@@ -28,6 +28,8 @@ class FakeLexwareGateway implements LexwareGateway
 
     public ?LexwareGatewayException $failRetrieveInvoice = null;
 
+    public ?LexwareGatewayException $failFinalizeInvoice = null;
+
     public ?LexwareGatewayException $failDownload = null;
 
     public ?LexwareGatewayException $failCreateContact = null;
@@ -59,6 +61,32 @@ class FakeLexwareGateway implements LexwareGateway
         }
 
         return $this->invoices[$invoiceId] ?? throw LexwareGatewayException::apiError('Unknown invoice.', 404);
+    }
+
+    public function finalizeInvoice(string $invoiceId): LexwareInvoiceResult
+    {
+        $this->record('finalizeInvoice', ['invoice_id' => $invoiceId]);
+
+        if ($this->failFinalizeInvoice !== null) {
+            throw $this->consume($this->failFinalizeInvoice);
+        }
+
+        $existing = $this->invoices[$invoiceId] ?? throw LexwareGatewayException::apiError('Unknown invoice.', 404);
+
+        if ($existing->isFinalized()) {
+            return $existing;
+        }
+
+        $this->sequence++;
+
+        // Mirrors the real thing: finalizing is where the number appears.
+        return $this->invoices[$invoiceId] = new LexwareInvoiceResult(
+            id: $existing->id,
+            version: ($existing->version ?? 1) + 1,
+            resourceUri: $existing->resourceUri,
+            voucherStatus: $this->voucherStatus === 'draft' ? 'open' : $this->voucherStatus,
+            voucherNumber: $this->voucherNumber === null ? null : $this->voucherNumber.$this->sequence,
+        );
     }
 
     public function downloadInvoiceFile(string $invoiceId): LexwareFile
@@ -157,6 +185,7 @@ class FakeLexwareGateway implements LexwareGateway
     {
         $this->failCreateInvoice = null;
         $this->failRetrieveInvoice = null;
+        $this->failFinalizeInvoice = null;
         $this->failDownload = null;
         $this->failCreateContact = null;
 

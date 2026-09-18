@@ -15,7 +15,6 @@ use App\Modules\UserProfile\Payment\Contracts\LexwareGateway;
 use App\Modules\UserProfile\Payment\Data\LexwareContactRequest;
 use App\Modules\UserProfile\Payment\Data\LexwareInvoiceLine;
 use App\Modules\UserProfile\Payment\Data\LexwareInvoiceRequest;
-use App\Modules\UserProfile\Payment\Data\LexwareInvoiceResult;
 use App\Modules\UserProfile\Payment\Enums\LexwareInvoiceStatus;
 use App\Modules\UserProfile\Payment\Exceptions\LexwareGatewayException;
 use App\Modules\UserProfile\Payment\Models\LexwareContact;
@@ -147,44 +146,87 @@ class B2bLexwareDraftService
             return $invoice;
         });
 
-        // Best-effort: the draft already exists in Lexware and locally at this
-        // point, which is what "created" means here. A failed PDF download
-        // must not undo either — it only leaves nothing to open from the
-        // portal until the admin retries by reopening the order.
-        $this->attachDraftDocument($invoice, $order, $gateway, $result);
-
-        return $invoice->fresh() ?? $invoice;
+        return $invoice;
     }
 
     /**
-     * Downloads the draft's PDF and files it alongside the order's other
-     * documents — unpublished, since accounting has not reviewed it yet
-     * (§13). It is visible to admin immediately (report_documents has no
-     * `published` filter) and to the company only once someone explicitly
-     * publishes it.
+     * The second half of §13, after accounting has reviewed the draft.
+     *
+     * Finalizing is the moment the voucher first *has* an invoice number and a
+     * renderable PDF — a draft has neither — so this is where the document can
+     * be fetched, and why create() deliberately does not try: a download there
+     * could only ever fail, which is exactly what left orders showing a
+     * document that was forever "being generated".
+     *
+     * The PDF is filed with the order's other documents but left unpublished:
+     * admin sees it at once, the company only once somebody publishes it.
      */
-    private function attachDraftDocument(LexwareInvoice $invoice, LeasybackOrder $order, LexwareGateway $gateway, LexwareInvoiceResult $result): void
+    public function finalize(LeasybackOrder $order, User $user): LexwareInvoice
     {
+        $invoice = LexwareInvoice::where('order_id', $order->id)->where('purpose', self::PURPOSE)->first();
+
+        if ($invoice === null) {
+            $this->refuse('Für diesen Auftrag wurde noch kein Lexware-Rechnungsentwurf erstellt.');
+        }
+
+        if ($invoice->document_id !== null) {
+            $this->refuse('Die Rechnung wurde für diesen Auftrag bereits abgerufen.');
+        }
+
         try {
+            $gateway = app(LexwareGateway::class);
+            $result = $gateway->finalizeInvoice((string) $invoice->lexware_invoice_id);
             $file = $gateway->downloadInvoiceFile($result->id);
         } catch (LexwareGatewayException $e) {
-            Log::warning('B2B Lexware draft PDF download failed', ['order_id' => $order->id, 'error' => $e->getMessage()]);
+            Log::warning('B2B Lexware finalize failed', ['order_id' => $order->id, 'error' => $e->getMessage()]);
 
-            return;
+            // Reported, never swallowed: the admin is standing in front of this
+            // button and an invoice that silently fails to arrive is the whole
+            // problem this step exists to end.
+            $this->refuse(str_contains($e->getMessage(), 'LEXWARE_INTEGRATION_MODE')
+                ? 'Die Lexware-Integration ist nicht aktiviert. Bitte erfassen Sie die Rechnung manuell.'
+                : 'Die Rechnung konnte nicht aus Lexware abgerufen werden: '.$e->getMessage());
         }
+
+        $reference = $result->voucherNumber ?? $result->id;
 
         $document = $this->documents->storeGeneratedDocument(
             auftragsnummer: (string) $order->auftragsnummer,
             vehicleId: (string) $order->vehicle_id,
-            filename: sprintf('Rechnungsentwurf-%s.pdf', $result->voucherNumber ?? $result->id),
+            filename: sprintf('Rechnung-%s.pdf', $reference),
             contents: $file->contents,
             documentType: DocumentType::Rechnung->value,
-            documentTitle: trim(sprintf('Rechnungsentwurf %s', $result->voucherNumber ?? '')),
+            documentTitle: trim(sprintf('Rechnung %s', $result->voucherNumber ?? '')),
             notifyCustomer: false,
             published: false,
         );
 
-        $invoice->update(['document_id' => $document->id]);
+        return DB::transaction(function () use ($invoice, $order, $user, $result, $document) {
+            $invoice->update([
+                'status' => LexwareInvoiceStatus::Documented,
+                'voucher_number' => $result->voucherNumber ?? $invoice->voucher_number,
+                'voucher_status' => $result->voucherStatus ?? $invoice->voucher_status,
+                'lexware_version' => $result->version ?? $invoice->lexware_version,
+                'document_id' => $document->id,
+                'invoiced_at' => $invoice->invoiced_at ?? now(),
+                'documented_at' => now(),
+            ]);
+
+            OrderAuditLog::create([
+                'order_id' => $order->id,
+                'vehicle_id' => $order->vehicle_id,
+                'action' => 'LEXWARE_INVOICE_FINALIZED',
+                'old_values' => null,
+                'new_values' => [
+                    'lexware_invoice_id' => $result->id,
+                    'voucher_number' => $result->voucherNumber,
+                    'document_id' => $document->id,
+                ],
+                'changed_by_user_id' => $user->id,
+            ]);
+
+            return $invoice->fresh() ?? $invoice;
+        });
     }
 
     /**
