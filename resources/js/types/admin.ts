@@ -414,8 +414,10 @@ export interface AdminB2bLexwareDraft {
     voucher_number: string | null;
     voucher_status: string | null;
     submitted_at: string | null;
-    /** The `vehicle_report_documents` row for the downloaded draft PDF, once it exists. */
+    /** The `vehicle_report_documents` row for the downloaded invoice PDF, once it exists. */
     document_id: string | null;
+    /** Deep link to the voucher in Lexware — where a draft is reviewed and finalized. */
+    lexware_url: string | null;
 }
 
 /** Matches AdminQueryService::orderDetail()'s response shape. */

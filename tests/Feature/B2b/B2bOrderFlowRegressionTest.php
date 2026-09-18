@@ -551,12 +551,24 @@ class B2bOrderFlowRegressionTest extends TestCase
         $order->forceFill(['order_status' => 'vehicle_returned'])->save();
 
         $this->adminPost(route('admin.orders.billing.lexware-draft', $order->id))->assertSessionHasNoErrors();
+
+        // While it is still a draft Lexware has no document to give, and the
+        // admin is told to finalize it there rather than shown a raw API error.
+        $this->adminPost(route('admin.orders.billing.lexware-finalize', $order->id))->assertSessionHasErrors('lexware');
+        $this->assertSame(0, VehicleReportDocument::where('auftragsnummer', $order->auftragsnummer)->count());
+
+        // Accounting finalizes it inside Lexware — there is no API call for it.
+        $lexware->finalizeInLexware(array_key_first($lexware->invoices));
+
         $this->adminPost(route('admin.orders.billing.lexware-finalize', $order->id))->assertSessionHasNoErrors();
 
-        // Finalizing first, then the download — the order the real API requires.
+        // The voucher is checked first, and only a finalized one is downloaded.
         $this->assertSame(
-            ['finalizeInvoice', 'downloadInvoiceFile'],
-            array_values(array_filter($lexware->methods(), fn (string $m) => in_array($m, ['finalizeInvoice', 'downloadInvoiceFile'], true))),
+            ['requireFinalizedInvoice', 'requireFinalizedInvoice', 'downloadInvoiceFile'],
+            array_values(array_filter(
+                $lexware->methods(),
+                fn (string $m) => in_array($m, ['requireFinalizedInvoice', 'downloadInvoiceFile'], true),
+            )),
         );
 
         // The PDF is filed with the order's other documents but stays invisible
@@ -589,6 +601,7 @@ class B2bOrderFlowRegressionTest extends TestCase
         $order->forceFill(['order_status' => 'vehicle_returned'])->save();
 
         $this->adminPost(route('admin.orders.billing.lexware-draft', $order->id))->assertSessionHasNoErrors();
+        $lexware->finalizeInLexware(array_key_first($lexware->invoices));
         $this->adminPost(route('admin.orders.billing.lexware-finalize', $order->id))->assertSessionHasNoErrors();
 
         $document = VehicleReportDocument::where('auftragsnummer', $order->auftragsnummer)
@@ -630,6 +643,7 @@ class B2bOrderFlowRegressionTest extends TestCase
         $order->forceFill(['order_status' => 'vehicle_returned'])->save();
 
         $this->adminPost(route('admin.orders.billing.lexware-draft', $order->id))->assertSessionHasNoErrors();
+        $lexware->finalizeInLexware(array_key_first($lexware->invoices));
 
         $lexware->failDownload = LexwareGatewayException::apiError('file not ready', 404);
         $this->adminPost(route('admin.orders.billing.lexware-finalize', $order->id))->assertSessionHasErrors('lexware');

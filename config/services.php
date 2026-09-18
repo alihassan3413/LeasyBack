@@ -74,6 +74,9 @@ return [
         // LexwareClient refuses to construct without a key rather than
         // sending requests somewhere unexpected.
         'api_key' => env('LEXWARE_API_KEY'),
+        // Where the admin goes to review and finalize a draft. Not an API host
+        // — a link for humans — so it is configurable rather than hard-coded.
+        'app_url' => rtrim((string) env('LEXWARE_APP_URL', 'https://app.lexoffice.de'), '/'),
         'timeout' => (int) env('LEXWARE_TIMEOUT', 12),
         'connect_timeout' => (int) env('LEXWARE_CONNECT_TIMEOUT', 10),
     ],

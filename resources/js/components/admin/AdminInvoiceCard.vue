@@ -256,9 +256,20 @@ function formatDateTime(value: string | null): string {
             <!-- 2. The draft is with accounting. §13: it stays a draft until they are done with it. -->
             <div v-else-if="stage === 'finalize'" class="flex flex-col gap-3">
                 <p class="rounded-[11px] bg-[#f6f9f8] px-3 py-2 text-[11.5px] text-[#6f8585]">
-                    Der Entwurf wurde am {{ formatDateTime(lexwareDraft?.submitted_at ?? null) }} in Lexware angelegt. Prüfen Sie ihn dort — erst beim
-                    Finalisieren erhält die Rechnung ihre Nummer und ihr PDF.
+                    Der Entwurf wurde am {{ formatDateTime(lexwareDraft?.submitted_at ?? null) }} in Lexware angelegt. Prüfen und finalisieren Sie ihn
+                    dort — erst dann erhält die Rechnung ihre Nummer und ihr PDF. Danach hier abrufen.
                 </p>
+
+                <a
+                    v-if="lexwareDraft?.lexware_url"
+                    :href="lexwareDraft.lexware_url"
+                    target="_blank"
+                    rel="noopener"
+                    class="flex items-center justify-center gap-1.5 rounded-[13px] border border-[#e9efee] bg-white py-2.5 text-[12.5px] font-bold text-[#10393b] transition-all hover:border-[#10393b] hover:bg-[#f4f7f6]"
+                >
+                    <MdiOpenInNew class="size-[14px]" />
+                    Entwurf in Lexware öffnen
+                </a>
 
                 <InputError :message="finalizeError" />
 
@@ -268,7 +279,7 @@ function formatDateTime(value: string | null): string {
                     class="rounded-[13px] bg-[#10393b] px-4 py-2.5 text-[13px] font-bold text-white transition-all hover:opacity-90 disabled:opacity-50"
                     @click="finalize"
                 >
-                    {{ finalizeForm.processing ? 'Wird abgerufen...' : 'Finalisieren & Rechnung abrufen' }}
+                    {{ finalizeForm.processing ? 'Wird abgerufen...' : 'Rechnung aus Lexware abrufen' }}
                 </button>
 
                 <button

@@ -107,7 +107,12 @@ class B2bLexwareDraftService
                 remark: 'Entwurf aus dem LeasyBack-Portal. Bitte vor dem Versand prüfen.',
             ));
         } catch (LexwareGatewayException $e) {
-            Log::warning('B2B Lexware draft failed', ['order_id' => $order->id, 'error' => $e->getMessage()]);
+            Log::warning('B2B Lexware draft failed', [
+                'order_id' => $order->id,
+                'error' => $e->getMessage(),
+                'http_status' => $e->httpStatus,
+                'lexware_error' => $e->errorBody,
+            ]);
 
             $this->refuse(str_contains($e->getMessage(), 'LEXWARE_INTEGRATION_MODE')
                 ? 'Die Lexware-Integration ist nicht aktiviert. Bitte erfassen Sie die Rechnung manuell.'
@@ -175,10 +180,29 @@ class B2bLexwareDraftService
 
         try {
             $gateway = app(LexwareGateway::class);
-            $result = $gateway->finalizeInvoice((string) $invoice->lexware_invoice_id);
+            $result = $gateway->requireFinalizedInvoice((string) $invoice->lexware_invoice_id);
             $file = $gateway->downloadInvoiceFile($result->id);
         } catch (LexwareGatewayException $e) {
-            Log::warning('B2B Lexware finalize failed', ['order_id' => $order->id, 'error' => $e->getMessage()]);
+            // Still a draft is not a fault — it is the normal state until
+            // accounting is done with it, and the only thing the admin can do
+            // about it happens in Lexware, so say exactly that.
+            if ($e->isNotFinalized()) {
+                $this->refuse(
+                    'Der Entwurf ist in Lexware noch nicht finalisiert. Bitte finalisieren Sie ihn dort — '
+                    .'erst dann erhält die Rechnung ihre Nummer und ihr PDF — und rufen Sie sie anschließend hier ab.'
+                );
+            }
+
+            // Lexware's own error body names the cause (a wrong endpoint, a
+            // voucher that cannot be finalized, a contact it will not accept);
+            // without it the log says only "HTTP 404" and diagnoses nothing.
+            Log::warning('B2B Lexware finalize failed', [
+                'order_id' => $order->id,
+                'lexware_invoice_id' => $invoice->lexware_invoice_id,
+                'error' => $e->getMessage(),
+                'http_status' => $e->httpStatus,
+                'lexware_error' => $e->errorBody,
+            ]);
 
             // Reported, never swallowed: the admin is standing in front of this
             // button and an invoice that silently fails to arrive is the whole
@@ -230,7 +254,7 @@ class B2bLexwareDraftService
     }
 
     /**
-     * @return array{lexware_invoice_id: string|null, voucher_number: string|null, voucher_status: string|null, submitted_at: string|null, document_id: string|null}|null
+     * @return array{lexware_invoice_id: string|null, voucher_number: string|null, voucher_status: string|null, submitted_at: string|null, document_id: string|null, lexware_url: string|null}|null
      */
     public function summary(string $orderId): ?array
     {
@@ -242,6 +266,11 @@ class B2bLexwareDraftService
             'voucher_status' => $invoice->voucher_status,
             'submitted_at' => $invoice->submitted_at?->toISOString(),
             'document_id' => $invoice->document_id,
+            // The draft only becomes an invoice in Lexware's own UI, so the
+            // card has to be able to send the admin straight to it.
+            'lexware_url' => $invoice->lexware_invoice_id === null
+                ? null
+                : config('services.lexware.app_url').'/permalink/invoices/view/'.$invoice->lexware_invoice_id,
         ];
     }
 

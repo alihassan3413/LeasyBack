@@ -299,6 +299,103 @@ class LexwareClientTest extends TestCase
         }
     }
 
+    // ------------------------------------------------- the invoice document
+
+    /**
+     * The endpoint that broke every invoice PDF: `/v1/invoices/{id}/file` does
+     * not exist. A voucher renders a document, and the document is fetched from
+     * the files resource — two requests, in that order.
+     */
+    public function test_downloading_an_invoice_renders_a_document_then_fetches_the_file(): void
+    {
+        Http::fake([
+            'https://api.lexware.io/v1/invoices/inv-1/document' => Http::response(['documentFileId' => 'file-9']),
+            'https://api.lexware.io/v1/files/file-9' => Http::response('%PDF-1.7 body', 200, [
+                'Content-Type' => 'application/pdf',
+                'Content-Disposition' => 'attachment; filename="RE-1.pdf"',
+            ]),
+        ]);
+
+        $file = app(LexwareGateway::class)->downloadInvoiceFile('inv-1');
+
+        $this->assertSame('%PDF-1.7 body', $file->contents);
+        $this->assertSame('application/pdf', $file->mimeType);
+        $this->assertSame('RE-1.pdf', $file->filename);
+
+        Http::assertSentInOrder([
+            fn (Request $request) => $request->url() === 'https://api.lexware.io/v1/invoices/inv-1/document',
+            fn (Request $request) => $request->url() === 'https://api.lexware.io/v1/files/file-9',
+        ]);
+    }
+
+    /**
+     * 406 is Lexware's answer for "this voucher is a draft". It is guidance,
+     * not a fault, and the caller has to be able to tell the difference.
+     */
+    public function test_a_draft_voucher_reports_that_it_is_not_finalized(): void
+    {
+        Http::fake([
+            'https://api.lexware.io/v1/invoices/inv-1/document' => Http::response([
+                'status' => 406,
+                'error' => 'Not Acceptable',
+            ], 406),
+        ]);
+
+        try {
+            app(LexwareGateway::class)->downloadInvoiceFile('inv-1');
+            $this->fail('Expected the draft to be refused.');
+        } catch (LexwareGatewayException $exception) {
+            $this->assertTrue($exception->isNotFinalized());
+            $this->assertSame(406, $exception->httpStatus);
+        }
+    }
+
+    public function test_requiring_a_finalized_invoice_refuses_a_draft(): void
+    {
+        Http::fake([
+            'https://api.lexware.io/v1/invoices/inv-1' => Http::response(['id' => 'inv-1', 'voucherStatus' => 'draft']),
+        ]);
+
+        try {
+            app(LexwareGateway::class)->requireFinalizedInvoice('inv-1');
+            $this->fail('Expected the draft to be refused.');
+        } catch (LexwareGatewayException $exception) {
+            $this->assertTrue($exception->isNotFinalized());
+        }
+    }
+
+    public function test_requiring_a_finalized_invoice_accepts_an_open_one(): void
+    {
+        Http::fake([
+            'https://api.lexware.io/v1/invoices/inv-1' => Http::response([
+                'id' => 'inv-1',
+                'voucherStatus' => 'open',
+                'voucherNumber' => 'RE-1',
+            ]),
+        ]);
+
+        $result = app(LexwareGateway::class)->requireFinalizedInvoice('inv-1');
+
+        $this->assertSame('RE-1', $result->voucherNumber);
+        $this->assertTrue($result->isFinalized());
+    }
+
+    /**
+     * Lexware allows about two requests a second, and an invoice step fires
+     * several back to back — so one throttled call is waited out, not failed.
+     */
+    public function test_a_throttled_request_is_retried_once(): void
+    {
+        Http::fakeSequence('https://api.lexware.io/v1/invoices/inv-1')
+            ->push(['message' => 'Rate limit exceeded'], 429)
+            ->push(['id' => 'inv-1', 'voucherStatus' => 'open', 'voucherNumber' => 'RE-2'], 200);
+
+        $result = app(LexwareGateway::class)->requireFinalizedInvoice('inv-1');
+
+        $this->assertSame('RE-2', $result->voucherNumber);
+        Http::assertSentCount(2);
+    }
+
     // ---------------------------------------------------------------- fixtures
 
     /**

@@ -63,9 +63,9 @@ class FakeLexwareGateway implements LexwareGateway
         return $this->invoices[$invoiceId] ?? throw LexwareGatewayException::apiError('Unknown invoice.', 404);
     }
 
-    public function finalizeInvoice(string $invoiceId): LexwareInvoiceResult
+    public function requireFinalizedInvoice(string $invoiceId): LexwareInvoiceResult
     {
-        $this->record('finalizeInvoice', ['invoice_id' => $invoiceId]);
+        $this->record('requireFinalizedInvoice', ['invoice_id' => $invoiceId]);
 
         if ($this->failFinalizeInvoice !== null) {
             throw $this->consume($this->failFinalizeInvoice);
@@ -73,14 +73,26 @@ class FakeLexwareGateway implements LexwareGateway
 
         $existing = $this->invoices[$invoiceId] ?? throw LexwareGatewayException::apiError('Unknown invoice.', 404);
 
-        if ($existing->isFinalized()) {
-            return $existing;
+        // Mirrors the real API: a draft is refused, and only Lexware's own UI
+        // can promote it — represented here by finalizeInLexware().
+        if ($existing->isDraft()) {
+            throw LexwareGatewayException::notFinalized('Voucher is still a draft.');
         }
+
+        return $existing;
+    }
+
+    /**
+     * What accounting does inside Lexware: the voucher stops being a draft and
+     * is given its number. There is no API call for this — that is the point.
+     */
+    public function finalizeInLexware(string $invoiceId): void
+    {
+        $existing = $this->invoices[$invoiceId] ?? throw LexwareGatewayException::apiError('Unknown invoice.', 404);
 
         $this->sequence++;
 
-        // Mirrors the real thing: finalizing is where the number appears.
-        return $this->invoices[$invoiceId] = new LexwareInvoiceResult(
+        $this->invoices[$invoiceId] = new LexwareInvoiceResult(
             id: $existing->id,
             version: ($existing->version ?? 1) + 1,
             resourceUri: $existing->resourceUri,

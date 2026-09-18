@@ -73,43 +73,75 @@ class LexwareClient implements LexwareGateway
         );
     }
 
-    public function finalizeInvoice(string $invoiceId): LexwareInvoiceResult
+    public function requireFinalizedInvoice(string $invoiceId): LexwareInvoiceResult
     {
-        $path = '/v1/invoices/'.rawurlencode($invoiceId);
-        $voucher = $this->send('get', $path);
+        $result = LexwareInvoiceResult::fromResponse(
+            $this->send('get', '/v1/invoices/'.rawurlencode($invoiceId)),
+        );
 
-        // Accounting may have finalized it inside Lexware during the review —
-        // the normal case for a draft that sat there for a while. Nothing left
-        // to do but report the number it was given.
-        if (($voucher['voucherStatus'] ?? 'draft') !== 'draft') {
-            return LexwareInvoiceResult::fromResponse($voucher);
+        // Lexware vouchers are immutable through the API: `finalize` exists
+        // only as a flag when *creating* one, and there is no endpoint that
+        // promotes an existing draft (an earlier attempt to PUT one answered
+        // 404). Accounting finalizes it in Lexware's own UI — which is where
+        // §13 has them reviewing it anyway — and this reports what it found.
+        if ($result->isDraft()) {
+            throw LexwareGatewayException::notFinalized(
+                sprintf('Lexware voucher %s is still a draft.', $invoiceId),
+            );
         }
 
-        // Lexware finalizes through the voucher's own representation, so the
-        // body is the one just read back — which also carries whatever
-        // accounting edited, and the `version` the API checks for conflicts.
-        return LexwareInvoiceResult::fromResponse(
-            $this->send('put', $path.'?finalize=true', $voucher),
-        );
+        return $result;
     }
 
     public function downloadInvoiceFile(string $invoiceId): LexwareFile
     {
-        $path = '/v1/invoices/'.rawurlencode($invoiceId).'/file';
+        // Two steps, because that is what Lexware exposes: the voucher renders
+        // a document and hands back its file id, and the file is fetched from
+        // the files resource. (`/v1/invoices/{id}/file` is not an endpoint —
+        // it was the reason invoice PDFs never arrived.)
+        $path = '/v1/invoices/'.rawurlencode($invoiceId).'/document';
+        $response = $this->perform(fn () => $this->request()->get($path));
 
-        try {
-            $response = $this->request()->accept('application/pdf')->get($path);
-        } catch (ConnectionException $exception) {
-            throw LexwareGatewayException::transportError(
-                'Lexware could not be reached: '.$exception->getMessage(),
-                $exception,
+        // Lexware's answer for "this voucher is a draft" — guidance, not a
+        // fault, and the admin needs to hear the difference.
+        if ($response->status() === 406) {
+            throw LexwareGatewayException::notFinalized(
+                sprintf('Lexware has no document for voucher %s — it is still a draft.', $invoiceId),
+                (array) ($response->json() ?? []),
             );
         }
 
         if ($response->failed()) {
             throw LexwareGatewayException::apiError(
-                sprintf('Lexware rejected the request with HTTP %d.', $response->status()),
+                sprintf('Lexware rejected GET %s with HTTP %d.', $path, $response->status()),
                 $response->status(),
+                (array) ($response->json() ?? []),
+            );
+        }
+
+        $fileId = trim((string) ($response->json('documentFileId') ?? ''));
+
+        if ($fileId === '') {
+            throw LexwareGatewayException::apiError(
+                sprintf('Lexware returned no documentFileId for voucher %s.', $invoiceId),
+                $response->status(),
+                (array) ($response->json() ?? []),
+            );
+        }
+
+        return $this->downloadFile($fileId);
+    }
+
+    private function downloadFile(string $fileId): LexwareFile
+    {
+        $path = '/v1/files/'.rawurlencode($fileId);
+        $response = $this->perform(fn () => $this->request()->accept('application/pdf')->get($path));
+
+        if ($response->failed()) {
+            throw LexwareGatewayException::apiError(
+                sprintf('Lexware rejected GET %s with HTTP %d.', $path, $response->status()),
+                $response->status(),
+                (array) ($response->json() ?? []),
             );
         }
 
@@ -180,7 +212,7 @@ class LexwareClient implements LexwareGateway
     private function send(string $method, string $path, array $payload = []): array
     {
         try {
-            $response = $this->request()->{$method}($path, $payload);
+            $response = $this->perform(fn () => $this->request()->{$method}($path, $payload));
         } catch (ConnectionException $exception) {
             throw LexwareGatewayException::transportError(
                 'Lexware could not be reached: '.$exception->getMessage(),
@@ -188,7 +220,29 @@ class LexwareClient implements LexwareGateway
             );
         }
 
-        return $this->body($response);
+        return $this->body($response, strtoupper($method).' '.$path);
+    }
+
+    /**
+     * Sends one request, waiting out a single throttle.
+     *
+     * Lexware allows roughly two requests a second per organization, and an
+     * invoice step fires several back to back — voucher, document, file — so a
+     * 429 is a moment to pause rather than a reason to fail an invoice the
+     * admin is standing in front of.
+     *
+     * @param  callable(): Response  $send
+     */
+    private function perform(callable $send): Response
+    {
+        $response = $send();
+
+        if ($response->status() === 429) {
+            usleep(1_100_000);
+            $response = $send();
+        }
+
+        return $response;
     }
 
     private function request(): PendingRequest
@@ -204,13 +258,13 @@ class LexwareClient implements LexwareGateway
     /**
      * @return array<string, mixed>
      */
-    private function body(Response $response): array
+    private function body(Response $response, string $request = 'the request'): array
     {
         $body = (array) ($response->json() ?? []);
 
         if ($response->failed()) {
             throw LexwareGatewayException::apiError(
-                sprintf('Lexware rejected the request with HTTP %d.', $response->status()),
+                sprintf('Lexware rejected %s with HTTP %d.', $request, $response->status()),
                 $response->status(),
                 $body,
             );
