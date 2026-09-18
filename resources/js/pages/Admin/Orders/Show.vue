@@ -379,6 +379,15 @@ function formatDateTime(value: string | null): string {
                 </section>
 
                 <!--
+                    The next task sits outside the packing grid, directly under the
+                    header, because it is the one thing an admin opens this page for.
+                    Inside the grid it was placed wherever it happened to fit, so it
+                    moved between columns — and often far down the page — depending on
+                    which cards this order's status renders and how tall they are.
+                -->
+                <AdminOrderTasksCard :tasks="order.tasks" @action="handleTaskAction" />
+
+                <!--
                     Packed rather than split into two fixed columns. Almost every card
                     below is conditional — B2B-only, or gated on the order having reached
                     a status — so no static left/right split balances for both audiences.
@@ -413,8 +422,6 @@ function formatDateTime(value: string | null): string {
                             </template>
                         </OrderStatusTimeline>
                     </div>
-
-                    <AdminOrderTasksCard :tasks="order.tasks" @action="handleTaskAction" />
 
                     <OrderMessages :order-id="order.id" :auftragsnummer="order.auftragsnummer" container-class="content-card overflow-hidden p-0" />
 

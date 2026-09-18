@@ -229,3 +229,96 @@ Vue components must have a single root element.
 - IMPORTANT: Activate `inertia-vue-development` when working with Inertia Vue client-side patterns.
 
 </laravel-boost-guidelines>
+
+# Production-Grade Engineering Rules
+
+Every feature must be implemented as production-grade software.
+
+Before considering a task complete, review:
+
+## Database
+- Check for N+1 queries.
+- Add appropriate indexes.
+- Avoid unnecessary columns and SELECT *.
+- Paginate large datasets.
+- Avoid loading large datasets into memory.
+- Use transactions for related writes.
+- Consider concurrency and race conditions.
+
+## Backend
+- Validate all input server-side.
+- Enforce authorization server-side.
+- Use queues for expensive/long-running work.
+- Make retryable jobs idempotent.
+- Add timeouts and retry handling to external APIs.
+- Never trust client-side state for business-critical operations.
+
+## API
+- Use correct HTTP status codes.
+- Return consistent errors.
+- Do not expose internal errors, SQL, stack traces, or secrets.
+- Validate and limit request payloads.
+- Prevent duplicate operations where necessary.
+
+## Frontend
+- Avoid unnecessary re-renders.
+- Avoid unnecessary API requests.
+- Debounce search/input handlers.
+- Lazy-load heavy components.
+- Paginate or virtualize large lists.
+- Handle loading, empty, error and permission states.
+- Remove unused dependencies and code.
+
+## Security
+- No secrets in source code.
+- Validate uploads.
+- Protect sensitive endpoints.
+- Apply authentication and authorization.
+- Apply rate limiting where appropriate.
+- Never rely on frontend permission checks.
+
+## External Integrations
+- Handle timeout, retry and failure scenarios.
+- Validate external responses.
+- Implement idempotency where required.
+- Never assume third-party services are always available.
+
+## Testing
+- Add tests for the happy path.
+- Add tests for validation failures.
+- Add authorization tests.
+- Add invalid-state tests.
+- Add regression tests for fixed bugs.
+- Test important integrations and webhooks.
+
+## Reliability
+- Log important failures and business events.
+- Do not log secrets or sensitive data.
+- Ensure queue failures are observable.
+- Ensure important operations can be safely retried.
+
+## Deployment
+- Review migrations before production.
+- Never use destructive production commands casually.
+- Ensure backups exist before risky migrations.
+- Build frontend assets.
+- Restart workers when required.
+- Run smoke tests after deployment.
+
+## Performance
+Never optimize blindly.
+
+Measure expensive queries, API calls, memory usage,
+bundle size and response times where relevant.
+
+## Completion Rule
+
+Do not report a feature as "complete" simply because the
+happy path works.
+
+Before completion:
+1. Review the implementation against this checklist.
+2. Identify anything that does not apply.
+3. Fix applicable issues.
+4. Run relevant tests.
+5. Report remaining risks explicitly.
