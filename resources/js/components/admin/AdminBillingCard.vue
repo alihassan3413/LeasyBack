@@ -8,15 +8,16 @@
  * offer un-marking, because a completed order would then lose the
  * justification it was completed on.
  *
- * "Processed" must point at an actual invoice — a reference or an attached
- * document — and the server refuses it otherwise; the form says so before the
- * round trip. Editable only in `vehicle_returned` / `invoice_processed`
- * (`editable`); afterwards the card is the read-only record.
+ * "Processed" must point at an actual invoice — a reference, an attached
+ * document, or the Lexware draft (AdminLexwareDraftCard) — and the server
+ * refuses it otherwise; the form says so before the round trip. Editable only
+ * in `vehicle_returned` / `invoice_processed` (`editable`); afterwards the
+ * card is the read-only record.
  */
 import InputError from '@/components/InputError.vue';
 import { Input } from '@/components/ui/input';
 import { formatPortalDateTimeShort } from '@/lib/portalDate';
-import type { AdminOrderBilling, AdminReportDocument } from '@/types/admin';
+import type { AdminB2bLexwareDraft, AdminOrderBilling, AdminReportDocument } from '@/types/admin';
 import { useForm } from '@inertiajs/vue3';
 import { computed } from 'vue';
 import MdiReceiptTextOutline from '~icons/mdi/receipt-text-outline';
@@ -25,6 +26,8 @@ const props = defineProps<{
     orderId: string;
     billing: AdminOrderBilling;
     reportDocuments: AdminReportDocument[];
+    /** Null until AdminLexwareDraftCard's draft exists — it alone already counts as the invoice. */
+    lexwareDraft: AdminB2bLexwareDraft | null;
     /** AdminOrderDetail.editable.billing. */
     editable: boolean;
 }>();
@@ -37,8 +40,8 @@ const form = useForm(() => ({
 
 const isProcessed = computed(() => props.billing.is_processed);
 
-/** Mirrors B2bBillingService: a processed billing has to name its invoice. */
-const hasInvoice = computed(() => form.invoice_reference.trim() !== '' || form.invoice_document_id !== '');
+/** Mirrors B2bBillingService::update() — a reference, a document, or the Lexware draft, any one is enough. */
+const hasInvoice = computed(() => form.invoice_reference.trim() !== '' || form.invoice_document_id !== '' || props.lexwareDraft !== null);
 const invoiceMissing = computed(() => (form.mark_processed || isProcessed.value) && !hasInvoice.value);
 const canSubmit = computed(() => props.editable && !form.processing && !invoiceMissing.value);
 
@@ -88,6 +91,11 @@ function submit() {
 
         <p v-if="!editable" class="mb-3 rounded-[11px] bg-[#f6f9f8] px-3 py-2 text-[11.5px] text-[#6f8585]">
             Die Abrechnung kann nur nach der Rückgabe an den Leasinggeber und vor dem Abschluss des Auftrags bearbeitet werden.
+        </p>
+
+        <p v-else-if="lexwareDraft && !isProcessed" class="mb-3 rounded-[11px] bg-[#01B990]/8 px-3 py-2 text-[11.5px] font-medium text-[#00856a]">
+            Der Lexware-Rechnungsentwurf{{ lexwareDraft.voucher_number ? ` ${lexwareDraft.voucher_number}` : '' }} liegt vor und zählt bereits als
+            Rechnung — Rechnungsnummer und Dokument unten sind optional.
         </p>
 
         <form class="flex flex-col gap-3" @submit.prevent="submit">

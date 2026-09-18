@@ -463,6 +463,7 @@ function formatDateTime(value: string | null): string {
                         :order-id="order.id"
                         :billing="order.billing"
                         :report-documents="order.report_documents"
+                        :lexware-draft="order.lexware_draft"
                         :editable="order.editable.billing"
                     />
 
