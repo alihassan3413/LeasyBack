@@ -112,6 +112,7 @@ enum B2bRolePreset: string
                 B2bPermission::ViewVehicles->value,
                 B2bPermission::CreateVehicles->value,
                 B2bPermission::CreateOrders->value,
+                B2bPermission::OffersReject,
             ]),
             // "View orders/status" needs no permission of its own: an order is
             // a vehicle's process, and `orders.index` is gated on

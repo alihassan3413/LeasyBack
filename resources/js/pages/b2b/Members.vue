@@ -3,7 +3,7 @@ import MemberAccessModal from '@/components/b2b/MemberAccessModal.vue';
 import RowIconAction from '@/components/b2b/RowIconAction.vue';
 import StatCard from '@/components/b2b/StatCard.vue';
 import type { SelectFieldOption } from '@/components/form/SelectField.vue';
-import { AppModal, AppModalButton } from '@/components/ui/modal';
+// import { AppModal, AppModalButton } from '@/components/ui/modal';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { formatPortalDate } from '@/lib/portalDate';
@@ -24,7 +24,6 @@ import MdiClipboardTextOutline from '~icons/mdi/clipboard-text-outline';
 import MdiCloseCircleOutline from '~icons/mdi/close-circle-outline';
 import MdiCogOutline from '~icons/mdi/cog-outline';
 import MdiEmailSyncOutline from '~icons/mdi/email-sync-outline';
-import MdiTrashCanOutline from '~icons/mdi/trash-can-outline';
 
 const props = defineProps<{
     company: Pick<B2bCompanySummary, 'b2b_id' | 'company_name' | 'logo_url'>;
@@ -92,8 +91,7 @@ const accessModalOpen = ref(false);
 const accessModalMode = ref<'invite' | 'edit'>('invite');
 const memberBeingEdited = ref<B2bMemberRow | null>(null);
 
-const memberPendingRemoval = ref<B2bMemberRow | null>(null);
-const removing = ref(false);
+const statusChanging = ref<number | null>(null);
 
 const ownerCount = computed(() => props.members.filter((member) => member.role === 'owner').length);
 
@@ -117,51 +115,26 @@ function canEdit(member: B2bMemberRow): boolean {
  * The last owner cannot be removed or demoted — the server enforces it too
  * (B2bMembershipService), this just avoids offering an action that will fail.
  */
-function canRemove(member: B2bMemberRow): boolean {
-    if (!props.can.manage_members) {
-        return false;
-    }
 
-    // The server refuses it too (B2bMembershipService::removeMember).
-    if (member.user_id === props.currentUserId) {
-        return false;
-    }
 
-    if (member.role === 'owner') {
-        return props.can.assign_owner && ownerCount.value > 1;
-    }
 
-    return true;
-}
+function toggleMemberStatus(member: B2bMemberRow) {
+    statusChanging.value = member.user_id;
 
-function removalTooltip(member: B2bMemberRow): string {
-    if (member.user_id === props.currentUserId) {
-        return 'Sie können sich nicht selbst entfernen';
-    }
-
-    if (member.role === 'owner' && ownerCount.value <= 1) {
-        return 'Der letzte Inhaber kann nicht entfernt werden';
-    }
-
-    return 'Nur Inhaber können Inhaber entfernen';
-}
-
-function confirmRemoval() {
-    const member = memberPendingRemoval.value;
-
-    if (!member) {
-        return;
-    }
-
-    removing.value = true;
-
-    router.delete(route('b2b.members.destroy', member.user_id), {
-        preserveScroll: true,
-        onFinish: () => {
-            removing.value = false;
-            memberPendingRemoval.value = null;
+    router.patch(
+        route('b2b.members.status', member.user_id),
+        {
+            status: member.status === 'active'
+                ? 'inactive'
+                : 'active',
         },
-    });
+        {
+            preserveScroll: true,
+            onFinish() {
+                statusChanging.value = null;
+            },
+        },
+    );
 }
 
 /**
@@ -330,7 +303,12 @@ function roleChipClass(preset: B2bRolePresetValue | null): string {
 
                                     <td class="py-4 pr-4 align-middle">
                                         <span :class="[ROLE_CHIP_BASE, roleChipClass(member.preset)]">{{ member.preset_label }}</span>
-                                        <span v-if="!member.is_active" class="text-destructive mt-1 block text-xs">deaktiviert</span>
+                                    <span
+    v-if="member.status !== 'active'"
+    class="text-destructive mt-1 block text-xs"
+>
+    deaktiviert
+</span>
                                     </td>
 
                                     <td class="text-muted-foreground py-4 pr-4 align-middle text-sm">{{ scopeLabel(member) }}</td>
@@ -352,14 +330,18 @@ function roleChipClass(preset: B2bRolePresetValue | null): string {
                                                     :disabled="!canEdit(member)"
                                                     @click="openEdit(member)"
                                                 />
-                                                <RowIconAction
-                                                    :icon="MdiTrashCanOutline"
-                                                    label="Mitglied entfernen"
-                                                    :disabled-label="removalTooltip(member)"
-                                                    :disabled="!canRemove(member)"
-                                                    danger
-                                                    @click="memberPendingRemoval = member"
-                                                />
+                                           <RowIconAction
+    :icon="member.status === 'active'
+        ? MdiCloseCircleOutline
+        : MdiAccountGroupOutline"
+
+    :label="member.status === 'active'
+        ? 'Deaktivieren'
+        : 'Aktivieren'"
+
+    :disabled="statusChanging === member.user_id"
+    @click="toggleMemberStatus(member)"
+/>
                                             </div>
                                         </div>
                                     </td>
@@ -420,15 +402,7 @@ function roleChipClass(preset: B2bRolePresetValue | null): string {
                                                 Rechte
                                             </button>
 
-                                            <button
-                                                type="button"
-                                                class="text-destructive hover:bg-destructive/10 inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium disabled:opacity-40"
-                                                :disabled="!canRemove(member)"
-                                                @click="memberPendingRemoval = member"
-                                            >
-                                                <MdiTrashCanOutline class="size-4" aria-hidden="true" />
-                                                Entfernen
-                                            </button>
+                                          
                                         </div>
                                     </div>
                                 </div>
@@ -527,19 +501,5 @@ function roleChipClass(preset: B2bRolePresetValue | null): string {
             :can-assign-owner="can.assign_owner"
         />
 
-        <AppModal
-            :open="memberPendingRemoval !== null"
-            title="Mitglied entfernen?"
-            :description="`${memberPendingRemoval?.name || memberPendingRemoval?.email} verliert sofort den Zugriff auf ${company.company_name}. Die angelegten Fahrzeuge bleiben beim Unternehmen.`"
-            :width="560"
-            @update:open="(open) => !open && (memberPendingRemoval = null)"
-        >
-            <template #footer>
-                <AppModalButton type="button" variant="secondary" :disabled="removing" @click="memberPendingRemoval = null">
-                    Abbrechen
-                </AppModalButton>
-                <AppModalButton type="button" :disabled="removing" @click="confirmRemoval">Entfernen</AppModalButton>
-            </template>
-        </AppModal>
     </AppLayout>
 </template>

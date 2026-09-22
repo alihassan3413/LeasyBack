@@ -11,6 +11,7 @@ export interface OrderCollectionAddress {
 export interface OrderCollectionData {
     requested_collection_date: string | null;
     confirmed_collection_date: string | null;
+    requested_collection_time_slot: string | null;
     /** Confirmed workshop repair appointment (§11). Customer-visible business date. */
     confirmed_repair_start_date: string | null;
     estimated_processing_days: number | null;

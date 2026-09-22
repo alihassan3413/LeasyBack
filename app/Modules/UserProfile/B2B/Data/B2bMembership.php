@@ -28,6 +28,7 @@ final class B2bMembership
         public readonly string $b2bId,
         public readonly string $companyName,
         public readonly ?string $companyLogoUrl,
+        public string $status,
         public readonly B2bRole $role,
         public readonly B2bVehicleScope $vehicleScope,
         public readonly B2bPermissionSet $permissions,
@@ -47,6 +48,7 @@ final class B2bMembership
             companyName: (string) ($row->company_name ?? ''),
             companyLogoUrl: $row->logo_url ?? null,
             role: $role,
+                        status: (string) ($row->status ?? ''),
             // An owner is never scope-limited: they own every vehicle in the
             // company by definition, whoever happened to key it in.
             vehicleScope: $role === B2bRole::Owner

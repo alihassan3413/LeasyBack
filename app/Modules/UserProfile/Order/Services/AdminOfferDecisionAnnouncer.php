@@ -4,7 +4,7 @@ namespace App\Modules\UserProfile\Order\Services;
 
 use App\Enums\NotificationType;
 use App\Enums\UserType;
-use App\Models\LeasybackOffer;
+use App\Modules\UserProfile\Offer\Models\LeasybackOffer;
 use App\Models\User;
 use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
 use App\Notifications\NotificationPayload;

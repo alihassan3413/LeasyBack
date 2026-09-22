@@ -41,9 +41,19 @@ trait BuildsFleetPage
         // A Firmenkunde who belongs to no company can't have any vehicles yet
         // — send them to register one instead of an empty page. A Privatkunde
         // acting privately has their own dashboard and is left alone.
-        if ($membership === null && $user->user_type === UserType::Firmenkunde) {
-            return to_route('onboarding.b2b.show');
+if ($membership === null) {
+
+    if ($user->user_type === UserType::Firmenkunde) {
+
+        if ($this->b2bContext->hasInactiveMembership($user)) {
+            abort(403, 'Your company access has been disabled.');
         }
+
+        return to_route('onboarding.b2b.show');
+    }
+
+    return null;
+}
 
         if ($membership !== null && ! $membership->can(B2bPermission::ViewVehicles)) {
             return to_route($this->firstReachableCompanyPage($membership));
@@ -94,13 +104,22 @@ trait BuildsFleetPage
         // always "me", and VehicleScopeService has already enforced it.
         $canFilterByMember = $membership !== null && ! $membership->seesOwnVehiclesOnly();
 
-        $filters = [
-            'search' => trim((string) $request->query('search', '')),
-            'status' => (string) $request->query('status', ''),
-            'sort' => (string) $request->query('sort', 'created_at'),
-            'direction' => strtolower((string) $request->query('direction', 'desc')) === 'asc' ? 'asc' : 'desc',
-            'created_by' => $canFilterByMember ? (string) $request->query('created_by', '') : '',
-        ];
+       $filters = [
+    'search' => trim((string) $request->query('search', '')),
+    'status' => (string) $request->query('status', ''),
+    'sort' => (string) $request->query('sort', 'created_at'),
+    'direction' => strtolower((string) $request->query('direction', 'desc')) === 'asc'
+        ? 'asc'
+        : 'desc',
+    'created_by' => $canFilterByMember
+        ? (string) $request->query('created_by', '')
+        : '',
+    // New vehicle filters
+    'make' => trim((string) $request->query('make', '')),
+    'leasinggeber' => trim((string) $request->query('leasinggeber', '')),
+    'leasing_end' => (string) $request->query('leasing_end', ''),
+];
+
 
         $page = max(1, (int) $request->query('page', 1));
         // $user is passed so the listing applies the member-level vehicle

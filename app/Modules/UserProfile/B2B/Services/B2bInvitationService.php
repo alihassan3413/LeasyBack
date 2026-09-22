@@ -93,6 +93,20 @@ class B2bInvitationService
         if ($role === B2bRole::Owner && ! $actor->isOwner()) {
             $this->fail(403, 'Nur Inhaber können weitere Inhaber einladen.');
         }
+        if ($role === B2bRole::Owner) {
+    $alreadyHasOwner = DB::table('user_b2b')
+        ->where('b2b_id', $actor->b2bId)
+        ->where('role', B2bRole::Owner->value)
+        ->where('status', 'active')
+        ->exists();
+
+    if ($alreadyHasOwner) {
+        $this->fail(
+            422,
+            'Dieses Unternehmen hat bereits einen Administrator.'
+        );
+    }
+}
 
         // The same delegation ceiling as updating a member
         // (B2bMembership::mayGrant): an invitation cannot carry more access

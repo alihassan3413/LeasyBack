@@ -61,10 +61,14 @@ class OrderController extends Controller
                 : to_route('dashboard');
         }
 
-        $filters = [
-            'search' => trim((string) $request->query('search', '')),
-            'status' => (string) $request->query('status', ''),
-        ];
+      $filters = [
+    'search' => trim((string) $request->query('search', '')),
+    'status' => (string) $request->query('status', ''),
+    'make' => trim((string) $request->query('make', '')),
+    'model' => trim((string) $request->query('model', '')),
+    'leasinggeber' => trim((string) $request->query('leasinggeber', '')),
+    'leasing_end' => $request->query('leasing_end'),
+];
 
         return Inertia::render('orders/Index', [
             'orders' => $this->vehicleService->listCustomerOrders(

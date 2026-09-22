@@ -26,6 +26,7 @@ enum B2bPermission: string
 
     case CreateOrders = 'orders.create';
     case SelectOffers = 'offers.select';
+    case OffersReject = 'offers.reject';
 
     case ViewCompany = 'company.view';
     case ManageCompany = 'company.manage';

@@ -357,6 +357,7 @@ function stageHappened(stage: CustomerOrderStage, ctx: CustomerOrderFlowInput): 
     const offers = ctx.offers ?? [];
 
     switch (stage) {
+        
         case 'offers_published':
             return offers.length > 0;
         case 'offer_approved':
@@ -375,11 +376,14 @@ function stageHappened(stage: CustomerOrderStage, ctx: CustomerOrderFlowInput): 
 }
 
 function offerApprovedSubtitle(offer: CustomerOrderOffer | null): string {
-    if (!offer) {
+    if (!offer || offer.offer_status !== 'selected') {
         return '';
     }
 
-    const reference = offer.offer_sequence ? `Angebot ${String(offer.offer_sequence).padStart(2, '0')}` : 'Ihr Angebot';
+    const reference = offer.offer_sequence
+        ? `Angebot ${String(offer.offer_sequence).padStart(2, '0')}`
+        : 'Ihr Angebot';
+
     const note = offer.additional_notes?.trim();
 
     return note ? `${reference} – ${note}` : `${reference} wurde ausgewählt.`;
@@ -552,15 +556,24 @@ const B2B_STATUS_STAGE_INDEX: Record<string, number> = {
  * rejected request and fell back to the generic B2C-shaped list.
  */
 const B2B_TERMINAL_STATUSES = new Set(['cancelled', 'discarded']);
-
-function resolveB2bProgressIndex(status: string, relevantOffer: CustomerOrderOffer | null): number | null {
+function resolveB2bProgressIndex(
+    status: string,
+    relevantOffer: CustomerOrderOffer | null,
+    reportDocuments: ReadonlyArray<CustomerOrderReportDocument>
+): number | null {
     if (status === 'inspected') {
+        const hasGutachten = !!findLatestDoc(
+            reportDocuments,
+            'gutachten'
+        );
+
+        if (!hasGutachten) {
+            return 3; // vehicle_collected
+        }
+
         if (relevantOffer?.offer_status === 'selected') return 7;
         if (relevantOffer?.offer_status === 'published') return 6;
 
-        // A rejected offer sends the order back to the offer-preparation
-        // stage: Leasyback has to source a new quotation. `pickRelevantOffer`
-        // already ignores rejected offers, so this is the natural fallback.
         return 5;
     }
 
@@ -643,8 +656,10 @@ function b2bStageSubtitle(stage: B2bOrderStage, ctx: CustomerOrderFlowInput, rel
         }
         case 'approval_required':
             return isCurrent ? 'Bitte geben Sie ein Angebot Ihrer Wahl frei.' : '';
-        case 'repair_approved':
-            return relevantOffer ? offerApprovedSubtitle(relevantOffer) : '';
+       case 'repair_approved':
+    return relevantOffer?.offer_status === 'selected'
+        ? offerApprovedSubtitle(relevantOffer)
+        : '';
         case 'quotations_preparing': {
             if (!isCurrent) {
                 return '';
@@ -1072,7 +1087,11 @@ function getB2bOrderFlowSteps(ctx: CustomerOrderFlowInput): CustomerOrderFlowSte
     if (B2B_TERMINAL_STATUSES.has(status)) {
         const terminalEntry = ctx.statusHistory.find((entry) => entry.new_status === status);
         const priorStatus = (terminalEntry?.old_status ?? '').trim();
-        const priorIndex = Math.min(resolveB2bProgressIndex(priorStatus, relevantOffer) ?? 0, B2B_ORDER_STAGE_SEQUENCE.length - 1);
+        const priorIndex = Math.min(resolveB2bProgressIndex(
+    status,
+    relevantOffer,
+    ctx.reportDocuments ?? []
+) ?? 0, B2B_ORDER_STAGE_SEQUENCE.length - 1);
         const isRejected = status === 'discarded';
         const terminalDate = terminalEntry?.created_at ?? '';
         const priorCtx: CustomerOrderFlowInput = { ...ctx, orderStatus: priorStatus };
@@ -1097,7 +1116,11 @@ function getB2bOrderFlowSteps(ctx: CustomerOrderFlowInput): CustomerOrderFlowSte
         });
     }
 
-    const progressIndex = resolveB2bProgressIndex(status, relevantOffer);
+    const progressIndex = resolveB2bProgressIndex(
+    status,
+    relevantOffer,
+    ctx.reportDocuments ?? []
+);
 
     if (progressIndex === null) {
         return null;

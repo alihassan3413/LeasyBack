@@ -154,6 +154,7 @@ export interface B2bMemberRow {
     user_id: number;
     name: string | null;
     email: string;
+    status: 'active' | 'inactive';
     is_active: boolean;
     role: B2bRoleValue;
     role_label: string;
