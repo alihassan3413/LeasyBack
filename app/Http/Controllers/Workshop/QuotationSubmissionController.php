@@ -7,8 +7,10 @@ use App\Modules\UserProfile\Order\Models\AppraisalPosition;
 use App\Modules\UserProfile\Order\Services\WorkshopQuotationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * The workshop's side of §9. Guests only — a workshop has no account.
@@ -30,7 +32,7 @@ class QuotationSubmissionController extends Controller
 
         return Inertia::render('Workshop/Quotation', [
             'token' => $token,
-            'quotation' => $this->workshopQuotationService->publicPayload($quotation),
+            'quotation' => $this->workshopQuotationService->publicPayload($quotation, $token),
         ]);
     }
 
@@ -51,6 +53,23 @@ class QuotationSubmissionController extends Controller
         $this->workshopQuotationService->submit($quotation, $validated);
 
         return redirect()->route('workshop.quotations.thanks');
+    }
+
+    public function image(string $token, string $documentId): StreamedResponse
+    {
+        $quotation = $this->workshopQuotationService->findOpenByToken($token);
+
+        abort_if($quotation === null, 404);
+
+        $image = $this->workshopQuotationService->damageImage($quotation, $documentId);
+
+        abort_if($image === null, 404);
+
+        return Storage::disk('documents')->response($image['path'], "schadenbild-{$documentId}", [
+            'Content-Type' => $image['content_type'],
+            'Cache-Control' => 'private, no-store, max-age=0',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
     }
 
     public function thanks(): Response
