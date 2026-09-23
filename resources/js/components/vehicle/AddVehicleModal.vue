@@ -103,9 +103,7 @@ function submit() {
     <AppModal
         :open="open"
         :title="isEditMode ? 'Fahrzeug bearbeiten' : 'Neues Fahrzeug anlegen'"
-        :description="
-            isEditMode ? 'Aktualisieren Sie die Daten Ihres Fahrzeugs.' : 'Erfassen Sie Ihr Fahrzeug, um mit einer Bewertung zu starten.'
-        "
+        :description="isEditMode ? 'Aktualisieren Sie die Daten Ihres Fahrzeugs.' : 'Erfassen Sie Ihr Fahrzeug, um mit einer Bewertung zu starten.'"
         @update:open="(value) => emit('update:open', value)"
     >
         <form @submit.prevent="submit">
@@ -114,12 +112,7 @@ function submit() {
 
                 <LicensePlateInput v-model="form.license_plate" :disabled="isEditMode" :server-error="form.errors.license_plate" />
 
-                <FormField
-                    v-slot="{ id, describedBy, invalid }"
-                    label="FIN"
-                    label-hint="* (siehe Fahrzeugschein – Feld E)"
-                    :error="form.errors.vin"
-                >
+                <FormField v-slot="{ id, describedBy, invalid }" label="FIN" label-hint="* (siehe Fahrzeugschein – Feld E)" :error="form.errors.vin">
                     <Input
                         :id="id"
                         v-model="form.vin"
@@ -153,7 +146,6 @@ function submit() {
                         <CalendarDateField
                             :id="id"
                             v-model="form.leasing_end_date"
-                            allow-past
                             :disabled="leasingEndUnknown"
                             :invalid="invalid"
                             :described-by="describedBy"

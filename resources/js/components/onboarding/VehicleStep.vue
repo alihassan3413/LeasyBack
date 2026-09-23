@@ -161,7 +161,6 @@ function submit() {
                     <CalendarDateField
                         v-model="form.leasing_end_date"
                         label="Leasingende"
-                        allow-past
                         :disabled="leasingEndUnknown"
                         :error="form.errors.leasing_end_date"
                     />
