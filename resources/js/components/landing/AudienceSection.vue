@@ -11,6 +11,7 @@ const audiences = [
         features: ['Minderwert-Gutachten kostenlos', 'Reparaturangebote aus dem Netzwerk', 'Rückgabe-Checkliste', 'Support per E-Mail'],
         cta: 'Kostenlos starten',
         featured: false,
+        cardType: 'Privatkunde',
     },
     {
         eyebrow: 'Firmenkunde',
@@ -26,6 +27,7 @@ const audiences = [
         ],
         cta: 'Flottenkonto anfragen',
         featured: true,
+        cardType: 'Firmenkunde',
     },
     {
         eyebrow: 'Werkstatt',
@@ -35,6 +37,7 @@ const audiences = [
         features: ['Anfragen aus deiner Region', 'Angebote direkt einstellen', 'Auftragsübersicht im Konto', 'Keine Grundgebühr'],
         cta: 'Partner werden',
         featured: false,
+        cardType: 'Werksatatt',
     },
 ];
 </script>
@@ -102,7 +105,7 @@ const audiences = [
                     </div>
 
                     <Link
-                        :href="route('register')"
+                        :href="route('register', { cardType: audience.cardType })"
                         class="group mt-8 inline-flex w-full items-center justify-center gap-2 rounded-[5px] px-5 py-3 text-sm font-bold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none motion-reduce:transition-none"
                         :class="
                             audience.featured

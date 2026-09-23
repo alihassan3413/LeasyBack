@@ -16,8 +16,14 @@ const roleOptions: SelectFieldOption[] = [
     { value: 'Werksatatt', label: 'Werkstatt' },
 ];
 
+// Preselect the account type when coming from a landing page card — the
+// AudienceSection CTAs link to route('register') with a `cardType` query param.
+const requestedType = new URLSearchParams(window.location.search).get('cardType');
+
+const initialUserType = roleOptions.some((option) => option.value === requestedType) ? (requestedType as UserType) : '';
+
 const form = useForm({
-    user_type: '' as UserType | '',
+    user_type: initialUserType as UserType | '',
     email: '',
     password: '',
 });
@@ -30,7 +36,6 @@ const submit = () => {
 
 // Design match note: consistent with Login/ForgotPassword/etc. — see Login.vue.
 const fieldClass = 'h-auto rounded-full border-brand-green-gray bg-white px-4 py-2.5 text-sm';
-
 </script>
 
 <template>
