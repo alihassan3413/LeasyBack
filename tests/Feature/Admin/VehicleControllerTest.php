@@ -433,6 +433,49 @@ class VehicleControllerTest extends TestCase
     }
 
     /**
+     * Regression test: AdminQueryService::vehicles()/vehicleDetail() never
+     * selected mileage/contract_number/cost_centre/driver_name/driver_contact,
+     * so a B2B vehicle's fleet data — correctly saved by VehicleService — was
+     * silently dropped and rendered as "Nicht verfügbar" in the Admin panel.
+     */
+    public function test_admin_vehicle_payload_carries_the_b2b_fleet_fields(): void
+    {
+        $admin = $this->admin();
+        $vehicle = $this->b2bVehicle();
+        $vehicle->update([
+            'mileage' => 42000,
+            'contract_number' => 'VTR-123',
+            'cost_centre' => 'KST-99',
+            'driver_name' => 'Max Mustermann',
+            'driver_contact' => 'max@acme.example',
+        ]);
+        Vehicle::factory()->create(['vehicle_belongs' => 'B2C']);
+
+        $this->actingAs($admin)
+            ->get(route('admin.vehicles.show', $vehicle->vehicle_id))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('vehicle.mileage', 42000)
+                ->where('vehicle.contract_number', 'VTR-123')
+                ->where('vehicle.cost_centre', 'KST-99')
+                ->where('vehicle.driver_name', 'Max Mustermann')
+                ->where('vehicle.driver_contact', 'max@acme.example')
+            );
+
+        $this->actingAs($admin)
+            ->get(route('admin.vehicles.index'))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->has('vehicles.data', 2)
+                ->where('vehicles.data', fn (Collection $rows) => $rows
+                    ->firstWhere('vehicle_id', $vehicle->vehicle_id)['mileage'] === 42000
+                    && $rows->firstWhere('vehicle_id', $vehicle->vehicle_id)['driver_name'] === 'Max Mustermann'
+                    && ! array_key_exists('mileage', $rows->firstWhere('vehicle_belongs', 'B2C'))
+                )
+            );
+    }
+
+    /**
      * A B2B vehicle whose company never stored a pickup address: the payload
      * still carries the key, so the modal renders an empty (editable) address.
      */

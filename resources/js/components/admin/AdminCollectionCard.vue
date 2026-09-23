@@ -70,7 +70,17 @@ function submit() {
             <div class="flex items-center justify-between gap-3 border-b border-[#f2f6f5] py-2">
                 <dt class="text-[12px] font-medium text-[#9bb0af]">Wunschtermin Kunde</dt>
                 <dd class="text-[12.5px] font-bold text-[#10393b]">{{ formatDate(requestedDate) }}</dd>
+                
             </div>
+            <div class="flex items-center justify-between gap-3 border-b border-[#f2f6f5] py-2">
+    <dt class="text-[12px] font-medium text-[#9bb0af]">
+        Zeitraum
+    </dt>
+
+    <dd class="text-[12.5px] font-bold text-[#10393b]">
+        {{ collection?.requested_collection_time_slot || '—' }}
+    </dd>
+</div>
             <div class="flex items-center justify-between gap-3 py-2">
                 <dt class="text-[12px] font-medium text-[#9bb0af]">Hinweis Kunde</dt>
                 <dd class="text-right text-[12.5px] font-bold text-[#10393b]">{{ collection?.collection_note || '—' }}</dd>

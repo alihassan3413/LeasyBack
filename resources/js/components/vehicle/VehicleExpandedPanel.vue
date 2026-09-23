@@ -283,7 +283,9 @@ function onRepairPaid() {
  * respect — an order can owe both — so it gets its own banner, its own modal
  * and its own pair of endpoints.
  */
-const cancellationFeeOrder = computed(() => props.vehicle.orders.find((order) => order.payment?.cancellation_fee?.payable) ?? null);
+const cancellationFeeOrder = computed(() =>
+    isB2bVehicle.value ? null : (props.vehicle.orders.find((order) => order.payment?.cancellation_fee?.payable) ?? null),
+);
 
 const feeModalOpen = ref(false);
 
@@ -405,15 +407,20 @@ const presentedOffers = computed(() => offersData.value.filter((offer) => offer.
  * gross totals only in a channel that shows them (OfferPricingPolicy), so the
  * wording and the numbers can never disagree.
  */
-const showsGross = computed(() => (pendingPresentedOffer.value ?? decidedPresentedOffer.value)?.presentation?.repair_total_gross != null);
+const showsGross = computed(() => (pendingPresentedOffers.value[0] ?? decidedPresentedOffer.value)?.presentation?.repair_total_gross != null);
 
 const presentedAmountsUnit = computed(() => (showsGross.value ? 'brutto' : 'netto'));
 
 const presentedAmountsLabel = computed(() => (showsGross.value ? 'Alle Beträge brutto, inkl. MwSt.' : 'Alle Beträge netto.'));
 
-const presentedWorkshopName = computed(() => (pendingPresentedOffer.value ?? decidedPresentedOffer.value)?.presentation?.workshop_name ?? null);
-
-const pendingPresentedOffer = computed(() => presentedOffers.value.find((offer) => offer.status === 'published') ?? null);
+/**
+ * Every quotation-backed offer still open for a decision — not just the
+ * first. A `find()` here used to drop every workshop's presentation after
+ * the first when more than one offer was published simultaneously (e.g. two
+ * workshop quotations plus a manually created one): the plain offer list
+ * below showed all three, but this card silently rendered only one.
+ */
+const pendingPresentedOffers = computed(() => presentedOffers.value.filter((offer) => offer.status === 'published'));
 
 /**
  * The offer this panel speaks for once a decision exists.
@@ -455,21 +462,34 @@ const cancellationFeeLabel = computed(() =>
 /** The one offer a customer can still act on. */
 const publishedOffer = computed(() => offersData.value.find((offer) => offer.status === 'published') ?? null);
 
-const rejectOpen = ref(false);
 const rejectComment = ref('');
 const rejectingOfferId = ref<string | null>(null);
+
+function toggleReject(offerId: string) {
+    rejectingOfferId.value = rejectingOfferId.value === offerId ? null : offerId;
+
+    rejectComment.value = '';
+}
 
 function submitReject(offerId: string) {
     rejectingOfferId.value = offerId;
 
     router.post(
         route('offers.reject', offerId),
-        { customer_comment: rejectComment.value },
+        {
+            customer_comment: rejectComment.value,
+        },
         {
             preserveScroll: true,
+
+            onSuccess: () => {
+                router.reload({
+                    preserveScroll: true,
+                });
+            },
+
             onFinish: () => {
                 rejectingOfferId.value = null;
-                rejectOpen.value = false;
                 rejectComment.value = '';
             },
         },
@@ -619,7 +639,11 @@ const mutatingOfferId = ref<string | null>(null);
 function publishOffer(offerId: string) {
     mutatingOfferId.value = offerId;
 
-    router.patch(route('admin.orders.offers.publish', offerId), {}, { preserveScroll: true, onFinish: () => (mutatingOfferId.value = null) });
+    router.patch(
+        route('admin.orders.offers.publish', { offer: offerId }),
+        {},
+        { preserveScroll: true, onFinish: () => (mutatingOfferId.value = null) },
+    );
 }
 
 function withdrawOffer(offerId: string) {
@@ -691,6 +715,7 @@ const hasCollectionData = computed(() => {
 const collectionRows = computed(() => [
     { label: 'Wunschtermin', value: formatDate(orderCollection.value?.requested_collection_date ?? null) },
     { label: 'Bestätigter Termin', value: formatDate(orderCollection.value?.confirmed_collection_date ?? null) },
+    { label: 'Zeitraum', value: orderCollection.value?.requested_collection_time_slot ?? '' },
     { label: 'Abholadresse', value: formatAddress(orderCollection.value?.collection_address ?? null) },
     { label: 'Hinweis', value: orderCollection.value?.collection_note ?? '' },
 ]);
@@ -926,22 +951,34 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                 </div>
 
                 <div
-                    v-if="pendingPresentedOffer || decidedPresentedOffer"
+                    v-if="pendingPresentedOffers.length || decidedPresentedOffer"
                     class="@container flex flex-col rounded-[16px] border bg-white"
                     style="border-color: #ececec"
                 >
                     <div class="px-6 pt-6">
-                        <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">Reparaturangebot</p>
+                        <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">
+                            {{ pendingPresentedOffers.length > 1 ? 'Reparaturangebote' : 'Reparaturangebot' }}
+                        </p>
                         <p class="mt-1 text-[13px]" style="color: #64748b">
                             {{ presentedAmountsLabel }} Gegenüberstellung von Erstgutachten und freigegebener Reparatur.
                         </p>
-                        <p v-if="presentedWorkshopName" class="mt-1 text-[13px] font-bold" style="color: #2e3e3f">
-                            Ausführende Werkstatt: {{ presentedWorkshopName }}
-                        </p>
                     </div>
 
-                    <template v-for="offer in [pendingPresentedOffer ?? decidedPresentedOffer]" :key="offer?.offerId">
-                        <div v-if="offer?.presentation" class="flex flex-col px-6 pt-4 pb-6">
+                    <template
+                        v-for="(offer, offerIndex) in pendingPresentedOffers.length ? pendingPresentedOffers : [decidedPresentedOffer]"
+                        :key="offer?.offerId"
+                    >
+                        <div
+                            v-if="offer?.presentation"
+                            class="flex flex-col px-6 pt-4 pb-6"
+                            :class="offerIndex > 0 ? 'border-t' : ''"
+                            :style="offerIndex > 0 ? 'border-color: #ececec' : ''"
+                        >
+                            <p v-if="offer.presentation.workshop_name" class="mb-3 text-[13px] font-bold" style="color: #2e3e3f">
+                                <template v-if="pendingPresentedOffers.length > 1">{{ offer.name }} · </template
+                                >Ausführende Werkstatt: {{ offer.presentation.workshop_name }}
+                            </p>
+
                             <!--
                                 Keyed to the card, not the viewport. This card is
                                 one masonry track wide — a third of the panel at
@@ -1040,16 +1077,28 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                                     type="button"
                                     class="rounded-[13px] border px-5 py-2.5 text-[13px] font-bold transition-all hover:opacity-80"
                                     style="border-color: #ececec; color: #991b1b"
-                                    @click.stop="rejectOpen = !rejectOpen"
+                                    @click.stop="toggleReject(offer.offerId)"
                                 >
-                                    {{ rejectOpen ? 'Abbrechen' : 'Angebot ablehnen' }}
+                                    {{ rejectingOfferId === offer.offerId ? 'Abbrechen' : 'Angebot ablehnen' }}
                                 </button>
                             </div>
 
-                            <div v-if="rejectOpen && !admin && canDecideOffer && offer.status === 'published'" class="mt-3 flex flex-col gap-2">
-                                <p class="rounded-[13px] border border-amber-300 bg-amber-50 p-3 text-[13px] leading-relaxed text-amber-900">
+                            <div
+                                v-if="rejectingOfferId === offer.offerId && !admin && canDecideOffer && offer.status === 'published'"
+                                class="mt-3 flex flex-col gap-2"
+                            >
+                                <p
+                                    v-if="!isB2bVehicle"
+                                    class="rounded-[13px] border border-amber-300 bg-amber-50 p-3 text-[13px] leading-relaxed text-amber-900"
+                                >
                                     Wenn Sie dieses Reparaturangebot ablehnen, fällt eine Gebühr von
                                     <span class="font-bold">{{ cancellationFeeLabel }}</span> an.
+                                </p>
+                                <p
+                                    v-else
+                                    class="rounded-[13px] border border-[#01b990]/30 bg-[#01b990]/10 p-3 text-[13px] leading-relaxed text-[#00856a]"
+                                >
+                                    Für diese Ablehnung fällt keine Gebühr an.
                                 </p>
                                 <textarea
                                     v-model="rejectComment"
@@ -1161,6 +1210,50 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                                 </div>
                             </div>
 
+                            <div v-if="!admin && canDecideOffer && offer.status === 'published'" class="flex flex-col gap-2 pr-4 pl-14">
+                                <button
+                                    type="button"
+                                    class="self-start rounded-full border px-4 py-1.5 text-[11px] font-bold transition hover:bg-red-50"
+                                    style="border-color: #ececec; color: #991b1b"
+                                    @click.stop="toggleReject(offer.offerId)"
+                                >
+                                    {{ rejectingOfferId === offer.offerId ? 'Abbrechen' : 'Angebot ablehnen' }}
+                                </button>
+
+                                <div v-if="rejectingOfferId === offer.offerId" class="flex flex-col gap-2">
+                                    <p
+                                        v-if="!isB2bVehicle"
+                                        class="rounded-[13px] border border-amber-300 bg-amber-50 p-3 text-[13px] leading-relaxed text-amber-900"
+                                    >
+                                        Wenn Sie dieses Reparaturangebot ablehnen, fällt eine Gebühr von
+                                        <span class="font-bold">{{ cancellationFeeLabel }}</span> an.
+                                    </p>
+                                    <p
+                                        v-else
+                                        class="rounded-[13px] border border-[#01b990]/30 bg-[#01b990]/10 p-3 text-[13px] leading-relaxed text-[#00856a]"
+                                    >
+                                        Für diese Ablehnung fällt keine Gebühr an.
+                                    </p>
+
+                                    <textarea
+                                        v-model="rejectComment"
+                                        rows="3"
+                                        class="w-full resize-none rounded-[13px] border px-3 py-2 text-[13px] outline-none focus:border-[#01b990]"
+                                        style="border-color: #ececec"
+                                        placeholder="Optionale Anmerkung oder Rückfrage..."
+                                    />
+
+                                    <button
+                                        type="button"
+                                        class="self-start rounded-[13px] px-5 py-2.5 text-[13px] font-bold text-white transition hover:opacity-90 disabled:opacity-50"
+                                        style="background: #991b1b"
+                                        :disabled="rejectingOfferId === offer.offerId"
+                                        @click.stop="submitReject(offer.offerId)"
+                                    >
+                                        {{ rejectingOfferId === offer.offerId ? 'Wird gesendet...' : 'Ablehnung bestätigen' }}
+                                    </button>
+                                </div>
+                            </div>
                             <!--
                                     Admin-only row, deliberately outside the pill so the
                                     customer card's shape and rhythm are untouched. Indented
@@ -1220,55 +1313,6 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                             style="background: #e0e0e0; color: #9e9e9e"
                         >
                             Angebot annehmen
-                        </button>
-                    </div>
-
-                    <div
-                        v-if="!admin && canDecideOffer && publishedOffer && !pendingPresentedOffer"
-                        class="flex flex-wrap items-center gap-2 px-6 pt-4"
-                    >
-                        <button
-                            type="button"
-                            class="rounded-[13px] px-5 py-2.5 text-[13px] font-bold text-white transition-all hover:opacity-90"
-                            style="background: #01b990"
-                            @click.stop="requestSelect(publishedOffer.offerId)"
-                        >
-                            Reparatur freigeben
-                        </button>
-
-                        <button
-                            type="button"
-                            class="rounded-[13px] border px-5 py-2.5 text-[13px] font-bold transition-all hover:opacity-80"
-                            style="border-color: #ececec; color: #991b1b"
-                            @click.stop="rejectOpen = !rejectOpen"
-                        >
-                            {{ rejectOpen ? 'Abbrechen' : 'Angebot ablehnen' }}
-                        </button>
-                    </div>
-
-                    <div
-                        v-if="rejectOpen && !admin && canDecideOffer && publishedOffer && !pendingPresentedOffer"
-                        class="flex flex-col gap-2 px-6 pt-3"
-                    >
-                        <p class="rounded-[13px] border border-amber-300 bg-amber-50 p-3 text-[13px] leading-relaxed text-amber-900">
-                            Wenn Sie dieses Reparaturangebot ablehnen, fällt eine Gebühr von
-                            <span class="font-bold">{{ cancellationFeeLabel }}</span> an.
-                        </p>
-                        <textarea
-                            v-model="rejectComment"
-                            rows="3"
-                            class="w-full resize-none rounded-[13px] border px-3 py-2 text-[13px] outline-none focus:border-[#01b990]"
-                            style="border-color: #ececec"
-                            placeholder="Optionale Anmerkung oder Rückfrage..."
-                        />
-                        <button
-                            type="button"
-                            :disabled="rejectingOfferId === publishedOffer.offerId"
-                            class="self-start rounded-[13px] px-5 py-2.5 text-[13px] font-bold text-white transition-all hover:opacity-90 disabled:opacity-50"
-                            style="background: #991b1b"
-                            @click.stop="submitReject(publishedOffer.offerId)"
-                        >
-                            {{ rejectingOfferId === publishedOffer.offerId ? 'Wird gesendet...' : 'Ablehnung bestätigen' }}
                         </button>
                     </div>
 
@@ -1652,9 +1696,12 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                 </div>
 
                 <div v-if="rejectOpen && !admin && canDecideOffer && publishedOffer" class="flex flex-col gap-2 px-4 pt-3">
-                    <p class="rounded-[13px] border border-amber-300 bg-amber-50 p-3 text-[13px] leading-relaxed text-amber-900">
+                    <p v-if="!isB2bVehicle" class="rounded-[13px] border border-amber-300 bg-amber-50 p-3 text-[13px] leading-relaxed text-amber-900">
                         Wenn Sie dieses Reparaturangebot ablehnen, fällt eine Gebühr von
                         <span class="font-bold">{{ cancellationFeeLabel }}</span> an.
+                    </p>
+                    <p v-else class="rounded-[13px] border border-[#01b990]/30 bg-[#01b990]/10 p-3 text-[13px] leading-relaxed text-[#00856a]">
+                        Für diese Ablehnung fällt keine Gebühr an.
                     </p>
                     <textarea
                         v-model="rejectComment"

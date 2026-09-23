@@ -12,6 +12,7 @@ enum DocumentType: string
     case Gutachten = 'gutachten';
     case Nachgutachten = 'nachgutachten';
     case Rechnung = 'rechnung';
+    case RechnungAnlage = 'rechnung_anlage';
     case Leasingvertrag = 'leasingvertrag';
     case Vorschaden = 'vorschaden';
     case Sonstiges = 'sonstiges';
@@ -24,15 +25,17 @@ enum DocumentType: string
         return array_column(self::cases(), 'value');
     }
 
-    public function label(): string
-    {
-        return match ($this) {
-            self::Gutachten => 'Gutachten',
-            self::Nachgutachten => 'Nachgutachten',
-            self::Rechnung => 'Rechnung',
-            self::Leasingvertrag => 'Leasingvertrag',
-            self::Vorschaden => 'Vorschaden',
-            self::Sonstiges => 'Sonstiges',
-        };
-    }
+   public function label(): string
+{
+    return match ($this) {
+        self::Gutachten => 'Gutachten',
+        self::Nachgutachten => 'Nachgutachten',
+        self::Rechnung => 'Rechnung',
+        self::RechnungAnlage => 'Rechnungsanlage',
+        self::Leasingvertrag => 'Leasingvertrag',
+        self::Vorschaden => 'Vorschaden',
+        self::Sonstiges => 'Sonstiges',
+    };
+}
+    
 }

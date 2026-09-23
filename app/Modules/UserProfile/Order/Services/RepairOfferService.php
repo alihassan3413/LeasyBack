@@ -3,7 +3,7 @@
 namespace App\Modules\UserProfile\Order\Services;
 
 use App\Enums\OrderStatus;
-use App\Models\LeasybackOffer;
+use App\Modules\UserProfile\Offer\Models\LeasybackOffer;
 use App\Models\OfferAuditLog;
 use App\Models\User;
 use App\Models\Vehicle;
@@ -205,70 +205,86 @@ class RepairOfferService
      *
      * @param  array<string, mixed>  $validated
      */
-    public function reject(LeasybackOffer $offer, User $user, array $validated): void
-    {
-        if ($offer->offer_status !== 'published') {
+   public function reject(LeasybackOffer $offer, User $user, array $validated): void
+{
+    if ($offer->offer_status !== 'published') {
+        $this->fail(400, 'Nur veröffentlichte Angebote können abgelehnt werden.');
+    }
+
+    $rejectedOffer = DB::transaction(function () use ($offer, $user, $validated) {
+        $locked = LeasybackOffer::whereKey($offer->offer_id)
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        if ($locked->offer_status !== 'published') {
             $this->fail(400, 'Nur veröffentlichte Angebote können abgelehnt werden.');
         }
 
-        DB::transaction(function () use ($offer, $user, $validated) {
-            $locked = LeasybackOffer::whereKey($offer->offer_id)->lockForUpdate()->firstOrFail();
+        $orderStatus = LeasybackOrder::whereKey($locked->order_id)
+            ->value('order_status');
 
-            if ($locked->offer_status !== 'published') {
-                $this->fail(400, 'Nur veröffentlichte Angebote können abgelehnt werden.');
-            }
+        if ($orderStatus === null || in_array($orderStatus, OrderStatus::closedValues(), true)) {
+            $this->fail(422, 'Der Auftrag ist bereits abgeschlossen oder storniert.');
+        }
 
-            $orderStatus = LeasybackOrder::whereKey($locked->order_id)->value('order_status');
+        $expiredOn = $this->expiredOn($locked);
 
-            if ($orderStatus === null || in_array($orderStatus, OrderStatus::closedValues(), true)) {
-                $this->fail(422, 'Der Auftrag ist bereits abgeschlossen oder storniert. Über das Angebot kann nicht mehr entschieden werden.');
-            }
+        if ($expiredOn !== null) {
+            $this->fail(422, sprintf(
+                'Dieses Angebot war bis zum %s gültig.',
+                $expiredOn->format('d.m.Y'),
+            ));
+        }
 
-            // Same rule as acceptance (OfferService::decide): an offer whose
-            // validity ran out is no longer on the table in either direction.
-            $expiredOn = $this->expiredOn($locked);
+        $locked->update([
+            'offer_status' => self::STATUS_REJECTED,
+        ]);
 
-            if ($expiredOn !== null) {
-                $this->fail(422, sprintf(
-                    'Dieses Angebot war bis zum %s gültig. Bitte fordern Sie ein neues Angebot an.',
-                    $expiredOn->format('d.m.Y'),
-                ));
-            }
-
-            $locked->update(['offer_status' => self::STATUS_REJECTED]);
-
-            B2bOfferPresentation::where('offer_id', $locked->offer_id)->update([
+        B2bOfferPresentation::where('offer_id', $locked->offer_id)
+            ->update([
                 'rejected_at' => now(),
                 'rejected_by_user_id' => $user->id,
                 'customer_comment' => $this->trimToNull($validated['customer_comment'] ?? null),
             ]);
 
-            $this->announcer->announce('rejected', $locked->fresh());
+        OfferAuditLog::create([
+            'auftragsnummer' => $locked->auftragsnummer,
+            'offer_id' => $locked->offer_id,
+            'order_id' => $locked->order_id,
+            'action' => 'rejected_by_customer',
+            'old_values' => [
+                'offer_status' => 'published',
+            ],
+            'new_values' => [
+                'offer_status' => self::STATUS_REJECTED,
+            ],
+            'changed_by_user_id' => $user->id,
+        ]);
 
-            OfferAuditLog::create([
-                'auftragsnummer' => $locked->auftragsnummer,
-                'offer_id' => $locked->offer_id,
-                'order_id' => $locked->order_id,
-                'action' => 'rejected_by_customer',
-                'old_values' => ['offer_status' => 'published'],
-                'new_values' => ['offer_status' => self::STATUS_REJECTED],
-                'changed_by_user_id' => $user->id,
-            ]);
-        });
+        return $locked->fresh();
+    });
 
-        // After the commit: Admin is told about a rejection that is on disk,
-        // and a send that fails cannot roll the rejection back.
-        $this->adminAnnouncer->rejected($offer->fresh() ?? $offer, $validated['customer_comment'] ?? null);
+    // Notifications AFTER commit
+    $this->announcer->announce('rejected', $rejectedOffer);
 
-        $order = LeasybackOrder::find($offer->order_id);
+    $this->adminAnnouncer->rejected(
+        $rejectedOffer,
+        $validated['customer_comment'] ?? null
+    );
 
-        if ($order !== null) {
-            app(B2cFeeService::class)->trigger($order, FeeReason::RepairOfferRejected, [
+    $order = LeasybackOrder::find($offer->order_id);
+
+    if ($order !== null && ! TransitionOrderStatus::isB2bOrder($order)) {
+        app(B2cFeeService::class)->trigger(
+            $order,
+            FeeReason::RepairOfferRejected,
+            [
                 'offer_id' => $offer->offer_id,
                 'rejected_at' => now()->toIso8601String(),
-            ]);
-        }
+            ]
+        );
     }
+}
 
     /**
      * Offers still genuinely awaiting a customer decision and due a §18

@@ -31,6 +31,7 @@ class OrderLogistics extends Model
         'pickup_notes',
         'delivery_notes',
         'internal_note',
+        'requested_collection_time_slot',
         'created_by_user_id',
         'updated_by_user_id',
     ];

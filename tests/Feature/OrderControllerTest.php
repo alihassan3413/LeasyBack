@@ -26,7 +26,7 @@ class OrderControllerTest extends TestCase
             ->from(route('dashboard'))
             ->post(route('orders.store', $vehicle->vehicle_id), [
                 'station_id' => $station->station_id,
-                'termin' => '2026-09-01T10:00:00+02:00',
+                'termin' => now()->addWeek()->toDateTimeString(),
             ])
             ->assertRedirect(route('dashboard'));
 
@@ -47,7 +47,7 @@ class OrderControllerTest extends TestCase
             ->from(route('dashboard'))
             ->post(route('orders.store', $vehicle->vehicle_id), [
                 'station_id' => $station->station_id,
-                'termin' => '2026-09-01T10:00:00+02:00',
+                'termin' => now()->addWeek()->toDateTimeString(),
             ])
             ->assertRedirect(route('dashboard'));
 
@@ -69,7 +69,7 @@ class OrderControllerTest extends TestCase
             ->from(route('dashboard'))
             ->post(route('orders.store', $vehicle->vehicle_id), [
                 'station_id' => $station->station_id,
-                'termin' => '2026-09-01T10:00:00+02:00',
+                'termin' => now()->addWeek()->toDateTimeString(),
             ])
             ->assertNotFound();
 
@@ -90,7 +90,7 @@ class OrderControllerTest extends TestCase
             ->from(route('dashboard'))
             ->post(route('orders.store', $vehicle->vehicle_id), [
                 'station_id' => $station->station_id,
-                'termin' => '2026-09-01T10:00:00+02:00',
+                'termin' => now()->addWeek()->toDateTimeString(),
             ])
             ->assertRedirect()
             ->assertSessionHasErrors('order');

@@ -2,8 +2,10 @@
 import RequiredMark from '@/components/form/RequiredMark.vue';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useAppointmentCalendar } from '@/composables/useAppointmentCalendar';
-import { computed, useId } from 'vue';
+import { computed, nextTick, ref, onMounted } from 'vue';
+import { useId } from 'vue';
 
+const triggerRef = ref<HTMLButtonElement | null>(null);
 const props = withDefaults(
     defineProps<{
         modelValue: string;
@@ -22,6 +24,7 @@ const props = withDefaults(
         inputHeight?: string;
         inputRounded?: string;
         inputClass?: string;
+        autoFocus: false,
     }>(),
     {
         placeholder: 'TT.MM.JJJJ',
@@ -78,6 +81,16 @@ const {
     allowPast: props.allowPast,
     blockWeekends: props.blockWeekends,
 });
+
+
+onMounted(async () => {
+    if (!props.autoFocus || props.disabled) {
+        return;
+    }
+
+    await nextTick();
+    triggerRef.value?.focus();
+});
 </script>
 
 <template>
@@ -95,6 +108,7 @@ const {
         <Popover v-model:open="isOpen">
             <PopoverTrigger as-child>
                 <button
+                 ref="triggerRef"
                     :id="fieldId"
                     type="button"
                     :disabled="disabled"

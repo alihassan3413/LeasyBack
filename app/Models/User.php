@@ -87,10 +87,21 @@ class User extends Authenticatable
      * The landing route for this user after authentication. Admins live in
      * their own area and never see the customer dashboard.
      */
-    public function homeRouteName(): string
-    {
-        return $this->isAdmin() ? 'admin.dashboard' : 'dashboard';
+   public function homeRouteName(): string
+{
+    if ($this->isAdmin()) {
+        return 'admin.dashboard';
     }
+
+    if (
+        $this->user_type === UserType::Firmenkunde &&
+        $this->active_b2b_id !== null
+    ) {
+        return 'dashboard';
+    }
+
+    return 'dashboard';
+}
 
     /**
      * The B2B companies this user belongs to.

@@ -2,16 +2,15 @@
 
 namespace App\Notifications;
 
-use Illuminate\Bus\Queueable;
+use Illuminate\Queue\SerializesModels;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\BroadcastMessage;
 use Illuminate\Notifications\Notification;
 use NotificationChannels\WebPush\WebPushChannel;
 use NotificationChannels\WebPush\WebPushMessage;
-
-class SystemNotification extends Notification implements ShouldQueue
+class SystemNotification extends Notification
 {
-    use Queueable;
+   
 
     public function __construct(public readonly NotificationPayload $payload) {}
 
@@ -20,13 +19,9 @@ class SystemNotification extends Notification implements ShouldQueue
      */
     public function via(object $notifiable): array
     {
-        $channels = ['database', 'broadcast'];
+       return ['database', 'broadcast'];
 
-        if (method_exists($notifiable, 'pushSubscriptions') && $notifiable->pushSubscriptions()->exists()) {
-            $channels[] = WebPushChannel::class;
-        }
-
-        return $channels;
+       
     }
 
     /**

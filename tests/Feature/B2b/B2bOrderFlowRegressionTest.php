@@ -96,9 +96,19 @@ class B2bOrderFlowRegressionTest extends TestCase
             ->post(route('offers.select', $offer->offer_id))
             ->assertSessionHasErrors('offer');
 
-        $this->actingAs($this->owner)->from('/dashboard')
-            ->post(route('offers.reject', $offer->offer_id))
-            ->assertSessionHasErrors('offer');
+       $response = $this->actingAs($this->owner)
+    ->from('/dashboard')
+    ->post(route('offers.reject', $offer->offer_id));
+
+dump([
+    'status' => $response->getStatusCode(),
+    'location' => $response->headers->get('Location'),
+    'errors' => session('errors')?->getBag('default')->toArray(),
+    'success' => session('success'),
+    'error' => session('error'),
+]);
+
+$response->assertSessionHasErrors('offer');
 
         $this->assertSame('published', $offer->fresh()->offer_status);
     }

@@ -107,7 +107,10 @@ const form = useForm(() => ({
     time: '',
     remarks: '',
     fee_acknowledged: false,
+
     requested_collection_date: '',
+    requested_collection_time_slot: '',
+
     collection_note: '',
     collection_address: vehicleCollectionAddress(),
 }));
@@ -122,12 +125,13 @@ const selectedStation = computed(() => props.stations.find((station) => station.
  */
 const canSubmit = computed(() => {
     if (isB2bOrder.value) {
-        return (
-            form.requested_collection_date !== '' &&
-            form.collection_address.street !== '' &&
-            form.collection_address.zip_code !== '' &&
-            form.collection_address.city !== ''
-        );
+       return (
+    form.requested_collection_date !== '' &&
+    form.requested_collection_time_slot !== '' &&
+    form.collection_address.street !== '' &&
+    form.collection_address.zip_code !== '' &&
+    form.collection_address.city !== ''
+);
     }
 
     return form.fee_acknowledged && form.station_id !== '' && form.date !== '' && form.time !== '';
@@ -182,9 +186,10 @@ function submit() {
     form.transform((data) =>
         isB2bOrder.value
             ? {
-                  requested_collection_date: data.requested_collection_date,
-                  collection_note: data.collection_note || null,
-                  collection_address: data.collection_address,
+                requested_collection_date: data.requested_collection_date,
+requested_collection_time_slot: data.requested_collection_time_slot,
+collection_note: data.collection_note || null,
+collection_address: data.collection_address,
               }
             : {
                   station_id: data.station_id,
@@ -206,6 +211,31 @@ function submit() {
         },
     });
 }
+
+
+const collectionTimeSlots = [
+    {
+        value: '08:00-10:00',
+        label: '08:00 AM - 10:00 AM',
+    },
+    {
+        value: '10:00-12:00',
+        label: '10:00 AM - 12:00 PM',
+    },
+    {
+        value: '12:00-14:00',
+        label: '12:00 PM - 02:00 PM',
+    },
+    {
+        value: '14:00-16:00',
+        label: '02:00 PM - 04:00 PM',
+    },
+    {
+        value: '16:00-18:00',
+        label: '04:00 PM - 06:00 PM',
+    },
+];
+
 </script>
 
 <template>
@@ -265,6 +295,7 @@ function submit() {
                         <div class="flex flex-col gap-1">
                             <label class="text-sm font-semibold text-black">Datum<RequiredMark /></label>
                             <CalendarDateField v-model="form.date" :min-days-ahead="3" block-weekends :invalid="!!form.errors.termin" />
+                           
                             <InputError :message="form.errors.termin" />
                         </div>
 
@@ -313,6 +344,31 @@ function submit() {
                             :allow-past="false"
                             :invalid="!!form.errors.requested_collection_date"
                         />
+
+                        <div class="flex flex-col gap-1">
+    <label class="text-sm font-semibold text-black">
+        Zeitraum Abholung<RequiredMark />
+    </label>
+
+    <select
+        v-model="form.requested_collection_time_slot"
+        class="h-10 rounded-lg border border-gray-300 px-3 text-sm"
+    >
+        <option value="">
+            Zeitraum auswählen
+        </option>
+
+        <option
+            v-for="slot in collectionTimeSlots"
+            :key="slot.value"
+            :value="slot.value"
+        >
+            {{ slot.label }}
+        </option>
+    </select>
+
+    <InputError :message="form.errors.requested_collection_time_slot" />
+</div>
                         <InputError :message="form.errors.requested_collection_date" />
                     </div>
 

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\OrderStatus;
 use App\Enums\UserType;
 use App\Models\User;
+use App\Modules\UserProfile\Offer\Models\LeasybackOffer;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Order\Models\OrderStatusUpdate;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle;
@@ -110,6 +111,35 @@ class VehicleDashboardControllerTest extends TestCase
                 ->where('vehicles.0.orders.0.order_status', 'cancelled')
                 ->where('vehicles.0.orders.0.status_updates.0.new_status', 'cancelled')
                 ->where('vehicles.0.orders.0.status_updates.0.auth_source', 'admin')
+            );
+    }
+
+    /**
+     * A rejected offer must keep showing on the dashboard, in its rejected
+     * state, rather than vanishing as though the customer never saw it — a
+     * new offer can no longer be published for the order once one has been
+     * rejected (OfferService::publishOffer()'s guard), so there is no risk
+     * of it reappearing as though still selectable.
+     */
+    public function test_dashboard_still_shows_a_rejected_offer(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create(['b2c_user_id' => $owner->id]);
+        $order = LeasybackOrder::factory()->create([
+            'vehicle_id' => $vehicle->vehicle_id,
+            'order_status' => OrderStatus::Inspected->value,
+        ]);
+        LeasybackOffer::factory()->for($order, 'order')->create([
+            'auftragsnummer' => $order->auftragsnummer,
+            'offer_status' => 'rejected',
+        ]);
+
+        $this->actingAs($owner)
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->has('vehicles.0.orders.0.offers', 1)
+                ->where('vehicles.0.orders.0.offers.0.offer_status', 'rejected')
             );
     }
 

@@ -33,10 +33,27 @@ class OfferPolicy
      * rule: §10 pairs accept with reject, so the two abilities must not
      * diverge in who may exercise them.
      */
-    public function reject(User $user, LeasybackOffer $offer): bool
-    {
-        return $this->select($user, $offer);
+public function reject(User $user, LeasybackOffer $offer): bool
+{
+    if ($user->isAdmin()) {
+        return false;
     }
+
+    $order = $offer->order;
+
+    if ($order === null) {
+        return false;
+    }
+
+    // B2C customer
+    if ($order->vehicle?->b2c_user_id === $user->id) {
+        return true;
+    }
+
+    // B2B company user
+    return app(\App\Modules\UserProfile\B2B\Services\B2bContext::class)
+        ->activeMembership($user) !== null;
+}
 
     /**
      * Admin accepting an offer for the customer ("Im Auftrag des Kunden

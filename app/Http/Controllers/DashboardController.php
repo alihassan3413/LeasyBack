@@ -47,6 +47,7 @@ class DashboardController extends Controller
 
     public function index(Request $request): Response|RedirectResponse
     {
+    
         $user = $request->user();
         $membership = $this->b2bContext->activeMembership($user);
 

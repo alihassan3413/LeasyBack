@@ -56,7 +56,7 @@ class PaymentStepEntryPointsTest extends TestCase
     {
         return [
             'station_id' => $station->station_id,
-            'termin' => '2026-09-01T10:00:00+02:00',
+            'termin' => now()->addWeek()->toDateTimeString(),
         ];
     }
 
@@ -126,7 +126,7 @@ class PaymentStepEntryPointsTest extends TestCase
         $this->actingAs($owner)
             ->from(route('dashboard'))
             ->post(route('orders.store', $vehicle->vehicle_id), [
-                'requested_collection_date' => '2026-09-01',
+                'requested_collection_date' => now()->addWeek()->toDateString(),
                 'collection_address' => [
                     'street' => $address->street ?? 'Teststr.',
                     'zip_code' => '80331',

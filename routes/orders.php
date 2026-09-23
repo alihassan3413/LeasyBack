@@ -22,9 +22,9 @@ Route::middleware(['auth', 'active', 'verified'])->group(function () {
     Route::post('offers/{offerId}/select', [OfferController::class, 'select'])
         ->middleware('b2b.can:offers.select')->name('offers.select');
 
-    Route::post('offers/{offerId}/reject', [OfferController::class, 'reject'])
-        ->middleware('b2b.can:offers.select')->name('offers.reject');
-
+  Route::post('offers/{offerId}/reject', [OfferController::class, 'reject'])
+    ->middleware('b2b.can:offers.select')
+    ->name('offers.reject');
     /*
      * One order in full, by its own id. Every reorder is a separate record
      * with its own Auftragsnummer, so a vehicle's past is a list of addresses

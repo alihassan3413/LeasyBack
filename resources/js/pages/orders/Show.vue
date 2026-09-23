@@ -136,9 +136,12 @@ const paymentRows = computed(() => {
         rows.push({ label: 'Reparaturkosten', value: obligationLabel(state.repair.amount_cents, state.repair.paid_at) });
     }
 
-    if (state.cancellation_fee) {
-        rows.push({ label: 'Stornogebühr', value: obligationLabel(state.cancellation_fee.amount_cents, state.cancellation_fee.paid_at) });
-    }
+   if (!isB2b.value && state.cancellation_fee) {
+    rows.push({ 
+        label: 'Stornogebühr', 
+        value: obligationLabel(state.cancellation_fee.amount_cents, state.cancellation_fee.paid_at) 
+    });
+}
 
     return rows;
 });
@@ -170,6 +173,10 @@ const collectionRows = computed(() => {
 
     return [
         { label: 'Wunschtermin', value: formatPortalDate(collection.requested_collection_date) },
+       {
+ label: 'Abholzeitraum',
+ value: collection.requested_collection_time_slot ?? '—'
+},
         { label: 'Bestätigter Termin', value: formatPortalDate(collection.confirmed_collection_date) },
         { label: 'Hinweis', value: collection.collection_note ?? '' },
     ].filter((row) => !!row.value);
@@ -267,7 +274,7 @@ const siblingOrders = computed<OrderHistoryEntry[]>(() =>
                             </div>
                         </dl>
 
-                        <div v-if="payment.repair?.payable || payment.cancellation_fee?.payable" class="flex flex-wrap gap-2 px-5 py-4">
+                       <div v-if="payment.repair?.payable || (!isB2b && payment.cancellation_fee?.payable)" class="flex flex-wrap gap-2 px-5 py-4">
                             <button
                                 v-if="payment.repair?.payable"
                                 type="button"
@@ -278,7 +285,7 @@ const siblingOrders = computed<OrderHistoryEntry[]>(() =>
                                 Reparaturkosten bezahlen
                             </button>
                             <button
-                                v-if="payment.cancellation_fee?.payable"
+                             v-if="!isB2b && payment.cancellation_fee?.payable"
                                 type="button"
                                 class="h-9 rounded-full px-5 text-[13px] font-semibold text-white shadow-lg"
                                 style="background: #ef8450"

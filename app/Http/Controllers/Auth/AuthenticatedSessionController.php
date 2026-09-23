@@ -33,9 +33,26 @@ class AuthenticatedSessionController extends Controller
 
         $request->session()->regenerate();
 
-        $home = route($request->user()->homeRouteName(), absolute: false);
+      $user = $request->user();
 
-        return redirect()->intended($home)->with('success', 'Willkommen zurück!');
+$context = app(\App\Modules\UserProfile\B2B\Services\B2bContext::class);
+
+if (
+    $user->user_type === \App\Enums\UserType::Firmenkunde &&
+    $context->activeMembership($user) === null &&
+    $context->hasInactiveMembership($user)
+) {
+    Auth::logout();
+
+    return redirect('/login')
+        ->withErrors([
+            'email' => 'Your company access has been disabled.'
+        ]);
+}
+
+$home = route($user->homeRouteName(), absolute: false);
+
+return redirect()->intended($home);
     }
 
     /**
