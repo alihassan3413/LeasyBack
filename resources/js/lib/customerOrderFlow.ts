@@ -561,7 +561,7 @@ function resolveB2bProgressIndex(
     relevantOffer: CustomerOrderOffer | null,
     reportDocuments: ReadonlyArray<CustomerOrderReportDocument>
 ): number | null {
-    if (status === 'inspected') {
+    if (status === 'vehicle_collected' || status === 'inspected') {
         const hasGutachten = !!findLatestDoc(
             reportDocuments,
             'gutachten'
@@ -569,6 +569,14 @@ function resolveB2bProgressIndex(
 
         if (!hasGutachten) {
             return 3; // vehicle_collected
+        }
+
+        // The report can be uploaded and published before Admin explicitly
+        // transitions the order to `inspected` ("Begutachtung abschließen") —
+        // without this, "Erstgutachten verfügbar" kept showing as the Next
+        // step even though the report was already sitting right there.
+        if (status === 'vehicle_collected') {
+            return 4; // initial_appraisal
         }
 
         if (relevantOffer?.offer_status === 'selected') return 7;
@@ -867,7 +875,7 @@ function buildStep(
             // so this stage carries it while it is the current one.
             subtitle =
                 state.isCurrent && hasRejectedOffer(ctx)
-                    ? 'Sie haben das letzte Angebot abgelehnt. Leasyback erstellt Ihnen ein neues Angebot.'
+                    ? 'Sie haben das letzte Angebot abgelehnt. Leasyback meldet sich bei Ihnen mit den nächsten Schritten.'
                     : 'Hier können Sie Ihr Gutachten einsehen';
             break;
         case 'offers_published':

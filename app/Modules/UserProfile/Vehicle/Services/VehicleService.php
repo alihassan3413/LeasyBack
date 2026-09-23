@@ -609,23 +609,21 @@ class VehicleService
         $query = $this->scopedVehicleQuery($ownerId, $belongs, $viewer)
             ->join('leasyback_orders as o', 'o.vehicle_id', '=', 'v.vehicle_id');
 
+        $search = trim((string) ($filters['search'] ?? ''));
 
-$search = trim((string) ($filters['search'] ?? ''));
+        if ($search !== '') {
+            $query->where(function (Builder $q) use ($search) {
+                $term = "%{$search}%";
 
-if ($search !== '') {
-    $query->where(function (Builder $q) use ($search) {
-        $term = "%{$search}%";
+                $q->where('o.auftragsnummer', 'like', $term)
+                    ->orWhere('v.license_plate', 'like', $term)
+                    ->orWhere('v.make', 'like', $term)
+                    ->orWhere('v.model', 'like', $term)
+                    ->orWhere('v.vin', 'like', $term);
+            });
+        }
 
-        $q->where('o.auftragsnummer', 'like', $term)
-            ->orWhere('v.license_plate', 'like', $term)
-            ->orWhere('v.make', 'like', $term)
-            ->orWhere('v.model', 'like', $term)
-            ->orWhere('v.vin', 'like', $term);
-    });
-}
-
-
-$status = (string) ($filters['status'] ?? '');
+        $status = (string) ($filters['status'] ?? '');
 
         // `open`/`closed` are groups rather than statuses, the same shorthand
         // the fleet filter uses — OrderStatus::closedValues() is the single
@@ -633,47 +631,41 @@ $status = (string) ($filters['status'] ?? '');
         if ($status === 'open') {
             $query->whereNotIn('o.order_status', OrderStatus::closedValues());
         } elseif ($status === 'closed') {
-           $query->whereIn('o.order_status', OrderStatus::completedValues());
+            $query->whereIn('o.order_status', OrderStatus::completedValues());
         } elseif ($status !== '') {
             $query->where('o.order_status', $status);
         }
 
-  
+        if (! empty($filters['make'])) {
+            $query->where(
+                'v.make',
+                'like',
+                '%'.$filters['make'].'%'
+            );
+        }
 
+        if (! empty($filters['model'])) {
+            $query->where(
+                'v.model',
+                'like',
+                '%'.$filters['model'].'%'
+            );
+        }
 
-if (!empty($filters['make'])) {
-    $query->where(
-        'v.make',
-        'like',
-        '%'.$filters['make'].'%'
-    );
-}
+        if (! empty($filters['leasinggeber'])) {
+            $query->where(
+                'v.leasinggeber',
+                'like',
+                '%'.$filters['leasinggeber'].'%'
+            );
+        }
 
-
-if (!empty($filters['model'])) {
-    $query->where(
-        'v.model',
-        'like',
-        '%'.$filters['model'].'%'
-    );
-}
-
-
-if (!empty($filters['leasinggeber'])) {
-    $query->where(
-        'v.leasinggeber',
-        'like',
-        '%'.$filters['leasinggeber'].'%'
-    );
-}
-
-
-if (!empty($filters['leasing_end'])) {
-    $query->whereDate(
-        'v.leasing_end_date',
-        $filters['leasing_end']
-    );
-}
+        if (! empty($filters['leasing_end'])) {
+            $query->whereDate(
+                'v.leasing_end_date',
+                $filters['leasing_end']
+            );
+        }
         if ($limit !== null) {
             $query->limit($limit);
         }
@@ -883,10 +875,7 @@ if (!empty($filters['leasing_end'])) {
         // channels now that a B2C offer can be quotation-backed.
         $offersByOrder = DB::table('leasyback_offers')
             ->whereIn('order_id', $orderIds)
-            ->whereIn('offer_status', [
-    'published',
-    'selected',
-])
+            ->whereIn('offer_status', ['published', 'selected', RepairOfferService::STATUS_REJECTED])
             ->orderBy('offer_sequence')
             ->get()
             ->groupBy('order_id');
@@ -1234,26 +1223,23 @@ if (!empty($filters['leasing_end'])) {
             $query->where('v.created_by_user_id', (int) $createdBy);
         }
 
-
         $make = trim((string) ($filters['make'] ?? ''));
 
-if ($make !== '') {
-    $query->where('v.make', 'like', "%{$make}%");
-}
+        if ($make !== '') {
+            $query->where('v.make', 'like', "%{$make}%");
+        }
 
+        $leasinggeber = trim((string) ($filters['leasinggeber'] ?? ''));
 
-$leasinggeber = trim((string) ($filters['leasinggeber'] ?? ''));
+        if ($leasinggeber !== '') {
+            $query->where('v.leasinggeber', 'like', "%{$leasinggeber}%");
+        }
 
-if ($leasinggeber !== '') {
-    $query->where('v.leasinggeber', 'like', "%{$leasinggeber}%");
-}
+        $leasingEnd = $filters['leasing_end'] ?? null;
 
-
-$leasingEnd = $filters['leasing_end'] ?? null;
-
-if ($leasingEnd) {
-    $query->whereDate('v.leasing_end_date', $leasingEnd);
-}
+        if ($leasingEnd) {
+            $query->whereDate('v.leasing_end_date', $leasingEnd);
+        }
 
         // Each whitespace-separated word has to match one of the searchable
         // columns, but not necessarily the same one — that is what makes

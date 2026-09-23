@@ -33,9 +33,11 @@ Route::middleware(['auth', 'active'])->prefix('company')->name('b2b.')->group(fu
     Route::middleware('b2b.can:members.manage')->group(function () {
         Route::patch('members/{userId}', [MemberController::class, 'update'])
             ->whereNumber('userId')->name('members.update');
-       Route::patch('members/{userId}/status', [MemberController::class, 'updateStatus'])
-    ->whereNumber('userId')
-    ->name('members.status');
+        Route::patch('members/{userId}/status', [MemberController::class, 'updateStatus'])
+            ->whereNumber('userId')
+            ->name('members.status');
+        Route::delete('members/{userId}', [MemberController::class, 'destroy'])
+            ->whereNumber('userId')->name('members.destroy');
 
         Route::post('invitations', [InvitationController::class, 'store'])->name('invitations.store');
         Route::post('invitations/{invitationId}/resend', [InvitationController::class, 'resend'])

@@ -65,6 +65,7 @@ enum B2bPermission: string
             self::DeleteVehicleDocuments => 'Dokumente löschen',
             self::CreateOrders => 'Aufträge/Termine anlegen',
             self::SelectOffers => 'Angebote auswählen',
+            self::OffersReject => 'Angebote ablehnen',
             self::ViewCompany => 'Firmendaten ansehen',
             self::ManageCompany => 'Firmendaten bearbeiten',
             self::ViewMembers => 'Mitglieder ansehen',
@@ -83,6 +84,7 @@ enum B2bPermission: string
             self::DeleteVehicleDocuments => 'Hochgeladene Dokumente wieder entfernen.',
             self::CreateOrders => 'Rückgabetermine für Fahrzeuge buchen.',
             self::SelectOffers => 'Verbindlich ein Angebot annehmen.',
+            self::OffersReject => 'Ein Angebot ablehnen.',
             self::ViewCompany => 'Firmenstammdaten einsehen.',
             self::ManageCompany => 'Firmenstammdaten und Logo ändern.',
             self::ViewMembers => 'Die Mitgliederliste des Unternehmens sehen.',
@@ -97,7 +99,7 @@ enum B2bPermission: string
         return match ($this) {
             self::ViewVehicles, self::CreateVehicles, self::UpdateVehicles,
             self::UploadVehicleDocuments, self::DeleteVehicleDocuments => 'Fahrzeuge',
-            self::CreateOrders, self::SelectOffers => 'Aufträge & Angebote',
+            self::CreateOrders, self::SelectOffers, self::OffersReject => 'Aufträge & Angebote',
             self::ViewCompany, self::ManageCompany => 'Unternehmen',
             self::ViewMembers, self::ManageMembers, self::ViewAnalytics => 'Team & Auswertungen',
         };
@@ -114,7 +116,7 @@ enum B2bPermission: string
     {
         return match ($this) {
             self::CreateVehicles, self::UpdateVehicles, self::UploadVehicleDocuments,
-            self::DeleteVehicleDocuments, self::CreateOrders, self::SelectOffers => [self::ViewVehicles->value],
+            self::DeleteVehicleDocuments, self::CreateOrders, self::SelectOffers, self::OffersReject => [self::ViewVehicles->value],
             self::ManageCompany => [self::ViewCompany->value],
             self::ManageMembers => [self::ViewMembers->value],
             default => [],

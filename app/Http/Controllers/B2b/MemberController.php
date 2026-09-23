@@ -85,40 +85,40 @@ class MemberController extends Controller
         ) ?? back()->with('success', 'Berechtigungen wurden aktualisiert.');
     }
 
-    // public function destroy(Request $request, int $userId): RedirectResponse
-    // {
-    //     $membership = $this->membership($request);
+    public function destroy(Request $request, int $userId): RedirectResponse
+    {
+        $membership = $this->membership($request);
 
-    //     return $this->withServiceErrorHandling(
-    //         'member',
-    //         fn () => $this->members->removeMember($membership, $userId)
-    //     ) ?? back()->with('success', 'Mitglied wurde entfernt.');
-    // }
+        return $this->withServiceErrorHandling(
+            'member',
+            fn () => $this->members->removeMember($membership, $userId)
+        ) ?? back()->with('success', 'Mitglied wurde entfernt.');
+    }
 
-public function updateStatus(Request $request, int $userId): RedirectResponse
-{
-    $membership = $this->membership($request);
+    public function updateStatus(Request $request, int $userId): RedirectResponse
+    {
+        $membership = $this->membership($request);
 
-    abort_unless(
-        $membership->can(B2bPermission::ManageMembers),
-        403
-    );
+        abort_unless(
+            $membership->can(B2bPermission::ManageMembers),
+            403
+        );
 
-    $validated = $request->validate([
-        'status' => ['required','in:active,inactive'],
-    ]);
+        $validated = $request->validate([
+            'status' => ['required', 'in:active,inactive'],
+        ]);
 
-  $this->members->updateMemberStatus(
-    $membership,
-    $userId,
-    $request->string('status')->toString()
-);
+        $this->members->updateMemberStatus(
+            $membership,
+            $userId,
+            $request->string('status')->toString()
+        );
 
-    return back()->with(
-        'success',
-        'Mitgliedsstatus aktualisiert.'
-    );
-}
+        return back()->with(
+            'success',
+            'Mitgliedsstatus aktualisiert.'
+        );
+    }
 
     /**
      * Every permission there is, grouped and labelled — the members UI is

@@ -71,14 +71,23 @@ class B2bMemberDelegationTest extends TestCase
         $this->invite($this->owner, 'voll@firma.test', ['role' => 'member', 'permissions' => $all, 'vehicle_scope' => 'all'])
             ->assertSessionHasNoErrors();
         $this->assertInvitation('voll@firma.test', $all, 'all', 'member');
+    }
 
+    /**
+     * A company may only ever have one Company Administrator (B2bRole::Owner)
+     * — setUp()'s $this->owner already holds it, so granting the
+     * CompanyAdministrator preset to anyone else must be refused, whether by
+     * promoting an existing member or by inviting someone new.
+     */
+    public function test_a_second_company_administrator_cannot_be_granted(): void
+    {
         $this->updateMember($this->owner, $this->seniorMember, ['preset' => B2bRolePreset::CompanyAdministrator->value, 'vehicle_scope' => 'all'])
-            ->assertSessionHasNoErrors();
-        $this->assertSame('owner', $this->storedRole($this->seniorMember));
+            ->assertSessionHasErrors();
+        $this->assertNotSame('owner', $this->storedRole($this->seniorMember));
 
         $this->invite($this->owner, 'admin@firma.test', ['preset' => B2bRolePreset::CompanyAdministrator->value, 'vehicle_scope' => 'all'])
-            ->assertSessionHasNoErrors();
-        $this->assertInvitation('admin@firma.test', $all, 'all', 'owner');
+            ->assertSessionHasErrors();
+        $this->assertNoInvitation('admin@firma.test');
     }
 
     // ------------------------------------------------------ within authority

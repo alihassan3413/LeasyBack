@@ -61,14 +61,14 @@ class OrderController extends Controller
                 : to_route('dashboard');
         }
 
-      $filters = [
-    'search' => trim((string) $request->query('search', '')),
-    'status' => (string) $request->query('status', ''),
-    'make' => trim((string) $request->query('make', '')),
-    'model' => trim((string) $request->query('model', '')),
-    'leasinggeber' => trim((string) $request->query('leasinggeber', '')),
-    'leasing_end' => $request->query('leasing_end'),
-];
+        $filters = [
+            'search' => trim((string) $request->query('search', '')),
+            'status' => (string) $request->query('status', ''),
+            'make' => trim((string) $request->query('make', '')),
+            'model' => trim((string) $request->query('model', '')),
+            'leasinggeber' => trim((string) $request->query('leasinggeber', '')),
+            'leasing_end' => $request->query('leasing_end'),
+        ];
 
         return Inertia::render('orders/Index', [
             'orders' => $this->vehicleService->listCustomerOrders(
@@ -153,7 +153,7 @@ class OrderController extends Controller
 
         $validated = $request->validate([
             'station_id' => 'required|uuid|exists:inspection_stations,station_id',
-            'termin' => 'required|date',
+            'termin' => 'required|date|after_or_equal:today',
             'remarks' => 'nullable|string',
             ...OrderCollectionService::customerRules(false),
         ]);

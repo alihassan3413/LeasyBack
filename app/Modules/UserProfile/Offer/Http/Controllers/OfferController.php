@@ -6,6 +6,7 @@ use App\Models\LeasybackOffer;
 use App\Models\LeasybackOrder;
 use App\Models\Vehicle;
 use App\Modules\UserProfile\Offer\Services\OfferService;
+use App\Modules\UserProfile\Order\Services\RepairOfferService;
 use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
@@ -130,15 +131,18 @@ class OfferController extends Controller
             return response()->json(['error' => 'Admin cannot use customer offer endpoint'], 400);
         }
 
-        // Only published/selected offers on vehicles the caller may reach.
-        // Resolved through VehicleScopeService — the rule every web page and
-        // policy uses — rather than "any company this user has a row in",
-        // which ignored the active company, a deactivated membership and a
-        // member restricted to their own vehicles.
+        // Only published/selected/rejected offers on vehicles the caller may
+        // reach. Resolved through VehicleScopeService — the rule every web
+        // page and policy uses — rather than "any company this user has a
+        // row in", which ignored the active company, a deactivated
+        // membership and a member restricted to their own vehicles.
+        // `rejected` is included so a caller keeps seeing the offer they
+        // turned down instead of it vanishing, matching
+        // VehicleService::hydrateVehicles()'s own filter.
         $reachableVehicles = $this->scope->scopeQuery(Vehicle::query(), $user)->select('vehicle_id');
 
         $offers = LeasybackOffer::where('auftragsnummer', $auftragsnummer)
-            ->whereIn('offer_status', ['published', 'selected'])
+            ->whereIn('offer_status', ['published', 'selected', RepairOfferService::STATUS_REJECTED])
             ->whereHas('order', fn ($q) => $q->whereIn('vehicle_id', $reachableVehicles))
             ->orderBy('offer_sequence')
             ->get();

@@ -53,19 +53,19 @@ class OnboardingController extends Controller
             'profile' => $this->profileService->findForUser($user),
             'vehicle' => $vehicle === null ? null : [
                 ...$vehicle->only([
-    'vehicle_id',
-    'license_plate',
-    'make',
-    'model',
-    'vin',
-    'leasinggeber',
-    
+                    'vehicle_id',
+                    'license_plate',
+                    'make',
+                    'model',
+                    'vin',
+                    'leasinggeber',
+
                 ]),
                 // `only()` hands back the Carbon instance, which serialises as a
                 // full ISO timestamp; the wizard's date field reads `Y-m-d`.
                 'leasing_end_date' => VehicleService::asDateString($vehicle->leasing_end_date),
                 'first_registration_date' => VehicleService::asDateString($vehicle->first_registration_date),
-                ],
+            ],
             'order' => $vehicle ? $this->currentOrder($vehicle)?->only(['id', 'auftragsnummer', 'order_status']) : null,
             'stations' => InspectionStation::where('is_active', true)
                 ->orderBy('provider')
@@ -132,7 +132,7 @@ class OnboardingController extends Controller
 
         $validated = $request->validate([
             'station_id' => 'required|uuid|exists:inspection_stations,station_id',
-            'termin' => 'required|date',
+            'termin' => 'required|date|after_or_equal:today',
             'remarks' => 'nullable|string',
         ]);
 
