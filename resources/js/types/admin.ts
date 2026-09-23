@@ -132,6 +132,12 @@ export interface AdminVehicleRow {
     can_pull_documents: boolean;
     /** The vehicle's default pickup address; always null on a B2C vehicle. Prefills the B2B order modal. */
     collection_address: VehicleCollectionAddress | null;
+    /** B2B fleet data; always absent on a B2C vehicle, same as collection_address. */
+    mileage?: number | null;
+    contract_number?: string | null;
+    cost_centre?: string | null;
+    driver_name?: string | null;
+    driver_contact?: string | null;
     order_history: AdminVehicleOrderHistoryEntry[];
     documents: AdminVehicleDocumentEntry[];
 }
