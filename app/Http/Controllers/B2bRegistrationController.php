@@ -16,6 +16,9 @@ use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
 
+use App\Mail\RegistrationWelcome;
+use Illuminate\Support\Facades\Mail;
+
 /**
  * Post-registration onboarding for Firmenkunde (B2B) users: the company's
  * master data (name, USt-IdNr., address, logo) plus the LeasyBack admin
@@ -89,6 +92,9 @@ class B2bRegistrationController extends Controller
 
             return $result;
         }
+
+        Mail::to($user->email)
+    ->queue(new RegistrationWelcome($user));
 
         return to_route('dashboard')->with('success', 'Vielen Dank! Ihre Firmendaten wurden gespeichert.');
     }

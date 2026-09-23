@@ -66,7 +66,7 @@ const selectingOfferId = ref<string | null>(null);
 
 const sorted = computed(() => [...props.offers].sort((a, b) => a.offer_sequence - b.offer_sequence));
 const hasSelected = computed(() => props.offers.some((offer) => offer.offer_status === 'selected'));
-
+const selectedForDecision = ref<OfferData | null>(null);
 /**
  * "Günstigster" is advice about a decision the customer can still make, so it
  * is computed over the offers they could still choose — published, and not past

@@ -9,6 +9,7 @@ export const DOCUMENT_TYPE_LABELS: Record<string, string> = {
     gutachten: 'Gutachten',
     nachgutachten: 'Nachgutachten',
     rechnung: 'Rechnung',
+    rechnung_anlage: 'Rechnungsanlage',
     leasingvertrag: 'Leasingvertrag',
     vorschaden: 'Vorschaden',
     sonstiges: 'Sonstiges',

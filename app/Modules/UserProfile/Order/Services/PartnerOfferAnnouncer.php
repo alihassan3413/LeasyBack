@@ -2,7 +2,7 @@
 
 namespace App\Modules\UserProfile\Order\Services;
 
-use App\Models\LeasybackOffer;
+use App\Modules\UserProfile\Offer\Models\LeasybackOffer;
 use App\Modules\PartnerApi\Services\PartnerWebhookEvents;
 use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
 use App\Modules\UserProfile\Order\Models\B2bOfferPresentation;

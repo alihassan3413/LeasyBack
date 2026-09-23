@@ -20,11 +20,17 @@ const props = withDefaults(
         status: string;
         /** User id as a string, or '' for "everyone". */
         createdBy?: string;
+        make?: string;
+        leasinggeber?: string;
+        leasingEnd?: string;
         /** Empty for B2C and for members restricted to their own vehicles. */
         memberOptions?: MemberFilterOption[];
     }>(),
     {
         createdBy: '',
+        make: '',
+        leasinggeber: '',
+        leasingEnd: '',
         memberOptions: () => [],
     },
 );
@@ -33,6 +39,9 @@ const emit = defineEmits<{
     (e: 'update:search', value: string): void;
     (e: 'update:status', value: string): void;
     (e: 'update:createdBy', value: string): void;
+    (e: 'update:make', value: string): void;
+    (e: 'update:leasinggeber', value: string): void;
+    (e: 'update:leasingEnd', value: string): void;
     (e: 'reset'): void;
 }>();
 
@@ -43,13 +52,28 @@ const statusOptions = computed(() => vehicleStatusFilterOptions(page.props.auth.
 
 const showMemberFilter = computed(() => props.memberOptions.length > 1);
 
-const activeFilterCount = computed(() => (props.status ? 1 : 0) + (props.createdBy && showMemberFilter.value ? 1 : 0));
+const activeFilterCount = computed(
+    () =>
+        (props.status ? 1 : 0) +
+        (props.createdBy && showMemberFilter.value ? 1 : 0) +
+        (props.make ? 1 : 0) +
+        (props.leasinggeber ? 1 : 0) +
+        (props.leasingEnd ? 1 : 0),
+);
 
 const activeStatusLabel = computed(() => statusOptions.value.find((option) => option.value === props.status)?.label ?? '');
 
 const activeMemberLabel = computed(() => props.memberOptions.find((option) => String(option.value) === props.createdBy)?.label ?? '');
 
-const filterButtonLabel = computed(() => activeStatusLabel.value || activeMemberLabel.value || 'Filter');
+const filterButtonLabel = computed(
+    () =>
+        activeStatusLabel.value ||
+        activeMemberLabel.value ||
+        props.make ||
+        props.leasinggeber ||
+        props.leasingEnd ||
+        'Filter',
+);
 </script>
 
 <template>
@@ -131,6 +155,50 @@ const filterButtonLabel = computed(() => activeStatusLabel.value || activeMember
                         <span>{{ option.label }}</span>
                         <span v-if="option.value === status" class="size-2 rounded-full bg-[#01B990]"></span>
                     </button>
+                </div>
+
+                <!-- Make / brand filter -->
+                <div class="border-t px-4 py-3">
+                    <span class="text-sm font-bold text-[#10393b]">Marke</span>
+                </div>
+
+                <div class="px-4 pb-3">
+                    <input
+                        :value="make"
+                        type="text"
+                        placeholder="z. B. BMW, Audi, Mercedes"
+                        class="w-full rounded-lg border border-[#d8e4e3] px-3 py-2 text-sm text-[#10393b] outline-none transition placeholder:text-[#9aacac] focus:border-[#01B990]"
+                        @input="emit('update:make', ($event.target as HTMLInputElement).value)"
+                    />
+                </div>
+
+                <!-- Leasing company filter -->
+                <div class="border-t px-4 py-3">
+                    <span class="text-sm font-bold text-[#10393b]">Leasinggeber</span>
+                </div>
+
+                <div class="px-4 pb-3">
+                    <input
+                        :value="leasinggeber"
+                        type="text"
+                        placeholder="Leasinggeber suchen"
+                        class="w-full rounded-lg border border-[#d8e4e3] px-3 py-2 text-sm text-[#10393b] outline-none transition placeholder:text-[#9aacac] focus:border-[#01B990]"
+                        @input="emit('update:leasinggeber', ($event.target as HTMLInputElement).value)"
+                    />
+                </div>
+
+                <!-- Leasing end date filter -->
+                <div class="border-t px-4 py-3">
+                    <span class="text-sm font-bold text-[#10393b]">Leasing Ende</span>
+                </div>
+
+                <div class="px-4 pb-3">
+                    <input
+                        :value="leasingEnd"
+                        type="date"
+                        class="w-full rounded-lg border border-[#d8e4e3] px-3 py-2 text-sm text-[#10393b] outline-none transition focus:border-[#01B990]"
+                        @input="emit('update:leasingEnd', ($event.target as HTMLInputElement).value)"
+                    />
                 </div>
 
                 <!-- Only meaningful when there is more than one person who could have added a vehicle. -->

@@ -46,6 +46,8 @@ const props = defineProps<{
 
 const uploadOpen = ref(false);
 
+const attachmentUploadOpen = ref(false);
+
 const isProcessed = computed(() => props.billing.is_processed);
 
 /** The Lexware PDF once finalize() filed it — matched by id, not by type. */
@@ -61,6 +63,13 @@ const invoiceDocument = computed(
         props.reportDocuments.find((doc) => doc.id === props.billing.invoice_document_id) ??
         props.reportDocuments.find((doc) => doc.document_type === INVOICE_DOCUMENT_TYPE) ??
         null,
+);
+
+
+const invoiceAttachments = computed(() =>
+    props.reportDocuments.filter(
+        (doc) => doc.document_type === 'rechnung_anlage'
+    )
 );
 
 const invoiceNumber = computed(() => props.lexwareDraft?.voucher_number ?? props.billing.invoice_reference ?? null);
@@ -191,6 +200,37 @@ function formatDateTime(value: string | null): string {
                         {{ invoiceDocument.published ? 'Ja' : 'Nein' }}
                     </dd>
                 </div>
+
+                <div
+    v-if="invoiceAttachments.length"
+    class="mt-3 border-t border-[#f2f6f5] pt-3"
+>
+    <h3 class="mb-2 text-[12px] font-bold text-[#10393b]">
+        Zusätzliche Dokumente
+    </h3>
+
+    <div
+        v-for="document in invoiceAttachments"
+        :key="document.id"
+        class="flex items-center justify-between gap-3 border-b border-[#f2f6f5] py-2"
+    >
+        <span class="text-[12px] font-medium text-[#10393b]">
+            {{ document.document_title || 'Zusatzdokument' }}
+        </span>
+
+        <a
+            v-if="document.signed_url"
+            :href="document.signed_url"
+            target="_blank"
+            rel="noopener"
+            class="flex items-center gap-1 rounded-[9px] border border-[#e9efee] px-2 py-1 text-[11.5px] font-bold text-[#10393b]"
+        >
+            <MdiOpenInNew class="size-[13px]" />
+            Öffnen
+        </a>
+    </div>
+</div>
+                
             </dl>
 
             <!-- 1. Nothing yet: the one question the card exists to ask. -->
@@ -294,6 +334,16 @@ function formatDateTime(value: string | null): string {
 
             <!-- 3. The invoice exists — one button makes it the company's and closes the billing. -->
             <div v-else-if="stage === 'publish'" class="flex flex-col gap-3">
+                <button
+    v-if="editable"
+    type="button"
+    class="flex items-center justify-center gap-1.5 rounded-[13px] border border-dashed border-[#cbd9d7] py-2 text-[12px] font-bold text-[#00856a]"
+    @click="attachmentUploadOpen = true"
+>
+    <MdiCloudUploadOutline class="size-[15px]" />
+
+    Zusatzdokument hochladen
+</button>
                 <InputError :message="completeForm.errors.invoice_document_id" />
 
                 <button
@@ -327,6 +377,13 @@ function formatDateTime(value: string | null): string {
             :default-auftragsnummer="auftragsnummer"
             :default-document-type="INVOICE_DOCUMENT_TYPE"
         />
+        <UploadReportDocumentModal
+    v-model:open="attachmentUploadOpen"
+    :vehicle-id="vehicleId"
+    :auftragsnummer-options="[{ value: auftragsnummer, label: auftragsnummer }]"
+    :default-auftragsnummer="auftragsnummer"
+    :default-document-type="'rechnung_anlage'"
+/>
     </div>
 </template>
 

@@ -22,6 +22,7 @@ export interface OnboardingVehicle {
     vin: string | null;
     leasing_end_date: string | null;
     leasinggeber: string | null;
+    first_registration_date: string | null;
 }
 
 const props = defineProps<{ vehicle: OnboardingVehicle | null }>();
@@ -49,6 +50,7 @@ const form = useForm({
     vin: '',
     make: '',
     model: '',
+    first_registration_date: '',
 });
 
 // Seeded from whatever is already saved so the step stays editable when the
@@ -67,6 +69,7 @@ watch(
         // rather than presenting an empty field as if nothing had been said.
         leasingEndUnknown.value = !!vehicle && form.leasing_end_date === '';
         leasinggeberUnknown.value = !!vehicle && form.leasinggeber === '';
+        form.first_registration_date = vehicle?.first_registration_date ?? '';
     },
     { immediate: true, deep: true },
 );
@@ -144,12 +147,19 @@ function submit() {
                 </FormField>
 
                 <div>
-                    <CalendarDateField
-                        v-model="form.leasing_end_date"
-                        label="Leasingende"
-                        :disabled="leasingEndUnknown"
-                        :error="form.errors.leasing_end_date"
-                    />
+                     <CalendarDateField
+        v-model="form.leasing_end_date"
+        label="Leasingende"
+        allow-past
+        :disabled="leasingEndUnknown"
+        :error="form.errors.leasing_end_date"
+    />
+           <CalendarDateField
+        v-model="form.first_registration_date"
+        label="Erstzulassung"
+        allow-past
+        :error="form.errors.first_registration_date"
+    />
                     <Label :for="leasingEndUnknownId" class="mt-1.5 flex cursor-pointer items-start gap-2 font-normal">
                         <Checkbox
                             :id="leasingEndUnknownId"

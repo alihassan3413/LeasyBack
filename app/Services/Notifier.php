@@ -23,7 +23,7 @@ class Notifier
         }
 
         try {
-            Notification::send($users, new SystemNotification($payload));
+           Notification::send($users, new SystemNotification($payload));
         } catch (\Throwable $e) {
             Log::error('Notification dispatch failed', [
                 'type' => $payload->type->value,

@@ -95,6 +95,31 @@ class MemberController extends Controller
         ) ?? back()->with('success', 'Mitglied wurde entfernt.');
     }
 
+    public function updateStatus(Request $request, int $userId): RedirectResponse
+    {
+        $membership = $this->membership($request);
+
+        abort_unless(
+            $membership->can(B2bPermission::ManageMembers),
+            403
+        );
+
+        $validated = $request->validate([
+            'status' => ['required', 'in:active,inactive'],
+        ]);
+
+        $this->members->updateMemberStatus(
+            $membership,
+            $userId,
+            $request->string('status')->toString()
+        );
+
+        return back()->with(
+            'success',
+            'Mitgliedsstatus aktualisiert.'
+        );
+    }
+
     /**
      * Every permission there is, grouped and labelled — the members UI is
      * generated from this, so adding a case to B2bPermission is all it takes

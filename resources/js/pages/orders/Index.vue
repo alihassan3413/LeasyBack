@@ -19,11 +19,21 @@ import { computed, ref, watch } from 'vue';
  */
 const props = defineProps<{
     orders: CustomerOrderRow[];
-    filters: { search: string; status: string };
+   filters: {
+    search: string;
+    status: string;
+    make?: string;
+    model?: string;
+    leasinggeber?: string;
+    leasing_end?: string;
+};
 }>();
 
 const search = ref(props.filters.search);
 const status = ref(props.filters.status);
+const make = ref(props.filters.make ?? '');
+const leasinggeber = ref(props.filters.leasinggeber ?? '');
+const orderStatus = ref(props.filters.order_status ?? '');
 
 const SCOPES = [
     { value: 'open', label: 'Laufend' },
@@ -34,12 +44,15 @@ const SCOPES = [
 const hasQuery = computed(() => search.value !== '' || status.value !== '');
 
 function reload() {
-    router.get(
-        route('orders.index'),
-        {
-            search: search.value || undefined,
-            status: status.value || undefined,
-        },
+   router.get(
+    route('orders.index'),
+    {
+        search: search.value || undefined,
+        status: status.value || undefined,
+        make: make.value || undefined,
+        leasinggeber: leasinggeber.value || undefined,
+        order_status: orderStatus.value || undefined,
+    },
         { preserveState: true, preserveScroll: true, replace: true, only: ['orders', 'filters'] },
     );
 }
@@ -49,6 +62,9 @@ const debouncedReload = useDebounceFn(() => reload(), 300);
 
 watch(search, () => debouncedReload());
 watch(status, () => reload());
+watch(make, () => reload());
+watch(leasinggeber, () => reload());
+watch(orderStatus, () => reload());
 
 function openOrder(order: CustomerOrderRow) {
     router.visit(route('orders.show', order.id));
@@ -75,34 +91,102 @@ function appointmentLabel(order: CustomerOrderRow): string {
                 </div>
             </header>
 
-            <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
-                <div class="border-border inline-flex shrink-0 overflow-hidden rounded-full border">
-                    <button
-                        v-for="scope in SCOPES"
-                        :key="scope.value"
-                        type="button"
-                        class="px-4 py-2 text-sm font-semibold transition-colors"
-                        :class="status === scope.value ? 'bg-brand-teal text-white' : 'hover:bg-muted text-brand-black bg-white'"
-                        @click="status = scope.value"
-                    >
-                        {{ scope.label }}
-                    </button>
-                </div>
+            <div class="mb-6 flex flex-col gap-4">
 
-                <div
-                    class="focus-within:border-brand-green border-border flex h-10 items-center gap-2 rounded-full border px-4 sm:max-w-[360px] sm:flex-1"
-                >
-                    <IconMdiMagnify class="text-muted-foreground size-[18px] shrink-0" />
-                    <input
-                        v-model="search"
-                        type="search"
-                        placeholder="Auftragsnummer, Kennzeichen oder Modell"
-                        class="placeholder:text-muted-foreground w-full bg-transparent text-sm outline-none"
-                        autocomplete="off"
-                        aria-label="Aufträge durchsuchen"
-                    />
-                </div>
-            </div>
+    <!-- Order status tabs -->
+    <div class="inline-flex w-fit overflow-hidden rounded-full border border-gray-200 bg-white shadow-sm">
+        <button
+            v-for="scope in SCOPES"
+            :key="scope.value"
+            type="button"
+            class="px-5 py-2 text-sm font-semibold transition-all"
+            :class="
+                status === scope.value
+                    ? 'bg-[#10393b] text-white'
+                    : 'text-gray-600 hover:bg-gray-50'
+            "
+            @click="status = scope.value"
+        >
+            {{ scope.label }}
+        </button>
+    </div>
+
+
+    <!-- Search + Filters -->
+    <div class="flex flex-col gap-3 lg:flex-row lg:items-center">
+
+        <!-- Search -->
+        <div
+            class="focus-within:border-[#01B990] flex h-12 flex-1 items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 shadow-sm"
+        >
+            <IconMdiMagnify class="size-5 text-gray-400" />
+
+            <input
+                v-model="search"
+                type="search"
+                placeholder="Search order number, VIN, license plate, brand..."
+                class="w-full bg-transparent text-sm text-gray-700 outline-none placeholder:text-gray-400"
+                autocomplete="off"
+            />
+
+            <button
+                v-if="search"
+                type="button"
+                class="text-xs text-gray-400 hover:text-gray-700"
+                @click="search = ''"
+            >
+                Clear
+            </button>
+        </div>
+
+
+        <!-- Filters -->
+        <div class="flex gap-3">
+
+            <select
+                v-model="make"
+                class="h-12 min-w-[150px] rounded-xl border border-gray-200 bg-white px-4 text-sm text-gray-700 shadow-sm outline-none focus:border-[#01B990]"
+            >
+                <option value="">
+                    All brands
+                </option>
+
+                <option value="BMW">
+                    BMW
+                </option>
+
+                <option value="Mercedes">
+                    Mercedes
+                </option>
+
+                <option value="Audi">
+                    Audi
+                </option>
+            </select>
+
+
+            <select
+                v-model="orderStatus"
+                class="h-12 min-w-[160px] rounded-xl border border-gray-200 bg-white px-4 text-sm text-gray-700 shadow-sm outline-none focus:border-[#01B990]"
+            >
+                <option value="">
+                    All statuses
+                </option>
+
+                <option value="open">
+                    Ongoing
+                </option>
+
+                <option value="completed">
+                    Completed
+                </option>
+            </select>
+
+        </div>
+
+    </div>
+
+</div>
 
             <!-- Desktop: table -->
             <div class="hidden overflow-hidden rounded-[12px] border border-gray-100 shadow-sm md:block">

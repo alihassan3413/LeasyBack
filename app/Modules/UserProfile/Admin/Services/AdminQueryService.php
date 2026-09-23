@@ -412,7 +412,7 @@ class AdminQueryService
             match ($status) {
                 'open' => $q->whereIn('o.order_status', OrderStatus::openValues()),
                 'in_progress' => $q->whereIn('o.order_status', OrderStatus::inProgressValues()),
-                'closed' => $q->whereIn('o.order_status', OrderStatus::closedValues()),
+                'closed' => $q->whereIn('o.order_status', OrderStatus::completedValues()),
                 default => $q->where('o.order_status', $status),
             };
         });
@@ -685,8 +685,11 @@ class AdminQueryService
             'positions' => in_array($row->order_status, AppraisalPositionService::EDITABLE_STATUSES, true)
                 && ! DB::table('leasyback_offers')->where('order_id', $orderId)->where('offer_status', 'selected')->exists(),
             'billing' => $isB2bRow && in_array($row->order_status, B2bBillingService::EDITABLE_STATUSES, true),
+            // Once any offer on the order has been rejected, OfferService::publishOffer()
+            // permanently refuses to publish another one for that order — so the
+            // "create/publish offer" affordance must not be offered either.
             'offers' => $row->order_status === OrderStatus::Inspected->value
-                && ! DB::table('leasyback_offers')->where('order_id', $orderId)->where('offer_status', 'selected')->exists(),
+                && ! DB::table('leasyback_offers')->where('order_id', $orderId)->whereIn('offer_status', ['selected', 'rejected'])->exists(),
         ];
 
         $order['vehicle_belongs'] = $row->vehicle_belongs;
@@ -806,7 +809,7 @@ class AdminQueryService
             // disagree with what a tab actually filters to.
             'total_open' => (clone $base)->whereIn('o.order_status', OrderStatus::openValues())->distinct()->count('o.id'),
             'total_in_progress' => (clone $base)->whereIn('o.order_status', OrderStatus::inProgressValues())->distinct()->count('o.id'),
-            'total_closed' => (clone $base)->whereIn('o.order_status', OrderStatus::closedValues())->distinct()->count('o.id'),
+            'total_closed' => (clone $base)->whereIn('o.order_status', OrderStatus::completedValues())->distinct()->count('o.id'),
         ];
     }
 
@@ -968,6 +971,7 @@ class AdminQueryService
             'v.vehicle_id', 'v.license_plate', 'v.first_registration_date', 'v.leasing_end_date',
             'v.leasinggeber', 'v.vin', 'v.make', 'v.model', 'v.vehicle_belongs',
             'v.b2b_id', 'v.b2c_user_id', 'v.assigned_profile_id', 'v.collection_address_profile_id',
+            'v.mileage', 'v.contract_number', 'v.cost_centre', 'v.driver_name', 'v.driver_contact',
             'v.created_at', 'v.updated_at',
             'o.id as current_order_id', 'o.auftragsnummer as current_auftragsnummer',
             'o.order_status as current_order_status', 'o.created_at as current_order_created_at',
@@ -998,6 +1002,7 @@ class AdminQueryService
                 'v.vehicle_id', 'v.license_plate', 'v.first_registration_date', 'v.leasing_end_date',
                 'v.leasinggeber', 'v.vin', 'v.make', 'v.model', 'v.vehicle_belongs',
                 'v.b2b_id', 'v.b2c_user_id', 'v.assigned_profile_id', 'v.collection_address_profile_id',
+                'v.mileage', 'v.contract_number', 'v.cost_centre', 'v.driver_name', 'v.driver_contact',
                 'v.created_at', 'v.updated_at',
                 'o.id as current_order_id', 'o.auftragsnummer as current_auftragsnummer',
                 'o.order_status as current_order_status', 'o.created_at as current_order_created_at',
@@ -1153,6 +1158,13 @@ class AdminQueryService
                 'collection_address' => $row->vehicle_belongs === 'B2B'
                     ? ($collectionAddresses[$row->collection_address_profile_id] ?? null)
                     : null,
+                ...($row->vehicle_belongs === 'B2B' ? [
+                    'mileage' => $row->mileage,
+                    'contract_number' => $row->contract_number,
+                    'cost_centre' => $row->cost_centre,
+                    'driver_name' => $row->driver_name,
+                    'driver_contact' => $row->driver_contact,
+                ] : []),
                 'vehicle_id' => $row->vehicle_id,
                 'license_plate' => $row->license_plate,
                 'first_registration_date' => $row->first_registration_date,

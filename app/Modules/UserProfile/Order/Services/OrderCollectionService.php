@@ -85,6 +85,11 @@ class OrderCollectionService
             'remarks' => ['prohibited'],
             ...self::customerRules(true),
             'requested_collection_date' => ['required', 'date_format:Y-m-d', 'after_or_equal:today'],
+          'requested_collection_time_slot' => [
+    'required',
+    'string',
+    'in:08:00-10:00,10:00-12:00,12:00-14:00,14:00-16:00,16:00-18:00'
+],
             'collection_address' => ['required', 'array'],
             'collection_address.street' => ['required', 'string', 'max:255'],
             'collection_address.zip_code' => ['required', 'string', 'max:20'],
@@ -244,7 +249,9 @@ class OrderCollectionService
         $address = $this->normalizeAddress($validated['collection_address'] ?? null);
         $note = $this->trimToNull($validated['collection_note'] ?? null);
         $requestedDate = $this->trimToNull($validated['requested_collection_date'] ?? null);
-
+$requestedTimeSlot = $this->trimToNull(
+    $validated['requested_collection_time_slot'] ?? null
+);
         if ($address === null && $note === null && $requestedDate === null && $vehicle->collection_address_profile_id === null) {
             return;
         }
@@ -258,6 +265,7 @@ class OrderCollectionService
             ['auftragsnummer' => $order->auftragsnummer],
             [
                 'requested_collection_date' => $requestedDate,
+                'requested_collection_time_slot' => $requestedTimeSlot,
                 'pickup_notes' => $note,
                 'created_by_user_id' => $user->id,
                 'updated_by_user_id' => $user->id,
@@ -443,6 +451,7 @@ class OrderCollectionService
             $row->auftragsnummer => [
                 'requested_collection_date' => $row->requested_collection_date?->toDateString(),
                 'confirmed_collection_date' => $row->confirmed_collection_date?->toDateString(),
+                'requested_collection_time_slot' => $row->requested_collection_time_slot,
                 // Customer-visible business dates (§11/§15), unlike
                 // `internal_note` below which stays gated on $includeInternal.
                 'confirmed_repair_start_date' => $row->confirmed_repair_start_date?->toDateString(),

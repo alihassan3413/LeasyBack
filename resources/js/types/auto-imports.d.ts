@@ -44,6 +44,7 @@ declare global {
   const defineComponent: typeof import('vue').defineComponent
   const defineStore: typeof import('pinia').defineStore
   const effectScope: typeof import('vue').effectScope
+  const formatCollectionTimeSlot: typeof import('../lib/collectionTimeSlot').formatCollectionTimeSlot
   const formatGermanDateTime: typeof import('../lib/customerOrderFlow').formatGermanDateTime
   const formatPortalDate: typeof import('../lib/portalDate').formatPortalDate
   const formatPortalDateTime: typeof import('../lib/portalDate').formatPortalDateTime
@@ -261,6 +262,7 @@ declare module 'vue' {
     readonly defineComponent: UnwrapRef<typeof import('vue')['defineComponent']>
     readonly defineStore: UnwrapRef<typeof import('pinia')['defineStore']>
     readonly effectScope: UnwrapRef<typeof import('vue')['effectScope']>
+    readonly formatCollectionTimeSlot: UnwrapRef<typeof import('../lib/collectionTimeSlot')['formatCollectionTimeSlot']>
     readonly formatGermanDateTime: UnwrapRef<typeof import('../lib/customerOrderFlow')['formatGermanDateTime']>
     readonly formatPortalDate: UnwrapRef<typeof import('../lib/portalDate')['formatPortalDate']>
     readonly formatPortalDateTime: UnwrapRef<typeof import('../lib/portalDate')['formatPortalDateTime']>

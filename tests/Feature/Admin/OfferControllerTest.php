@@ -315,4 +315,38 @@ class OfferControllerTest extends TestCase
 
         $this->assertSame('draft', $offer->fresh()->offer_status);
     }
+
+
+public function test_a_new_offer_cannot_be_published_after_previous_offer_was_rejected(): void
+{
+    $admin = $this->admin();
+
+    $order = LeasybackOrder::factory()->create();
+
+    $rejected = LeasybackOffer::factory()->published()->create([
+        'order_id' => $order->id,
+        'auftragsnummer' => $order->auftragsnummer,
+        'offer_sequence' => 1,
+    ]);
+
+    $rejected->update([
+        'offer_status' => 'rejected',
+    ]);
+
+    $newOffer = LeasybackOffer::factory()->create([
+        'order_id' => $order->id,
+        'auftragsnummer' => $order->auftragsnummer,
+        'offer_sequence' => 2,
+        'offer_status' => 'draft',
+    ]);
+
+    $this->actingAs($admin)
+        ->patch(route('admin.orders.offers.publish', $newOffer->offer_id))
+        ->assertSessionHasErrors('offer');
+
+    $this->assertSame(
+        'draft',
+        $newOffer->fresh()->offer_status
+    );
+}
 }

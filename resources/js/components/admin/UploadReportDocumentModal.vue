@@ -33,10 +33,27 @@ const emit = defineEmits<{ (e: 'update:open', value: boolean): void }>();
 const uid = useId();
 const publishedId = `${uid}-published`;
 
-const isInvoice = computed(() => (props.defaultDocumentType || 'gutachten') === INVOICE_DOCUMENT_TYPE);
+const isInvoice = computed(() =>
+    [INVOICE_DOCUMENT_TYPE, 'rechnung_anlage'].includes(defaultType.value)
+);
+const isInvoiceAttachment = computed(
+    () => defaultType.value === 'rechnung_anlage'
+);
 const defaultType = computed(() => props.defaultDocumentType || 'gutachten');
 
-const heading = computed(() => props.title || (isInvoice.value ? 'Rechnung hochladen' : 'Gutachten hochladen'));
+const heading = computed(() => {
+    if (props.title) {
+        return props.title;
+    }
+
+    if (isInvoiceAttachment.value) {
+        return 'Zusatzdokument hochladen';
+    }
+
+    return isInvoice.value
+        ? 'Rechnung hochladen'
+        : 'Gutachten hochladen';
+});
 const subheading = computed(
     () => props.description || 'Laden Sie ein neues Dokument hoch – ziehen Sie die Datei auf die Fläche oder wählen Sie sie aus.',
 );
@@ -133,7 +150,7 @@ function submit() {
                 </FormField>
 
                 <div class="flex flex-col gap-1">
-                    <span class="text-sm font-semibold text-black">{{ isInvoice ? 'Rechnung' : 'Gutachten' }}<RequiredMark /></span>
+                    <span class="text-sm font-semibold text-black">{{ isInvoiceAttachment ? 'Zusatzdokument' : (isInvoice ? 'Rechnung' : 'Gutachten') }}<RequiredMark /></span>
                     <UploadDocumentDropzone v-model="form.file" />
                     <p v-if="form.errors.file" class="text-xs text-red-500">{{ form.errors.file }}</p>
                 </div>

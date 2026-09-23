@@ -192,7 +192,7 @@ watch(
                     <input
                         v-model="search"
                         type="search"
-                        placeholder="Kennzeichen, VIN, Marke…"
+                        placeholder="Kennzeichen, FIN, Marke…"
                         class="admin-search-input"
                         autocomplete="off"
                         autocapitalize="off"
@@ -283,7 +283,7 @@ watch(
                         <thead class="z-10 md:sticky md:top-0">
                             <tr class="bg-[#f8faf9]">
                                 <th class="admin-th">Fahrzeug</th>
-                                <th class="admin-th hidden sm:table-cell">Kennzeichen / VIN</th>
+                                <th class="admin-th hidden sm:table-cell">Kennzeichen / FIN</th>
                                 <th class="admin-th hidden md:table-cell">Kunde</th>
                                 <th class="admin-th hidden sm:table-cell">Auftragsstatus</th>
                                 <th class="admin-th hidden md:table-cell">Leasingende</th>

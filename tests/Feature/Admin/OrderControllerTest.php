@@ -9,6 +9,7 @@ use App\Models\Address;
 use App\Models\B2B;
 use App\Models\Contact;
 use App\Models\User;
+use App\Modules\UserProfile\Offer\Models\LeasybackOffer;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -267,25 +268,28 @@ class OrderControllerTest extends TestCase
             );
     }
 
-    /** Unlike total_delivered (completedValues() only), the "closed" group also covers cancelled and discarded. */
-    public function test_the_closed_status_group_covers_completed_cancelled_and_discarded(): void
+    /**
+     * Regression test: the "Abgeschlossen" tab used to filter on
+     * closedValues() (Completed + Cancelled + Discarded), so a discarded or
+     * cancelled order showed up as "completed" in the Admin panel even
+     * though nothing was actually finished. It must match completedValues()
+     * only, exactly like the customer-facing orders list already does.
+     */
+    public function test_the_closed_status_group_shows_only_actually_completed_orders(): void
     {
         $admin = $this->admin();
         LeasybackOrder::factory()->withStatus(OrderStatus::OrderPlaced)->create();
         $completed = LeasybackOrder::factory()->withStatus(OrderStatus::Completed)->create();
-        $cancelled = LeasybackOrder::factory()->withStatus(OrderStatus::Cancelled)->create();
-        $discarded = LeasybackOrder::factory()->withStatus(OrderStatus::Discarded)->create();
+        LeasybackOrder::factory()->withStatus(OrderStatus::Cancelled)->create();
+        LeasybackOrder::factory()->withStatus(OrderStatus::Discarded)->create();
 
-        $ids = $this->actingAs($admin)
+        $this->actingAs($admin)
             ->get(route('admin.orders.index', ['status' => 'closed']))
             ->assertOk()
-            ->assertInertia(fn (AssertableInertia $page) => $page->has('orders.data', 3))
-            ->viewData('page')['props']['orders']['data'];
-
-        $this->assertEqualsCanonicalizing(
-            [$completed->id, $cancelled->id, $discarded->id],
-            array_column($ids, 'id'),
-        );
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->has('orders.data', 1)
+                ->where('orders.data.0.id', $completed->id)
+            );
     }
 
     /** An unknown status keyword is still rejected, exactly as an unknown exact status already was. */
@@ -314,7 +318,7 @@ class OrderControllerTest extends TestCase
                 ->where('orders.total', 4)
                 ->where('orders.total_open', 1)
                 ->where('orders.total_in_progress', 1)
-                ->where('orders.total_closed', 2)
+                ->where('orders.total_closed', 1)
             );
     }
 
@@ -353,6 +357,30 @@ class OrderControllerTest extends TestCase
             ->get(route('admin.orders.show', $order->id))
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->where('order.available_transitions', ['cancelled'])
+            );
+    }
+
+    /**
+     * Regression test: OfferService::publishOffer() permanently refuses to
+     * publish a new offer once any offer on the order has been rejected, but
+     * `editable.offers` did not know that — the Admin "Angebot erstellen"
+     * button, workshop-invite affordance, and actions menu stayed enabled
+     * for an order that could no longer actually publish anything.
+     */
+    public function test_offers_are_not_editable_after_one_has_been_rejected(): void
+    {
+        $admin = $this->admin();
+        $order = LeasybackOrder::factory()->withStatus(OrderStatus::Inspected)->create();
+        LeasybackOffer::factory()->for($order, 'order')->create([
+            'auftragsnummer' => $order->auftragsnummer,
+            'offer_status' => 'rejected',
+        ]);
+
+        $this->actingAs($admin)
+            ->get(route('admin.orders.show', $order->id))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('order.editable.offers', false)
             );
     }
 

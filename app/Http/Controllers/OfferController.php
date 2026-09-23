@@ -71,9 +71,18 @@ class OfferController extends Controller
 
         $validated = $request->validate(RepairOfferService::rejectRules());
 
-        return $this->withServiceErrorHandling(
-            'offer',
-            fn () => $this->repairOfferService->reject($offer, $user, $validated)
-        ) ?? back()->with('success', 'Angebot wurde abgelehnt.');
+     $denied = $this->withServiceErrorHandling(
+    'offer',
+    function () use ($offer, $user, $validated) {
+        $this->repairOfferService->reject($offer, $user, $validated);
+    }
+);
+
+if ($denied) {
+    return $denied;
+}
+
+return back()->with('success', 'Angebot wurde abgelehnt.');
+      
     }
 }

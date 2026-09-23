@@ -41,25 +41,20 @@ class EnsureB2bPermission
 
         $membership = $this->context->activeMembership($user);
 
-        if ($membership === null) {
-            // Not acting as a company. A Firmenkunde in that state belongs to
-            // no company yet and is sent to register one rather than shown a
-            // dead end; everyone else passes straight through, leaving the
-            // route's own policies to decide — several of these routes are
-            // shared with Privatkunde, and refusing them here would lock B2C
-            // out of its own dashboard.
-            if ($user->user_type !== UserType::Firmenkunde) {
-                return $next($request);
-            }
+   if ($membership === null) {
 
-            // A token client (the Sanctum API has no session) cannot follow
-            // a redirect into the onboarding wizard: a company user with no
-            // active company — never registered, removed, or whose
-            // membership was deactivated — is simply refused.
-            return $request->hasSession() && ! $request->expectsJson()
-                ? redirect()->route('onboarding.b2b.show')
-                : abort(403, 'Ihnen fehlt die Berechtigung für diesen Bereich.');
-        }
+    if ($this->context->hasInactiveMembership($user)) {
+        abort(403, 'Ihr Firmenzugang wurde deaktiviert.');
+    }
+
+    if ($user->user_type !== UserType::Firmenkunde) {
+        return $next($request);
+    }
+
+    return $request->hasSession() && ! $request->expectsJson()
+        ? redirect()->route('onboarding.b2b.show')
+        : abort(403, 'Ihnen fehlt die Berechtigung für diesen Bereich.');
+}
 
         foreach ($permissions as $permission) {
             $required = B2bPermission::tryFrom($permission);
