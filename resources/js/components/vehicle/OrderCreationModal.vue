@@ -131,7 +131,7 @@ function submit() {
 
             <div class="grid grid-cols-1 gap-6 md:grid-cols-2 md:items-stretch">
                 <div class="flex h-full flex-col gap-3">
-                    <div class="grid grid-cols-2 gap-x-3">
+                    <div class="grid grid-cols-1 gap-x-3 gap-y-3 sm:grid-cols-2">
                         <div class="flex flex-col gap-1">
                             <label class="text-sm font-semibold text-black">Bundesland</label>
                             <SearchableSelectField
@@ -161,7 +161,7 @@ function submit() {
                         <InputError :message="form.errors.station_id" />
                     </div>
 
-                    <div class="grid grid-cols-2 gap-x-3">
+                    <div class="grid grid-cols-1 gap-x-3 gap-y-3 sm:grid-cols-2">
                         <div class="flex flex-col gap-1">
                             <label class="text-sm font-semibold text-black">Datum</label>
                             <CalendarDateField v-model="form.date" :min-days-ahead="3" block-weekends :invalid="!!form.errors.termin" />
