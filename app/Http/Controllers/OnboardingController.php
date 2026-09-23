@@ -9,10 +9,11 @@ use App\Models\LeasybackOrder;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Modules\UserProfile\Order\Services\OrderService;
+use App\Modules\UserProfile\Payment\Support\OrderCreatedFlash;
 use App\Modules\UserProfile\Profile\Http\Requests\AddressContactRequest;
 use App\Modules\UserProfile\Profile\Services\ProfileService;
-use App\Modules\UserProfile\Vehicle\Http\Requests\StoreVehicleRequest;
-use App\Modules\UserProfile\Vehicle\Http\Requests\UpdateVehicleRequest;
+use App\Modules\UserProfile\Vehicle\Http\Requests\StoreWebVehicleRequest;
+use App\Modules\UserProfile\Vehicle\Http\Requests\UpdateWebVehicleRequest;
 use App\Modules\UserProfile\Vehicle\Services\VehicleService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -35,6 +36,7 @@ class OnboardingController extends Controller
         private readonly ProfileService $profileService,
         private readonly VehicleService $vehicleService,
         private readonly OrderService $orderService,
+        private readonly OrderCreatedFlash $orderCreated,
     ) {}
 
     public function show(Request $request): Response|RedirectResponse
@@ -49,11 +51,13 @@ class OnboardingController extends Controller
 
         return Inertia::render('onboarding/B2cRegistration', [
             'profile' => $this->profileService->findForUser($user),
-            'vehicle' => $vehicle?->only([
-                'vehicle_id', 'license_plate', 'make', 'model', 'vin',
-                'leasing_end_date', 'leasinggeber',
-            ]),
-            'order' => $vehicle ? $this->currentOrder($vehicle)?->only(['auftragsnummer', 'order_status']) : null,
+            'vehicle' => $vehicle === null ? null : [
+                ...$vehicle->only(['vehicle_id', 'license_plate', 'make', 'model', 'vin', 'leasinggeber']),
+                // `only()` hands back the Carbon instance, which serialises as a
+                // full ISO timestamp; the wizard's date field reads `Y-m-d`.
+                'leasing_end_date' => VehicleService::asDateString($vehicle->leasing_end_date),
+            ],
+            'order' => $vehicle ? $this->currentOrder($vehicle)?->only(['id', 'auftragsnummer', 'order_status']) : null,
             'stations' => InspectionStation::where('is_active', true)
                 ->orderBy('provider')
                 ->orderBy('name')
@@ -80,7 +84,7 @@ class OnboardingController extends Controller
         ) ?? to_route('onboarding.show')->with('success', 'Kundendaten wurden aktualisiert.');
     }
 
-    public function storeVehicle(StoreVehicleRequest $request): RedirectResponse
+    public function storeVehicle(StoreWebVehicleRequest $request): RedirectResponse
     {
         return $this->withServiceErrorHandling(
             'vehicle',
@@ -93,7 +97,7 @@ class OnboardingController extends Controller
      * license plate is deliberately not updatable here, matching
      * VehicleService::updateVehicle() and the dashboard's edit modal.
      */
-    public function updateVehicle(UpdateVehicleRequest $request): RedirectResponse
+    public function updateVehicle(UpdateWebVehicleRequest $request): RedirectResponse
     {
         $user = $request->user();
         $vehicle = $this->currentVehicle($user);
@@ -125,12 +129,24 @@ class OnboardingController extends Controller
 
         $station = InspectionStation::find($validated['station_id']);
 
-        return $this->withServiceErrorHandling(
+        $order = null;
+
+        $denied = $this->withServiceErrorHandling(
             'appointment',
-            fn () => $station->provider === 'tuvsud'
-                ? $this->orderService->createTuvsudOrder($vehicle, $user, $validated)
-                : $this->orderService->createOtherOrder($vehicle, $user, [...$validated, 'provider' => $station->provider])
-        ) ?? to_route('onboarding.show')->with('success', 'Termin wurde gebucht.');
+            function () use ($station, $vehicle, $user, $validated, &$order) {
+                $order = $station->provider === 'tuvsud'
+                    ? $this->orderService->createTuvsudOrder($vehicle, $user, $validated)
+                    : $this->orderService->createOtherOrder($vehicle, $user, [...$validated, 'provider' => $station->provider]);
+            }
+        );
+
+        if ($denied) {
+            return $denied;
+        }
+
+        return to_route('onboarding.show')
+            ->with('success', 'Termin wurde gebucht.')
+            ->with('order_created', $this->orderCreated->for($order, $user));
     }
 
     private function currentVehicle(User $user): ?Vehicle

@@ -120,7 +120,7 @@ function clear() {
             class="relative flex min-h-[150px] w-full flex-col items-center justify-center rounded-[5px] border border-dashed px-6 py-8 text-center transition-colors"
             :class="[
                 disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
-                dragging ? 'border-brand-green bg-[#F0FBF8]' : 'border-brand-green-gray bg-white hover:border-brand-green',
+                dragging ? 'border-brand-green bg-[#F0FBF8]' : 'border-brand-green-gray hover:border-brand-green bg-white',
             ]"
             role="button"
             tabindex="0"

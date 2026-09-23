@@ -4,6 +4,39 @@ function xsrfToken(): string {
     return match ? decodeURIComponent(match[1]) : '';
 }
 
+/** Carries the parsed body so callers can surface a server-supplied message. */
+export class HttpError extends Error {
+    constructor(
+        message: string,
+        public readonly status: number,
+        public readonly data: unknown = null,
+    ) {
+        super(message);
+        this.name = 'HttpError';
+    }
+
+    /** Laravel's `{error}` or the first `{errors: {field: [msg]}}` entry. */
+    serverMessage(): string | null {
+        const body = this.data as { error?: string; message?: string; errors?: Record<string, string[]> } | null;
+
+        if (!body) {
+            return null;
+        }
+
+        if (typeof body.error === 'string') {
+            return body.error;
+        }
+
+        const firstField = body.errors ? Object.values(body.errors)[0] : undefined;
+
+        if (Array.isArray(firstField) && typeof firstField[0] === 'string') {
+            return firstField[0];
+        }
+
+        return typeof body.message === 'string' ? body.message : null;
+    }
+}
+
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
     const response = await fetch(url, {
         method,
@@ -18,7 +51,15 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
     });
 
     if (!response.ok) {
-        throw new Error(`${method} ${url} failed with ${response.status}`);
+        let parsed: unknown = null;
+
+        try {
+            parsed = await response.json();
+        } catch {
+            parsed = null;
+        }
+
+        throw new HttpError(`${method} ${url} failed with ${response.status}`, response.status, parsed);
     }
 
     if (response.status === 204) {

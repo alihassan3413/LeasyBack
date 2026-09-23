@@ -2,6 +2,8 @@
 
 namespace App\Modules\UserProfile\Vehicle\Http\Requests;
 
+use App\Models\Vehicle;
+use App\Modules\UserProfile\Vehicle\Support\VehicleRules;
 use Illuminate\Foundation\Http\FormRequest;
 
 class UpdateVehicleRequest extends FormRequest
@@ -11,15 +13,19 @@ class UpdateVehicleRequest extends FormRequest
         return $this->user() !== null;
     }
 
+    private function isB2bContext(): bool
+    {
+        $vehicleId = $this->route('vehicleId');
+
+        if (! is_string($vehicleId) || $vehicleId === '') {
+            return false;
+        }
+
+        return Vehicle::where('vehicle_id', $vehicleId)->value('vehicle_belongs') === 'B2B';
+    }
+
     public function rules(): array
     {
-        return [
-            'first_registration_date' => ['nullable', 'date'],
-            'leasing_end_date' => ['nullable', 'date'],
-            'leasinggeber' => ['nullable', 'string'],
-            'vin' => ['nullable', 'string', 'size:17'],
-            'make' => ['nullable', 'string'],
-            'model' => ['nullable', 'string'],
-        ];
+        return VehicleRules::forUpdate($this->isB2bContext());
     }
 }

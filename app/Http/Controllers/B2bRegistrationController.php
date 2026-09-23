@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Enums\B2bPermission;
 use App\Enums\UserType;
 use App\Http\Controllers\Concerns\HandlesServiceValidationErrors;
 use App\Http\Requests\Onboarding\B2bRegistrationRequest;
@@ -22,6 +21,11 @@ use Inertia\Response;
  * master data (name, USt-IdNr., address, logo) plus the LeasyBack admin
  * contact person, in one form — the same split leasyback_web's
  * RegisterCompanyView uses.
+ *
+ * The form is shown exactly once. From the moment the company exists its data
+ * lives on "Mein Konto" (see Settings\ProfileController), which posts back to
+ * `update()` through the `company.update` route — a company account has no
+ * personal address/contact separate from its company's.
  *
  * Session-authenticated counterpart of the Sanctum API's B2BController:
  * a separate entry point over the same B2BService, exactly like
@@ -50,18 +54,15 @@ class B2bRegistrationController extends Controller
             return to_route('dashboard');
         }
 
-        $membership = $this->context->activeMembership($user);
-
-        // A member without company.view has no business on this page at all;
-        // one with view but not manage sees it read-only.
-        if ($membership !== null && ! $membership->can(B2bPermission::ViewCompany)) {
-            abort(403, 'Ihnen fehlt die Berechtigung für die Firmendaten.');
+        // Registration is a one-time step. However the user came to belong to
+        // a company — creating one here or accepting an invitation — the data
+        // is theirs to review and edit on "Mein Konto", not on a second copy
+        // of the registration form.
+        if ($this->context->activeMembership($user) !== null) {
+            return to_route('profile.edit');
         }
 
-        return Inertia::render('onboarding/B2bRegistration', [
-            'company' => $membership === null ? null : $this->companyFor($membership->b2bId),
-            'canManage' => $membership === null || $membership->can(B2bPermission::ManageCompany),
-        ]);
+        return Inertia::render('onboarding/B2bRegistration');
     }
 
     public function store(B2bRegistrationRequest $request): RedirectResponse
@@ -71,7 +72,7 @@ class B2bRegistrationController extends Controller
         // Belonging to a company already — however they got there, including
         // by accepting an invitation — means there is nothing to register.
         if ($this->context->activeMembership($user) !== null) {
-            return to_route('onboarding.b2b.show');
+            return to_route('profile.edit');
         }
 
         $logo = $this->storeLogo($request->file('logo'), $user);
@@ -89,7 +90,7 @@ class B2bRegistrationController extends Controller
             return $result;
         }
 
-        return to_route('onboarding.b2b.show')->with('success', 'Firmendaten wurden gespeichert.');
+        return to_route('dashboard')->with('success', 'Vielen Dank! Ihre Firmendaten wurden gespeichert.');
     }
 
     public function update(B2bRegistrationRequest $request): RedirectResponse
@@ -122,7 +123,7 @@ class B2bRegistrationController extends Controller
             $this->deleteLogo($previousLogoPath);
         }
 
-        return to_route('onboarding.b2b.show')->with('success', 'Firmendaten wurden aktualisiert.');
+        return to_route('profile.edit')->with('success', 'Firmendaten wurden aktualisiert.');
     }
 
     /**

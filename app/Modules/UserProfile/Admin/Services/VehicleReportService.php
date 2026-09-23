@@ -7,6 +7,9 @@ use App\Models\AssessmentDocument;
 use App\Models\User;
 use App\Models\VehicleReportDocument;
 use App\Models\VehicleReportDocumentLog;
+use App\Modules\PartnerApi\Services\PartnerDocumentCatalog;
+use App\Modules\PartnerApi\Services\PartnerWebhookEvents;
+use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle as CanonicalVehicle;
 use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
 use App\Notifications\NotificationPayload;
@@ -15,6 +18,7 @@ use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use RuntimeException;
 
 /**
  * Vehicle report/invoice document management — moved out of the Sanctum
@@ -34,6 +38,7 @@ class VehicleReportService
     public function __construct(
         private readonly VehicleScopeService $vehicleScope,
         private readonly Notifier $notifier,
+        private readonly PartnerWebhookEvents $webhooks,
     ) {}
 
     /**
@@ -56,6 +61,7 @@ class VehicleReportService
         $filename = basename($source->s3_key);
         $destPath = "vehicle-reports/{$validated['auftragsnummer']}/{$filename}";
         Storage::disk('documents')->put($destPath, $bytes);
+        Storage::disk('documents')->setVisibility(dirname($destPath), 'private');
 
         // Read once and reuse: the notify check below used to test an
         // undefined `$published`, which PHP evaluated as null — so a
@@ -78,6 +84,8 @@ class VehicleReportService
             ]);
 
             $this->auditDocument($doc, 'transferred', $user->id);
+
+            $this->announceDocument($doc, $published ? 'available' : null);
 
             return $doc;
         });
@@ -110,6 +118,7 @@ class VehicleReportService
         }
 
         Storage::disk('documents')->put($path, file_get_contents($file));
+        Storage::disk('documents')->setVisibility(dirname($path), 'private');
 
         $doc = DB::transaction(function () use ($auftragsnummer, $vehicleId, $documentType, $documentTitle, $path, $published, $user) {
             $doc = VehicleReportDocument::create([
@@ -125,6 +134,8 @@ class VehicleReportService
 
             $this->auditDocument($doc, 'uploaded', $user->id);
 
+            $this->announceDocument($doc, $published ? 'available' : null);
+
             return $doc;
         });
 
@@ -133,6 +144,66 @@ class VehicleReportService
         }
 
         return ['document' => $doc];
+    }
+
+    public function storeGeneratedDocument(
+        string $auftragsnummer,
+        string $vehicleId,
+        string $filename,
+        string $contents,
+        string $documentType,
+        string $documentTitle,
+        bool $notifyCustomer = true,
+        bool $published = true,
+    ): VehicleReportDocument {
+        $path = "vehicle-reports/{$auftragsnummer}/{$filename}";
+
+        $existing = VehicleReportDocument::where('vehicle_id', $vehicleId)
+            ->where('auftragsnummer', $auftragsnummer)
+            ->where('path', $path)
+            ->first();
+
+        // The 'documents' disk has throw/report both disabled (config/filesystems.php),
+        // so a failed write returns false silently — check it, or a Lexware invoice can
+        // get marked Documented with no PDF ever on disk.
+        if (! Storage::disk('documents')->put($path, $contents)) {
+            throw new RuntimeException("Failed to write generated document to the 'documents' disk: {$path}");
+        }
+
+        Storage::disk('documents')->setVisibility(dirname($path), 'private');
+
+        if ($existing !== null) {
+            return $existing;
+        }
+
+        $doc = DB::transaction(function () use ($auftragsnummer, $vehicleId, $documentType, $documentTitle, $path, $published) {
+            $doc = VehicleReportDocument::create([
+                'auftragsnummer' => $auftragsnummer,
+                'vehicle_id' => $vehicleId,
+                'document_type' => $documentType,
+                'document_title' => $documentTitle,
+                'path' => $path,
+                'published' => $published,
+                'created_by_user_id' => null,
+                'updated_by_user_id' => null,
+            ]);
+
+            $this->auditDocument($doc, 'uploaded', null);
+            $this->announceDocument($doc, $published ? 'available' : null);
+
+            return $doc;
+        });
+
+        if ($notifyCustomer && $published) {
+            $this->notifyDocumentPublished($doc);
+        }
+
+        return $doc;
+    }
+
+    public function fileExists(string $path): bool
+    {
+        return Storage::disk('documents')->exists($path);
     }
 
     /**
@@ -153,7 +224,15 @@ class VehicleReportService
             $doc->update(['published' => $published, 'updated_by_user_id' => $user->id]);
             $this->auditDocument($doc, $published ? 'published' : 'unpublished', $user->id);
 
-            return $doc->fresh();
+            $fresh = $doc->fresh();
+
+            // Withdrawing publication is `document.replaced`, not a deletion
+            // event: from the partner's side the document they were told about
+            // is no longer the current one, which is exactly what that event
+            // means. The file itself still exists.
+            $this->announceDocument($fresh, $published ? 'available' : 'replaced', $published ? null : 'unpublished');
+
+            return $fresh;
         });
 
         if ($published) {
@@ -165,6 +244,38 @@ class VehicleReportService
             'action' => $published ? 'published' : 'unpublished',
             'document' => $doc,
         ];
+    }
+
+    /**
+     * Tell partners about a report document, in the same shape
+     * `GET /documents/{id}` returns.
+     *
+     * Metadata only — PartnerDocumentCatalog::fromReport() produces the value
+     * object whose `$path` PartnerDocumentResource never reads, so the storage
+     * key cannot reach a webhook body, and the bytes certainly cannot: a
+     * webhook says a document exists, and the partner fetches it over the
+     * authenticated download endpoint if they want it.
+     *
+     * @param  'available'|'replaced'|null  $what  null emits nothing, which is
+     *                                             how an unpublished document stays invisible
+     */
+    private function announceDocument(?VehicleReportDocument $doc, ?string $what, ?string $reason = null): void
+    {
+        if ($doc === null || $what === null) {
+            return;
+        }
+
+        $vehicle = CanonicalVehicle::find($doc->vehicle_id);
+        $order = LeasybackOrder::where('auftragsnummer', $doc->auftragsnummer)->first();
+        $document = PartnerDocumentCatalog::fromReport($doc, $order);
+
+        if ($what === 'available') {
+            $this->webhooks->documentAvailable($document, $order, $vehicle);
+
+            return;
+        }
+
+        $this->webhooks->documentReplaced($document, $order, $vehicle, $reason ?? 'replaced');
     }
 
     private function notifyDocumentPublished(VehicleReportDocument $doc): void
@@ -210,8 +321,19 @@ class VehicleReportService
             ]);
         }
 
-        DB::transaction(function () use ($doc, $user) {
+        $wasPublished = (bool) $doc->published;
+
+        DB::transaction(function () use ($doc, $user, $wasPublished) {
             $this->auditDocument($doc, 'deleted', $user->id);
+
+            // Announced before the row goes, so the payload can still describe
+            // what was withdrawn. Only for a document the customer could
+            // actually see — an unpublished one was never announced, so there
+            // is nothing to retract.
+            if ($wasPublished) {
+                $this->announceDocument($doc, 'replaced', 'deleted');
+            }
+
             $doc->delete();
         });
 

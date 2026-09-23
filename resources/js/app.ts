@@ -3,7 +3,7 @@ import '../css/app.css';
 import { createInertiaApp } from '@inertiajs/vue3';
 import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers';
 import type { DefineComponent } from 'vue';
-import { createApp, h, Fragment } from 'vue';
+import { createApp, Fragment, h } from 'vue';
 import { ZiggyVue } from '../../vendor/tightenco/ziggy';
 import SessionGuard from './components/session/SessionGuard.vue';
 import ToastHost from './components/ui/toast/ToastHost.vue';

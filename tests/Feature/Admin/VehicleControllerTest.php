@@ -4,10 +4,14 @@ namespace Tests\Feature\Admin;
 
 use App\Enums\OrderStatus;
 use App\Enums\UserType;
+use App\Models\Address;
+use App\Models\Contact;
 use App\Models\InspectionStation;
 use App\Models\User;
+use App\Modules\UserProfile\B2B\Models\B2B;
 use App\Modules\UserProfile\Offer\Models\LeasybackOffer;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
+use App\Modules\UserProfile\Order\Models\LogisticsAddressProfile;
 use App\Modules\UserProfile\Order\Models\OrderStatusUpdate;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle;
 use App\Modules\UserProfile\Vehicle\Models\VehicleDocument;
@@ -15,6 +19,7 @@ use App\Modules\UserProfile\Vehicle\Models\VehicleReportDocument;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia;
 use Tests\TestCase;
@@ -296,9 +301,8 @@ class VehicleControllerTest extends TestCase
     /**
      * Guards lib/adminStatus.ts's ADMIN_ORDER_STATUS_FILTERS against drifting
      * away from the enum again: every chip it offers has to be a status the
-     * list endpoint will actually accept. It previously offered `completed`,
-     * which is not an OrderStatus, so that chip 302'd the page back with a
-     * validation error instead of filtering.
+     * list endpoint will actually accept, and anything outside the enum still
+     * has to be rejected rather than silently ignored.
      */
     public function test_every_admin_status_filter_is_accepted_by_the_list_endpoints(): void
     {
@@ -315,7 +319,7 @@ class VehicleControllerTest extends TestCase
         }
 
         $this->actingAs($admin)
-            ->get(route('admin.vehicles.index', ['status' => 'completed']))
+            ->get(route('admin.vehicles.index', ['status' => 'not_a_status']))
             ->assertRedirect();
     }
 
@@ -344,6 +348,129 @@ class VehicleControllerTest extends TestCase
             'vehicle_id' => $vehicle->vehicle_id,
             'leasyback_partner' => 'tuvsud',
             'created_by_user_id' => $admin->id,
+        ]);
+    }
+
+    /**
+     * A B2B vehicle takes the collection flow, not the station/appointment
+     * one — from Admin exactly as from the company user's own dashboard, since
+     * both post to orders.store, which branches on the vehicle. Admin's
+     * "Auftrag erstellen" sends no station_id/termin (b2bOrderRules prohibits
+     * them), so this pins the payload the modal's B2B branch produces.
+     */
+    public function test_admin_creates_a_b2b_vehicles_order_through_the_collection_flow(): void
+    {
+        Mail::fake();
+        $admin = $this->admin();
+        $vehicle = $this->b2bVehicle();
+
+        $this->actingAs($admin)
+            ->post(route('orders.store', $vehicle->vehicle_id), [
+                'requested_collection_date' => now()->addWeek()->toDateString(),
+                'collection_note' => 'Schlüssel am Empfang',
+                'collection_address' => ['street' => 'Werkstr', 'zip_code' => '80331', 'city' => 'München'],
+            ])
+            ->assertRedirect()
+            ->assertSessionHasNoErrors();
+
+        $this->assertDatabaseHas('leasyback_orders', [
+            'vehicle_id' => $vehicle->vehicle_id,
+            'order_status' => 'order_requested',
+            'created_by_user_id' => $admin->id,
+        ]);
+    }
+
+    /** The old B2C payload is rejected outright, so Admin cannot fall back to it for a B2B vehicle. */
+    public function test_the_b2c_station_payload_is_rejected_for_a_b2b_vehicle(): void
+    {
+        $admin = $this->admin();
+        $vehicle = $this->b2bVehicle();
+        $station = InspectionStation::factory()->create(['provider' => 'tuvsud', 'is_active' => true]);
+
+        $this->actingAs($admin)
+            ->post(route('orders.store', $vehicle->vehicle_id), [
+                'station_id' => $station->station_id,
+                'termin' => now()->addWeek()->toDateTimeString(),
+            ])
+            ->assertSessionHasErrors(['station_id', 'termin']);
+
+        $this->assertDatabaseCount('leasyback_orders', 0);
+    }
+
+    /**
+     * The modal prefills the collection address from the vehicle, so the Admin
+     * vehicle payload has to carry it the same way the customer dashboard's
+     * does. B2C vehicles have no such profile and get null.
+     */
+    public function test_admin_vehicle_payload_carries_the_b2b_collection_address(): void
+    {
+        $admin = $this->admin();
+        $vehicle = $this->b2bVehicle([
+            'street' => 'Werkstr', 'number' => '7', 'additional_address' => 'Tor 3',
+            'zip_code' => '80331', 'city' => 'München', 'country' => 'DE',
+        ]);
+        Vehicle::factory()->create(['vehicle_belongs' => 'B2C']);
+
+        $this->actingAs($admin)
+            ->get(route('admin.vehicles.show', $vehicle->vehicle_id))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('vehicle.collection_address.street', 'Werkstr')
+                ->where('vehicle.collection_address.zip_code', '80331')
+                ->where('vehicle.collection_address.city', 'München')
+            );
+
+        $this->actingAs($admin)
+            ->get(route('admin.vehicles.index'))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->has('vehicles.data', 2)
+                ->where('vehicles.data', fn (Collection $rows) => $rows
+                    ->firstWhere('vehicle_id', $vehicle->vehicle_id)['collection_address']['city'] === 'München'
+                    && $rows->firstWhere('vehicle_belongs', 'B2C')['collection_address'] === null
+                )
+            );
+    }
+
+    /**
+     * A B2B vehicle whose company never stored a pickup address: the payload
+     * still carries the key, so the modal renders an empty (editable) address.
+     */
+    public function test_a_b2b_vehicle_without_an_address_profile_reports_a_null_collection_address(): void
+    {
+        $admin = $this->admin();
+        $vehicle = $this->b2bVehicle(null);
+
+        $this->actingAs($admin)
+            ->get(route('admin.vehicles.show', $vehicle->vehicle_id))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('vehicle.collection_address', null));
+    }
+
+    /**
+     * A company vehicle, optionally linked to a default pickup address.
+     *
+     * @param  array<string, string>|null  $address
+     */
+    private function b2bVehicle(?array $address = ['street' => 'Werkstr', 'zip_code' => '80331', 'city' => 'München']): Vehicle
+    {
+        $b2b = B2B::create([
+            'contact_id' => Contact::factory()->create()->contact_id,
+            'address_id' => Address::factory()->create()->address_id,
+            'company_name' => 'Acme GmbH',
+            'contact_email' => 'fleet@acme.example',
+        ]);
+
+        $profile = $address === null ? null : LogisticsAddressProfile::create([
+            'owner_type' => 'b2b',
+            'b2b_id' => $b2b->b2b_id,
+            'profile_name' => 'Zentrale',
+            'details' => $address,
+            'is_default' => true,
+        ]);
+
+        return Vehicle::factory()->forB2b($b2b->b2b_id)->create([
+            'collection_address_profile_id' => $profile?->id,
         ]);
     }
 
@@ -419,7 +546,12 @@ class VehicleControllerTest extends TestCase
             ->assertInertia(fn (AssertableInertia $page) => $page->where('vehicles.data.0.can_pull_documents', false));
     }
 
-    public function test_has_open_order_blocks_a_second_order(): void
+    /**
+     * The Admin row flag has to say the same thing OrderService enforces, or
+     * the menu offers "Auftrag erstellen" on a vehicle the create endpoint
+     * refuses. Completed is the case that used to disagree.
+     */
+    public function test_blocks_new_order_mirrors_the_create_rule(): void
     {
         $admin = $this->admin();
         $busy = Vehicle::factory()->create(['license_plate' => 'K OPEN 1']);
@@ -432,14 +564,23 @@ class VehicleControllerTest extends TestCase
             'vehicle_id' => $free->vehicle_id,
             'order_status' => OrderStatus::Cancelled->value,
         ]);
+        $done = Vehicle::factory()->create(['license_plate' => 'K OPEN 3']);
+        LeasybackOrder::factory()->create([
+            'vehicle_id' => $done->vehicle_id,
+            'order_status' => OrderStatus::Completed->value,
+        ]);
 
         $this->actingAs($admin)
             ->get(route('admin.vehicles.index', ['search' => 'K OPEN 1']))
-            ->assertInertia(fn (AssertableInertia $page) => $page->where('vehicles.data.0.has_open_order', true));
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('vehicles.data.0.blocks_new_order', true));
 
         $this->actingAs($admin)
             ->get(route('admin.vehicles.index', ['search' => 'K OPEN 2']))
-            ->assertInertia(fn (AssertableInertia $page) => $page->where('vehicles.data.0.has_open_order', false));
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('vehicles.data.0.blocks_new_order', false));
+
+        $this->actingAs($admin)
+            ->get(route('admin.vehicles.index', ['search' => 'K OPEN 3']))
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('vehicles.data.0.blocks_new_order', true));
     }
 
     /**
@@ -490,6 +631,9 @@ class VehicleControllerTest extends TestCase
         $response = $this->actingAs($admin)
             ->post(route('admin.vehicles.store'), [
                 'license_plate' => 'K LB 2026',
+                'vin' => 'WVWZZZ1JZXW000001',
+                'make' => 'BMW',
+                'leasinggeber' => 'Alte Bank',
                 'vehicle_belongs' => 'B2C',
                 'b2c_user_id' => $customer->id,
             ]);

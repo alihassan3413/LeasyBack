@@ -1,6 +1,7 @@
 import type { LucideIcon } from 'lucide-vue-next';
 import type { UserType } from './auth';
 import type { B2bSharedState } from './b2b';
+import type { VehicleImportResult } from './vehicle';
 
 export interface Auth {
     user: User;
@@ -28,6 +29,19 @@ export interface FlashBag {
     error?: string | null;
     info?: string | null;
     warning?: string | null;
+    /** Shown once after issuing a workshop quotation link (phase 9). */
+    workshop_link?: string | null;
+    /** Per-row outcome of a bulk vehicle import (phase 15). */
+    vehicle_import?: VehicleImportResult | null;
+    /** Set once after booking, so the caller knows which order to attach a card to. */
+    order_created?: OrderCreatedFlash | null;
+}
+
+export interface OrderCreatedFlash {
+    order_id: string;
+    auftragsnummer: string;
+    /** Decided server-side: false for B2B, for Admin acting on a customer's behalf, and when a usable mandate already exists. */
+    requires_payment_method: boolean;
 }
 
 export interface SharedData {
@@ -38,6 +52,10 @@ export interface SharedData {
     /** Set only for an admin who has taken over a customer session — never for the customer themselves. */
     impersonation: { active: boolean; admin_name: string | null };
     notifications: { unread_count: number };
+    /** Publishable key only. Null when payments are not configured in this environment. */
+    stripe: { key: string | null };
+    /** Product amounts the UI has to name. Server-held so no copy hardcodes one. */
+    payments: { cancellation_fee_cents: number };
     ziggy: {
         location: string;
         url: string;

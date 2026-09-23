@@ -80,6 +80,16 @@ return [
             'url' => '/private-documents',
             'serve' => true,
             'visibility' => 'private',
+            'permissions' => [
+                'file' => [
+                    'public' => 0644,
+                    'private' => 0660,
+                ],
+                'dir' => [
+                    'public' => 0755,
+                    'private' => 02770,
+                ],
+            ],
             'throw' => false,
             'report' => false,
             // Only read when the driver above is 's3' — reuses the same

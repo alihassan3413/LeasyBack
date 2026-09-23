@@ -90,8 +90,10 @@ class OnboardingControllerTest extends TestCase
         $this->actingAs($user)
             ->post(route('onboarding.vehicle.store'), [
                 'license_plate' => 'M-AB 123',
+                'vin' => 'WVWZZZ1JZXW000001',
                 'make' => 'BMW',
                 'model' => '3er',
+                'leasinggeber' => 'Alte Bank',
             ])
             ->assertRedirect(route('onboarding.show'));
 
@@ -115,7 +117,12 @@ class OnboardingControllerTest extends TestCase
         $user = User::factory()->unverified()->create(['user_type' => UserType::Privatkunde]);
 
         $this->actingAs($user)
-            ->post(route('onboarding.vehicle.store'), ['license_plate' => 'M-AB 123'])
+            ->post(route('onboarding.vehicle.store'), [
+                'license_plate' => 'M-AB 123',
+                'vin' => 'WVWZZZ1JZXW000001',
+                'make' => 'BMW',
+                'leasinggeber' => 'Alte Bank',
+            ])
             ->assertRedirect(route('onboarding.show'));
 
         $this->assertDatabaseHas('vehicles', ['license_plate' => 'M-AB 123']);
@@ -180,6 +187,9 @@ class OnboardingControllerTest extends TestCase
 
         $vehicleResponse = $this->actingAs($user)->post(route('onboarding.vehicle.store'), [
             'license_plate' => 'M-AB 123',
+            'vin' => 'WVWZZZ1JZXW000001',
+            'make' => 'BMW',
+            'leasinggeber' => 'Alte Bank',
         ]);
         $vehicleResponse->assertRedirect(route('onboarding.show'));
 
@@ -197,5 +207,20 @@ class OnboardingControllerTest extends TestCase
                 ->where('vehicle.license_plate', 'M-AB 123')
                 ->where('order.order_status', 'order_placed')
             );
+    }
+
+    /** The wizard's vehicle step feeds this into CalendarDateField, which reads `YYYY-MM-DD`. */
+    public function test_onboarding_sends_the_leasing_end_date_without_a_time_component(): void
+    {
+        $user = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        Vehicle::factory()->create([
+            'b2c_user_id' => $user->id,
+            'leasing_end_date' => '2026-03-13',
+        ]);
+
+        $this->actingAs($user)
+            ->get(route('onboarding.show'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->where('vehicle.leasing_end_date', '2026-03-13'));
     }
 }

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\B2b;
 
 use App\Enums\B2bPermission;
 use App\Enums\B2bRole;
+use App\Enums\B2bRolePreset;
 use App\Enums\B2bVehicleScope;
 use App\Http\Controllers\Concerns\HandlesServiceValidationErrors;
 use App\Http\Controllers\Controller;
@@ -50,9 +51,14 @@ class MemberController extends Controller
             // never joined.
             'invitations' => $canManage ? $this->invitations->listForCompany($membership->b2bId) : [],
             'analytics' => $membership->can(B2bPermission::ViewAnalytics)
-                ? $this->analytics->summary($membership->b2bId)
+                ? $this->analytics->summary($membership->b2bId, $request->user())
                 : null,
             'permissionCatalog' => $this->permissionCatalog(),
+            // The three named company roles the picker offers. The raw role
+            // and permission catalogue stay alongside them for the advanced
+            // editor, which is still how a custom set is built.
+            'rolePresets' => B2bRolePreset::options(),
+            'defaultPreset' => B2bRolePreset::default()->value,
             'roleOptions' => $this->roleOptions(),
             'vehicleScopeOptions' => $this->vehicleScopeOptions(),
             'can' => [

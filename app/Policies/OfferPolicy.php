@@ -29,6 +29,16 @@ class OfferPolicy
     }
 
     /**
+     * Rejecting is the mirror of select() and carries the same owner-only
+     * rule: §10 pairs accept with reject, so the two abilities must not
+     * diverge in who may exercise them.
+     */
+    public function reject(User $user, LeasybackOffer $offer): bool
+    {
+        return $this->select($user, $offer);
+    }
+
+    /**
      * Admin accepting an offer for the customer ("Im Auftrag des Kunden
      * annehmen", the v1 Admin behaviour) — a separate ability rather than
      * an exception inside select(), so the customer endpoint keeps its

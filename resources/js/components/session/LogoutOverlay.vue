@@ -56,16 +56,7 @@ const done = computed(() => overlay.value.phase === 'done');
 
                         <svg v-if="!done" class="absolute inset-0 size-full -rotate-90" viewBox="0 0 104 104">
                             <circle cx="52" cy="52" r="46" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="3" />
-                            <circle
-                                class="lb-spin-arc"
-                                cx="52"
-                                cy="52"
-                                r="46"
-                                fill="none"
-                                stroke="#01B990"
-                                stroke-width="3"
-                                stroke-linecap="round"
-                            />
+                            <circle class="lb-spin-arc" cx="52" cy="52" r="46" fill="none" stroke="#01B990" stroke-width="3" stroke-linecap="round" />
                         </svg>
 
                         <span

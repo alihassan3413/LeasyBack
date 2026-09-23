@@ -2,15 +2,31 @@
 
 namespace App\Modules\UserProfile\Vehicle\Services;
 
+use App\Enums\B2bPermission;
+use App\Enums\OrderStatus;
 use App\Enums\UserType;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleAuditLog;
 use App\Models\VehicleDocument;
+use App\Modules\PartnerApi\Services\PartnerWebhookEvents;
 use App\Modules\UserProfile\B2B\Services\B2bContext;
+use App\Modules\UserProfile\Order\Models\LogisticsAddressProfile;
+use App\Modules\UserProfile\Order\Services\B2bOrderNoteService;
+use App\Modules\UserProfile\Order\Services\OrderCollectionService;
+use App\Modules\UserProfile\Order\Services\RepairOfferService;
+use App\Modules\UserProfile\Payment\Enums\FeeReason;
+use App\Modules\UserProfile\Payment\Enums\PaymentPurpose;
+use App\Modules\UserProfile\Payment\Enums\PaymentStatus;
+use App\Modules\UserProfile\Payment\Models\OrderPaymentMethod;
+use App\Modules\UserProfile\Payment\Services\CancellationPreview;
+use App\Support\OrderHistory;
+use App\Support\PortalTimestamp;
+use App\Support\RepairPaymentPresentation;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -18,7 +34,21 @@ use Illuminate\Support\Str;
 
 class VehicleService
 {
-    public function __construct(private readonly B2bContext $b2bContext) {}
+    /**
+     * Memoised per company, see companyAddressProfiles().
+     *
+     * @var array<string, Collection<int, LogisticsAddressProfile>>
+     */
+    private array $addressProfileCache = [];
+
+    public function __construct(
+        private readonly B2bContext $b2bContext,
+        private readonly OrderCollectionService $orderCollectionService,
+        private readonly RepairOfferService $repairOfferService,
+        private readonly B2bOrderNoteService $b2bOrderNoteService,
+        private readonly VehicleScopeService $vehicleScopeService,
+        private readonly PartnerWebhookEvents $webhooks,
+    ) {}
 
     /**
      * Resolve the b2b_id of the company a user is currently acting as.
@@ -45,6 +75,7 @@ class VehicleService
 
         return DB::transaction(function () use ($validated, $belongs, $b2bId, $b2cUserId, $user) {
             $vehicle = Vehicle::create([
+                ...$this->b2bFleetAttributes($validated, $belongs, $b2bId, $user),
                 'license_plate' => $validated['license_plate'],
                 'first_registration_date' => $validated['first_registration_date'] ?? null,
                 'leasing_end_date' => $validated['leasing_end_date'] ?? null,
@@ -69,6 +100,11 @@ class VehicleService
                 'changed_by_user_id' => $user->id,
             ]);
 
+            // In the transaction: a vehicle that rolls back must not be
+            // announced. A B2C vehicle emits nothing — PartnerWebhookEvents
+            // resolves no company for one, so there is no channel filter here.
+            $this->webhooks->vehicleCreated($vehicle);
+
             return $vehicle;
         });
     }
@@ -77,12 +113,22 @@ class VehicleService
      * Update a vehicle's own fields (never its owner or license plate).
      * Ownership authorization is the caller's job (VehiclePolicy) — this
      * assumes the caller is already allowed to update $vehicle.
+     *
+     * A field the payload omits is left alone; a field it carries is written,
+     * `null` included. Dropping nulls here meant "Das genaue Datum des
+     * Leasingendes liegt mir aktuell nicht vor" could never take an
+     * already-saved date back off the vehicle — the edit looked accepted and
+     * the old value came straight back on the next render.
      */
     public function updateVehicle(Vehicle $vehicle, array $validated, User $user): Vehicle
     {
         return DB::transaction(function () use ($vehicle, $validated, $user) {
             $old = $vehicle->toArray();
-            $vehicle->update(array_filter($validated, fn ($value) => $value !== null));
+
+            $fleet = $this->b2bFleetAttributes($validated, $vehicle->vehicle_belongs, $vehicle->b2b_id, $user);
+            $plain = Arr::except($validated, [...Vehicle::B2B_ONLY_ATTRIBUTES, 'collection_address', 'leasinggeber_unknown']);
+
+            $vehicle->update([...self::blanksAsNull($plain), ...$fleet]);
 
             VehicleAuditLog::create([
                 'vehicle_id' => $vehicle->vehicle_id,
@@ -92,7 +138,11 @@ class VehicleService
                 'changed_by_user_id' => $user->id,
             ]);
 
-            return $vehicle->fresh();
+            $updated = $vehicle->fresh();
+
+            $this->webhooks->vehicleUpdated($updated);
+
+            return $updated;
         });
     }
 
@@ -130,11 +180,127 @@ class VehicleService
     }
 
     /**
+     * @param  array<string, mixed>  $validated
+     * @return array<string, mixed>
+     */
+    private function b2bFleetAttributes(array $validated, ?string $belongs, ?string $b2bId, User $user): array
+    {
+        if ($belongs !== 'B2B' || $b2bId === null) {
+            return [];
+        }
+
+        $attributes = [];
+
+        foreach (['mileage', 'contract_number', 'cost_centre', 'driver_name', 'driver_contact'] as $field) {
+            if (array_key_exists($field, $validated)) {
+                $attributes[$field] = self::blankAsNull($validated[$field]);
+            }
+        }
+
+        if (array_key_exists('collection_address', $validated)) {
+            $attributes['collection_address_profile_id'] = $this->resolveCollectionAddressProfileId(
+                $validated['collection_address'],
+                $b2bId,
+                $user,
+            );
+        }
+
+        return $attributes;
+    }
+
+    /**
+     * A cleared field arrives as `null` from the API and as `''` from a form
+     * input, and both mean "there is no value" — the column stores `null` for
+     * either, so an emptied field reads back as empty everywhere.
+     *
+     * @param  array<string, mixed>  $attributes
+     * @return array<string, mixed>
+     */
+    private static function blanksAsNull(array $attributes): array
+    {
+        return array_map(self::blankAsNull(...), $attributes);
+    }
+
+    private static function blankAsNull(mixed $value): mixed
+    {
+        return is_string($value) && trim($value) === '' ? null : $value;
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $address
+     */
+    private function resolveCollectionAddressProfileId(?array $address, string $b2bId, User $user): ?string
+    {
+        $details = [];
+
+        foreach (['street', 'number', 'additional_address', 'zip_code', 'city', 'country'] as $field) {
+            $value = trim((string) ($address[$field] ?? ''));
+            $details[$field] = $value === '' ? null : $value;
+        }
+
+        if (collect($details)->filter()->isEmpty()) {
+            return null;
+        }
+
+        $profiles = $this->companyAddressProfiles($b2bId);
+
+        $existing = $profiles->first(fn (LogisticsAddressProfile $profile) => $profile->details === $details);
+
+        if ($existing !== null) {
+            return $existing->id;
+        }
+
+        $label = trim(implode(', ', array_filter([
+            trim(implode(' ', array_filter([$details['street'], $details['number']]))),
+            trim(implode(' ', array_filter([$details['zip_code'], $details['city']]))),
+        ])));
+
+        $profile = LogisticsAddressProfile::create([
+            'owner_type' => 'B2B',
+            'b2b_id' => $b2bId,
+            'profile_name' => $label !== '' ? $label : 'Abholadresse',
+            'details' => $details,
+            'is_default' => false,
+            'created_by_user_id' => $user->id,
+            'updated_by_user_id' => $user->id,
+        ]);
+
+        $profiles->push($profile);
+
+        return $profile->id;
+    }
+
+    /**
+     * The company's address profiles, read once per request.
+     *
+     * The dedupe comparison is unchanged — still an exact match on the whole
+     * `details` array, in PHP — but it no longer re-reads every profile from
+     * the database for each vehicle. That was invisible when creating one
+     * vehicle at a time and quadratic on a bulk import, where a fleet list
+     * typically repeats the same depot address on every row.
+     *
+     * Profiles created during the request are pushed onto the same collection,
+     * so a later row still matches an address an earlier row just created and
+     * no duplicate profile is written.
+     *
+     * @return Collection<int, LogisticsAddressProfile>
+     */
+    private function companyAddressProfiles(string $b2bId): Collection
+    {
+        return $this->addressProfileCache[$b2bId] ??= LogisticsAddressProfile::where('owner_type', 'B2B')
+            ->where('b2b_id', $b2bId)
+            ->get();
+    }
+
+    /**
      * @return array{0: string, 1: ?string, 2: ?int} [belongs, b2b_id, b2c_user_id]
      */
     private function resolveOwnership(User $user, array $validated): array
     {
-        return match ($user->user_type->value) {
+        // The context they are acting in, not the account type: a Privatkunde
+        // who is also a company member registers company vehicles while acting
+        // as that company, and private ones while acting as themselves.
+        return match ($this->b2bContext->effectiveUserType($user)->value) {
             'Admin' => $this->resolveAdminOwnership($validated),
             'Firmenkunde' => $this->resolveFirmenkundeOwnership($user),
             'Privatkunde' => ['B2C', null, $user->id],
@@ -216,24 +382,21 @@ class VehicleService
     }
 
     /**
-     * Check if vehicle has an unfinished order.
+     * Whether this vehicle's order history bars a new order.
+     *
+     * Named for what it decides rather than for what it reads, because the two
+     * stopped coinciding: this used to ask "is an order still unfinished",
+     * which let a `completed` order release the vehicle. A finished case is
+     * exactly the one that must keep it — the car has been through the process
+     * — so the question is now which statuses leave the vehicle *free*, and
+     * OrderStatus::reorderableValues() is the single answer to it.
      */
-    public function hasUnfinishedOrder(string $vehicleId): bool
+    public function blocksNewOrder(string $vehicleId): bool
     {
         return DB::table('leasyback_orders')
             ->where('vehicle_id', $vehicleId)
-            ->whereNotIn('order_status', ['delivered', 'cancelled', 'discarded'])
+            ->whereNotIn('order_status', OrderStatus::reorderableValues())
             ->exists();
-    }
-
-    /**
-     * Generate auftragsnummer from license plate + local date.
-     */
-    public function generateAuftragsnummer(string $licensePlate): string
-    {
-        $cleaned = str_replace([' ', '-'], '', $licensePlate);
-
-        return $cleaned.now()->format('ymd');
     }
 
     /**
@@ -312,6 +475,9 @@ class VehicleService
     /** Free-text search covers every column a customer would recognise a vehicle by. */
     private const VEHICLE_SEARCH_COLUMNS = ['license_plate', 'make', 'model', 'vin', 'leasinggeber'];
 
+    /** Each extra word adds an OR-group to the query; long phrases are capped rather than run. */
+    private const VEHICLE_SEARCH_MAX_WORDS = 6;
+
     /**
      * List vehicles with nested orders for dashboard.
      *
@@ -327,9 +493,59 @@ class VehicleService
      *
      * @return array<string, mixed>|null
      */
-    public function findVehicleWithOrders(string $vehicleId, ?string $ownerId, string $belongs): ?array
+    public function findVehicleWithOrders(string $vehicleId, ?string $ownerId, string $belongs, ?User $viewer = null): ?array
     {
-        return $this->listVehiclesWithOrders($ownerId, $belongs, [], $vehicleId)[0] ?? null;
+        return $this->listVehiclesWithOrders($ownerId, $belongs, [], $vehicleId, $viewer)[0] ?? null;
+    }
+
+    /**
+     * One order of one vehicle, addressed by its own id.
+     *
+     * Hydration is not repeated here: the order is picked out of the vehicle
+     * payload that findVehicleWithOrders() already builds, so a historical
+     * order's timeline, status trail, documents, offers, collection and
+     * payment state are byte-for-byte the ones the current order gets. The
+     * scope arguments are the same ones the vehicle page passes, which is
+     * also what makes this safe — an order whose vehicle the viewer may not
+     * see resolves to null here, exactly as the vehicle itself would.
+     *
+     * The vehicle travels without its `orders` list: the one order the page
+     * renders is under `order`, and sending the rest again would be the same
+     * payload twice. `current_order` is reduced to a history summary so the
+     * page can say which of the vehicle's orders is the live one and link to
+     * it.
+     *
+     * @return array{vehicle: array<string, mixed>, order: array<string, mixed>}|null
+     */
+    public function findOrderDetail(string $orderId, ?string $ownerId, string $belongs, ?User $viewer = null): ?array
+    {
+        $vehicleId = DB::table('leasyback_orders')->where('id', $orderId)->value('vehicle_id');
+
+        if ($vehicleId === null) {
+            return null;
+        }
+
+        $vehicle = $this->findVehicleWithOrders((string) $vehicleId, $ownerId, $belongs, $viewer);
+
+        if ($vehicle === null) {
+            return null;
+        }
+
+        $order = collect($vehicle['orders'])->firstWhere('id', $orderId);
+
+        if ($order === null) {
+            return null;
+        }
+
+        return [
+            'vehicle' => [
+                ...Arr::except($vehicle, ['orders', 'current_order']),
+                'current_order' => $vehicle['current_order'] === null
+                    ? null
+                    : OrderHistory::summarise($vehicle['current_order']),
+            ],
+            'order' => $order,
+        ];
     }
 
     /**
@@ -340,13 +556,13 @@ class VehicleService
      * @param  array{search?: string, status?: string, sort?: string, direction?: string}  $filters
      * @return array{data: list<array<string, mixed>>, meta: array{current_page: int, last_page: int, per_page: int, total: int, from: int|null, to: int|null}}
      */
-    public function paginateVehiclesWithOrders(?string $ownerId, string $belongs, array $filters = [], int $perPage = 10, int $page = 1): array
+    public function paginateVehiclesWithOrders(?string $ownerId, string $belongs, array $filters = [], int $perPage = 10, int $page = 1, ?User $viewer = null): array
     {
-        $paginator = $this->applyVehicleFilters($this->scopedVehicleQuery($ownerId, $belongs), $filters)
+        $paginator = $this->applyVehicleFilters($this->scopedVehicleQuery($ownerId, $belongs, $viewer), $filters)
             ->paginate(perPage: $perPage, page: $page);
 
         return [
-            'data' => $this->hydrateVehicles(collect($paginator->items())),
+            'data' => $this->hydrateVehicles(collect($paginator->items()), $viewer),
             'meta' => [
                 'current_page' => $paginator->currentPage(),
                 'last_page' => $paginator->lastPage(),
@@ -358,18 +574,174 @@ class VehicleService
         ];
     }
 
-    public function listVehiclesWithOrders(?string $ownerId, string $belongs, array $filters = [], ?string $vehicleId = null): array
+    public function listVehiclesWithOrders(?string $ownerId, string $belongs, array $filters = [], ?string $vehicleId = null, ?User $viewer = null): array
     {
-        $query = $this->scopedVehicleQuery($ownerId, $belongs);
+        $query = $this->scopedVehicleQuery($ownerId, $belongs, $viewer);
 
         if ($vehicleId !== null) {
             $query->where('v.vehicle_id', $vehicleId);
         }
 
-        return $this->hydrateVehicles($this->applyVehicleFilters($query, $filters)->get());
+        return $this->hydrateVehicles($this->applyVehicleFilters($query, $filters)->get(), $viewer);
     }
 
-    private function scopedVehicleQuery(?string $ownerId, string $belongs): Builder
+    /**
+     * Every order the customer has placed, newest first, for the orders page.
+     *
+     * Scoped through the same vehicle query as the fleet list, so a member who
+     * only sees their own vehicles only sees their own orders — access to an
+     * order follows access to its vehicle, which is the rule OrderPolicy and
+     * findOrderDetail() already apply one order at a time.
+     *
+     * Rows are flat on purpose: the page shows a line per order and opens the
+     * full record via `orders.show`, so nothing here needs an order's offers,
+     * documents or status history loaded.
+     *
+     * `$limit` is for the dashboard's overview card, which wants the newest
+     * few rather than the page's whole list — applied in SQL so a long fleet
+     * history is never loaded to show five lines of it.
+     *
+     * @param  array{search?: string, status?: 'open'|'closed'|string}  $filters
+     * @return list<array<string, mixed>>
+     */
+    public function listCustomerOrders(?string $ownerId, string $belongs, array $filters = [], ?User $viewer = null, ?int $limit = null): array
+    {
+        $query = $this->scopedVehicleQuery($ownerId, $belongs, $viewer)
+            ->join('leasyback_orders as o', 'o.vehicle_id', '=', 'v.vehicle_id');
+
+        $status = (string) ($filters['status'] ?? '');
+
+        // `open`/`closed` are groups rather than statuses, the same shorthand
+        // the fleet filter uses — OrderStatus::closedValues() is the single
+        // definition of which side a status falls on.
+        if ($status === 'open') {
+            $query->whereNotIn('o.order_status', OrderStatus::closedValues());
+        } elseif ($status === 'closed') {
+            $query->whereIn('o.order_status', OrderStatus::closedValues());
+        } elseif ($status !== '') {
+            $query->where('o.order_status', $status);
+        }
+
+        if (($search = trim((string) ($filters['search'] ?? ''))) !== '') {
+            $query->where(fn (Builder $inner) => $inner
+                ->where('o.auftragsnummer', 'like', "%{$search}%")
+                ->orWhere('v.license_plate', 'like', "%{$search}%")
+                ->orWhere('v.make', 'like', "%{$search}%")
+                ->orWhere('v.model', 'like', "%{$search}%"));
+        }
+
+        if ($limit !== null) {
+            $query->limit($limit);
+        }
+
+        $orders = $query->orderByDesc('o.created_at')->get([
+            'o.id',
+            'o.auftragsnummer',
+            'o.order_status',
+            'o.created_at',
+            'o.request_payload',
+            'v.vehicle_id',
+            'v.license_plate',
+            'v.make',
+            'v.model',
+            'v.vehicle_belongs',
+        ]);
+
+        // A B2B order is a collection, and its date lives in order_logistics
+        // rather than in the partner request payload a B2C station booking
+        // carries. One lookup for the whole page, not one per row.
+        $collections = $this->orderCollectionService->forOrders(
+            $orders->where('vehicle_belongs', 'B2B')->pluck('auftragsnummer')->unique()->all(),
+        );
+
+        return $orders->map(function (object $order) use ($collections) {
+            $payload = json_decode((string) $order->request_payload, true) ?: [];
+            $besichtigungsort = $payload['besichtigungsort'] ?? [];
+            $collection = $collections[$order->auftragsnummer] ?? null;
+
+            return [
+                'id' => $order->id,
+                'auftragsnummer' => $order->auftragsnummer,
+                'order_status' => $order->order_status,
+                'created_at' => $order->created_at,
+                'vehicle_id' => $order->vehicle_id,
+                'license_plate' => $order->license_plate,
+                'make' => $order->make,
+                'model' => $order->model,
+                'vehicle_belongs' => $order->vehicle_belongs,
+                'appointment' => $collection['confirmed_collection_date']
+                    ?? $collection['requested_collection_date']
+                    ?? ($besichtigungsort['termin'] ?? null),
+                'location' => $collection === null ? ($besichtigungsort['name'] ?? null) : null,
+            ];
+        })->all();
+    }
+
+    /**
+     * The vehicles a new order can still be started for, for the dashboard's
+     * service picker: exactly those `blocksNewOrder()` would clear, asked once
+     * for the whole fleet instead of once per row.
+     *
+     * Deliberately not hydrated. The picker shows a plate, a model and a
+     * leasing end date, and hands the chosen vehicle to OrderCreationModal,
+     * which reads only `vehicle_belongs` and `collection_address` — none of
+     * which needs a vehicle's orders, offers or documents loaded.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function listBookableVehicles(?string $ownerId, string $belongs, ?User $viewer = null): array
+    {
+        $vehicles = $this->scopedVehicleQuery($ownerId, $belongs, $viewer)
+            ->whereNotExists(fn (Builder $query) => $query
+                ->select(DB::raw(1))
+                ->from('leasyback_orders as o')
+                ->whereColumn('o.vehicle_id', 'v.vehicle_id')
+                ->whereNotIn('o.order_status', OrderStatus::reorderableValues()))
+            ->orderBy('v.created_at', 'desc')
+            ->get([
+                'v.vehicle_id',
+                'v.license_plate',
+                'v.make',
+                'v.model',
+                'v.vin',
+                'v.leasing_end_date',
+                'v.vehicle_belongs',
+                'v.collection_address_profile_id',
+            ]);
+
+        $addresses = LogisticsAddressProfile::whereIn(
+            'id',
+            $vehicles->where('vehicle_belongs', 'B2B')->pluck('collection_address_profile_id')->filter()->unique()->all(),
+        )->get()->mapWithKeys(fn (LogisticsAddressProfile $profile) => [$profile->id => $profile->details]);
+
+        return $vehicles->map(fn (object $vehicle) => [
+            'vehicle_id' => $vehicle->vehicle_id,
+            'license_plate' => $vehicle->license_plate,
+            'make' => $vehicle->make,
+            'model' => $vehicle->model,
+            'vin' => $vehicle->vin,
+            'leasing_end_date' => $vehicle->leasing_end_date,
+            'vehicle_belongs' => $vehicle->vehicle_belongs,
+            'collection_address' => $addresses[$vehicle->collection_address_profile_id] ?? null,
+        ])->all();
+    }
+
+    /**
+     * The company/owner half of vehicle access, plus the member-level half
+     * when a viewer is supplied.
+     *
+     * The member-level narrowing is delegated to
+     * VehicleScopeService::ownVehicleRestrictionFor(), the same decision
+     * VehicleScopeService::scopeQuery() applies to policies and detail
+     * lookups. Before phase 17's fix this method knew only about `b2b_id`, so
+     * an own-scope member was listed the whole company fleet even though
+     * opening any of it was correctly refused.
+     *
+     * `$viewer` is nullable because Admin-side callers legitimately have no
+     * member scope to apply; a null viewer never widens the company filter
+     * above, which is applied regardless.
+     */
+    private function scopedVehicleQuery(?string $ownerId, string $belongs, ?User $viewer = null): Builder
     {
         $query = DB::table('vehicles as v');
 
@@ -381,6 +753,12 @@ class VehicleService
             $query->where('v.vehicle_belongs', 'B2C')->where('v.b2c_user_id', $ownerId);
         }
 
+        $restrictedTo = $viewer === null ? null : $this->vehicleScopeService->ownVehicleRestrictionFor($viewer);
+
+        if ($restrictedTo !== null) {
+            $query->where('v.created_by_user_id', $restrictedTo);
+        }
+
         return $query;
     }
 
@@ -388,7 +766,7 @@ class VehicleService
      * @param  Collection<int, object>  $vehicles
      * @return list<array<string, mixed>>
      */
-    private function hydrateVehicles(Collection $vehicles): array
+    private function hydrateVehicles(Collection $vehicles, ?User $viewer = null): array
     {
         if ($vehicles->isEmpty()) {
             return [];
@@ -410,6 +788,29 @@ class VehicleService
 
         $auftragsnummern = $ordersByVehicle->flatten(1)->pluck('auftragsnummer')->unique()->all();
         $orderIds = $ordersByVehicle->flatten(1)->pluck('id')->all();
+
+        // Batched, because an order that has never reached the payment step has
+        // no row at all — the absence *is* `awaiting_method`, so this is a left
+        // join in spirit and every lookup below must tolerate a miss.
+        $mandatesByOrder = DB::table('order_payment_methods')
+            ->whereIn('order_id', $orderIds)
+            ->get()
+            ->keyBy('order_id');
+
+        $repairPaymentsByOrder = DB::table('order_payments')
+            ->whereIn('order_id', $orderIds)
+            ->where('purpose', PaymentPurpose::Repair->value)
+            ->get()
+            ->keyBy('order_id');
+
+        // The cancellation fee is a separate obligation with its own row, its
+        // own Stripe intents and its own outcome — never a state of the repair
+        // charge, which may well be paid on the same order.
+        $cancellationFeesByOrder = DB::table('order_payments')
+            ->whereIn('order_id', $orderIds)
+            ->where('purpose', PaymentPurpose::CancellationFee->value)
+            ->get()
+            ->keyBy('order_id');
 
         $statusUpdatesByOrder = DB::table('leasyback_order_status_updates')
             ->whereIn('auftragsnummer', $auftragsnummern)
@@ -433,18 +834,44 @@ class VehicleService
 
         // Only published/selected offers — matches OfferController::customerList's
         // own filter, so the dashboard never shows a customer a draft/cancelled offer.
+        // `rejected` is included so a customer keeps seeing the offer they
+        // turned down instead of it vanishing from the page. Reachable in both
+        // channels now that a B2C offer can be quotation-backed.
         $offersByOrder = DB::table('leasyback_offers')
             ->whereIn('order_id', $orderIds)
-            ->whereIn('offer_status', ['published', 'selected'])
+            ->whereIn('offer_status', ['published', 'selected', RepairOfferService::STATUS_REJECTED])
             ->orderBy('offer_sequence')
             ->get()
             ->groupBy('order_id');
+
+        $offerPresentations = $this->repairOfferService->forOffers(
+            $offersByOrder->flatten(1)->pluck('offer_id')->all(),
+        );
 
         $documentsByVehicle = DB::table('vehicle_documents')
             ->whereIn('vehicle_id', $vehicleIds)
             ->orderByDesc('created_at')
             ->get()
             ->groupBy('vehicle_id');
+
+        $hasB2bVehicle = $vehicles->contains(fn ($vehicle) => $vehicle->vehicle_belongs === 'B2B');
+
+        // Both channels: §11's confirmed repair start is the customer-visible
+        // half of this row, and a private customer waiting on their car needs
+        // it as much as a fleet manager does.
+        $orderCollections = $this->orderCollectionService->forOrders($auftragsnummern);
+
+        // Customer-visible notes only (§16). `forCustomerOrders()` applies the
+        // visibility scope internally and takes no flag that could widen it,
+        // so an internal note has no path into this payload.
+        $orderNotes = $hasB2bVehicle
+            ? $this->b2bOrderNoteService->forCustomerOrders($auftragsnummern)
+            : [];
+
+        $collectionAddresses = LogisticsAddressProfile::whereIn(
+            'id',
+            $vehicles->where('vehicle_belongs', 'B2B')->pluck('collection_address_profile_id')->filter()->unique()->all(),
+        )->get()->mapWithKeys(fn (LogisticsAddressProfile $profile) => [$profile->id => $profile->details]);
 
         $result = [];
         foreach ($vehicles as $vehicle) {
@@ -461,7 +888,7 @@ class VehicleService
                         // came from Leasyback rather than from TÜV SÜD. The
                         // `updated_by` name/email stays Admin-only.
                         'auth_source' => $su->auth_source,
-                        'created_at' => $su->created_at,
+                        'created_at' => PortalTimestamp::iso($su->created_at),
                     ])
                     ->values()
                     ->toArray();
@@ -484,11 +911,13 @@ class VehicleService
                         'document_title' => $doc->document_title,
                         'url' => $this->generateSignedUrl($doc->path, 1800), // 30 min
                         'published' => $doc->published,
-                        'created_at' => $doc->created_at,
-                        'updated_at' => $doc->updated_at,
+                        'created_at' => PortalTimestamp::iso($doc->created_at),
+                        'updated_at' => PortalTimestamp::iso($doc->updated_at),
                     ])
                     ->values()
                     ->toArray();
+
+                $isB2bOffer = $vehicle->vehicle_belongs === 'B2B';
 
                 $offers = $offersByOrder->get($order->id, collect())
                     ->map(fn ($offer) => [
@@ -496,33 +925,73 @@ class VehicleService
                         'offer_sequence' => $offer->offer_sequence,
                         'offer_status' => $offer->offer_status,
                         'repair_cost_net' => $offer->repair_cost_net,
-                        'repair_cost_gross' => $offer->repair_cost_gross,
                         'depreciation_value_net' => $offer->depreciation_value_net,
-                        'depreciation_value_gross' => $offer->depreciation_value_gross,
                         'workshop_repair_quote_net' => $offer->workshop_repair_quote_net,
-                        'workshop_repair_quote_gross' => $offer->workshop_repair_quote_gross,
                         'missing_parts_cost_net' => $offer->missing_parts_cost_net,
-                        'missing_parts_cost_gross' => $offer->missing_parts_cost_gross,
                         'final_total_net' => $offer->final_total_net,
-                        'final_total_gross' => $offer->final_total_gross,
+                        // §9 forbids gross anywhere in the B2B quotation
+                        // process, so a B2B payload simply has no gross keys.
+                        // OfferPricingPolicy owns that rule; this is the one
+                        // place the offer row's own columns are filtered by it.
+                        ...($isB2bOffer ? [] : [
+                            'repair_cost_gross' => $offer->repair_cost_gross,
+                            'depreciation_value_gross' => $offer->depreciation_value_gross,
+                            'workshop_repair_quote_gross' => $offer->workshop_repair_quote_gross,
+                            'missing_parts_cost_gross' => $offer->missing_parts_cost_gross,
+                            'final_total_gross' => $offer->final_total_gross,
+                        ]),
+                        // Both channels: a quotation-backed offer carries its
+                        // frozen presentation, a manual one carries null.
+                        'presentation' => $offerPresentations[$offer->offer_id] ?? null,
                         'additional_notes' => $offer->additional_notes,
-                        'published_at' => $offer->published_at,
-                        'selected_at' => $offer->selected_at,
+                        'published_at' => PortalTimestamp::iso($offer->published_at),
+                        'selected_at' => PortalTimestamp::iso($offer->selected_at),
                     ])
                     ->values()
                     ->toArray();
 
                 $ordersArr[] = [
+                    // B2C only, mirroring how `notes` stays B2B: there is no
+                    // customer-card flow in the B2B channel.
+                    ...($isB2bOffer ? [] : [
+                        'payment' => $this->orderPaymentState(
+                            $order,
+                            $mandatesByOrder->get($order->id),
+                            $repairPaymentsByOrder->get($order->id),
+                            $cancellationFeesByOrder->get($order->id),
+                            $offersByOrder->get($order->id, collect())
+                                ->contains(fn ($offer) => in_array($offer->offer_status, ['selected', 'closed'], true)),
+                            $viewer,
+                        ),
+                    ]),
+                    // The B2B counterpart of `payment.cancellation`: whether this
+                    // viewer may call the return off now, and what that means.
+                    ...($isB2bOffer ? [
+                        'b2b_cancellation' => [
+                            'can_cancel' => $viewer !== null
+                                && ! $viewer->isAdmin()
+                                && in_array($order->order_status, OrderStatus::b2bCustomerCancellableValues(), true)
+                                && $this->b2bContext->can($viewer, B2bPermission::CreateOrders),
+                            'fee_applies' => false,
+                            'message' => 'Die Stornierung ist kostenfrei, solange das Fahrzeug noch nicht abgeholt wurde.',
+                        ],
+                    ] : []),
+                    'collection' => $orderCollections[$order->auftragsnummer] ?? null,
+                    // Order notes stay B2B — §16 gives company users the right
+                    // to see them, and there is no B2C equivalent.
+                    ...($vehicle->vehicle_belongs === 'B2B'
+                        ? ['notes' => $orderNotes[$order->auftragsnummer] ?? []]
+                        : []),
                     'id' => $order->id,
                     'auftragsnummer' => $order->auftragsnummer,
                     'leasyback_partner' => $order->leasyback_partner,
-                    'sent_at' => $order->sent_at,
+                    'sent_at' => PortalTimestamp::iso($order->sent_at),
                     'request_payload' => json_decode($order->request_payload ?? '', false) ?: null,
                     'response_status' => $order->response_status,
                     'response_body' => json_decode($order->response_body ?? '', false) ?: null,
                     'order_status' => $order->order_status,
                     'created_by_user_id' => $order->created_by_user_id,
-                    'created_at' => $order->created_at,
+                    'created_at' => PortalTimestamp::iso($order->created_at),
                     'status_updates' => $statusUpdates,
                     'order_confirmations' => $confirmations,
                     'report_documents' => $reportDocsArr,
@@ -541,11 +1010,23 @@ class VehicleService
                 ->values()
                 ->toArray();
 
+            // Which order the portal speaks for, and what sits behind it —
+            // decided here rather than by the client reading `orders[0]`.
+            ['current_order' => $currentOrder, 'order_history' => $orderHistory] = OrderHistory::split($ordersArr);
+
             $result[] = [
+                ...($vehicle->vehicle_belongs === 'B2B' ? [
+                    'mileage' => $vehicle->mileage,
+                    'contract_number' => $vehicle->contract_number,
+                    'cost_centre' => $vehicle->cost_centre,
+                    'driver_name' => $vehicle->driver_name,
+                    'driver_contact' => $vehicle->driver_contact,
+                    'collection_address' => $collectionAddresses[$vehicle->collection_address_profile_id] ?? null,
+                ] : []),
                 'vehicle_id' => $vehicle->vehicle_id,
                 'license_plate' => $vehicle->license_plate,
-                'first_registration_date' => $vehicle->first_registration_date,
-                'leasing_end_date' => $vehicle->leasing_end_date,
+                'first_registration_date' => self::asDateString($vehicle->first_registration_date),
+                'leasing_end_date' => self::asDateString($vehicle->leasing_end_date),
                 'leasinggeber' => $vehicle->leasinggeber ?? null,
                 'vin' => $vehicle->vin,
                 'make' => $vehicle->make,
@@ -553,12 +1034,122 @@ class VehicleService
                 'vehicle_belongs' => $vehicle->vehicle_belongs,
                 'created_at' => $vehicle->created_at,
                 'updated_at' => $vehicle->updated_at,
+                'current_order' => $currentOrder,
+                'order_history' => $orderHistory,
+                /*
+                 * Every order, full-fidelity, still travels: the panel's
+                 * payment banners scan all of them (a cancellation fee is
+                 * owed on an order that has already closed) and the document
+                 * lists are vehicle-wide. What no longer travels through it
+                 * is the answer to "which one is current".
+                 */
                 'orders' => $ordersArr,
                 'documents' => $documents,
             ];
         }
 
         return $result;
+    }
+
+    /**
+     * A vehicle date as the plain `Y-m-d` the edit form's date field reads.
+     *
+     * These rows come straight off the query builder, so the value is whatever
+     * the column holds: rows written before the `date:Y-m-d` cast still carry
+     * "2026-03-13 00:00:00", which the field rendered as "13 00:00:00.03.2026".
+     */
+    /**
+     * Whether this B2C order still needs a payment method, and what is on file.
+     *
+     * `requires_setup` is deliberately not "the mandate is unusable": it is
+     * also false for anyone who could not act on it anyway — Admin, who is
+     * refused by OrderPolicy::pay because storing a card on a customer's
+     * behalf would record a consent that never happened — so an Admin viewing
+     * a customer's vehicle never sees a prompt aimed at the customer.
+     *
+     * @param  object|null  $mandate  Absent for an order that never reached the payment step.
+     * @param  object|null  $repairPayment  Absent until the order reaches `delivered`.
+     * @param  object|null  $cancellationFee  Absent unless the customer cancelled the order themselves.
+     * @return array{requires_setup: bool, status: string, card: ?array{brand: ?string, last4: ?string, exp_month: ?int, exp_year: ?int}, repair_stage: string, repair: ?array{status: string, amount_cents: int, currency: string, paid_at: ?string, blocks_pickup: bool, payable: bool}, cancellation_fee: ?array{status: string, amount_cents: int, currency: string, paid_at: ?string, payable: bool}}
+     */
+    private function orderPaymentState(object $order, ?object $mandate, ?object $repairPayment, ?object $cancellationFee, bool $hasAcceptedOffer, ?User $viewer): array
+    {
+        $cancellation = CancellationPreview::describe($hasAcceptedOffer, $order->request_payload);
+
+        $usable = $mandate !== null
+            && $mandate->status === OrderPaymentMethod::STATUS_SAVED
+            && $mandate->verified_at !== null
+            && $mandate->offsession_authorized_at !== null
+            && ! empty($mandate->payment_method_id);
+
+        $orderIsOpen = ! in_array($order->order_status, OrderStatus::closedValues(), true);
+        $viewerMayAct = $viewer !== null && ! $viewer->isAdmin();
+
+        return [
+            'requires_setup' => $viewerMayAct && $orderIsOpen && ! $usable,
+            'status' => $mandate->status ?? OrderPaymentMethod::STATUS_AWAITING_METHOD,
+            'card' => $usable ? [
+                'brand' => $mandate->pm_brand,
+                'last4' => $mandate->pm_last4,
+                'exp_month' => $mandate->pm_exp_month === null ? null : (int) $mandate->pm_exp_month,
+                'exp_year' => $mandate->pm_exp_year === null ? null : (int) $mandate->pm_exp_year,
+            ] : null,
+            // Derived, never stored: `delivered` is reached before the money
+            // arrives because reaching it triggers the charge, so the status
+            // alone cannot say whether the car may be collected.
+            // The whole `payment` block is emitted for B2C orders only, so the
+            // channel is already settled by the time this runs.
+            'repair_stage' => RepairPaymentPresentation::stageFor($order->order_status, $repairPayment?->status),
+            // Whether cancelling right now would cost the customer the fee, so
+            // the confirmation copy warns only where the trigger applies.
+            'cancellation' => $cancellation,
+            'repair' => $repairPayment === null ? null : [
+                'status' => $repairPayment->status,
+                'amount_cents' => (int) $repairPayment->amount_cents,
+                'currency' => $repairPayment->currency,
+                'paid_at' => $repairPayment->paid_at,
+                'blocks_pickup' => ! (PaymentStatus::tryFrom($repairPayment->status)?->satisfiesReleaseGate() ?? false),
+                // Whether *this viewer* can settle it now. Viewer-gated for
+                // the same reason `requires_setup` is: Admin is refused by
+                // OrderPolicy::pay, and must never be shown a pay button that
+                // would have them authenticate a customer's card.
+                'payment_url' => $repairPayment->stripe_payment_link_url,
+                // A repair is collected through the Stripe payment link now, and
+                // a link that exists on an unsettled charge is exactly "this
+                // viewer can pay it" — the off-session states stay listed because
+                // a cancellation fee and an older order still reach them.
+                'payable' => $viewerMayAct
+                    && (int) $repairPayment->amount_cents > 0
+                    && ((PaymentStatus::tryFrom($repairPayment->status)?->needsCustomerAction() ?? false)
+                        || ($repairPayment->stripe_payment_link_url !== null
+                            && ! (PaymentStatus::tryFrom($repairPayment->status)?->satisfiesReleaseGate() ?? false))),
+            ],
+            // Deliberately alongside `repair`, never merged into it: an order
+            // can owe both, and one settling says nothing about the other.
+            // It carries no `blocks_pickup` because it blocks nothing — the
+            // order it belongs to is already terminal.
+            'cancellation_fee' => $cancellationFee === null ? null : [
+                'status' => $cancellationFee->status,
+                'trigger_label' => FeeReason::tryFrom((string) $cancellationFee->trigger_reason)?->label(),
+                'amount_cents' => (int) $cancellationFee->amount_cents,
+                'currency' => $cancellationFee->currency,
+                'paid_at' => $cancellationFee->paid_at,
+                'payable' => $viewerMayAct
+                    && (int) $cancellationFee->amount_cents > 0
+                    && (PaymentStatus::tryFrom($cancellationFee->status)?->needsCustomerAction() ?? false),
+            ],
+        ];
+    }
+
+    public static function asDateString(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        return $value instanceof \DateTimeInterface
+            ? $value->format('Y-m-d')
+            : substr((string) $value, 0, 10);
     }
 
     /**
@@ -596,10 +1187,14 @@ class VehicleService
             $query->where('v.created_by_user_id', (int) $createdBy);
         }
 
-        $search = trim((string) ($filters['search'] ?? ''));
+        // Each whitespace-separated word has to match one of the searchable
+        // columns, but not necessarily the same one — that is what makes
+        // "BMW X5" (make + model) or "K LB 1 BMW" (plate + make) find the row
+        // a single-column LIKE over the whole phrase never could.
+        $words = array_slice(preg_split('/\s+/', trim((string) ($filters['search'] ?? '')), -1, PREG_SPLIT_NO_EMPTY) ?: [], 0, self::VEHICLE_SEARCH_MAX_WORDS);
 
-        if ($search !== '') {
-            $term = '%'.addcslashes($search, '%_\\').'%';
+        foreach ($words as $word) {
+            $term = '%'.addcslashes($word, '%_\\').'%';
 
             $query->where(function (Builder $scoped) use ($term) {
                 foreach (self::VEHICLE_SEARCH_COLUMNS as $column) {

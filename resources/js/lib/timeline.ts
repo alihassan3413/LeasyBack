@@ -3,15 +3,38 @@ import { getOrderStatusLabel } from '@/lib/vehicleStatus';
 
 const CORE_PATH = ['confirmed', 'inspected', 'workshop', 'delivered', 'completed'] as const;
 
+/**
+ * The B2B return process (TransitionOrderStatus::B2B_ALLOWED_TRANSITIONS). A
+ * B2B order is never `delivered` — the B2C "Abholbereit" rung has no place in
+ * it — so it gets its own path rather than the B2C one.
+ */
+const B2B_PATH = [
+    'confirmed',
+    'vehicle_collected',
+    'inspected',
+    'workshop_commissioned',
+    'workshop',
+    'repair_completed',
+    'reinspection',
+    'vehicle_returned',
+    'invoice_processed',
+    'completed',
+] as const;
+
 const STATUS_CORE_INDEX: Record<string, number> = {
     order_requested: -1,
     order_placed: -1,
     confirmed: 0,
+    vehicle_collected: 0,
     inspected: 1,
+    workshop_commissioned: 1,
     workshop: 2,
+    repair_completed: 2,
     reinspection: 2,
     reworkshop: 2,
     delivered: 3,
+    vehicle_returned: 3,
+    invoice_processed: 3,
     completed: 4,
 };
 
@@ -22,11 +45,20 @@ export interface UpcomingStep {
     label: string;
 }
 
-export function getUpcomingSteps(currentStatus?: string | null): UpcomingStep[] {
+export function getUpcomingSteps(currentStatus?: string | null, channel?: 'B2B' | 'B2C' | null): UpcomingStep[] {
     const status = (currentStatus ?? '').trim();
 
     if (!status || TERMINAL_STATUSES.has(status)) {
         return [];
+    }
+
+    if (channel === 'B2B') {
+        const position = (B2B_PATH as readonly string[]).indexOf(status);
+
+        return B2B_PATH.slice(position + 1).map((b2bStatus) => ({
+            status: b2bStatus,
+            label: getOrderStatusLabel(b2bStatus),
+        }));
     }
 
     const index = STATUS_CORE_INDEX[status] ?? -1;
@@ -53,6 +85,12 @@ export interface OrderTimelineEntry {
     invoiceUrl?: string;
     showPaymentAction?: boolean;
     tooltipDescription?: string;
+    /**
+     * Not merely "not reached yet" but "held": collection is waiting on a
+     * repair payment, not on anything LeasyBack or the workshop still has to
+     * do. Rendered with a lock so it does not read as an ordinary next step.
+     */
+    isLocked?: boolean;
 }
 
 /**
@@ -62,8 +100,16 @@ export interface OrderTimelineEntry {
  * than in a page so the Admin order detail page and the customer dashboard's
  * VehicleExpandedPanel.vue show the same timeline from the same code.
  */
-export function toOrderTimelineEntries(steps: CustomerOrderFlowStep[] | null, fallbackStatus?: string | null): OrderTimelineEntry[] {
+export function toOrderTimelineEntries(
+    steps: CustomerOrderFlowStep[] | null,
+    fallbackStatus?: string | null,
+    channel?: 'B2B' | 'B2C' | null,
+): OrderTimelineEntry[] {
     if (steps) {
+        // The payment rung being the current one is exactly the situation in
+        // which collection is held rather than merely pending.
+        const heldByPayment = steps.some((step) => step.stage === 'awaiting_payment' && step.isCurrent);
+
         return steps.map((step) => ({
             datetime: step.datetime ? formatGermanDateTime(step.datetime) : '',
             label: step.label,
@@ -79,10 +125,11 @@ export function toOrderTimelineEntries(steps: CustomerOrderFlowStep[] | null, fa
             docUrl: step.reportDocUrl,
             invoiceUrl: step.invoiceDocUrl,
             showPaymentAction: step.showPaymentAction,
+            isLocked: heldByPayment && step.stage === 'vehicle_ready',
         }));
     }
 
-    return getUpcomingSteps(fallbackStatus).map((step, index) => ({
+    return getUpcomingSteps(fallbackStatus, channel).map((step, index) => ({
         datetime: '',
         label: step.label,
         completed: false,

@@ -14,11 +14,24 @@ Route::delete('impersonate', [ImpersonationController::class, 'destroy'])
 
 require __DIR__.'/vehicles.php';
 require __DIR__.'/orders.php';
+require __DIR__.'/payments.php';
 require __DIR__.'/onboarding.php';
 require __DIR__.'/b2b.php';
+require __DIR__.'/workshop.php';
 require __DIR__.'/admin.php';
 require __DIR__.'/notifications.php';
 require __DIR__.'/settings.php';
 require __DIR__.'/auth.php';
+require __DIR__.'/partner_docs.php';
+
+if (app()->environment('local')) {
+    require __DIR__.'/dev.php';
+}
+
+if (app()->environment('local')) {
+    Route::get('/test-error/{code}', function (int $code) {
+        abort($code);
+    })->whereNumber('code');
+}
 
 load_module_routes();

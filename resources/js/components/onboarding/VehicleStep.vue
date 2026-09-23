@@ -4,6 +4,7 @@ import CalendarDateField from '@/components/form/CalendarDateField.vue';
 import FormField from '@/components/form/FormField.vue';
 import LicensePlateInput from '@/components/form/LicensePlateInput.vue';
 import SearchableSelectField from '@/components/form/SearchableSelectField.vue';
+import VinInput from '@/components/form/VinInput.vue';
 import OnboardingCard from '@/components/onboarding/OnboardingCard.vue';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -41,15 +42,6 @@ const fieldClass = 'text-sm';
 const leasingEndUnknown = ref(false);
 const leasinggeberUnknown = ref(false);
 
-const VIN_MAX_LENGTH = 17;
-
-function sanitizeVin(value: string | number): string {
-    return String(value)
-        .toUpperCase()
-        .replace(/[^A-Z0-9]/g, '')
-        .slice(0, VIN_MAX_LENGTH);
-}
-
 const form = useForm({
     license_plate: '',
     leasing_end_date: '',
@@ -70,8 +62,11 @@ watch(
         form.vin = vehicle?.vin ?? '';
         form.make = vehicle?.make ?? '';
         form.model = vehicle?.model ?? '';
-        leasingEndUnknown.value = false;
-        leasinggeberUnknown.value = false;
+        // A saved vehicle without these values is one the user already declared
+        // unknown; re-ticking the boxes keeps that answer across a wizard step
+        // rather than presenting an empty field as if nothing had been said.
+        leasingEndUnknown.value = !!vehicle && form.leasing_end_date === '';
+        leasinggeberUnknown.value = !!vehicle && form.leasinggeber === '';
     },
     { immediate: true, deep: true },
 );
@@ -98,6 +93,7 @@ function submit() {
         ...data,
         leasing_end_date: leasingEndUnknown.value ? null : data.leasing_end_date || null,
         leasinggeber: leasinggeberUnknown.value ? null : data.leasinggeber || null,
+        leasinggeber_unknown: leasinggeberUnknown.value,
         vin: data.vin || null,
         model: data.model || null,
     }));
@@ -120,20 +116,9 @@ function submit() {
             <div class="grid grid-cols-1 gap-x-6 gap-y-3 md:grid-cols-2">
                 <LicensePlateInput v-model="form.license_plate" :disabled="isEditMode" :server-error="form.errors.license_plate" />
 
-                <FormField v-slot="{ id, describedBy, invalid }" label="FIN" label-hint="* (siehe Fahrzeugschein – Feld E)" :error="form.errors.vin">
-                    <Input
-                        :id="id"
-                        :model-value="form.vin"
-                        maxlength="17"
-                        placeholder="FIN eingeben"
-                        :class="[fieldClass, 'uppercase']"
-                        :aria-invalid="invalid"
-                        :aria-describedby="describedBy"
-                        @update:model-value="(value) => (form.vin = sanitizeVin(value))"
-                    />
-                </FormField>
+                <VinInput v-model="form.vin" :input-class="fieldClass" :error="form.errors.vin" />
 
-                <FormField v-slot="{ id, describedBy, invalid }" label="Marke" :error="form.errors.make">
+                <FormField v-slot="{ id, describedBy, invalid }" label="Marke" required :error="form.errors.make">
                     <SearchableSelectField
                         :id="id"
                         v-model="form.make"
@@ -151,6 +136,7 @@ function submit() {
                         :id="id"
                         v-model="form.model"
                         placeholder="Modell eingeben"
+                        autocomplete="off"
                         :class="fieldClass"
                         :aria-invalid="invalid"
                         :aria-describedby="describedBy"
@@ -177,11 +163,12 @@ function submit() {
                 </div>
 
                 <div>
-                    <FormField v-slot="{ id, describedBy, invalid }" label="Leasinggeber" label-hint="*" :error="form.errors.leasinggeber">
+                    <FormField v-slot="{ id, describedBy, invalid }" label="Leasinggeber" required :error="form.errors.leasinggeber">
                         <Input
                             :id="id"
                             v-model="form.leasinggeber"
                             placeholder="Leasinggeber eingeben"
+                            autocomplete="off"
                             :disabled="leasinggeberUnknown"
                             :class="fieldClass"
                             :aria-invalid="invalid"

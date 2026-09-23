@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import CompanySwitcher from '@/components/b2b/CompanySwitcher.vue';
+import { useB2bPermissions } from '@/composables/useB2bPermissions';
+import { useSessionGuard } from '@/composables/useSessionGuard';
 import type { SharedData, User } from '@/types';
 import type { UserType } from '@/types/auth';
 import type { B2bPermissionValue } from '@/types/b2b';
-import { useB2bPermissions } from '@/composables/useB2bPermissions';
-import { useSessionGuard } from '@/composables/useSessionGuard';
 import { router, usePage } from '@inertiajs/vue3';
 import { computed, ref, type Component } from 'vue';
 import MdiAccountGroupOutline from '~icons/mdi/account-group-outline';
 import MdiAccountOutline from '~icons/mdi/account-outline';
-import MdiDomain from '~icons/mdi/domain';
+import MdiCarOutline from '~icons/mdi/car-outline';
+import MdiChartBoxOutline from '~icons/mdi/chart-box-outline';
+import MdiFileDocumentOutline from '~icons/mdi/file-document-outline';
 import MdiViewDashboardOutline from '~icons/mdi/view-dashboard-outline';
 
 const collapsed = ref(false);
@@ -32,10 +34,12 @@ const navByRole: Record<UserType, NavItem[]> = {
     ],
     Firmenkunde: [
         { label: 'Mein Dashboard', icon: MdiViewDashboardOutline, name: 'dashboard', permission: 'vehicles.view' },
-        // Doubles as the edit view once registered, so a company that used
-        // "Jetzt überspringen" during onboarding can still complete its data.
-        { label: 'Firmendaten', icon: MdiDomain, name: 'onboarding.b2b.show', permission: 'company.view' },
+        { label: 'Fahrzeuge', icon: MdiCarOutline, name: 'vehicles.index', permission: 'vehicles.view' },
+        { label: 'Aufträge', icon: MdiFileDocumentOutline, name: 'orders.index', permission: 'vehicles.view' },
         { label: 'Team', icon: MdiAccountGroupOutline, name: 'b2b.members.index', permission: 'members.view' },
+        { label: 'Statistik', icon: MdiChartBoxOutline, name: 'b2b.statistics.index', permission: 'analytics.view' },
+        // The company's own data is a section of this page — a company that
+        // used "Jetzt überspringen" during onboarding completes it here.
         { label: 'Mein Konto', icon: MdiAccountOutline, name: 'profile.edit' },
     ],
     Werksatatt: [{ label: 'Mein Konto', icon: MdiAccountOutline, name: 'profile.edit' }],
@@ -52,13 +56,26 @@ const roleLabels: Record<UserType, string> = {
     Admin: 'Administrator',
 };
 
-const { can, isCompanyUser } = useB2bPermissions();
+const { can, canSwitchCompany, isCompanyUser } = useB2bPermissions();
+
+/**
+ * The role the navigation is built for — the *effective* one, not the raw
+ * `user_type` column.
+ *
+ * A Privatkunde who accepted a company invitation keeps `user_type =
+ * Privatkunde` and gains a membership, so while they act as that company the
+ * column still says "private". Keying the nav off it gave them the two-entry
+ * B2C menu with no route to Fahrzeuge, Aufträge or Team — the company they
+ * were looking at was unreachable from its own navigation. Mirrors
+ * B2bContext::effectiveUserType() on the server.
+ */
+const navRole = computed<UserType | undefined>(() => (isCompanyUser.value ? 'Firmenkunde' : user.value?.user_type));
 
 // A member never sees a nav entry for a page the server would refuse them.
 // `can()` returns true for non-Firmenkunde accounts, so nothing changes for
 // Privatkunde/Werkstatt/Admin.
 const navItems = computed<NavItem[]>(() => {
-    const role = user.value?.user_type;
+    const role = navRole.value;
 
     if (!role) {
         return [];
@@ -68,7 +85,7 @@ const navItems = computed<NavItem[]>(() => {
 });
 
 const roleLabel = computed(() => {
-    const role = user.value?.user_type;
+    const role = navRole.value;
     return role ? roleLabels[role] : '';
 });
 
@@ -134,8 +151,13 @@ function handleLogout() {
             </svg>
         </button>
 
-        <!-- Only rendered for users who belong to more than one company. -->
-        <div v-if="isCompanyUser" class="mb-3 shrink-0">
+        <!--
+            Gated on canSwitchCompany, not on "is in a company": the private
+            area is one of the contexts you switch between, so keying this on
+            an active membership hid the control exactly when someone was in
+            their private area — stranding them there with no way back.
+        -->
+        <div v-if="canSwitchCompany" class="mb-3 shrink-0">
             <CompanySwitcher :collapsed="collapsed" />
         </div>
 

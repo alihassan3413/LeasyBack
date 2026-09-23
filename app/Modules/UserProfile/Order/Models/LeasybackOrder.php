@@ -2,6 +2,7 @@
 
 namespace App\Modules\UserProfile\Order\Models;
 
+use App\Enums\OrderStatus;
 use App\Models\User;
 use App\Modules\UserProfile\Offer\Models\LeasybackOffer;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle;
@@ -63,6 +64,37 @@ class LeasybackOrder extends Model
             if (empty($model->created_at)) {
                 $model->created_at = now();
             }
+        });
+
+        /*
+         * The application half of the "one active order per vehicle" unique
+         * index (see the 2026_08_19 migration). The index itself is a plain
+         * unique on `active_vehicle_id` and knows nothing about statuses; this
+         * is the predicate that decides whether a row claims its vehicle's
+         * slot, kept next to OrderStatus so a new status cannot leave the two
+         * disagreeing.
+         *
+         * It lives on the model rather than at the call sites because
+         * `order_status` has exactly two writers, both of them Eloquent —
+         * creation in OrderService, and TransitionOrderStatus's locked update,
+         * which its own docblock establishes as the single place the column
+         * may change — so one hook covers every writer, including ones not
+         * written yet.
+         *
+         * The one way to defeat it is a query-builder mass update
+         * (`LeasybackOrder::query()->update([...])`), which fires no model
+         * events. Nothing in the application does that, and it would already
+         * be bypassing the transition guard; anything closing orders in bulk
+         * must iterate the models, as PartnerOrderEndpointTest::closeAllOrders()
+         * does.
+         *
+         * `active_vehicle_id` is intentionally absent from $fillable: it is
+         * derived here, never supplied by a caller.
+         */
+        static::saving(function (self $model) {
+            $model->active_vehicle_id = in_array($model->order_status, OrderStatus::closedValues(), true)
+                ? null
+                : $model->vehicle_id;
         });
     }
 

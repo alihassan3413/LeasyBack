@@ -3,7 +3,7 @@
 namespace Tests\Feature\Offer;
 
 use App\Enums\UserType;
-use App\Mail\StatusChangeNotification;
+use App\Mail\Orders\RepairQuotationAvailableMail;
 use App\Models\User;
 use App\Modules\UserProfile\Offer\Models\LeasybackOffer;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
@@ -69,7 +69,7 @@ class OfferAuditAndNotificationTest extends TestCase
             'action' => 'published',
         ]);
 
-        Mail::assertQueued(StatusChangeNotification::class, fn ($mail) => $mail->hasTo('owner@example.com'));
+        Mail::assertQueued(RepairQuotationAvailableMail::class, fn ($mail) => $mail->hasTo('owner@example.com'));
     }
 
     public function test_cancelling_an_offer_writes_a_cancelled_audit_entry(): void

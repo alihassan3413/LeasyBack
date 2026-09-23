@@ -1,3 +1,5 @@
+import type { B2bCompanyData } from '@/types/b2b';
+
 export interface AddressData {
     address_id: string;
     street: string;
@@ -29,6 +31,19 @@ export interface PreferencesData {
     sprache: string;
     benachrichtigungseinstellungen_push: boolean;
     benachrichtigungseinstellungen_email: boolean;
+}
+
+/**
+ * The company half of "Mein Konto". Null for every account type that has no
+ * company at all, which is what makes the page fall back to the personal
+ * profile cards. Matches Settings\ProfileController::companyState().
+ */
+export interface AccountCompanyState {
+    /** Null when no company exists yet, or the member may not view it. */
+    data: B2bCompanyData | null;
+    can_manage: boolean;
+    /** True only when the user belongs to no company and may register one. */
+    can_register: boolean;
 }
 
 /** Matches ProfileService::findForUser()'s response shape. */

@@ -7,23 +7,36 @@
 export {}
 declare global {
   const ADMIN_ORDER_STATUS_FILTERS: typeof import('../lib/adminStatus').ADMIN_ORDER_STATUS_FILTERS
+  const AVAILABILITY_LABELS: typeof import('../lib/services').AVAILABILITY_LABELS
+  const B2B_ORDER_STAGE_SEQUENCE: typeof import('../lib/customerOrderFlow').B2B_ORDER_STAGE_SEQUENCE
+  const BOOKABLE_SERVICE: typeof import('../lib/services').BOOKABLE_SERVICE
   const CUSTOMER_ORDER_STAGE_SEQUENCE: typeof import('../lib/customerOrderFlow').CUSTOMER_ORDER_STAGE_SEQUENCE
-  const CUSTOMER_PAYMENT_FEATURE_ENABLED: typeof import('../lib/customerOrderFlow').CUSTOMER_PAYMENT_FEATURE_ENABLED
   const DOCUMENT_TYPE_LABELS: typeof import('../lib/documentTypes').DOCUMENT_TYPE_LABELS
   const EffectScope: typeof import('vue').EffectScope
   const Head: typeof import('@inertiajs/vue3').Head
+  const HttpError: typeof import('../lib/http').HttpError
   const INVOICE_DOCUMENT_TYPE: typeof import('../lib/documentTypes').INVOICE_DOCUMENT_TYPE
   const Link: typeof import('@inertiajs/vue3').Link
+  const NEW_ORDER_ACTION_LABEL: typeof import('../lib/customerOrderFlow').NEW_ORDER_ACTION_LABEL
   const ONBOARDING_VIDEO_POSTER_URL: typeof import('../lib/onboarding').ONBOARDING_VIDEO_POSTER_URL
   const ONBOARDING_VIDEO_URL: typeof import('../lib/onboarding').ONBOARDING_VIDEO_URL
+  const ORDER_OUTCOME_LABELS: typeof import('../lib/orderHistory').ORDER_OUTCOME_LABELS
+  const ORDER_OUTCOME_PILL: typeof import('../lib/orderHistory').ORDER_OUTCOME_PILL
+  const ORDER_STATUS_LABELS: typeof import('../lib/vehicleStatus').ORDER_STATUS_LABELS
   const PLATE_MAX_TOTAL: typeof import('../lib/licensePlate').PLATE_MAX_TOTAL
   const PLATE_MESSAGES: typeof import('../lib/licensePlate').PLATE_MESSAGES
+  const PORTAL_LOCALE: typeof import('../lib/portalDate').PORTAL_LOCALE
+  const PORTAL_TIME_ZONE: typeof import('../lib/portalDate').PORTAL_TIME_ZONE
   const REPORT_DOCUMENT_TYPES: typeof import('../lib/documentTypes').REPORT_DOCUMENT_TYPES
+  const SERVICES: typeof import('../lib/services').SERVICES
+  const TASK_PRIORITY_STYLE: typeof import('../lib/adminTaskPriority').TASK_PRIORITY_STYLE
   const VEHICLE_BRANDS: typeof import('../lib/vehicleBrands').VEHICLE_BRANDS
   const VEHICLE_BRAND_OPTIONS: typeof import('../lib/vehicleBrands').VEHICLE_BRAND_OPTIONS
   const VEHICLE_STATUS_FILTER_OPTIONS: typeof import('../lib/vehicleStatus').VEHICLE_STATUS_FILTER_OPTIONS
-  const canStartNewOrder: typeof import('../lib/customerOrderFlow').canStartNewOrder
+  const VIN_LENGTH: typeof import('../lib/vin').VIN_LENGTH
+  const cancellationFeeSettled: typeof import('../lib/customerOrderFlow').cancellationFeeSettled
   const cn: typeof import('../lib/utils').cn
+  const companyFormData: typeof import('../lib/company').companyFormData
   const computed: typeof import('vue').computed
   const createApp: typeof import('vue').createApp
   const customRef: typeof import('vue').customRef
@@ -32,6 +45,9 @@ declare global {
   const defineStore: typeof import('pinia').defineStore
   const effectScope: typeof import('vue').effectScope
   const formatGermanDateTime: typeof import('../lib/customerOrderFlow').formatGermanDateTime
+  const formatPortalDate: typeof import('../lib/portalDate').formatPortalDate
+  const formatPortalDateTime: typeof import('../lib/portalDate').formatPortalDateTime
+  const formatPortalDateTimeShort: typeof import('../lib/portalDate').formatPortalDateTimeShort
   const getAdminDashboardStatus: typeof import('../lib/adminStatus').getAdminDashboardStatus
   const getCurrentInstance: typeof import('vue').getCurrentInstance
   const getCurrentScope: typeof import('vue').getCurrentScope
@@ -48,6 +64,8 @@ declare global {
   const http: typeof import('../lib/http').http
   const initializeTheme: typeof import('../composables/useAppearance').initializeTheme
   const inject: typeof import('vue').inject
+  const isClosedOrderStatus: typeof import('../lib/orderHistory').isClosedOrderStatus
+  const isCustomerCancellable: typeof import('../lib/vehicleStatus').isCustomerCancellable
   const isGoogleMapsConfigured: typeof import('../composables/useGoogleMapsLoader').isGoogleMapsConfigured
   const isProxy: typeof import('vue').isProxy
   const isReactive: typeof import('vue').isReactive
@@ -60,6 +78,7 @@ declare global {
   const labelForDocumentType: typeof import('../lib/documentTypes').labelForDocumentType
   const loadGoogleMaps: typeof import('../composables/useGoogleMapsLoader').loadGoogleMaps
   const markRaw: typeof import('vue').markRaw
+  const newOrderAction: typeof import('../lib/customerOrderFlow').newOrderAction
   const nextTick: typeof import('vue').nextTick
   const normalizePlate: typeof import('../lib/licensePlate').normalizePlate
   const onActivated: typeof import('vue').onActivated
@@ -77,19 +96,30 @@ declare global {
   const onUpdated: typeof import('vue').onUpdated
   const onWatcherCleanup: typeof import('vue').onWatcherCleanup
   const onboardingStorageKey: typeof import('../composables/useOnboarding').onboardingStorageKey
+  const orderHistoryDateLabel: typeof import('../lib/orderHistory').orderHistoryDateLabel
+  const parsePortalDate: typeof import('../lib/portalDate').parsePortalDate
   const platePartsLength: typeof import('../lib/licensePlate').platePartsLength
+  const processStopped: typeof import('../lib/customerOrderFlow').processStopped
   const provide: typeof import('vue').provide
   const providerDisplayLabel: typeof import('../lib/timeline').providerDisplayLabel
   const reactive: typeof import('vue').reactive
   const readonly: typeof import('vue').readonly
   const ref: typeof import('vue').ref
+  const repairPaymentBlocksPickup: typeof import('../lib/customerOrderFlow').repairPaymentBlocksPickup
+  const repairPaymentStage: typeof import('../lib/customerOrderFlow').repairPaymentStage
+  const repairPaymentStageLabel: typeof import('../lib/customerOrderFlow').repairPaymentStageLabel
   const resolveComponent: typeof import('vue').resolveComponent
+  const resolveErrorCopy: typeof import('../lib/errorPages').resolveErrorCopy
   const router: typeof import('@inertiajs/vue3').router
   const sanitizePlateNumber: typeof import('../lib/licensePlate').sanitizePlateNumber
+  const sanitizeVin: typeof import('../lib/vin').sanitizeVin
   const shallowReactive: typeof import('vue').shallowReactive
   const shallowReadonly: typeof import('vue').shallowReadonly
   const shallowRef: typeof import('vue').shallowRef
+  const splitOrderHistory: typeof import('../lib/orderHistory').splitOrderHistory
   const storeToRefs: typeof import('pinia').storeToRefs
+  const summariseOrder: typeof import('../lib/orderHistory').summariseOrder
+  const taskPriorityStyle: typeof import('../lib/adminTaskPriority').taskPriorityStyle
   const timelineDotStyle: typeof import('../lib/timeline').timelineDotStyle
   const timelineLineStyle: typeof import('../lib/timeline').timelineLineStyle
   const toOrderTimelineEntries: typeof import('../lib/timeline').toOrderTimelineEntries
@@ -107,6 +137,7 @@ declare global {
   const useAttrs: typeof import('vue').useAttrs
   const useB2bPermissions: typeof import('../composables/useB2bPermissions').useB2bPermissions
   const useClipboard: typeof import('@vueuse/core').useClipboard
+  const useCompanyCard: typeof import('../composables/useCompanyCard').useCompanyCard
   const useCssModule: typeof import('vue').useCssModule
   const useCssVars: typeof import('vue').useCssVars
   const useDark: typeof import('@vueuse/core').useDark
@@ -116,11 +147,13 @@ declare global {
   const useGooglePlaces: typeof import('../composables/useGooglePlaces').useGooglePlaces
   const useId: typeof import('vue').useId
   const useInitials: typeof import('../composables/useInitials').useInitials
+  const useLiveUpdates: typeof import('../composables/useLiveUpdates').useLiveUpdates
   const useLocalStorage: typeof import('@vueuse/core').useLocalStorage
   const useModel: typeof import('vue').useModel
   const useNotificationSound: typeof import('../composables/useNotificationSound').useNotificationSound
   const useNotifications: typeof import('../composables/useNotifications').useNotifications
   const useOnboarding: typeof import('../composables/useOnboarding').useOnboarding
+  const useOrderMessages: typeof import('../composables/useOrderMessages').useOrderMessages
   const usePage: typeof import('@inertiajs/vue3').usePage
   const useRemember: typeof import('@inertiajs/vue3').useRemember
   const useSessionGuard: typeof import('../composables/useSessionGuard').useSessionGuard
@@ -133,6 +166,7 @@ declare global {
   const validatePlateLetters: typeof import('../lib/licensePlate').validatePlateLetters
   const validatePlateNumber: typeof import('../lib/licensePlate').validatePlateNumber
   const validatePlateParts: typeof import('../lib/licensePlate').validatePlateParts
+  const vehicleStatusFilterOptions: typeof import('../lib/vehicleStatus').vehicleStatusFilterOptions
   const watch: typeof import('vue').watch
   const watchEffect: typeof import('vue').watchEffect
   const watchPostEffect: typeof import('vue').watchPostEffect
@@ -159,11 +193,23 @@ declare global {
   export type { StatusPillStyle } from '../lib/adminStatus'
   import('../lib/adminStatus')
   // @ts-ignore
-  export type { CustomerOrderStage, CustomerOrderFlowStep, CustomerOrderStatusHistoryEntry, CustomerOrderBesichtigungsort, CustomerOrderReportDocument, CustomerOrderOffer, CustomerOrderFlowInput } from '../lib/customerOrderFlow'
+  export type { CustomerOrderStage, RepairPaymentStage, CustomerOrderCancellationFee, CustomerOrderRepairPayment, B2bOrderStage, CustomerOrderFlowStep, CustomerOrderStatusHistoryEntry, CustomerOrderBesichtigungsort, CustomerOrderReportDocument, CustomerOrderOffer, CustomerOrderFlowInput, CustomerOrderCollection, NewOrderAction } from '../lib/customerOrderFlow'
   import('../lib/customerOrderFlow')
+  // @ts-ignore
+  export type { ErrorIllustrationVariant, ErrorPageCopy } from '../lib/errorPages'
+  import('../lib/errorPages')
+  // @ts-ignore
+  export type { HttpError } from '../lib/http'
+  import('../lib/http')
   // @ts-ignore
   export type { OrderFlowStep } from '../lib/orderFlow'
   import('../lib/orderFlow')
+  // @ts-ignore
+  export type { PortalDateTimeStyle } from '../lib/portalDate'
+  import('../lib/portalDate')
+  // @ts-ignore
+  export type { ServiceAvailability, ServiceDefinition } from '../lib/services'
+  import('../lib/services')
   // @ts-ignore
   export type { UpcomingStep, OrderTimelineEntry } from '../lib/timeline'
   import('../lib/timeline')
@@ -178,23 +224,36 @@ declare module 'vue' {
   interface GlobalComponents {}
   interface ComponentCustomProperties {
     readonly ADMIN_ORDER_STATUS_FILTERS: UnwrapRef<typeof import('../lib/adminStatus')['ADMIN_ORDER_STATUS_FILTERS']>
+    readonly AVAILABILITY_LABELS: UnwrapRef<typeof import('../lib/services')['AVAILABILITY_LABELS']>
+    readonly B2B_ORDER_STAGE_SEQUENCE: UnwrapRef<typeof import('../lib/customerOrderFlow')['B2B_ORDER_STAGE_SEQUENCE']>
+    readonly BOOKABLE_SERVICE: UnwrapRef<typeof import('../lib/services')['BOOKABLE_SERVICE']>
     readonly CUSTOMER_ORDER_STAGE_SEQUENCE: UnwrapRef<typeof import('../lib/customerOrderFlow')['CUSTOMER_ORDER_STAGE_SEQUENCE']>
-    readonly CUSTOMER_PAYMENT_FEATURE_ENABLED: UnwrapRef<typeof import('../lib/customerOrderFlow')['CUSTOMER_PAYMENT_FEATURE_ENABLED']>
     readonly DOCUMENT_TYPE_LABELS: UnwrapRef<typeof import('../lib/documentTypes')['DOCUMENT_TYPE_LABELS']>
     readonly EffectScope: UnwrapRef<typeof import('vue')['EffectScope']>
     readonly Head: UnwrapRef<typeof import('@inertiajs/vue3')['Head']>
+    readonly HttpError: UnwrapRef<typeof import('../lib/http')['HttpError']>
     readonly INVOICE_DOCUMENT_TYPE: UnwrapRef<typeof import('../lib/documentTypes')['INVOICE_DOCUMENT_TYPE']>
     readonly Link: UnwrapRef<typeof import('@inertiajs/vue3')['Link']>
+    readonly NEW_ORDER_ACTION_LABEL: UnwrapRef<typeof import('../lib/customerOrderFlow')['NEW_ORDER_ACTION_LABEL']>
     readonly ONBOARDING_VIDEO_POSTER_URL: UnwrapRef<typeof import('../lib/onboarding')['ONBOARDING_VIDEO_POSTER_URL']>
     readonly ONBOARDING_VIDEO_URL: UnwrapRef<typeof import('../lib/onboarding')['ONBOARDING_VIDEO_URL']>
+    readonly ORDER_OUTCOME_LABELS: UnwrapRef<typeof import('../lib/orderHistory')['ORDER_OUTCOME_LABELS']>
+    readonly ORDER_OUTCOME_PILL: UnwrapRef<typeof import('../lib/orderHistory')['ORDER_OUTCOME_PILL']>
+    readonly ORDER_STATUS_LABELS: UnwrapRef<typeof import('../lib/vehicleStatus')['ORDER_STATUS_LABELS']>
     readonly PLATE_MAX_TOTAL: UnwrapRef<typeof import('../lib/licensePlate')['PLATE_MAX_TOTAL']>
     readonly PLATE_MESSAGES: UnwrapRef<typeof import('../lib/licensePlate')['PLATE_MESSAGES']>
+    readonly PORTAL_LOCALE: UnwrapRef<typeof import('../lib/portalDate')['PORTAL_LOCALE']>
+    readonly PORTAL_TIME_ZONE: UnwrapRef<typeof import('../lib/portalDate')['PORTAL_TIME_ZONE']>
     readonly REPORT_DOCUMENT_TYPES: UnwrapRef<typeof import('../lib/documentTypes')['REPORT_DOCUMENT_TYPES']>
+    readonly SERVICES: UnwrapRef<typeof import('../lib/services')['SERVICES']>
+    readonly TASK_PRIORITY_STYLE: UnwrapRef<typeof import('../lib/adminTaskPriority')['TASK_PRIORITY_STYLE']>
     readonly VEHICLE_BRANDS: UnwrapRef<typeof import('../lib/vehicleBrands')['VEHICLE_BRANDS']>
     readonly VEHICLE_BRAND_OPTIONS: UnwrapRef<typeof import('../lib/vehicleBrands')['VEHICLE_BRAND_OPTIONS']>
     readonly VEHICLE_STATUS_FILTER_OPTIONS: UnwrapRef<typeof import('../lib/vehicleStatus')['VEHICLE_STATUS_FILTER_OPTIONS']>
-    readonly canStartNewOrder: UnwrapRef<typeof import('../lib/customerOrderFlow')['canStartNewOrder']>
+    readonly VIN_LENGTH: UnwrapRef<typeof import('../lib/vin')['VIN_LENGTH']>
+    readonly cancellationFeeSettled: UnwrapRef<typeof import('../lib/customerOrderFlow')['cancellationFeeSettled']>
     readonly cn: UnwrapRef<typeof import('../lib/utils')['cn']>
+    readonly companyFormData: UnwrapRef<typeof import('../lib/company')['companyFormData']>
     readonly computed: UnwrapRef<typeof import('vue')['computed']>
     readonly createApp: UnwrapRef<typeof import('vue')['createApp']>
     readonly customRef: UnwrapRef<typeof import('vue')['customRef']>
@@ -203,6 +262,9 @@ declare module 'vue' {
     readonly defineStore: UnwrapRef<typeof import('pinia')['defineStore']>
     readonly effectScope: UnwrapRef<typeof import('vue')['effectScope']>
     readonly formatGermanDateTime: UnwrapRef<typeof import('../lib/customerOrderFlow')['formatGermanDateTime']>
+    readonly formatPortalDate: UnwrapRef<typeof import('../lib/portalDate')['formatPortalDate']>
+    readonly formatPortalDateTime: UnwrapRef<typeof import('../lib/portalDate')['formatPortalDateTime']>
+    readonly formatPortalDateTimeShort: UnwrapRef<typeof import('../lib/portalDate')['formatPortalDateTimeShort']>
     readonly getAdminDashboardStatus: UnwrapRef<typeof import('../lib/adminStatus')['getAdminDashboardStatus']>
     readonly getCurrentInstance: UnwrapRef<typeof import('vue')['getCurrentInstance']>
     readonly getCurrentScope: UnwrapRef<typeof import('vue')['getCurrentScope']>
@@ -219,6 +281,8 @@ declare module 'vue' {
     readonly http: UnwrapRef<typeof import('../lib/http')['http']>
     readonly initializeTheme: UnwrapRef<typeof import('../composables/useAppearance')['initializeTheme']>
     readonly inject: UnwrapRef<typeof import('vue')['inject']>
+    readonly isClosedOrderStatus: UnwrapRef<typeof import('../lib/orderHistory')['isClosedOrderStatus']>
+    readonly isCustomerCancellable: UnwrapRef<typeof import('../lib/vehicleStatus')['isCustomerCancellable']>
     readonly isGoogleMapsConfigured: UnwrapRef<typeof import('../composables/useGoogleMapsLoader')['isGoogleMapsConfigured']>
     readonly isProxy: UnwrapRef<typeof import('vue')['isProxy']>
     readonly isReactive: UnwrapRef<typeof import('vue')['isReactive']>
@@ -231,6 +295,7 @@ declare module 'vue' {
     readonly labelForDocumentType: UnwrapRef<typeof import('../lib/documentTypes')['labelForDocumentType']>
     readonly loadGoogleMaps: UnwrapRef<typeof import('../composables/useGoogleMapsLoader')['loadGoogleMaps']>
     readonly markRaw: UnwrapRef<typeof import('vue')['markRaw']>
+    readonly newOrderAction: UnwrapRef<typeof import('../lib/customerOrderFlow')['newOrderAction']>
     readonly nextTick: UnwrapRef<typeof import('vue')['nextTick']>
     readonly normalizePlate: UnwrapRef<typeof import('../lib/licensePlate')['normalizePlate']>
     readonly onActivated: UnwrapRef<typeof import('vue')['onActivated']>
@@ -248,19 +313,30 @@ declare module 'vue' {
     readonly onUpdated: UnwrapRef<typeof import('vue')['onUpdated']>
     readonly onWatcherCleanup: UnwrapRef<typeof import('vue')['onWatcherCleanup']>
     readonly onboardingStorageKey: UnwrapRef<typeof import('../composables/useOnboarding')['onboardingStorageKey']>
+    readonly orderHistoryDateLabel: UnwrapRef<typeof import('../lib/orderHistory')['orderHistoryDateLabel']>
+    readonly parsePortalDate: UnwrapRef<typeof import('../lib/portalDate')['parsePortalDate']>
     readonly platePartsLength: UnwrapRef<typeof import('../lib/licensePlate')['platePartsLength']>
+    readonly processStopped: UnwrapRef<typeof import('../lib/customerOrderFlow')['processStopped']>
     readonly provide: UnwrapRef<typeof import('vue')['provide']>
     readonly providerDisplayLabel: UnwrapRef<typeof import('../lib/timeline')['providerDisplayLabel']>
     readonly reactive: UnwrapRef<typeof import('vue')['reactive']>
     readonly readonly: UnwrapRef<typeof import('vue')['readonly']>
     readonly ref: UnwrapRef<typeof import('vue')['ref']>
+    readonly repairPaymentBlocksPickup: UnwrapRef<typeof import('../lib/customerOrderFlow')['repairPaymentBlocksPickup']>
+    readonly repairPaymentStage: UnwrapRef<typeof import('../lib/customerOrderFlow')['repairPaymentStage']>
+    readonly repairPaymentStageLabel: UnwrapRef<typeof import('../lib/customerOrderFlow')['repairPaymentStageLabel']>
     readonly resolveComponent: UnwrapRef<typeof import('vue')['resolveComponent']>
+    readonly resolveErrorCopy: UnwrapRef<typeof import('../lib/errorPages')['resolveErrorCopy']>
     readonly router: UnwrapRef<typeof import('@inertiajs/vue3')['router']>
     readonly sanitizePlateNumber: UnwrapRef<typeof import('../lib/licensePlate')['sanitizePlateNumber']>
+    readonly sanitizeVin: UnwrapRef<typeof import('../lib/vin')['sanitizeVin']>
     readonly shallowReactive: UnwrapRef<typeof import('vue')['shallowReactive']>
     readonly shallowReadonly: UnwrapRef<typeof import('vue')['shallowReadonly']>
     readonly shallowRef: UnwrapRef<typeof import('vue')['shallowRef']>
+    readonly splitOrderHistory: UnwrapRef<typeof import('../lib/orderHistory')['splitOrderHistory']>
     readonly storeToRefs: UnwrapRef<typeof import('pinia')['storeToRefs']>
+    readonly summariseOrder: UnwrapRef<typeof import('../lib/orderHistory')['summariseOrder']>
+    readonly taskPriorityStyle: UnwrapRef<typeof import('../lib/adminTaskPriority')['taskPriorityStyle']>
     readonly timelineDotStyle: UnwrapRef<typeof import('../lib/timeline')['timelineDotStyle']>
     readonly timelineLineStyle: UnwrapRef<typeof import('../lib/timeline')['timelineLineStyle']>
     readonly toOrderTimelineEntries: UnwrapRef<typeof import('../lib/timeline')['toOrderTimelineEntries']>
@@ -278,6 +354,7 @@ declare module 'vue' {
     readonly useAttrs: UnwrapRef<typeof import('vue')['useAttrs']>
     readonly useB2bPermissions: UnwrapRef<typeof import('../composables/useB2bPermissions')['useB2bPermissions']>
     readonly useClipboard: UnwrapRef<typeof import('@vueuse/core')['useClipboard']>
+    readonly useCompanyCard: UnwrapRef<typeof import('../composables/useCompanyCard')['useCompanyCard']>
     readonly useCssModule: UnwrapRef<typeof import('vue')['useCssModule']>
     readonly useCssVars: UnwrapRef<typeof import('vue')['useCssVars']>
     readonly useDark: UnwrapRef<typeof import('@vueuse/core')['useDark']>
@@ -287,11 +364,13 @@ declare module 'vue' {
     readonly useGooglePlaces: UnwrapRef<typeof import('../composables/useGooglePlaces')['useGooglePlaces']>
     readonly useId: UnwrapRef<typeof import('vue')['useId']>
     readonly useInitials: UnwrapRef<typeof import('../composables/useInitials')['useInitials']>
+    readonly useLiveUpdates: UnwrapRef<typeof import('../composables/useLiveUpdates')['useLiveUpdates']>
     readonly useLocalStorage: UnwrapRef<typeof import('@vueuse/core')['useLocalStorage']>
     readonly useModel: UnwrapRef<typeof import('vue')['useModel']>
     readonly useNotificationSound: UnwrapRef<typeof import('../composables/useNotificationSound')['useNotificationSound']>
     readonly useNotifications: UnwrapRef<typeof import('../composables/useNotifications')['useNotifications']>
     readonly useOnboarding: UnwrapRef<typeof import('../composables/useOnboarding')['useOnboarding']>
+    readonly useOrderMessages: UnwrapRef<typeof import('../composables/useOrderMessages')['useOrderMessages']>
     readonly usePage: UnwrapRef<typeof import('@inertiajs/vue3')['usePage']>
     readonly useRemember: UnwrapRef<typeof import('@inertiajs/vue3')['useRemember']>
     readonly useSessionGuard: UnwrapRef<typeof import('../composables/useSessionGuard')['useSessionGuard']>
@@ -304,6 +383,7 @@ declare module 'vue' {
     readonly validatePlateLetters: UnwrapRef<typeof import('../lib/licensePlate')['validatePlateLetters']>
     readonly validatePlateNumber: UnwrapRef<typeof import('../lib/licensePlate')['validatePlateNumber']>
     readonly validatePlateParts: UnwrapRef<typeof import('../lib/licensePlate')['validatePlateParts']>
+    readonly vehicleStatusFilterOptions: UnwrapRef<typeof import('../lib/vehicleStatus')['vehicleStatusFilterOptions']>
     readonly watch: UnwrapRef<typeof import('vue')['watch']>
     readonly watchEffect: UnwrapRef<typeof import('vue')['watchEffect']>
     readonly watchPostEffect: UnwrapRef<typeof import('vue')['watchPostEffect']>

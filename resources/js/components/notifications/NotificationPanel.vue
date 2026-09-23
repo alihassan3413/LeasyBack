@@ -3,6 +3,7 @@ import NotificationIcon from '@/components/notifications/NotificationIcon.vue';
 import { useNotifications, type AppNotification } from '@/composables/useNotifications';
 import { useNotificationSound } from '@/composables/useNotificationSound';
 import { useWebPush } from '@/composables/useWebPush';
+import { parsePortalDate } from '@/lib/portalDate';
 import { router } from '@inertiajs/vue3';
 import MdiBellOffOutline from '~icons/mdi/bell-off-outline';
 import MdiBellOutline from '~icons/mdi/bell-outline';
@@ -17,12 +18,19 @@ const { notifications, unreadCount, loading, hasMore, loadMore, markRead, markAl
 const { soundEnabled, toggleSound } = useNotificationSound();
 const { pushSupported, pushSubscribed, pushBusy, subscribeToPush, unsubscribeFromPush } = useWebPush();
 
+/**
+ * An elapsed duration, so there is nothing to render in Berlin — but the
+ * instant still has to be read correctly, or "vor 5 Std." is however many hours
+ * the reader happens to sit from UTC.
+ */
 function relativeTime(value: string | null): string {
-    if (!value) {
+    const sentAt = parsePortalDate(value);
+
+    if (!sentAt) {
         return '';
     }
 
-    const diff = Date.now() - new Date(value).getTime();
+    const diff = Date.now() - sentAt.getTime();
     const minutes = Math.round(diff / 60000);
 
     if (minutes < 1) {
@@ -45,12 +53,16 @@ function relativeTime(value: string | null): string {
 }
 
 async function open(notification: AppNotification) {
+    // Badge first, so it settles even if the visit navigates away.
     await markRead(notification.id);
 
-    if (notification.url) {
-        emit('close');
-        router.visit(notification.url);
-    }
+    emit('close');
+
+    // Through the server, not straight to `notification.url`: only the server
+    // can tell which context owns the vehicle a notification is about and
+    // switch to it before landing. Visiting the stored url directly is what
+    // made a notification from the other context do nothing.
+    router.visit(route('notifications.open', notification.id));
 }
 
 function togglePush() {
@@ -65,11 +77,16 @@ function togglePush() {
 </script>
 
 <template>
-    <div class="w-[380px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-[18px] border border-[#e6eded] bg-white shadow-[0_18px_44px_rgba(16,57,59,0.18)]">
+    <div
+        class="w-[380px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-[18px] border border-[#e6eded] bg-white shadow-[0_18px_44px_rgba(16,57,59,0.18)]"
+    >
         <div class="flex items-center justify-between px-4 py-3" style="background: linear-gradient(180deg, #10393b 0%, #0d3133 100%)">
             <div class="flex items-center gap-2">
                 <span class="text-[13.5px] font-bold text-white">Benachrichtigungen</span>
-                <span v-if="unreadCount" class="flex h-5 min-w-5 items-center justify-center rounded-full bg-[#01B990] px-1.5 text-[11px] font-bold text-white">
+                <span
+                    v-if="unreadCount"
+                    class="flex h-5 min-w-5 items-center justify-center rounded-full bg-[#01B990] px-1.5 text-[11px] font-bold text-white"
+                >
                     {{ unreadCount > 99 ? '99+' : unreadCount }}
                 </span>
             </div>
@@ -112,9 +129,7 @@ function togglePush() {
         </div>
 
         <div class="max-h-[380px] overflow-y-auto">
-            <p v-if="!notifications.length && !loading" class="px-4 py-10 text-center text-[13px] text-gray-400">
-                Keine Benachrichtigungen.
-            </p>
+            <p v-if="!notifications.length && !loading" class="px-4 py-10 text-center text-[13px] text-gray-400">Keine Benachrichtigungen.</p>
 
             <div
                 v-for="notification in notifications"
@@ -136,7 +151,7 @@ function togglePush() {
                 <button
                     type="button"
                     aria-label="Entfernen"
-                    class="absolute top-2 right-2 rounded-full p-1 text-[#c3d0d0] opacity-0 transition hover:bg-[#eef3f3] hover:text-[#10393b] group-hover:opacity-100"
+                    class="absolute top-2 right-2 rounded-full p-1 text-[#c3d0d0] opacity-0 transition group-hover:opacity-100 hover:bg-[#eef3f3] hover:text-[#10393b]"
                     @click.stop="remove(notification.id)"
                 >
                     <MdiClose class="text-[14px]" />

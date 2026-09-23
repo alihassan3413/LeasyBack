@@ -1,17 +1,35 @@
 <script setup lang="ts">
+import AdminAppraisalPositionsCard from '@/components/admin/AdminAppraisalPositionsCard.vue';
+import AdminCollectionCard from '@/components/admin/AdminCollectionCard.vue';
+import AdminInvoiceCard from '@/components/admin/AdminInvoiceCard.vue';
 import AdminOffersCard from '@/components/admin/AdminOffersCard.vue';
 import AdminOrderActionsMenu from '@/components/admin/AdminOrderActionsMenu.vue';
+import AdminOrderNotesCard from '@/components/admin/AdminOrderNotesCard.vue';
+import AdminOrderTasksCard from '@/components/admin/AdminOrderTasksCard.vue';
+import AdminRepairAppointmentCard from '@/components/admin/AdminRepairAppointmentCard.vue';
+import AdminRepairBillingCard from '@/components/admin/AdminRepairBillingCard.vue';
+import AdminWorkshopCommissionCard from '@/components/admin/AdminWorkshopCommissionCard.vue';
+import AdminWorkshopQuotationsCard from '@/components/admin/AdminWorkshopQuotationsCard.vue';
+import MasonryGrid from '@/components/shared/MasonryGrid.vue';
+import OrderMessages from '@/components/shared/OrderMessages.vue';
 import OrderStatusTimeline from '@/components/shared/OrderStatusTimeline.vue';
+import { useLiveUpdates } from '@/composables/useLiveUpdates';
 import AdminLayout from '@/layouts/AdminLayout.vue';
 import { getAdminDashboardStatus as getStatus } from '@/lib/adminStatus';
 import { getCustomerOrderFlowSteps, getCustomerOrderHeadline } from '@/lib/customerOrderFlow';
+import { formatPortalDate, formatPortalDateTimeShort } from '@/lib/portalDate';
 import { toOrderTimelineEntries } from '@/lib/timeline';
 import { getOrderStatusLabel } from '@/lib/vehicleStatus';
-import type { AdminOrderDetail } from '@/types/admin';
+import type { AdminOrderDetail, AdminOrderTaskAction } from '@/types/admin';
 import { Head, Link } from '@inertiajs/vue3';
-import { computed } from 'vue';
+import { computed, nextTick, onMounted, ref } from 'vue';
 
 const props = defineProps<{ order: AdminOrderDetail }>();
+
+// This order only. The repair charge settles through a Stripe webhook long
+// after the customer paid, and `confirm_pickup` stays shut until it lands —
+// so without this the page waits for someone to press reload.
+useLiveUpdates((notification) => notification.meta.order_id === props.order.id);
 
 const ownerRoute = computed(() => {
     if (props.order.user_type === 'Firmenkunde' && props.order.b2b_id) {
@@ -49,18 +67,160 @@ const customerFlowSteps = computed(() =>
             document_title: document.document_title,
             created_at: document.created_at,
             url: document.signed_url,
+            published: document.published,
         })),
         offers: props.order.offers,
+        collection: props.order.collection,
+        channel: props.order.vehicle_belongs,
+        // The same derived stage the customer's payload carries, rendered with
+        // Admin's wording. `payable` is deliberately not passed: Admin is
+        // refused by OrderPolicy::pay and must never be offered a pay action.
+        repairPayment: {
+            stage: props.order.repair_payment_stage,
+            status: props.order.repair_payment?.status ?? null,
+            amount_cents: props.order.repair_payment?.amount_cents ?? null,
+        },
+        cancellationFee: props.order.cancellation_fee
+            ? {
+                  status: props.order.cancellation_fee.status,
+                  amount_cents: props.order.cancellation_fee.amount_cents,
+                  reason_label: props.order.cancellation_fee.trigger_label ?? null,
+              }
+            : null,
+        audience: 'admin',
     }),
 );
 
 const customerHeadline = computed(() => getCustomerOrderHeadline(customerFlowSteps.value));
 
+/**
+ * Shown only where there is something to say: a workshop that can be
+ * commissioned, one already commissioned, or a blocker an admin has to act on
+ * themselves. The server decides whether the action is legal; this only decides
+ * whether the card earns its space.
+ */
+const showCommissionCard = computed(
+    () =>
+        props.order.workshop_commission.is_commissioned ||
+        props.order.workshop_commission.can_commission ||
+        props.order.workshop_commission.blocked_reason === 'manual_offer' ||
+        props.order.workshop_commission.blocked_reason === 'no_workshop_contact',
+);
+
+/**
+ * The repair appointment is editable exactly where the server accepts one
+ * (`editable.repair_appointment`); outside that window the card stays as a
+ * read-only record once a date was confirmed.
+ */
+const showRepairAppointment = computed(() => props.order.editable.repair_appointment || !!props.order.collection?.confirmed_repair_start_date);
+
+const actionsMenu = ref<InstanceType<typeof AdminOrderActionsMenu> | null>(null);
+const offersCard = ref<InstanceType<typeof AdminOffersCard> | null>(null);
+const quotationsCard = ref<InstanceType<typeof AdminWorkshopQuotationsCard> | null>(null);
+
+/**
+ * Where a task's `modal` action is carried out. Keyed by the resolver's UI
+ * handler names, so adding a task means adding a definition on the server and —
+ * only if it needs a new kind of UI — one entry here. Every handler drives a
+ * component that already exists; none of them duplicates a workflow.
+ */
+const TASK_MODAL_HANDLERS: Record<string, (preset: Record<string, string>) => void> = {
+    upload_report: (preset) => actionsMenu.value?.openUpload(preset.document_type ?? 'gutachten'),
+    create_offer: () => offersCard.value?.openCreate() || actionsMenu.value?.openCreateOffer(),
+};
+
+/** The section whose form a task or deep link lands on needs opening first. */
+const SECTION_OPENERS: Record<string, () => Promise<unknown> | void> = {
+    angebote: () => quotationsCard.value?.openInvite(),
+};
+
+async function focusSection(section: string) {
+    await SECTION_OPENERS[section]?.();
+
+    const target = document.getElementById(`order-section-${section}`);
+
+    if (!target) {
+        return;
+    }
+
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    target.classList.add('task-target');
+    window.setTimeout(() => target.classList.remove('task-target'), 1600);
+
+    // Put the cursor in the form rather than only showing it — that is the
+    // difference between "here is the section" and "here is the task".
+    const field = target.querySelector<HTMLElement>(
+        'input:not([type=hidden]):not([disabled]), select:not([disabled]), textarea:not([disabled]), [role=combobox]',
+    );
+
+    field?.focus({ preventScroll: true });
+}
+
+/**
+ * `?section=…` — the dashboard's task rows link straight to the section their
+ * task lives in. Run after the first render (and a frame, so the masonry grid
+ * has placed its cards) or the scroll target is still moving.
+ */
+onMounted(async () => {
+    const section = new URLSearchParams(window.location.search).get('section');
+
+    if (!section) {
+        return;
+    }
+
+    await nextTick();
+    window.requestAnimationFrame(() => void focusSection(section));
+});
+
+function handleTaskAction(action: AdminOrderTaskAction) {
+    if (action.type === 'inline') {
+        void focusSection(action.key);
+
+        return;
+    }
+
+    if (action.type === 'modal') {
+        TASK_MODAL_HANDLERS[action.key]?.(action.payload ?? {});
+    }
+}
+
+/**
+ * Billing becomes relevant once the vehicle is back with the leasing company,
+ * and stays visible afterwards as the record the completion gate reads.
+ */
+const BILLING_STATUSES = new Set(['vehicle_returned', 'invoice_processed', 'completed']);
+
+const showBilling = computed(() => BILLING_STATUSES.has(props.order.order_status) || !!props.order.billing?.is_processed);
+
+const showRepairBilling = computed(
+    () => props.order.vehicle_belongs !== 'B2B' && (props.order.lexware_invoice !== null || props.order.repair_payment !== null),
+);
+
+/**
+ * The quotation behind the offer that is actually going ahead — it seeds the
+ * repair appointment form with that workshop's earliest start and duration.
+ *
+ * Resolved from the accepted offer, then a published one, and from nothing at
+ * all otherwise. Taking the first offer that merely *had* a presentation meant
+ * that once a customer rejected one and accepted the next, the form was
+ * pre-filled with dates from the workshop that lost — plausible enough for an
+ * admin to accept without noticing. A rejected-only order seeds nothing,
+ * because no workshop has been agreed.
+ */
+const offerSourceQuotation = computed(() => {
+    const presented = props.order.offers.filter((offer) => offer.presentation);
+    const source =
+        presented.find((offer) => offer.offer_status === 'selected') ?? presented.find((offer) => offer.offer_status === 'published') ?? null;
+    const quotationId = source?.presentation?.workshop_quotation_id;
+
+    return (quotationId && props.order.workshop_quotations.find((quotation) => quotation.id === quotationId)) || null;
+});
+
 const timelineHeaderLabel = computed(
     () => `STATUS: ${(customerHeadline.value?.label ?? getOrderStatusLabel(props.order.order_status)).toUpperCase()}`,
 );
 
-const timelineEntries = computed(() => toOrderTimelineEntries(customerFlowSteps.value, props.order.order_status));
+const timelineEntries = computed(() => toOrderTimelineEntries(customerFlowSteps.value, props.order.order_status, props.order.vehicle_belongs));
 
 const specs = computed(() => [
     { label: 'Kennzeichen', value: props.order.license_plate, mono: true },
@@ -72,23 +232,11 @@ const specs = computed(() => [
 ]);
 
 function formatDate(value: string | null): string {
-    if (!value) {
-        return '—';
-    }
-
-    const date = new Date(value);
-
-    return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    return formatPortalDate(value) || '—';
 }
 
 function formatDateTime(value: string | null): string {
-    if (!value) {
-        return '—';
-    }
-
-    const date = new Date(value);
-
-    return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('de-DE');
+    return formatPortalDateTimeShort(value) || '—';
 }
 </script>
 
@@ -115,19 +263,23 @@ function formatDateTime(value: string | null): string {
                         vehicle, not inside an existing order, so that entry stays disabled.
                     -->
                     <AdminOrderActionsMenu
+                        ref="actionsMenu"
                         :order-id="order.id"
                         :auftragsnummer="order.auftragsnummer"
                         :vehicle-id="order.vehicle_id"
                         :order-status="order.order_status"
+                        :vehicle-belongs="order.vehicle_belongs"
                         :available-transitions="order.available_transitions"
                         :can-pull-documents="order.can_pull_documents"
+                        :quotations="order.workshop_quotations"
+                        :can-create-offer="order.editable.offers"
                     />
                 </div>
             </div>
         </template>
 
-        <div class="flex h-full flex-col gap-5">
-            <main class="flex flex-1 flex-col gap-5 overflow-y-auto pr-1 pb-4">
+        <div class="flex flex-col gap-5">
+            <main class="flex flex-col gap-5 pb-4">
                 <section class="grid grid-cols-[1.15fr_1fr_1fr] gap-4 max-[1100px]:grid-cols-1">
                     <div class="identity-card">
                         <div class="absolute -top-24 -right-20 h-64 w-64 rounded-full bg-white/10 blur-2xl"></div>
@@ -225,8 +377,25 @@ function formatDateTime(value: string | null): string {
                     </div>
                 </section>
 
-                <section class="grid grid-cols-[1fr_1.15fr] gap-4 max-[1180px]:grid-cols-1">
-                    <div class="content-card overflow-hidden p-0">
+                <!--
+                    The next task sits outside the packing grid, directly under the
+                    header, because it is the one thing an admin opens this page for.
+                    Inside the grid it was placed wherever it happened to fit, so it
+                    moved between columns — and often far down the page — depending on
+                    which cards this order's status renders and how tall they are.
+                -->
+                <AdminOrderTasksCard :tasks="order.tasks" @action="handleTaskAction" />
+
+                <!--
+                    Packed rather than split into two fixed columns. Almost every card
+                    below is conditional — B2B-only, or gated on the order having reached
+                    a status — so no static left/right split balances for both audiences.
+                    MasonryGrid drops each card into the first slot it fits, so a short
+                    card backfills the gap a tall neighbour leaves, and the section
+                    collapses to one column below 1180px.
+                -->
+                <MasonryGrid class="grid-cols-1 min-[1180px]:grid-cols-2">
+                    <div id="order-section-status" class="content-card overflow-hidden p-0">
                         <OrderStatusTimeline :entries="timelineEntries" :header-label="timelineHeaderLabel">
                             <template #actions="{ entry }">
                                 <a
@@ -253,99 +422,213 @@ function formatDateTime(value: string | null): string {
                         </OrderStatusTimeline>
                     </div>
 
-                    <div class="flex flex-col gap-4">
-                        <AdminOffersCard :order-id="order.id" :offers="order.offers" />
+                    <OrderMessages :order-id="order.id" :auftragsnummer="order.auftragsnummer" container-class="content-card overflow-hidden p-0" />
 
-                        <div class="content-card">
-                            <div class="mb-4">
-                                <h2 class="text-[17px] font-extrabold tracking-[-0.3px] text-[#10393b]">Gutachten &amp; Rechnungen</h2>
-                                <p class="mt-0.5 text-[12px] font-medium text-[#9bb0af]">{{ order.report_documents.length }} Dokumente</p>
-                            </div>
+                    <AdminCollectionCard
+                        v-if="order.vehicle_belongs === 'B2B'"
+                        id="order-section-abholung"
+                        :order-id="order.id"
+                        :collection="order.collection"
+                        :editable="order.editable.collection"
+                    />
 
-                            <p v-if="!order.report_documents.length" class="py-10 text-center text-[13px] text-[#9bb0af]">
-                                Keine Dokumente vorhanden.
-                            </p>
+                    <AdminOrderNotesCard
+                        v-if="order.vehicle_belongs === 'B2B' && order.notes"
+                        id="order-section-notizen"
+                        :order-id="order.id"
+                        :notes="order.notes"
+                    />
 
-                            <div v-else class="flex flex-col gap-1">
-                                <div
-                                    v-for="doc in order.report_documents"
-                                    :key="doc.id"
-                                    class="flex items-center gap-3 rounded-[13px] px-3 py-2.5 transition-colors hover:bg-[#f6f9f8]"
-                                >
-                                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-[11px] bg-[#01B990]/10 text-[#00856a]">
-                                        <IconMdiFileDocumentOutline class="size-[17px]" />
-                                    </div>
+                    <AdminRepairBillingCard
+                        v-if="showRepairBilling"
+                        id="order-section-abrechnung"
+                        :invoice="order.lexware_invoice"
+                        :payment="order.repair_payment"
+                        :stage="order.repair_payment_stage"
+                    />
 
-                                    <div class="min-w-0 flex-1">
-                                        <p class="truncate text-[13px] font-bold text-[#10393b]">
-                                            {{ doc.document_title || doc.document_type || 'Dokument' }}
-                                        </p>
-                                        <p class="truncate text-[11.5px] text-[#6f8585]">{{ formatDate(doc.created_at) }}</p>
-                                    </div>
+                    <!--
+                        One card for the whole invoice step. It used to be two — a
+                        Lexware card and a separate billing form asking for an invoice
+                        number and a document picked from a list that only ever held
+                        the Gutachten — which left the admin choosing between options
+                        that were not the invoice.
+                    -->
+                    <AdminInvoiceCard
+                        v-if="order.vehicle_belongs === 'B2B' && order.billing && showBilling"
+                        id="order-section-abrechnung"
+                        :order-id="order.id"
+                        :auftragsnummer="order.auftragsnummer"
+                        :vehicle-id="order.vehicle_id"
+                        :billing="order.billing"
+                        :lexware-draft="order.lexware_draft"
+                        :report-documents="order.report_documents"
+                        :editable="order.editable.billing"
+                    />
 
-                                    <span
-                                        class="shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-bold"
-                                        :class="doc.published ? 'bg-[#01B990]/10 text-[#00856a]' : 'bg-[#f4f7f6] text-[#9bb0af]'"
-                                    >
-                                        {{ doc.published ? 'Veröffentlicht' : 'Entwurf' }}
-                                    </span>
+                    <!--
+                        Commissioning and the repair appointment are the two halves of the
+                        same step — who was instructed, and when they start — so they sit
+                        together. Both channels: the commission card works out for itself
+                        whether this order has a workshop to commission.
+                    -->
+                    <AdminWorkshopCommissionCard
+                        v-if="showCommissionCard"
+                        id="order-section-beauftragung"
+                        :order-id="order.id"
+                        :commission="order.workshop_commission"
+                        :vehicle-belongs="order.vehicle_belongs"
+                    />
 
-                                    <a
-                                        v-if="doc.signed_url"
-                                        :href="doc.signed_url"
-                                        target="_blank"
-                                        rel="noopener"
-                                        class="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] text-[#bcccca] transition-all hover:bg-[#10393b] hover:text-white"
-                                        title="Öffnen"
-                                    >
-                                        <IconMdiOpenInNew class="size-[15px]" />
-                                    </a>
+                    <AdminRepairAppointmentCard
+                        v-if="showRepairAppointment"
+                        id="order-section-reparatur"
+                        :order-id="order.id"
+                        :order-status="order.order_status"
+                        :collection="order.collection"
+                        :source-quotation="offerSourceQuotation"
+                        :editable="order.editable.repair_appointment"
+                    />
+
+                    <div id="order-section-dokumente" class="content-card">
+                        <div class="mb-4">
+                            <h2 class="text-[17px] font-extrabold tracking-[-0.3px] text-[#10393b]">Gutachten &amp; Rechnungen</h2>
+                            <p class="mt-0.5 text-[12px] font-medium text-[#9bb0af]">{{ order.report_documents.length }} Dokumente</p>
+                        </div>
+
+                        <p v-if="!order.report_documents.length" class="py-10 text-center text-[13px] text-[#9bb0af]">Keine Dokumente vorhanden.</p>
+
+                        <div v-else class="flex flex-col gap-1">
+                            <div
+                                v-for="doc in order.report_documents"
+                                :key="doc.id"
+                                class="flex items-center gap-3 rounded-[13px] px-3 py-2.5 transition-colors hover:bg-[#f6f9f8]"
+                            >
+                                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-[11px] bg-[#01B990]/10 text-[#00856a]">
+                                    <IconMdiFileDocumentOutline class="size-[17px]" />
                                 </div>
+
+                                <div class="min-w-0 flex-1">
+                                    <p class="truncate text-[13px] font-bold text-[#10393b]">
+                                        {{ doc.document_title || doc.document_type || 'Dokument' }}
+                                    </p>
+                                    <p class="truncate text-[11.5px] text-[#6f8585]">{{ formatDate(doc.created_at) }}</p>
+                                </div>
+
+                                <span
+                                    class="shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-bold"
+                                    :class="doc.published ? 'bg-[#01B990]/10 text-[#00856a]' : 'bg-[#f4f7f6] text-[#9bb0af]'"
+                                >
+                                    {{ doc.published ? 'Veröffentlicht' : 'Entwurf' }}
+                                </span>
+
+                                <a
+                                    v-if="doc.signed_url"
+                                    :href="doc.signed_url"
+                                    target="_blank"
+                                    rel="noopener"
+                                    class="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] text-[#bcccca] transition-all hover:bg-[#10393b] hover:text-white"
+                                    title="Öffnen"
+                                >
+                                    <IconMdiOpenInNew class="size-[15px]" />
+                                </a>
                             </div>
                         </div>
                     </div>
-                </section>
+                    <!--
+                        The status log is a reference card like the rest, not a page
+                        footer: four short columns spread over the full width of the
+                        page read as an almost empty table.
+                    -->
+                    <div class="content-card">
+                        <div class="mb-4">
+                            <h2 class="text-[17px] font-extrabold tracking-[-0.3px] text-[#10393b]">Statusverlauf</h2>
+                            <p class="mt-0.5 text-[12px] font-medium text-[#9bb0af]">{{ order.status_updates.length }} Änderungen</p>
+                        </div>
 
-                <section class="content-card">
-                    <div class="mb-4">
-                        <h2 class="text-[17px] font-extrabold tracking-[-0.3px] text-[#10393b]">Statusverlauf</h2>
-                        <p class="mt-0.5 text-[12px] font-medium text-[#9bb0af]">{{ order.status_updates.length }} Änderungen</p>
+                        <p v-if="!order.status_updates.length" class="py-10 text-center text-[13px] text-[#9bb0af]">Keine Statusänderungen.</p>
+
+                        <div v-else class="overflow-auto rounded-[18px] border border-[#eef3f2]">
+                            <table class="w-full min-w-[640px] border-collapse">
+                                <thead>
+                                    <tr class="bg-[#f8faf9]">
+                                        <th class="admin-th">Von</th>
+                                        <th class="admin-th">Nach</th>
+                                        <th class="admin-th">Durch</th>
+                                        <th class="admin-th">Zeitpunkt</th>
+                                    </tr>
+                                </thead>
+
+                                <tbody>
+                                    <tr v-for="update in order.status_updates" :key="update.id" class="border-b border-[#eef3f2] last:border-0">
+                                        <td class="px-5 py-3 text-[12.5px] text-[#6f8585]">{{ getStatus(update.old_status).label }}</td>
+                                        <td class="px-5 py-3">
+                                            <span
+                                                class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold"
+                                                :style="{
+                                                    background: getStatus(update.new_status).background,
+                                                    color: getStatus(update.new_status).color,
+                                                }"
+                                            >
+                                                <span class="h-[5px] w-[5px] rounded-full bg-current"></span>
+                                                {{ getStatus(update.new_status).label }}
+                                            </span>
+                                        </td>
+                                        <td class="px-5 py-3 text-[12.5px] text-[#5a6e6c]">{{ update.updated_by }}</td>
+                                        <td class="px-5 py-3 text-[12px] text-[#9bb0af] tabular-nums">{{ formatDateTime(update.created_at) }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
+                </MasonryGrid>
 
-                    <p v-if="!order.status_updates.length" class="py-10 text-center text-[13px] text-[#9bb0af]">Keine Statusänderungen.</p>
+                <!--
+                    Positions sit full width, outside the packing grid above: they are by
+                    far the tallest card on the page, and packing one card that outgrows
+                    every other card put together only moves the dead space around.
+                    Full width is also what the card wants — each position lays out as a
+                    row instead of a stack of six fields.
+                -->
+                <AdminAppraisalPositionsCard
+                    id="order-section-positionen"
+                    :order-id="order.id"
+                    :positions="order.appraisal_positions"
+                    :totals="order.appraisal_totals"
+                    :report-documents="order.report_documents"
+                    :editable="order.editable.positions"
+                />
 
-                    <div v-else class="overflow-auto rounded-[18px] border border-[#eef3f2]">
-                        <table class="w-full min-w-[640px] border-collapse">
-                            <thead>
-                                <tr class="bg-[#f8faf9]">
-                                    <th class="admin-th">Von</th>
-                                    <th class="admin-th">Nach</th>
-                                    <th class="admin-th">Durch</th>
-                                    <th class="admin-th">Zeitpunkt</th>
-                                </tr>
-                            </thead>
+                <!--
+                    Quotations and offers are the two halves of one step — a quotation is
+                    what an offer is built from — so they stay under a single
+                    `order-section-angebote` anchor, which is what the task card scrolls
+                    to.
 
-                            <tbody>
-                                <tr v-for="update in order.status_updates" :key="update.id" class="border-b border-[#eef3f2] last:border-0">
-                                    <td class="px-5 py-3 text-[12.5px] text-[#6f8585]">{{ getStatus(update.old_status).label }}</td>
-                                    <td class="px-5 py-3">
-                                        <span
-                                            class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold"
-                                            :style="{
-                                                background: getStatus(update.new_status).background,
-                                                color: getStatus(update.new_status).color,
-                                            }"
-                                        >
-                                            <span class="h-[5px] w-[5px] rounded-full bg-current"></span>
-                                            {{ getStatus(update.new_status).label }}
-                                        </span>
-                                    </td>
-                                    <td class="px-5 py-3 text-[12.5px] text-[#5a6e6c]">{{ update.updated_by }}</td>
-                                    <td class="px-5 py-3 text-[12px] text-[#9bb0af] tabular-nums">{{ formatDateTime(update.created_at) }}</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
+                    They sit outside the masonry above, side by side. Inside it they were
+                    one unbreakable column item, and a multi-column layout clips an item
+                    taller than its column instead of pushing it down: a handful of
+                    quotations plus an open comparison plus a few offers, and the bottom
+                    of the card simply vanished. Full width also gives the comparison
+                    table its `min-w-[420px]` without forcing a sideways scroll.
+                -->
+                <section id="order-section-angebote" class="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+                    <AdminWorkshopQuotationsCard
+                        ref="quotationsCard"
+                        :order-id="order.id"
+                        :quotations="order.workshop_quotations"
+                        :has-positions="!!order.appraisal_positions.length"
+                        :editable="order.editable.offers"
+                    />
+
+                    <AdminOffersCard
+                        ref="offersCard"
+                        :order-id="order.id"
+                        :offers="order.offers"
+                        :quotations="order.workshop_quotations"
+                        :vehicle-belongs="order.vehicle_belongs"
+                        :editable="order.editable.offers"
+                    />
                 </section>
             </main>
         </div>

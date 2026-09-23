@@ -1,4 +1,6 @@
-import type { OrderRequestPayload } from './vehicle';
+import type { RepairPaymentStage } from '@/lib/customerOrderFlow';
+import type { B2bOfferPresentationData, OrderCollectionData } from './order';
+import type { OrderRequestPayload, VehicleCollectionAddress } from './vehicle';
 
 /** Matches AdminQueryService::summary()'s response shape. */
 export interface AdminSummaryData {
@@ -59,7 +61,20 @@ export interface AdminCustomerDetail {
     company_name?: string;
     vat_id?: string | null;
     contact_email?: string | null;
-    members?: { user_id: number; user_email: string; role: string }[];
+    service_fee_amount?: string | null;
+    service_fee_effective_from?: string | null;
+    /** `role_label` is the named company role (B2bRolePreset::labelFor), matching the customer's team page. */
+    members?: { user_id: number; user_email: string; role: string; role_label: string }[];
+}
+
+/** CustomerController::show()'s `counts` — whole-customer figures, not the length of the capped lists. */
+export interface AdminCustomerCounts {
+    vehicles: number;
+    /** Vehicles whose latest order is in OrderStatus::activeValues(). */
+    vehicles_in_process: number;
+    orders: number;
+    /** Orders in OrderStatus::activeValues(). */
+    orders_open: number;
 }
 
 /** Minimal subset of AdminQueryService::vehicles()'s per-row shape, for the customer detail page's Fahrzeuge tab. */
@@ -112,9 +127,11 @@ export interface AdminVehicleRow {
     /** Allowed next statuses for `current_order_id`, for the list row's action menu. */
     current_order_transitions: string[];
     /** True while an order is neither delivered nor cancelled/discarded — blocks creating another. */
-    has_open_order: boolean;
+    blocks_new_order: boolean;
     /** True when a TÜV SÜD order carries a Gutachtennummer the appraisal pull can use. */
     can_pull_documents: boolean;
+    /** The vehicle's default pickup address; always null on a B2C vehicle. Prefills the B2B order modal. */
+    collection_address: VehicleCollectionAddress | null;
     order_history: AdminVehicleOrderHistoryEntry[];
     documents: AdminVehicleDocumentEntry[];
 }
@@ -189,6 +206,21 @@ export interface AdminOrderRow {
     can_pull_documents: boolean;
 }
 
+/**
+ * A row from AdminQueryService::orders() specifically — it stamps
+ * OrderTaskPriorityResolver's verdict on the order's next task directly onto
+ * the row, the same ranking AdminTaskQueryService uses for the dashboard's
+ * task list. Not part of the shared AdminOrderRow shape: orderDetail() (the
+ * Show page) carries the equivalent verdict nested under `tasks.priority`
+ * instead, so adding it here would claim a field that page never sends.
+ *
+ * Null for a closed order (completed/cancelled/discarded) — there is no open
+ * task left to rank, so there is nothing to show as urgent.
+ */
+export interface AdminOrderListRow extends AdminOrderRow {
+    priority: AdminOrderTaskPriority | null;
+}
+
 /** Matches AdminQueryService::orders()'s response envelope. */
 export interface AdminOrderList {
     page: number;
@@ -198,7 +230,48 @@ export interface AdminOrderList {
     total_confirmed: number;
     total_inspected: number;
     total_delivered: number;
-    data: AdminOrderRow[];
+    /** The order list's own filter-tab buckets — see AdminOrderStatusGroup. */
+    total_open: number;
+    total_in_progress: number;
+    total_closed: number;
+    data: AdminOrderListRow[];
+}
+
+/**
+ * The order list's status-*group* filter tabs — Offen / In Bearbeitung /
+ * Abgeschlossen — accepted on the same `status` query param AdminQueryService
+ * already validates the 16 exact OrderStatus values against. `null` is "Alle".
+ */
+export type AdminOrderStatusGroup = 'open' | 'in_progress' | 'closed';
+
+/** AdminQueryService::orderDetail()'s `workshop_commission` block — derived, never stored. */
+export interface AdminWorkshopCommission {
+    is_commissioned: boolean;
+    commissioned_at: string | null;
+    workshop: AdminOfferWorkshop | null;
+    offer_id: string | null;
+    /** Always null on a B2B order — B2B is priced net only. */
+    offer_total_gross: string | null;
+    offer_total_net: string | null;
+    /** When the workshop actually received the repair order; null means it did not. */
+    notified_at: string | null;
+    can_commission: boolean;
+    /** True when the commission mail may be sent again. */
+    can_resend: boolean;
+    /** Why not, when `can_commission` is false — see WorkshopCommissionService's BLOCKED_* constants. */
+    blocked_reason: 'no_selected_offer' | 'manual_offer' | 'no_workshop_contact' | 'wrong_status' | null;
+}
+
+/** Who quoted, as of the moment the offer was built from their quotation. */
+export interface AdminOfferWorkshop {
+    quotation_id: string | null;
+    label: string | null;
+    company_name: string | null;
+    contact_person: string | null;
+    contact_email: string | null;
+    contact_phone: string | null;
+    earliest_repair_start: string | null;
+    processing_days: number | null;
 }
 
 /** Matches a `leasyback_offers` row (every status — Admin sees drafts/cancelled too, unlike the customer-facing endpoint). */
@@ -207,7 +280,15 @@ export interface AdminOfferRow {
     order_id: string;
     auftragsnummer: string;
     offer_sequence: number;
-    offer_status: 'draft' | 'published' | 'selected' | 'closed' | 'cancelled';
+    offer_status: 'draft' | 'published' | 'selected' | 'closed' | 'cancelled' | 'rejected';
+    /**
+     * The frozen record of what was presented. Null on a manually created
+     * fallback offer, in either channel — the card uses that to label an offer
+     * as workshop-backed or hand-entered.
+     */
+    presentation?: B2bOfferPresentationData | null;
+    /** The full workshop contact snapshot. Admin-only; the customer gets the name alone. */
+    workshop?: AdminOfferWorkshop | null;
     repair_cost_net: string | number;
     repair_cost_gross: string | number;
     depreciation_value_net: string | number;
@@ -237,12 +318,271 @@ export interface AdminOrderStatusUpdate {
     created_at: string;
 }
 
+/** Matches one OrderTaskResolver action — the endpoint the task can fire directly. */
+/**
+ * How the tasks card should carry out a task's primary action.
+ *
+ * `request` fires the HTTP call itself. `modal` and `inline` are handed to the
+ * Admin page's handler registry, keyed by `key`, so a new task never needs a
+ * branch inside the card. A task with no action is informational.
+ */
+export type AdminOrderTaskActionType = 'request' | 'modal' | 'inline';
+
+export interface AdminOrderTaskAction {
+    type: AdminOrderTaskActionType;
+    /** Route name for `request`, a UI handler name for `modal`, a section for `inline`. */
+    key: string;
+    method: 'post' | 'patch' | null;
+    url: string | null;
+    /** Request body for `request`; modal preset for `modal`. */
+    payload: Record<string, string>;
+    label: string;
+}
+
+/**
+ * The single emphasised open step OrderTaskResolver derives for an order, in
+ * either channel.
+ *
+ * `state` says whether anything is open; `actor` says whose move it is. The two
+ * together are what distinguish an Admin to-do from a wait on the customer and
+ * a wait on the workshop — a waiting step may still carry an action (recording
+ * the outcome when it arrives), so the badge is driven by `actor`, not by
+ * whether `action` happens to be set.
+ */
+export interface AdminOrderTask {
+    key: string;
+    title: string;
+    description: string;
+    state: 'open' | 'waiting';
+    actor: 'admin' | 'customer' | 'workshop';
+    date: string | null;
+    date_label: string;
+    /** The persisted trigger OrderTaskPriorityRules times this task from. */
+    priority_date: string | null;
+    section: string;
+    action: AdminOrderTaskAction | null;
+}
+
+/** A step OrderTaskResolver already considers satisfied — compact by design. */
+export interface AdminOrderTaskHistoryEntry {
+    key: string;
+    title: string;
+    date: string | null;
+    section: string;
+    state: 'done';
+}
+
+/** Matches App\Enums\TaskPriority — derived by the backend, never timed here. */
+export type AdminOrderTaskPriority = 'neutral' | 'green' | 'yellow' | 'red' | 'immediate_red';
+
+/**
+ * A follow-up that stands beside the guided workflow rather than inside it —
+ * it never advances the order and never replaces `next`.
+ */
+export interface AdminOrderDetachedTask extends AdminOrderTask {
+    priority: AdminOrderTaskPriority;
+}
+
+/** Matches OrderTaskResolver::forOrderDetail(). Both channels, never null. */
+export interface AdminOrderTasks {
+    next: AdminOrderTask | null;
+    history: AdminOrderTaskHistoryEntry[];
+    is_closed: boolean;
+    closed_status: string | null;
+    /** OrderTaskPriorityResolver's verdict on `next`. */
+    priority: AdminOrderTaskPriority;
+    /** DetachedOrderTaskResolver's follow-ups. Empty when none is due. */
+    detached: AdminOrderDetachedTask[];
+}
+
+/** Matches AdminQueryService::lexwareInvoiceSummary(). B2C only; null until an invoice exists. */
+export interface AdminLexwareInvoice {
+    voucher_number: string | null;
+    status: 'pending' | 'invoiced' | 'documented' | 'needs_reconciliation';
+    /** Why the last attempt stopped, when it did. Null while healthy. */
+    failure_reason: string | null;
+    invoiced_at: string | null;
+    documented_at: string | null;
+}
+
+/**
+ * Matches B2bLexwareDraftService::summary(). B2B only; null until a draft
+ * exists — and only one draft is ever created per order.
+ */
+export interface AdminB2bLexwareDraft {
+    lexware_invoice_id: string | null;
+    voucher_number: string | null;
+    voucher_status: string | null;
+    submitted_at: string | null;
+    /** The `vehicle_report_documents` row for the downloaded invoice PDF, once it exists. */
+    document_id: string | null;
+    /** Deep link to the voucher in Lexware — where a draft is reviewed and finalized. */
+    lexware_url: string | null;
+}
+
 /** Matches AdminQueryService::orderDetail()'s response shape. */
 export interface AdminOrderDetail extends AdminOrderRow {
     offers: AdminOfferRow[];
     status_updates: AdminOrderStatusUpdate[];
-    /** Never includes `order_placed` (approve()'s job) or `discarded` (reject — not yet a confirmed feature). */
+    /** Already filtered server-side to what the backend accepts. Never `order_placed` (approve()'s job); `discarded` only for B2B. */
     available_transitions: string[];
+    vehicle_belongs: 'B2B' | 'B2C';
+    /** Which cards the backend will still accept edits for, in the order's current status. */
+    editable: AdminOrderEditable;
+    collection: OrderCollectionData | null;
+    workshop_commission: AdminWorkshopCommission;
+    /** Newest message the customer sent on the order thread, or null. */
+    last_customer_contact_at: string | null;
+    tasks: AdminOrderTasks;
+    /** Both channels — an order with no positions yet sends an empty list, not null. */
+    appraisal_positions: AdminAppraisalPosition[];
+    appraisal_totals: AdminAppraisalTotals;
+    /** Both channels — an order with no invitations yet sends an empty list, not null. */
+    workshop_quotations: AdminWorkshopQuotation[];
+    /** B2B only — null on a B2C order, which has no internal billing record. */
+    billing: AdminOrderBilling | null;
+    /** B2B only — null on a B2C order, and until a Lexware draft is created. */
+    lexware_draft: AdminB2bLexwareDraft | null;
+    /** The B2C counterpart of `billing`. Null for B2B, and until `delivered`. */
+    repair_payment: AdminRepairPayment | null;
+    /** The B2C €200 fee, separate from the repair charge. */
+    cancellation_fee: AdminRepairPayment | null;
+    /** The Lexware repair invoice. Null for B2B and until one is issued. */
+    lexware_invoice: AdminLexwareInvoice | null;
+    /**
+     * How `delivered` should be presented — derived server-side from the order
+     * status and the repair charge, and identical to the value the customer's
+     * payload carries. Always present, including when there is no charge.
+     */
+    repair_payment_stage: RepairPaymentStage;
+    /** Both audiences. null for a B2C order, which has no note surface. */
+    notes: AdminOrderNote[] | null;
+}
+
+/** AdminQueryService::orderDetail()'s `editable` — mirrors the services' status guards. */
+export interface AdminOrderEditable {
+    collection: boolean;
+    repair_appointment: boolean;
+    positions: boolean;
+    billing: boolean;
+    offers: boolean;
+}
+
+/** B2C repair charge, as Admin sees it. Admin can read it but never settle it. */
+export interface AdminRepairPayment {
+    purpose: string;
+    status: string;
+    trigger_reason?: string | null;
+    trigger_label?: string | null;
+    triggered_at?: string | null;
+    amount_cents: number;
+    currency: string;
+    paid_at: string | null;
+    /** The hosted Stripe page the customer pays the repair on. */
+    payment_link_url: string | null;
+    /** When the payment request became actionable — the unpaid clock runs from here. */
+    payment_link_created_at: string | null;
+    /** Mirrors the completion gate: true means `delivered → completed` is refused. */
+    blocks_pickup: boolean;
+}
+
+/**
+ * Internal billing state. No accounting or payment integration stands behind
+ * this — `is_processed` is the fact the §21 completion gate reads. A future
+ * Stripe phase will add payment fields and further `billing_status` values.
+ */
+export interface AdminOrderBilling {
+    billing_status: string;
+    invoice_reference: string | null;
+    invoice_document_id: string | null;
+    processed_at: string | null;
+    is_processed: boolean;
+}
+
+/**
+ * One order note (§16). Admin-authored, with an explicit audience.
+ *
+ * `visibility` is present only on the Admin payload — the customer's copy of a
+ * note omits the field entirely, since they can only ever receive the
+ * customer-visible ones.
+ */
+export interface AdminOrderNote {
+    id: string;
+    visibility: 'internal' | 'customer';
+    body: string;
+    /** Snapshot taken at write time; survives the author's account deletion. */
+    author_name: string;
+    created_at: string | null;
+}
+
+/** One row of the appraisal-vs-workshop comparison. All amounts net. */
+export interface AdminWorkshopComparisonRow {
+    appraisal_position_id: string;
+    component: string;
+    appraisal_amount_net: string;
+    /** null until the workshop has submitted, or when the position is not repairable. */
+    workshop_amount_net: string | null;
+    /** appraisal − workshop; positive means the workshop is cheaper. */
+    difference_net: string | null;
+    repair_method: string | null;
+    not_repairable: boolean;
+}
+
+/**
+ * A workshop's invitation to quote and its submission. `status` is derived
+ * server-side from the timestamps, never stored as a column.
+ */
+export interface AdminWorkshopQuotation {
+    id: string;
+    workshop_label: string;
+    invited_email: string | null;
+    status: 'invited' | 'submitted' | 'expired' | 'revoked';
+    shows_appraisal_amounts: boolean;
+    expires_at: string | null;
+    submitted_at: string | null;
+    revoked_at: string | null;
+    company_name: string | null;
+    contact_person: string | null;
+    contact_email: string | null;
+    contact_phone: string | null;
+    earliest_repair_start: string | null;
+    processing_days: number | null;
+    total_net: string | null;
+    cannot_repair_for_amount: boolean;
+    cannot_repair_note: string | null;
+    appraisal_total_net: string;
+    /**
+     * The customer offer this quotation has already produced, or null. A
+     * discarded offer does not count — RepairOfferService lets the quotation
+     * be taken again once its offer is verworfen.
+     */
+    customer_offer: { offer_id: string; offer_sequence: number; offer_status: string } | null;
+    comparison: AdminWorkshopComparisonRow[];
+}
+
+/**
+ * One repair position of the initial appraisal. All amounts are net strings as
+ * they come off a `decimal:2` cast — never render them as gross (b2b.txt §9).
+ */
+export interface AdminAppraisalPosition {
+    id: string;
+    sort_order: number;
+    component: string;
+    damage_description: string | null;
+    original_amount_net: string;
+    chargeable_amount_net: string | null;
+    /** `chargeable_amount_net` when set, otherwise `original_amount_net`. */
+    effective_amount_net: string;
+    repair_method: string | null;
+    /** `manual` for hand-entered rows; `extracted` is reserved for a future PDF extractor. */
+    source: 'manual' | 'extracted';
+    damage_image_document_ids: string[];
+}
+
+export interface AdminAppraisalTotals {
+    count: number;
+    original_total_net: string;
+    chargeable_total_net: string;
 }
 
 /** Matches AdminQueryService::vehicles()'s response envelope. */
@@ -256,4 +596,38 @@ export interface AdminVehicleList {
     total_inspected: number;
     total_delivered: number;
     data: AdminVehicleRow[];
+}
+
+/** One row of the admin dashboard's task list — AdminTaskQueryService::openTasks(). */
+export interface AdminOpenTask {
+    order_id: string;
+    auftragsnummer: string | null;
+    license_plate: string | null;
+    /** Company name for a fleet customer, account email for a private one. */
+    customer: string | null;
+    vehicle_belongs: 'B2B' | 'B2C' | null;
+    order_status: string | null;
+    key: string | null;
+    title: string | null;
+    section: string | null;
+    priority: AdminOrderTaskPriority;
+    /** TaskPriority::rank() — 4 (immediate_red) down to 0 (neutral). */
+    rank: number;
+    priority_date: string | null;
+    /** A follow-up (e.g. call the customer) rather than a step of the process. */
+    is_detached: boolean;
+}
+
+export interface AdminOpenTaskList {
+    /** Every open admin task across all active orders — a real total, not a floor. */
+    count: number;
+    /** Of those, how many are red or immediate — over all tasks, not the page. */
+    urgent: number;
+    /** Active orders resolved to produce it. */
+    scanned: number;
+    /** The channel the list is narrowed to, or null for both. */
+    channel: 'B2B' | 'B2C' | null;
+    /** Open admin tasks per channel — independent of `channel`, so the filter can show both. */
+    channel_counts: { B2B: number; B2C: number };
+    data: AdminOpenTask[];
 }

@@ -1,21 +1,38 @@
 <script setup lang="ts">
 import CalendarDateField from '@/components/form/CalendarDateField.vue';
+import RequiredMark from '@/components/form/RequiredMark.vue';
 import SearchableSelectField, { type SearchableOption } from '@/components/form/SearchableSelectField.vue';
 import StationMap from '@/components/form/StationMap.vue';
 import StationSelectField from '@/components/form/StationSelectField.vue';
+import TimeSelectField from '@/components/form/TimeSelectField.vue';
 import InputError from '@/components/InputError.vue';
+import PaymentMethodStep from '@/components/payment/PaymentMethodStep.vue';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { AppModal, AppModalButton } from '@/components/ui/modal';
+import type { SharedData } from '@/types';
 import type { StationData } from '@/types/order';
-import { useForm } from '@inertiajs/vue3';
+import type { VehicleCollectionAddress } from '@/types/vehicle';
+import { router, useForm, usePage } from '@inertiajs/vue3';
 import { computed, ref, useId, watch } from 'vue';
+
+/**
+ * Only the two fields the flow actually branches on, rather than the full
+ * `VehicleData`: Admin reaches this modal with an `AdminVehicleRow`, which
+ * carries the same two but not the customer dashboard's order/document
+ * payloads. Both shapes satisfy this, so both audiences get the same form.
+ */
+type OrderCreationVehicle = {
+    vehicle_belongs: 'B2B' | 'B2C';
+    collection_address?: VehicleCollectionAddress | null;
+};
 
 const props = defineProps<{
     open: boolean;
     vehicleId: string;
     stations: StationData[];
+    vehicle?: OrderCreationVehicle | null;
 }>();
 
 const emit = defineEmits<{ (e: 'update:open', value: boolean): void }>();
@@ -65,6 +82,23 @@ const filteredStations = computed(() =>
     ),
 );
 
+const isB2bOrder = computed(() => props.vehicle?.vehicle_belongs === 'B2B');
+
+type CollectionAddressForm = Record<keyof VehicleCollectionAddress, string>;
+
+function vehicleCollectionAddress(): CollectionAddressForm {
+    const address = props.vehicle?.collection_address ?? null;
+
+    return {
+        street: address?.street ?? '',
+        number: address?.number ?? '',
+        additional_address: address?.additional_address ?? '',
+        zip_code: address?.zip_code ?? '',
+        city: address?.city ?? '',
+        country: address?.country ?? '',
+    };
+}
+
 // Function form on purpose — see CreateOfferModal: an object literal would
 // make reset() restore the previously booked appointment instead of clearing.
 const form = useForm(() => ({
@@ -73,11 +107,31 @@ const form = useForm(() => ({
     time: '',
     remarks: '',
     fee_acknowledged: false,
+    requested_collection_date: '',
+    collection_note: '',
+    collection_address: vehicleCollectionAddress(),
 }));
 
 const selectedStation = computed(() => props.stations.find((station) => station.station_id === form.station_id) ?? null);
 
-const canSubmit = computed(() => form.station_id !== '' && form.date !== '' && form.time !== '' && form.fee_acknowledged);
+/**
+ * The processing-fee acknowledgement is a B2C rule — a B2B return carries no
+ * cancellation fee — so it is neither shown nor required for a B2B vehicle.
+ * The B2B payload sends only the collection fields: b2bOrderRules() prohibits
+ * station_id, termin, provider and remarks outright.
+ */
+const canSubmit = computed(() => {
+    if (isB2bOrder.value) {
+        return (
+            form.requested_collection_date !== '' &&
+            form.collection_address.street !== '' &&
+            form.collection_address.zip_code !== '' &&
+            form.collection_address.city !== ''
+        );
+    }
+
+    return form.fee_acknowledged && form.station_id !== '' && form.date !== '' && form.time !== '';
+});
 
 watch(selectedBundesland, () => {
     selectedOrt.value = '';
@@ -97,23 +151,59 @@ watch(
         }
         form.reset();
         form.clearErrors();
+        form.collection_address = vehicleCollectionAddress();
         selectedBundesland.value = '';
         selectedOrt.value = '';
+        paymentOrderId.value = null;
     },
 );
 
+/**
+ * Set once booking succeeds and the server says this order still needs a card,
+ * which turns the modal into the payment step. Null for B2B, for Admin booking
+ * on a customer's behalf, and when a usable mandate already exists — those all
+ * close straight away, exactly as before.
+ */
+const page = usePage<SharedData>();
+const paymentOrderId = ref<string | null>(null);
+
 function close() {
+    paymentOrderId.value = null;
     emit('update:open', false);
 }
 
+/** The card is stored; refresh so the new order appears with its real state. */
+function finishAfterPayment() {
+    close();
+    router.reload({ preserveScroll: true });
+}
+
 function submit() {
-    form.transform((data) => ({
-        station_id: data.station_id,
-        termin: `${data.date}T${data.time}:00`,
-        remarks: data.remarks || null,
-    })).post(route('orders.store', props.vehicleId), {
+    form.transform((data) =>
+        isB2bOrder.value
+            ? {
+                  requested_collection_date: data.requested_collection_date,
+                  collection_note: data.collection_note || null,
+                  collection_address: data.collection_address,
+              }
+            : {
+                  station_id: data.station_id,
+                  termin: `${data.date}T${data.time}:00`,
+                  remarks: data.remarks || null,
+              },
+    ).post(route('orders.store', props.vehicleId), {
         preserveScroll: true,
-        onSuccess: close,
+        onSuccess: () => {
+            const created = page.props.flash?.order_created;
+
+            if (created?.requires_payment_method) {
+                paymentOrderId.value = created.order_id;
+
+                return;
+            }
+
+            close();
+        },
     });
 }
 </script>
@@ -121,16 +211,26 @@ function submit() {
 <template>
     <AppModal
         :open="open"
-        title="Auftrag erstellen"
-        description="Bitte füllen Sie alle Details im unten stehenden Formular aus."
-        :width="920"
+        :title="paymentOrderId ? 'Zahlungsmethode hinterlegen' : isB2bOrder ? 'Abholung beauftragen' : 'Auftrag erstellen'"
+        :description="
+            paymentOrderId
+                ? 'Ihr Termin ist gebucht. Hinterlegen Sie zum Abschluss eine Zahlungsmethode als Sicherheit für den Prozess.'
+                : isB2bOrder
+                  ? 'Bitte geben Sie Wunschtermin und Abholadresse an. Ihre Anfrage wird von Leasyback geprüft.'
+                  : 'Bitte füllen Sie alle Details im unten stehenden Formular aus.'
+        "
+        :width="paymentOrderId ? 620 : isB2bOrder ? 720 : 920"
         @update:open="(value) => emit('update:open', value)"
     >
-        <form class="px-2" @submit.prevent="submit">
+        <div v-if="paymentOrderId" class="min-w-0 px-2">
+            <PaymentMethodStep :order-id="paymentOrderId" @complete="finishAfterPayment" />
+        </div>
+
+        <form v-else class="min-w-0 px-2" @submit.prevent="submit">
             <InputError class="mb-3" :message="form.errors.appointment" />
 
-            <div class="grid grid-cols-1 gap-6 md:grid-cols-2 md:items-stretch">
-                <div class="flex h-full flex-col gap-3">
+            <div v-if="!isB2bOrder" class="grid min-w-0 grid-cols-1 gap-6 md:grid-cols-2 md:items-stretch">
+                <div class="flex h-full min-w-0 flex-col gap-3">
                     <div class="grid grid-cols-1 gap-x-3 gap-y-3 sm:grid-cols-2">
                         <div class="flex flex-col gap-1">
                             <label class="text-sm font-semibold text-black">Bundesland</label>
@@ -156,21 +256,21 @@ function submit() {
                     </div>
 
                     <div class="flex flex-col gap-1">
-                        <label class="text-sm font-semibold text-black">Station</label>
+                        <label class="text-sm font-semibold text-black">Station<RequiredMark /></label>
                         <StationSelectField v-model="form.station_id" :stations="filteredStations" :invalid="!!form.errors.station_id" />
                         <InputError :message="form.errors.station_id" />
                     </div>
 
                     <div class="grid grid-cols-1 gap-x-3 gap-y-3 sm:grid-cols-2">
                         <div class="flex flex-col gap-1">
-                            <label class="text-sm font-semibold text-black">Datum</label>
+                            <label class="text-sm font-semibold text-black">Datum<RequiredMark /></label>
                             <CalendarDateField v-model="form.date" :min-days-ahead="3" block-weekends :invalid="!!form.errors.termin" />
                             <InputError :message="form.errors.termin" />
                         </div>
 
                         <div class="flex flex-col gap-1">
-                            <label class="text-sm font-semibold text-black">Uhrzeit</label>
-                            <Input v-model="form.time" type="time" />
+                            <label class="text-sm font-semibold text-black">Uhrzeit<RequiredMark /></label>
+                            <TimeSelectField v-model="form.time" />
                         </div>
                     </div>
 
@@ -184,7 +284,7 @@ function submit() {
                         >
                             <textarea
                                 v-model="form.remarks"
-                                class="h-full w-full resize-none bg-transparent text-sm outline-none"
+                                class="h-full w-full resize-none bg-transparent text-base outline-none md:text-sm"
                                 placeholder="Bemerkungen hinzufügen..."
                             />
                         </div>
@@ -197,7 +297,80 @@ function submit() {
                 </div>
             </div>
 
-            <div class="mt-4 rounded-2xl bg-gray-50 p-4 text-sm">
+            <template v-if="isB2bOrder">
+                <div class="flex items-center gap-3">
+                    <span class="text-sm font-semibold text-black">Abholung</span>
+                    <span class="h-px flex-1 bg-gray-200"></span>
+                </div>
+
+                <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <div class="flex flex-col gap-1">
+                        <label class="text-sm font-semibold text-black">Wunschtermin Abholung<RequiredMark /></label>
+                        <!-- Today at the earliest: the server refuses a past date (after_or_equal:today). -->
+                        <CalendarDateField
+                            v-model="form.requested_collection_date"
+                            :min-days-ahead="0"
+                            :allow-past="false"
+                            :invalid="!!form.errors.requested_collection_date"
+                        />
+                        <InputError :message="form.errors.requested_collection_date" />
+                    </div>
+
+                    <div class="flex flex-col gap-1">
+                        <label class="text-sm font-semibold text-black">
+                            Hinweis zur Abholung
+                            <span class="ml-1 text-xs font-normal text-gray-400">(optional)</span>
+                        </label>
+                        <Input v-model="form.collection_note" placeholder="z. B. Schlüsselübergabe am Empfang" />
+                        <InputError :message="form.errors.collection_note" />
+                    </div>
+                </div>
+
+                <p class="mt-3 text-xs text-gray-400">
+                    Vorbelegt mit der Abholadresse des Fahrzeugs. Änderungen gelten nur für diesen Auftrag. Es wird kein Prüfstationstermin benötigt —
+                    Leasyback holt das Fahrzeug bei Ihnen ab.
+                </p>
+
+                <div class="mt-2 grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <div class="flex flex-col gap-1">
+                        <label class="text-sm font-semibold text-black">Straße<RequiredMark /></label>
+                        <Input v-model="form.collection_address.street" />
+                        <InputError :message="form.errors['collection_address.street']" />
+                    </div>
+
+                    <div class="flex flex-col gap-1">
+                        <label class="text-sm font-semibold text-black">Hausnummer</label>
+                        <Input v-model="form.collection_address.number" />
+                        <InputError :message="form.errors['collection_address.number']" />
+                    </div>
+
+                    <div class="flex flex-col gap-1">
+                        <label class="text-sm font-semibold text-black">Adresszusatz</label>
+                        <Input v-model="form.collection_address.additional_address" />
+                        <InputError :message="form.errors['collection_address.additional_address']" />
+                    </div>
+
+                    <div class="flex flex-col gap-1">
+                        <label class="text-sm font-semibold text-black">PLZ<RequiredMark /></label>
+                        <Input v-model="form.collection_address.zip_code" />
+                        <InputError :message="form.errors['collection_address.zip_code']" />
+                    </div>
+
+                    <div class="flex flex-col gap-1">
+                        <label class="text-sm font-semibold text-black">Ort<RequiredMark /></label>
+                        <Input v-model="form.collection_address.city" />
+                        <InputError :message="form.errors['collection_address.city']" />
+                    </div>
+
+                    <div class="flex flex-col gap-1">
+                        <label class="text-sm font-semibold text-black">Land</label>
+                        <Input v-model="form.collection_address.country" />
+                        <InputError :message="form.errors['collection_address.country']" />
+                    </div>
+                </div>
+            </template>
+
+            <div v-if="!isB2bOrder" class="mt-4 rounded-2xl bg-gray-50 p-4 text-sm">
                 <p class="text-[#00000080]">
                     Mit dem Buchen eines Termins starten Sie den Leasyback-Prozess. Wird der Prozess nicht abgeschlossen, kann eine Bearbeitungsgebühr
                     anfallen.
@@ -215,7 +388,7 @@ function submit() {
             </div>
         </form>
 
-        <template #footer>
+        <template v-if="!paymentOrderId" #footer>
             <AppModalButton :disabled="!canSubmit || form.processing" @click="submit">
                 {{ form.processing ? 'Lädt...' : 'Bestätigen' }}
             </AppModalButton>

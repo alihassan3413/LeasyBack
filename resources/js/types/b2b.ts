@@ -34,6 +34,8 @@ export interface B2bCompanyData {
     logo_path: string | null;
     contact_email: string | null;
     vat_id: string | null;
+    service_fee_amount: string | null;
+    service_fee_effective_from: string | null;
     created_at: string;
     updated_at: string;
     contact: B2bCompanyContact | null;
@@ -98,6 +100,24 @@ export type B2bRoleValue = 'owner' | 'member';
 
 export type B2bVehicleScopeValue = 'all' | 'own';
 
+/** The three named company roles — see App\Enums\B2bRolePreset. */
+export type B2bRolePresetValue = 'company_administrator' | 'standard_user' | 'read_only';
+
+/**
+ * One entry of the role picker. `permissions` and `role` are what the preset
+ * resolves to, carried so the advanced editor can show what a preset would
+ * store without a round trip.
+ */
+export interface B2bRolePresetOption {
+    value: B2bRolePresetValue;
+    label: string;
+    description: string;
+    role: B2bRoleValue;
+    permissions: B2bPermissionValue[];
+    /** Only an owner may hand this one out. */
+    assigns_owner: boolean;
+}
+
 /** One company the signed-in user could act as. */
 export interface B2bCompanySummary {
     b2b_id: string;
@@ -114,14 +134,20 @@ export interface B2bActiveMembership extends B2bCompanySummary {
 }
 
 /**
- * Shared on every Inertia request for Firmenkunde accounts (null otherwise).
- * Used to hide what the server would refuse — never as the authorization
- * itself, which lives in EnsureB2bPermission and VehicleScopeService.
+ * Shared on every Inertia request for accounts that have a company side —
+ * Firmenkunde, and any Privatkunde who accepted a B2B invitation (null
+ * otherwise). Used to hide what the server would refuse — never as the
+ * authorization itself, which lives in EnsureB2bPermission and
+ * VehicleScopeService.
+ *
+ * `active` is null while a dual-context account is acting on its private side.
  */
 export interface B2bSharedState {
     active: B2bActiveMembership | null;
     memberships: B2bCompanySummary[];
     permissions: B2bPermissionValue[];
+    /** True for accounts that keep a private area to switch back to. */
+    personal_available: boolean;
 }
 
 export interface B2bMemberRow {
@@ -131,6 +157,10 @@ export interface B2bMemberRow {
     is_active: boolean;
     role: B2bRoleValue;
     role_label: string;
+    /** null when the rights were hand-picked and match no preset. */
+    preset: B2bRolePresetValue | null;
+    /** The preset's label, or "Individuell" for a custom set. */
+    preset_label: string;
     vehicle_scope: B2bVehicleScopeValue;
     permissions: B2bPermissionValue[];
     joined_at: string | null;
@@ -144,6 +174,8 @@ export interface B2bInvitationRow {
     email: string;
     role: B2bRoleValue;
     role_label: string;
+    preset: B2bRolePresetValue | null;
+    preset_label: string;
     permissions: B2bPermissionValue[];
     vehicle_scope: B2bVehicleScopeValue;
     status: 'pending' | 'accepted' | 'revoked' | 'expired';
@@ -200,8 +232,66 @@ export interface B2bAnalytics {
     members: B2bMemberAnalyticsRow[];
 }
 
+/**
+ * Company return statistics (§17), as B2bStatisticsService::summary() builds
+ * them. Money arrives as decimal *strings* so no amount is ever rounded by a
+ * JavaScript float on the way to the screen; only the derived percentage and
+ * the day average, which are already approximations, come through as numbers.
+ */
+export interface B2bStatisticsOrderTotals {
+    active: number;
+    completed: number;
+    cancelled: number;
+    total: number;
+}
+
+export interface B2bStatisticsSavings {
+    /** Orders with a customer-accepted offer — the only ones a saving is defined for. */
+    orders_counted: number;
+    vehicles_counted: number;
+    appraisal_total_net: string;
+    repair_total_net: string;
+    saving_total_net: string;
+    /** Null when nothing has been accepted yet, so the UI shows a dash rather than 0. */
+    average_saving_per_vehicle_net: string | null;
+    saving_percentage: string | null;
+}
+
+export interface B2bStatusDistributionEntry {
+    status: string;
+    label: string;
+    count: number;
+}
+
+export interface B2bMonthlyVolumeEntry {
+    /** `YYYY-MM`, for keying. `label` is the display form. */
+    month: string;
+    label: string;
+    count: number;
+}
+
+export interface B2bStatistics {
+    orders: B2bStatisticsOrderTotals;
+    savings: B2bStatisticsSavings;
+    processing_time: {
+        average_days: number | null;
+        measured_orders: number;
+    };
+    status_distribution: B2bStatusDistributionEntry[];
+    monthly_volume: B2bMonthlyVolumeEntry[];
+    /** False for a member limited to their own vehicles — the figures are theirs, not the company's. */
+    scope: { company_wide: boolean };
+}
+
 /** Shape both the invite form and the member editor submit. */
 export interface B2bMemberAccessFormData {
+    /**
+     * The named role the picker selected. When set, the server derives role
+     * and permissions from it and ignores the two below — they are still sent
+     * so the advanced editor can show what the preset resolves to, and so a
+     * custom set (preset: null) posts as it always has.
+     */
+    preset: B2bRolePresetValue | null;
     role: B2bRoleValue;
     permissions: B2bPermissionValue[];
     vehicle_scope: B2bVehicleScopeValue;

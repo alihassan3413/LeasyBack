@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { TableCell, TableRow } from '@/components/ui/table';
 import OrderCreationModal from '@/components/vehicle/OrderCreationModal.vue';
+import VehicleActionsMenu from '@/components/vehicle/VehicleActionsMenu.vue';
 import VehicleExpandedPanel from '@/components/vehicle/VehicleExpandedPanel.vue';
 import { useB2bPermissions } from '@/composables/useB2bPermissions';
-import { canStartNewOrder } from '@/lib/customerOrderFlow';
+import { NEW_ORDER_ACTION_LABEL, newOrderAction } from '@/lib/customerOrderFlow';
+import { formatPortalDate } from '@/lib/portalDate';
 import { getOrderStatusLabel } from '@/lib/vehicleStatus';
 import type { StationData } from '@/types/order';
 import type { VehicleData } from '@/types/vehicle';
@@ -13,7 +15,6 @@ import { computed, ref } from 'vue';
 const props = defineProps<{
     vehicle: VehicleData;
     isExpanded: boolean;
-    completed: boolean;
     stations: StationData[];
 }>();
 
@@ -25,40 +26,36 @@ const { can } = useB2bPermissions();
 
 // A company member without orders.create would be refused by the route
 // anyway (b2b.can:orders.create) — don't offer the action.
-const canStartProcess = computed(() => canStartNewOrder(props.vehicle.orders) && can('orders.create'));
+const orderAction = computed(() => (can('orders.create') ? newOrderAction(props.vehicle.orders) : null));
+
+// The row's control is an icon, so its title is the only place the difference
+// between starting and starting over is ever said.
+const orderActionLabel = computed(() => (orderAction.value ? NEW_ORDER_ACTION_LABEL[orderAction.value] : ''));
 
 const vehicleStatus = computed(() => {
-    const current = props.vehicle.orders[0];
+    const current = props.vehicle.current_order;
 
     if (!current) {
         return { label: 'Eingeplant', dotColor: '#ef8450' };
     }
 
     return {
-        label: getOrderStatusLabel(current.order_status),
+        label: getOrderStatusLabel(current.order_status, current.payment?.repair_stage),
         dotColor: current.order_status === 'cancelled' ? '#EF4444' : '#01B990',
     };
 });
 
 function formatDate(value: string | null): string {
-    if (!value) {
-        return '';
-    }
-
-    const date = new Date(value);
-
-    if (Number.isNaN(date.getTime())) {
-        return '';
-    }
-
-    return date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    return formatPortalDate(value);
 }
 
+/**
+ * A finished order used to refuse to open at all — the row swallowed the click
+ * and the panel was suppressed. It is still the one place the customer finds
+ * their Gutachten and their Rechnung, so there was nothing to protect and a
+ * whole section of the dashboard that simply did not respond.
+ */
 function handleClick() {
-    if (props.completed) {
-        return;
-    }
-
     emit('toggle');
 }
 
@@ -73,6 +70,7 @@ function startProcess() {
 
 <template>
     <TableRow
+        :data-vehicle-row="vehicle.vehicle_id"
         class="cursor-pointer border-b border-[#f0f5f5]"
         style="height: 52px"
         :class="isExpanded ? 'bg-gray-50' : 'bg-white'"
@@ -102,9 +100,17 @@ function startProcess() {
                     <IconMdiOpenInNew class="h-[18px] w-[18px]" />
                 </button>
 
-                <button v-if="canStartProcess" class="rounded p-1 transition-opacity hover:bg-orange-50 hover:opacity-70" @click.stop="startProcess">
+                <button
+                    v-if="orderAction"
+                    class="rounded p-1 transition-opacity hover:bg-orange-50 hover:opacity-70"
+                    :title="orderActionLabel"
+                    :aria-label="orderActionLabel"
+                    @click.stop="startProcess"
+                >
                     <IconSolarPlayBold class="h-5 w-5" style="color: rgb(239, 132, 80)" />
                 </button>
+
+                <VehicleActionsMenu :vehicle="vehicle" />
 
                 <button class="transition-transform focus:outline-none" :class="isExpanded ? 'rotate-180' : ''">
                     <IconIcRoundArrowDropDown class="text-[32px] text-gray-400 transition-transform duration-200" />
@@ -113,7 +119,7 @@ function startProcess() {
         </TableCell>
     </TableRow>
 
-    <VehicleExpandedPanel v-if="isExpanded && !completed" :vehicle="vehicle" />
+    <VehicleExpandedPanel v-if="isExpanded" :vehicle="vehicle" />
 
-    <OrderCreationModal v-model:open="orderModalOpen" :vehicle-id="vehicle.vehicle_id" :stations="stations" />
+    <OrderCreationModal v-model:open="orderModalOpen" :vehicle-id="vehicle.vehicle_id" :stations="stations" :vehicle="vehicle" />
 </template>

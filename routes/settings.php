@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\B2bRegistrationController;
 use App\Http\Controllers\Settings\AddressController;
 use App\Http\Controllers\Settings\PasswordController;
 use App\Http\Controllers\Settings\PreferencesController;
@@ -25,6 +26,13 @@ Route::middleware(['auth', 'active'])->group(function () {
     Route::get('settings/address', [AddressController::class, 'edit'])->name('address.edit');
     Route::post('settings/address', [AddressController::class, 'store'])->name('address.store');
     Route::put('settings/address', [AddressController::class, 'update'])->name('address.update');
+
+    // A Firmenkunde has no personal address/contact of its own — the company's
+    // is shown on "Mein Konto" and edited here, so /onboarding/b2b stays a
+    // one-time registration step rather than a second, permanent page for the
+    // same record.
+    Route::put('settings/company', [B2bRegistrationController::class, 'update'])
+        ->middleware('b2b.can:company.manage')->name('company.update');
 
     Route::get('settings/preferences', [PreferencesController::class, 'edit'])->name('preferences.edit');
     Route::post('settings/preferences', [PreferencesController::class, 'store'])->name('preferences.store');

@@ -9,7 +9,11 @@
  * those can never be parts of the same whole, which is why they get their own
  * card and their own noun rather than sharing a bar with the fleet.
  *
- * Colours are the ones the dashboard already uses on its own rows: orange for
+ * Both cards' entries link into the fleet page with that filter applied —
+ * they are shown on the dashboard as a summary and on the fleet page as its
+ * own filter bar, which is why `activeFilter` is optional.
+ *
+ * Colours are the ones the fleet page already uses on its own rows: orange for
  * not-yet-started, green for in flight, deep teal for finished, brand grey for
  * abandoned. No new palette.
  */
@@ -59,7 +63,7 @@ const completionPercent = computed(() => (totalOrders.value === 0 ? 0 : Math.rou
 
 const orderRows = computed(() => [
     { key: 'open', label: 'Laufende Aufträge', value: openOrders.value, filter: 'open', dotClass: 'bg-brand-green' },
-    { key: 'completed', label: 'Abgeschlossene Aufträge', value: completedOrders.value, filter: 'delivered', dotClass: 'bg-brand-teal' },
+    { key: 'completed', label: 'Abgeschlossene Aufträge', value: completedOrders.value, filter: 'completed', dotClass: 'bg-brand-teal' },
 ]);
 
 function isActive(filter: string | null): boolean {
@@ -101,7 +105,7 @@ function isActive(filter: string | null): boolean {
                 <li v-for="segment in segments" :key="segment.key">
                     <component
                         :is="segment.filter ? Link : 'span'"
-                        v-bind="segment.filter ? { href: route('dashboard', { status: segment.filter }), preserveScroll: true } : {}"
+                        v-bind="segment.filter ? { href: route('vehicles.index', { status: segment.filter }), preserveScroll: true } : {}"
                         class="flex items-center gap-2 rounded-full px-2.5 py-1.5 transition-colors"
                         :class="[segment.filter ? 'hover:bg-muted cursor-pointer' : '', isActive(segment.filter) ? 'bg-muted' : '']"
                     >
@@ -112,9 +116,7 @@ function isActive(filter: string | null): boolean {
                 </li>
             </ul>
 
-            <p v-else class="text-muted-foreground mt-3 text-sm">
-                Sobald Sie Fahrzeuge anlegen, sehen Sie hier, wie weit deren Rückgaben sind.
-            </p>
+            <p v-else class="text-muted-foreground mt-3 text-sm">Sobald Sie Fahrzeuge anlegen, sehen Sie hier, wie weit deren Rückgaben sind.</p>
         </section>
 
         <!-- ── RÜCKGABEN ── -->
@@ -141,11 +143,7 @@ function isActive(filter: string | null): boolean {
             <div
                 class="bg-muted mt-5 h-2.5 w-full overflow-hidden rounded-full"
                 role="img"
-                :aria-label="
-                    totalOrders === 0
-                        ? 'Noch keine Aufträge'
-                        : `${completedOrders} von ${totalOrders} Aufträgen abgeschlossen`
-                "
+                :aria-label="totalOrders === 0 ? 'Noch keine Aufträge' : `${completedOrders} von ${totalOrders} Aufträgen abgeschlossen`"
             >
                 <span class="bg-brand-teal block h-full rounded-full transition-[width] duration-300" :style="{ width: `${completionPercent}%` }" />
             </div>
@@ -153,7 +151,7 @@ function isActive(filter: string | null): boolean {
             <ul v-if="totalOrders > 0" class="border-border mt-4 space-y-px border-t pt-2">
                 <li v-for="row in orderRows" :key="row.key">
                     <Link
-                        :href="route('dashboard', { status: row.filter })"
+                        :href="route('vehicles.index', { status: row.filter })"
                         preserve-scroll
                         class="hover:bg-muted flex items-center gap-2.5 rounded-lg px-2 py-2 transition-colors"
                         :class="isActive(row.filter) ? 'bg-muted' : ''"
@@ -164,10 +162,7 @@ function isActive(filter: string | null): boolean {
                         <span class="text-muted-foreground flex-1 truncate text-sm">{{ row.label }}</span>
 
                         <span class="size-2 shrink-0 rounded-full" :class="row.dotClass" aria-hidden="true" />
-                        <span
-                            class="text-sm font-semibold tabular-nums"
-                            :class="row.value === 0 ? 'text-muted-foreground/50' : 'text-brand-teal'"
-                        >
+                        <span class="text-sm font-semibold tabular-nums" :class="row.value === 0 ? 'text-muted-foreground/50' : 'text-brand-teal'">
                             {{ row.value }}
                         </span>
                     </Link>

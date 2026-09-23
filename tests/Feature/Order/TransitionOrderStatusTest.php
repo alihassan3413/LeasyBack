@@ -37,8 +37,14 @@ class TransitionOrderStatusTest extends TestCase
             ['reinspection', 'reworkshop'],
             ['reinspection', 'delivered'],
             ['reinspection', 'cancelled'],
+            // The loop: a failed follow-up sends the car back, and the repeat
+            // repair is finished by another follow-up inspection.
             ['reworkshop', 'reinspection'],
             ['reworkshop', 'cancelled'],
+            // `delivered` is "ready for collection", so the case is still live:
+            // collection closes it, and it can still be cancelled until then.
+            ['delivered', 'completed'],
+            ['delivered', 'cancelled'],
         ];
     }
 
@@ -49,13 +55,17 @@ class TransitionOrderStatusTest extends TestCase
     {
         return [
             ['delivered', 'order_placed'],
-            ['delivered', 'cancelled'],
+            ['delivered', 'inspected'],
+            ['completed', 'delivered'],
+            ['completed', 'cancelled'],
             ['cancelled', 'confirmed'],
             ['discarded', 'order_placed'],
             ['order_requested', 'confirmed'],
             ['order_requested', 'inspected'],
             ['confirmed', 'order_placed'],
             ['inspected', 'confirmed'],
+            // A repeat repair still has to be inspected before the car can be
+            // released — reworkshop cannot shortcut straight to collection.
             ['reworkshop', 'delivered'],
         ];
     }

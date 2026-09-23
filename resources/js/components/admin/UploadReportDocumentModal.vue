@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import UploadDocumentDropzone from '@/components/admin/UploadDocumentDropzone.vue';
 import FormField from '@/components/form/FormField.vue';
+import RequiredMark from '@/components/form/RequiredMark.vue';
 import SelectField, { type SelectFieldOption } from '@/components/form/SelectField.vue';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -132,7 +133,7 @@ function submit() {
                 </FormField>
 
                 <div class="flex flex-col gap-1">
-                    <span class="text-sm font-semibold text-black">{{ isInvoice ? 'Rechnung' : 'Gutachten' }}</span>
+                    <span class="text-sm font-semibold text-black">{{ isInvoice ? 'Rechnung' : 'Gutachten' }}<RequiredMark /></span>
                     <UploadDocumentDropzone v-model="form.file" />
                     <p v-if="form.errors.file" class="text-xs text-red-500">{{ form.errors.file }}</p>
                 </div>

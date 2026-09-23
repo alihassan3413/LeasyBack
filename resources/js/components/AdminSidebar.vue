@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import type { SharedData, User } from '@/types';
 import { useSessionGuard } from '@/composables/useSessionGuard';
+import type { SharedData, User } from '@/types';
 import { router, usePage } from '@inertiajs/vue3';
 import { computed, ref, type Component } from 'vue';
 import MdiAccountGroupOutline from '~icons/mdi/account-group-outline';
@@ -8,6 +8,16 @@ import MdiCarMultiple from '~icons/mdi/car-multiple';
 import MdiClipboardTextClockOutline from '~icons/mdi/clipboard-text-clock-outline';
 import MdiLogoutVariant from '~icons/mdi/logout-variant';
 import MdiViewDashboardOutline from '~icons/mdi/view-dashboard-outline';
+
+const props = withDefaults(
+    defineProps<{
+        /** Drawer state — only consulted below `md`, where the sidebar is off-canvas. */
+        open?: boolean;
+    }>(),
+    { open: false },
+);
+
+const emit = defineEmits<{ (e: 'close'): void }>();
 
 const collapsed = ref(false);
 const page = usePage<SharedData>();
@@ -58,28 +68,44 @@ function isActive(name: string) {
     return new URL(route(name), window.location.origin).pathname === page.url.split('?')[0];
 }
 function navigateTo(name: string) {
+    emit('close');
     router.visit(route(name));
 }
 function logout() {
+    emit('close');
     void useSessionGuard().logout('manual');
 }
 </script>
 
 <template>
     <!--
-    KEY FIX: overflow-visible on the aside so the collapse toggle
-    button (position absolute, -right-3) is NOT clipped.
-    Height is controlled by sticky + h-screen.
-    Inner scroll is handled by the <nav> having overflow-y-auto.
+    Two shapes from one element: an off-canvas drawer below `md` (fixed, slid
+    out by `-translate-x-full`, and `invisible` so its links stay out of the tab
+    order while hidden), a sticky column from `md` up.
+
+    overflow-visible on the aside so the collapse toggle button
+    (position absolute, -right-3) is NOT clipped. Height is controlled by
+    sticky + h-full. Inner scroll is handled by the <nav> having overflow-y-auto.
   -->
     <aside
-        class="sticky top-0 z-50 flex h-full shrink-0 flex-col rounded-[22px] py-5 transition-[width] duration-300 ease-out"
-        :class="collapsed ? 'w-[78px] px-3' : 'w-[224px] px-4'"
+        class="fixed inset-y-0 left-0 z-[70] flex w-[262px] max-w-[82vw] shrink-0 flex-col rounded-none px-4 py-5 transition-transform duration-300 ease-out md:sticky md:inset-y-auto md:top-0 md:z-50 md:h-full md:max-w-none md:translate-x-0 md:rounded-[22px] md:transition-[width]"
+        :class="[props.open ? 'translate-x-0' : 'invisible -translate-x-full md:visible', collapsed ? 'md:w-[78px] md:px-3' : 'md:w-[224px] md:px-4']"
         style="background: linear-gradient(180deg, #10393b 0%, #0d3133 100%); box-shadow: 0 8px 30px rgba(16, 57, 59, 0.18); overflow: visible"
     >
+        <!-- Mobile-only dismiss; the desktop collapse toggle below is hidden here. -->
+        <button
+            type="button"
+            class="absolute top-4 right-3 z-[75] flex h-9 w-9 items-center justify-center rounded-full text-white/60 transition-colors hover:bg-white/10 hover:text-white md:hidden"
+            aria-label="Menü schließen"
+            @click="emit('close')"
+        >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+        </button>
         <!-- ── BRAND ── -->
-        <div class="mb-6 flex shrink-0 items-center overflow-hidden px-1" :class="collapsed ? 'justify-center' : ''">
-            <img src="/leasyback-stacked.png" alt="LeasyBack" class="h-auto shrink-0 object-contain" :class="collapsed ? 'w-full' : 'w-[70%]'" />
+        <div class="mb-6 flex shrink-0 items-center overflow-hidden px-1" :class="collapsed ? 'md:justify-center' : ''">
+            <img src="/leasyback-stacked.png" alt="LeasyBack" class="h-auto w-[70%] shrink-0 object-contain" :class="collapsed ? 'md:w-full' : ''" />
         </div>
 
         <!-- ── COLLAPSE TOGGLE ──
@@ -88,7 +114,7 @@ function logout() {
     -->
         <button
             @click="collapsed = !collapsed"
-            class="absolute top-7 -right-3 z-[60] flex h-6 w-6 items-center justify-center rounded-full border border-[#d8e4e3] bg-white text-[#6f8585] transition-all duration-200 hover:scale-110 hover:border-[#01B990] hover:text-[#10393b]"
+            class="absolute top-7 -right-3 z-[60] hidden h-6 w-6 items-center justify-center rounded-full border border-[#d8e4e3] bg-white text-[#6f8585] transition-all duration-200 hover:scale-110 hover:border-[#01B990] hover:text-[#10393b] md:flex"
             style="box-shadow: 0 2px 10px rgba(16, 57, 59, 0.15)"
         >
             <svg

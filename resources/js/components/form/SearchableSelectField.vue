@@ -57,9 +57,7 @@ const visibleOptions = computed(() => {
         return props.options;
     }
 
-    return props.options.filter((option) =>
-        [option.label, option.description ?? '', option.keywords ?? ''].join(' ').toLowerCase().includes(query),
-    );
+    return props.options.filter((option) => [option.label, option.description ?? '', option.keywords ?? ''].join(' ').toLowerCase().includes(query));
 });
 
 function select(option: SearchableOption) {
@@ -77,7 +75,7 @@ function select(option: SearchableOption) {
                 :aria-invalid="invalid"
                 :aria-describedby="describedBy"
                 :disabled="disabled"
-                class="border-input focus-visible:border-brand-green focus-visible:ring-ring/30 flex h-10 w-full items-center justify-between gap-2 rounded-full border bg-white px-4 text-sm transition-colors focus-visible:ring-2 focus-visible:outline-hidden disabled:cursor-not-allowed disabled:bg-gray-100 disabled:opacity-60 data-[state=open]:border-[#01B990] aria-[invalid=true]:border-red-400 aria-[invalid=true]:bg-red-50"
+                class="border-input focus-visible:border-brand-green focus-visible:ring-ring/30 flex h-10 w-full items-center justify-between gap-2 rounded-full border bg-white px-4 text-sm transition-colors focus-visible:ring-2 focus-visible:outline-hidden disabled:cursor-not-allowed disabled:bg-gray-100 disabled:opacity-60 aria-[invalid=true]:border-red-400 aria-[invalid=true]:bg-red-50 data-[state=open]:border-[#01B990]"
             >
                 <span class="truncate" :class="selected ? 'text-gray-800' : 'text-gray-400'">
                     {{ selected ? selected.label : placeholder }}
@@ -105,7 +103,7 @@ function select(option: SearchableOption) {
                         v-model="search"
                         type="text"
                         :placeholder="searchPlaceholder"
-                        class="w-full bg-transparent text-sm outline-none placeholder:text-gray-400"
+                        class="w-full bg-transparent text-base outline-none placeholder:text-gray-400 md:text-sm"
                     />
                 </div>
             </div>

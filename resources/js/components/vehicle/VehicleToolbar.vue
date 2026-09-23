@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { VEHICLE_STATUS_FILTER_OPTIONS } from '@/lib/vehicleStatus';
+import { vehicleStatusFilterOptions } from '@/lib/vehicleStatus';
+import type { SharedData } from '@/types';
+import { usePage } from '@inertiajs/vue3';
 import { computed } from 'vue';
 import MdiClose from '~icons/mdi/close';
 import MdiFilterVariant from '~icons/mdi/filter-variant';
@@ -34,17 +36,18 @@ const emit = defineEmits<{
     (e: 'reset'): void;
 }>();
 
+const page = usePage<SharedData>();
+
+/** Acting as a company means the B2B process; everyone else is on the B2C one. */
+const statusOptions = computed(() => vehicleStatusFilterOptions(page.props.auth.b2b?.active ? 'B2B' : 'B2C'));
+
 const showMemberFilter = computed(() => props.memberOptions.length > 1);
 
 const activeFilterCount = computed(() => (props.status ? 1 : 0) + (props.createdBy && showMemberFilter.value ? 1 : 0));
 
-const activeStatusLabel = computed(
-    () => VEHICLE_STATUS_FILTER_OPTIONS.find((option) => option.value === props.status)?.label ?? '',
-);
+const activeStatusLabel = computed(() => statusOptions.value.find((option) => option.value === props.status)?.label ?? '');
 
-const activeMemberLabel = computed(
-    () => props.memberOptions.find((option) => String(option.value) === props.createdBy)?.label ?? '',
-);
+const activeMemberLabel = computed(() => props.memberOptions.find((option) => String(option.value) === props.createdBy)?.label ?? '');
 
 const filterButtonLabel = computed(() => activeStatusLabel.value || activeMemberLabel.value || 'Filter');
 </script>
@@ -105,8 +108,20 @@ const filterButtonLabel = computed(() => activeStatusLabel.value || activeMember
                 </div>
 
                 <div class="max-h-64 overflow-y-auto pb-2">
+                    <!-- Mirrors "Alle Mitglieder" below: an explicit way back to the
+                         unfiltered list, rather than only re-clicking the active status. -->
                     <button
-                        v-for="option in VEHICLE_STATUS_FILTER_OPTIONS"
+                        type="button"
+                        class="flex w-full items-center justify-between px-4 py-2 text-left text-sm transition hover:bg-gray-50"
+                        :class="status === '' ? 'font-semibold text-[#10393b]' : 'text-gray-600'"
+                        @click="emit('update:status', '')"
+                    >
+                        <span>Alle Status</span>
+                        <span v-if="status === ''" class="size-2 rounded-full bg-[#01B990]"></span>
+                    </button>
+
+                    <button
+                        v-for="option in statusOptions"
                         :key="option.value"
                         type="button"
                         class="flex w-full items-center justify-between px-4 py-2 text-left text-sm transition hover:bg-gray-50"

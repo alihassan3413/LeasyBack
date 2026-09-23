@@ -2,9 +2,9 @@
 
 namespace App\Modules\UserProfile\Vehicle\Http\Requests;
 
-use App\Enums\VehicleOwnerType;
+use App\Modules\UserProfile\B2B\Services\B2bContext;
+use App\Modules\UserProfile\Vehicle\Support\VehicleRules;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
 
 class StoreVehicleRequest extends FormRequest
 {
@@ -13,22 +13,34 @@ class StoreVehicleRequest extends FormRequest
         return $this->user() !== null;
     }
 
+    /**
+     * Which set of rules applies — company vehicles carry fields a private one
+     * does not. Resolved from the context the user is acting in, so a
+     * Privatkunde who is also a company member gets company rules only while
+     * acting as that company.
+     */
+    private function isB2bContext(): bool
+    {
+        $user = $this->user();
+
+        if ($user === null) {
+            return false;
+        }
+
+        $userType = app(B2bContext::class)->effectiveUserType($user)->value;
+
+        if ($userType === 'Firmenkunde') {
+            return true;
+        }
+
+        return $userType === 'Admin' && $this->input('vehicle_belongs') === 'B2B';
+    }
+
     public function rules(): array
     {
         return [
-            'license_plate' => ['required', 'string', 'unique:vehicles,license_plate'],
-            'first_registration_date' => ['nullable', 'date'],
-            'leasing_end_date' => ['nullable', 'date'],
-            'leasinggeber' => ['nullable', 'string'],
-            'vin' => ['nullable', 'string', 'size:17'],
-            'make' => ['nullable', 'string'],
-            'model' => ['nullable', 'string'],
-            'vehicle_belongs' => [
-                Rule::requiredIf(fn () => $this->user()?->user_type?->value === 'Admin'),
-                'nullable', 'string', Rule::in(VehicleOwnerType::values()),
-            ],
-            'b2b_id' => ['required_if:vehicle_belongs,B2B', 'nullable', 'uuid', 'exists:b2b,b2b_id'],
-            'b2c_user_id' => ['required_if:vehicle_belongs,B2C', 'nullable', 'integer', 'exists:users,id'],
+            ...VehicleRules::forCreation($this->isB2bContext()),
+            ...VehicleRules::ownership($this->user()?->user_type?->value === 'Admin'),
         ];
     }
 }

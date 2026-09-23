@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import RequiredMark from '@/components/form/RequiredMark.vue';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useForm } from '@inertiajs/vue3';
@@ -101,7 +102,7 @@ const labelClass = 'text-sm font-bold text-black';
                 <div>
                     <Label for="current_password" :class="labelClass">
                         Altes Passwort
-                        <span class="text-brand-orange text-sm font-bold">*</span>
+                        <RequiredMark />
                     </Label>
                     <Input
                         id="current_password"
@@ -117,7 +118,7 @@ const labelClass = 'text-sm font-bold text-black';
                 <div>
                     <Label for="new_password" :class="labelClass">
                         Neues Passwort
-                        <span class="text-brand-orange text-sm font-bold">*</span>
+                        <RequiredMark />
                     </Label>
                     <Input
                         id="new_password"
@@ -133,7 +134,9 @@ const labelClass = 'text-sm font-bold text-black';
                 <p class="text-[12px] text-[#7A9699] sm:text-[13px]">Mindestens 8 Zeichen, mit Groß- und Kleinbuchstaben sowie einer Zahl.</p>
             </div>
 
-            <div class="flex flex-col-reverse gap-3 border-t border-[#EDF2F2] bg-[#F8FAFB] px-4 py-4 sm:flex-row sm:items-center sm:justify-end sm:px-8">
+            <div
+                class="flex flex-col-reverse gap-3 border-t border-[#EDF2F2] bg-[#F8FAFB] px-4 py-4 sm:flex-row sm:items-center sm:justify-end sm:px-8"
+            >
                 <button
                     type="button"
                     class="rounded-lg px-4 py-2 text-sm font-semibold text-[#7A9699] transition-colors hover:text-[#10393B]"

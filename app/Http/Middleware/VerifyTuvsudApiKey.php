@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Support\PartnerLifecyclePermissions;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -27,6 +28,12 @@ class VerifyTuvsudApiKey
         if ($providedKey === null || ! hash_equals($expectedKey, $providedKey)) {
             abort(401, 'Invalid API Key');
         }
+
+        // Who the presented secret proves this caller to be. The controller
+        // reads the provider from here rather than assuming it, so the
+        // lifecycle allow-list is keyed on an authenticated identity and never
+        // on anything the request carried.
+        $request->attributes->set(PartnerLifecyclePermissions::REQUEST_ATTRIBUTE, PartnerLifecyclePermissions::TUV_SUD);
 
         return $next($request);
     }

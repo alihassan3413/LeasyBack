@@ -5,6 +5,7 @@ namespace App\Modules\UserProfile\Vehicle\Http\Controllers;
 use App\Models\LeasybackUserProfile;
 use App\Models\Vehicle;
 use App\Models\VehicleAuditLog;
+use App\Modules\UserProfile\B2B\Services\B2bContext;
 use App\Modules\UserProfile\Vehicle\Http\Requests\StoreVehicleRequest;
 use App\Modules\UserProfile\Vehicle\Http\Requests\UpdateVehicleRequest;
 use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
@@ -19,6 +20,7 @@ class VehicleController extends Controller
     public function __construct(
         private VehicleScopeService $scope,
         private VehicleService $vehicleService,
+        private B2bContext $b2bContext,
     ) {}
 
     /**
@@ -160,25 +162,32 @@ class VehicleController extends Controller
     {
         $user = $request->user();
 
-        // Validate ownership
-        if ($user->user_type->value === 'Firmenkunde') {
-            $b2bId = $this->scope->getB2bIdForUser($user->id);
-            if ($ownerId !== $b2bId) {
+        // The owner in the URL must be the caller's own: the company they are
+        // *acting as* (not whichever company or account type the row says),
+        // or their own id when acting privately. Admin may list any owner.
+        $userType = $this->b2bContext->effectiveUserType($user)->value;
+
+        if ($userType === 'Firmenkunde') {
+            if ($ownerId !== $this->scope->getB2bIdForUser($user->id)) {
                 return response()->json(['error' => 'Not Found: You can only view vehicles for your own company'], 404);
             }
-        } elseif ($user->user_type->value === 'Privatkunde') {
+        } elseif ($userType === 'Privatkunde') {
             if ((string) $ownerId !== (string) $user->id) {
                 return response()->json(['error' => 'Not Found: You can only view vehicles of your own'], 404);
             }
         }
 
-        $vehicles = Vehicle::where(function ($q) use ($ownerId) {
+        $query = Vehicle::where(function ($q) use ($ownerId) {
             $q->where(function ($q2) use ($ownerId) {
                 $q2->where('vehicle_belongs', 'B2B')->where('b2b_id', $ownerId);
             })->orWhere(function ($q2) use ($ownerId) {
                 $q2->where('vehicle_belongs', 'B2C')->where('b2c_user_id', $ownerId);
             });
-        })
+        });
+
+        // The same scope every web page and policy uses — this is what keeps a
+        // member restricted to their own vehicles from listing the whole fleet.
+        $vehicles = $this->scope->scopeQuery($query, $user)
             ->orderByDesc('created_at')
             ->get();
 
@@ -191,36 +200,24 @@ class VehicleController extends Controller
     public function dashboard(Request $request): JsonResponse
     {
         $user = $request->user();
-        $userType = $user->user_type->value;
 
-        // Determine belongs/owner_id
-        $belongs = null;
-        $ownerId = null;
-
-        switch ($userType) {
+        // Decided by the context the caller is acting in, not the raw account
+        // type, so a Privatkunde acting as a company gets that company's
+        // vehicles and a company member only the vehicles their scope allows.
+        switch ($this->b2bContext->effectiveUserType($user)->value) {
             case 'Admin':
-                $belongs = 'ALL';
+            case 'Privatkunde':
                 break;
             case 'Firmenkunde':
-                $b2bId = $this->scope->getB2bIdForUser($user->id);
-                if (! $b2bId) {
+                if ($this->scope->getB2bIdForUser($user->id) === null) {
                     return response()->json(['error' => 'Not Found: No B2B company is linked to this authenticated user'], 404);
                 }
-                $belongs = 'B2B';
-                $ownerId = $b2bId;
-                break;
-            case 'Privatkunde':
-                $belongs = 'B2C';
-                $ownerId = $user->id;
                 break;
             default:
                 return response()->json(['error' => 'Only Admin, Firmenkunde or Privatkunde can access this endpoint'], 400);
         }
 
-        // Build query matching Rust CTE logic
-        $query = Vehicle::query()
-            ->when($belongs === 'B2B', fn ($q) => $q->where('vehicle_belongs', 'B2B')->where('b2b_id', $ownerId))
-            ->when($belongs === 'B2C', fn ($q) => $q->where('vehicle_belongs', 'B2C')->where('b2c_user_id', $ownerId))
+        $query = $this->scope->scopeQuery(Vehicle::query(), $user)
             ->orderByDesc('created_at');
 
         $vehicles = $query->get()->map(function ($vehicle) {

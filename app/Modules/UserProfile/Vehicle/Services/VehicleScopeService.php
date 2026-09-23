@@ -6,6 +6,7 @@ use App\Enums\B2bPermission;
 use App\Models\B2B;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Modules\UserProfile\B2B\Data\B2bMembership;
 use App\Modules\UserProfile\B2B\Services\B2bContext;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle as CanonicalVehicle;
 use Illuminate\Database\Eloquent\Builder;
@@ -17,11 +18,16 @@ class VehicleScopeService
     public function __construct(private readonly B2bContext $b2bContext) {}
 
     /**
-     * Resolve the owner UUID for B2B or B2C based on user type.
+     * Resolve the owner UUID for B2B or B2C based on the context the user is
+     * currently acting in.
+     *
+     * Keyed on B2bContext::effectiveUserType() rather than the raw `user_type`
+     * column: a Privatkunde who joined a company is B2C while acting privately
+     * and B2B while acting as that company, and the owner id has to follow.
      */
     public function resolveOwnerId(User $user): ?string
     {
-        return match ($user->user_type->value) {
+        return match ($this->b2bContext->effectiveUserType($user)->value) {
             'Firmenkunde' => $this->getB2bIdForUser($user->id),
             'Privatkunde' => (string) $user->id,
             'Admin' => null, // Admin has no owner scope
@@ -42,6 +48,28 @@ class VehicleScopeService
     }
 
     /**
+     * The `created_by_user_id` a viewer must be narrowed to, or null when they
+     * may see the whole company fleet.
+     *
+     * This is the single definition of the member-level half of vehicle
+     * access. It exists because the rule has two applications: scopeQuery()
+     * below, which builds an Eloquent constraint for policies and detail
+     * lookups, and VehicleService's dashboard listing, which is a query-builder
+     * statement and cannot take an Eloquent scope. Phase 17 finding 1 was
+     * exactly that second application being missing — so the decision now lives
+     * in one place and both callers ask it rather than re-deriving it.
+     *
+     * Accounts not acting as a company are never narrowed: a Privatkunde's own
+     * filter is `b2c_user_id`, and an Admin sees everything.
+     */
+    public function ownVehicleRestrictionFor(User $user): ?int
+    {
+        return $this->b2bContext->activeMembership($user)?->seesOwnVehiclesOnly()
+            ? $user->id
+            : null;
+    }
+
+    /**
      * Scope a vehicle query based on user access.
      *
      * For a Firmenkunde this applies both halves of their access: the company
@@ -53,7 +81,7 @@ class VehicleScopeService
      */
     public function scopeQuery(Builder $query, User $user): Builder
     {
-        return match ($user->user_type->value) {
+        return match ($this->b2bContext->effectiveUserType($user)->value) {
             'Admin' => $query, // no filtering
             'Firmenkunde' => $query->where(function ($q) use ($user) {
                 $membership = $this->b2bContext->activeMembership($user);
@@ -67,8 +95,10 @@ class VehicleScopeService
                 $q->where('vehicle_belongs', 'B2B')
                     ->where('b2b_id', $membership->b2bId);
 
-                if ($membership->seesOwnVehiclesOnly()) {
-                    $q->where('created_by_user_id', $user->id);
+                $restrictedTo = $this->ownVehicleRestrictionFor($user);
+
+                if ($restrictedTo !== null) {
+                    $q->where('created_by_user_id', $restrictedTo);
                 }
             }),
             'Privatkunde' => $query->where(function ($q) use ($user) {
@@ -113,7 +143,13 @@ class VehicleScopeService
      */
     /**
      * Every user who should be notified about this vehicle: the B2C owner, or
-     * all members of the owning B2B company.
+     * the members of the owning B2B company who can actually open it.
+     *
+     * "Can open it" is the same rule scopeQuery() enforces, applied to each
+     * membership rather than to the request user: an active membership that
+     * holds `vehicles.view`, and — for a member limited to their own vehicles
+     * — only when they registered this one. Notifying anyone else sent them a
+     * link that 404s, and told them a vehicle they may not see exists.
      *
      * @return Collection<int, User>
      */
@@ -124,12 +160,37 @@ class VehicleScopeService
         }
 
         if ($vehicle->vehicle_belongs === 'B2B' && $vehicle->b2b_id) {
-            $userIds = DB::table('user_b2b')->where('b2b_id', $vehicle->b2b_id)->pluck('user_id');
+            $userIds = DB::table('user_b2b')
+                ->where('b2b_id', $vehicle->b2b_id)
+                ->where('status', 'active')
+                ->get(['user_id', 'b2b_id', 'role', 'permissions', 'vehicle_scope'])
+                ->map(fn (object $row) => B2bMembership::fromRow($row))
+                ->filter(fn (B2bMembership $membership) => $this->membershipCanSeeVehicle($membership, $vehicle))
+                ->map(fn (B2bMembership $membership) => $membership->userId)
+                ->values();
 
             return User::whereIn('id', $userIds)->get();
         }
 
         return collect();
+    }
+
+    /**
+     * The per-membership half of scopeQuery()'s Firmenkunde branch: company,
+     * `vehicles.view`, and the own-vehicles restriction.
+     */
+    private function membershipCanSeeVehicle(B2bMembership $membership, CanonicalVehicle $vehicle): bool
+    {
+        if ($vehicle->vehicle_belongs !== 'B2B' || $membership->b2bId !== (string) $vehicle->b2b_id) {
+            return false;
+        }
+
+        if (! $membership->can(B2bPermission::ViewVehicles)) {
+            return false;
+        }
+
+        return ! $membership->seesOwnVehiclesOnly()
+            || (int) $vehicle->created_by_user_id === $membership->userId;
     }
 
     public function resolveOwnerContact(CanonicalVehicle $vehicle): ?array

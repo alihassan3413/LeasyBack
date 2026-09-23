@@ -34,6 +34,34 @@ class Notifier
     }
 
     /**
+     * Same delivery, minus the queue hop: every channel runs inline on the
+     * current request. For notifications whose whole value is immediacy —
+     * a message landing in someone's thread — waiting on a worker is the
+     * difference between real-time and eventually. Callers pay the send
+     * latency (Reverb, and WebPush where subscribed) on their own request.
+     *
+     * @param  User|iterable<User>|null  $recipients
+     */
+    public function sendNow(User|iterable|null $recipients, NotificationPayload $payload): void
+    {
+        $users = $this->normalize($recipients);
+
+        if ($users->isEmpty()) {
+            return;
+        }
+
+        try {
+            Notification::sendNow($users, new SystemNotification($payload));
+        } catch (\Throwable $e) {
+            Log::error('Immediate notification dispatch failed', [
+                'type' => $payload->type->value,
+                'recipients' => $users->pluck('id')->all(),
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
      * @param  User|iterable<User>|null  $recipients
      * @return Collection<int, User>
      */
