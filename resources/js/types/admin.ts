@@ -163,8 +163,61 @@ export interface AdminReportDocument {
     path: string;
     published: boolean;
     signed_url: string | null;
+    is_image: boolean;
+    is_pdf: boolean;
     created_at: string;
     updated_at: string;
+}
+
+export type AdminAppraisalExtractionStatus = 'pending' | 'processing' | 'ready' | 'applied' | 'discarded' | 'failed';
+
+/** Matches AppraisalExtractionService::forOrder(). The proposal lines stay server-side until the review step exists. */
+export interface AdminAppraisalExtraction {
+    id: string;
+    status: AdminAppraisalExtractionStatus;
+    source: 'parser' | 'ai' | null;
+    source_document_id: string | null;
+    extractor_version: string | null;
+    attempts: number;
+    line_count: number;
+    total_net: string | null;
+    appraisal_number: string | null;
+    appraisal_date: string | null;
+    lines: AdminAppraisalExtractionLine[];
+    warnings: AdminAppraisalExtractionWarning[];
+    error_code: string | null;
+    error_message: string | null;
+    requested_by_user_id: number | null;
+    applied_at: string | null;
+    applied_by_name: string | null;
+    created_at: string | null;
+    started_at: string | null;
+    completed_at: string | null;
+    failed_at: string | null;
+}
+
+export interface AdminAppraisalExtractionSuggestedImage {
+    document_id: string;
+    url: string;
+    strategy: 'damage_number' | 'text';
+}
+
+export interface AdminAppraisalExtractionLine {
+    component: string;
+    damage_description: string | null;
+    original_amount_net: string | null;
+    chargeable_amount_net: string | null;
+    repair_method: string | null;
+    page_number: number | null;
+    source_text: string | null;
+    confidence: number | null;
+    damage_number: number | null;
+    suggested_images: AdminAppraisalExtractionSuggestedImage[];
+}
+
+export interface AdminAppraisalExtractionWarning {
+    code: string | null;
+    message: string | null;
 }
 
 export interface AdminVehicleDocumentEntry {
@@ -439,6 +492,8 @@ export interface AdminOrderDetail extends AdminOrderRow {
     appraisal_totals: AdminAppraisalTotals;
     /** Both channels — an order with no invitations yet sends an empty list, not null. */
     workshop_quotations: AdminWorkshopQuotation[];
+    /** Newest run first. Empty until an extraction has been started for the order. */
+    appraisal_extractions: AdminAppraisalExtraction[];
     /** B2B only — null on a B2C order, which has no internal billing record. */
     billing: AdminOrderBilling | null;
     /** B2B only — null on a B2C order, and until a Lexware draft is created. */

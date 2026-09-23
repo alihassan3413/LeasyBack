@@ -8,6 +8,7 @@ use App\Modules\UserProfile\B2B\Data\B2bMembership;
 use App\Modules\UserProfile\B2B\Services\B2bServiceFeeService;
 use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
+use App\Modules\UserProfile\Order\Services\AppraisalExtractionService;
 use App\Modules\UserProfile\Order\Services\AppraisalPositionService;
 use App\Modules\UserProfile\Order\Services\B2bBillingService;
 use App\Modules\UserProfile\Order\Services\B2bLexwareDraftService;
@@ -22,6 +23,7 @@ use App\Modules\UserProfile\Order\Services\WorkshopQuotationService;
 use App\Modules\UserProfile\Payment\Enums\PaymentPurpose;
 use App\Modules\UserProfile\Payment\Models\LexwareInvoice;
 use App\Modules\UserProfile\Payment\Models\OrderPayment;
+use App\Modules\UserProfile\Vehicle\Support\ReportDocumentImage;
 use App\Support\PortalTimestamp;
 use App\Support\RepairPaymentPresentation;
 use Carbon\CarbonImmutable;
@@ -40,6 +42,7 @@ class AdminQueryService
         private readonly OrderTaskPriorityResolver $orderTaskPriorityResolver,
         private readonly DetachedOrderTaskResolver $detachedOrderTaskResolver,
         private readonly AppraisalPositionService $appraisalPositionService,
+        private readonly AppraisalExtractionService $appraisalExtractionService,
         private readonly WorkshopQuotationService $workshopQuotationService,
         private readonly RepairOfferService $repairOfferService,
         private readonly WorkshopCommissionService $workshopCommissionService,
@@ -709,6 +712,7 @@ class AdminQueryService
         // null so the card can render its empty state and offer the first
         // invitation instead of disappearing.
         $order['workshop_quotations'] = $this->workshopQuotationService->forOrder($orderId);
+        $order['appraisal_extractions'] = $this->appraisalExtractionService->forOrder($orderId);
         $order['billing'] = $row->vehicle_belongs !== 'B2B'
             ? null
             : $this->b2bBillingService->forOrder($orderId);
@@ -932,6 +936,8 @@ class AdminQueryService
                     // silently always null (temporaryUrl()'s try/catch
                     // swallows the resulting Storage error).
                     $item['signed_url'] = $this->temporaryUrl($document->path, 30, 'documents');
+                    $item['is_image'] = ReportDocumentImage::isImage((string) $document->path);
+                    $item['is_pdf'] = strtolower(pathinfo((string) $document->path, PATHINFO_EXTENSION)) === 'pdf';
 
                     return $item;
                 })->values()->all();

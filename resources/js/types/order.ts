@@ -124,3 +124,9 @@ export interface CustomerOrderRow {
     /** Inspection station name; null for a collection, which happens at the customer's address. */
     location: string | null;
 }
+
+export interface DamageGalleryImage {
+    id: string;
+    url: string;
+    caption?: string | null;
+}

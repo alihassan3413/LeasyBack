@@ -16,6 +16,7 @@ use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Order\Models\WorkshopQuotation;
 use App\Modules\UserProfile\Order\Models\WorkshopQuotationItem;
 use App\Modules\UserProfile\Vehicle\Models\VehicleReportDocument;
+use App\Modules\UserProfile\Vehicle\Support\ReportDocumentImage;
 use App\Notifications\NotificationPayload;
 use App\Services\Notifier;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -51,12 +52,6 @@ use Illuminate\Validation\ValidationException;
 class WorkshopQuotationService
 {
     public const DEFAULT_TTL_DAYS = 14;
-
-    private const DAMAGE_IMAGE_CONTENT_TYPES = [
-        'jpg' => 'image/jpeg',
-        'jpeg' => 'image/jpeg',
-        'png' => 'image/png',
-    ];
 
     public function __construct(private readonly Notifier $notifier) {}
 
@@ -723,7 +718,7 @@ class WorkshopQuotationService
             ->get(['id', 'path'])
             ->mapWithKeys(fn (VehicleReportDocument $document) => [$document->id => [
                 'path' => $document->path,
-                'content_type' => self::DAMAGE_IMAGE_CONTENT_TYPES[strtolower(pathinfo($document->path, PATHINFO_EXTENSION))] ?? null,
+                'content_type' => ReportDocumentImage::contentTypeFor($document->path),
             ]])
             ->filter(fn (array $image) => $image['content_type'] !== null && $disk->exists($image['path']));
     }

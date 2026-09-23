@@ -2,6 +2,7 @@
 
 namespace App\Modules\UserProfile\Admin\Services;
 
+use App\Enums\DocumentType;
 use App\Enums\NotificationType;
 use App\Models\AssessmentDocument;
 use App\Models\User;
@@ -9,9 +10,12 @@ use App\Models\VehicleReportDocument;
 use App\Models\VehicleReportDocumentLog;
 use App\Modules\PartnerApi\Services\PartnerDocumentCatalog;
 use App\Modules\PartnerApi\Services\PartnerWebhookEvents;
+use App\Modules\UserProfile\Order\Jobs\ExtractGutachtenImages;
+use App\Modules\UserProfile\Order\Jobs\StartAppraisalExtraction;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle as CanonicalVehicle;
 use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
+use App\Modules\UserProfile\Vehicle\Support\ReportDocumentImage;
 use App\Notifications\NotificationPayload;
 use App\Services\Notifier;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -35,6 +39,11 @@ use RuntimeException;
  */
 class VehicleReportService
 {
+    private const EXTRACTABLE_DOCUMENT_TYPES = [
+        DocumentType::Gutachten->value,
+        DocumentType::Nachgutachten->value,
+    ];
+
     public function __construct(
         private readonly VehicleScopeService $vehicleScope,
         private readonly Notifier $notifier,
@@ -143,7 +152,22 @@ class VehicleReportService
             $this->notifyDocumentPublished($doc);
         }
 
+        $this->startAppraisalExtraction($doc, $user);
+
         return ['document' => $doc];
+    }
+
+    private function startAppraisalExtraction(VehicleReportDocument $document, User $user): void
+    {
+        $isAppraisal = in_array(strtolower((string) $document->document_type), self::EXTRACTABLE_DOCUMENT_TYPES, true);
+        $isPdf = strtolower(pathinfo((string) $document->path, PATHINFO_EXTENSION)) === 'pdf';
+
+        if (! $isAppraisal || ! $isPdf) {
+            return;
+        }
+
+        StartAppraisalExtraction::dispatch($document->id, $user->id)->afterCommit();
+        ExtractGutachtenImages::dispatch($document->id)->afterCommit();
     }
 
     public function storeGeneratedDocument(
@@ -204,6 +228,17 @@ class VehicleReportService
     public function fileExists(string $path): bool
     {
         return Storage::disk('documents')->exists($path);
+    }
+
+    public function image(VehicleReportDocument $document): ?array
+    {
+        $contentType = ReportDocumentImage::contentTypeFor((string) $document->path);
+
+        if ($contentType === null || ! $this->fileExists($document->path)) {
+            return null;
+        }
+
+        return ['path' => $document->path, 'content_type' => $contentType];
     }
 
     /**

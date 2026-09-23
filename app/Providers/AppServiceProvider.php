@@ -4,6 +4,12 @@ namespace App\Providers;
 
 use App\Modules\PartnerApi\Services\PartnerContext;
 use App\Modules\UserProfile\B2B\Services\B2bContext;
+use App\Modules\UserProfile\Order\Contracts\AppraisalAiExtractor;
+use App\Modules\UserProfile\Order\Contracts\AppraisalDocumentParser;
+use App\Modules\UserProfile\Order\Contracts\PdfTextExtractor;
+use App\Modules\UserProfile\Order\Services\DisabledAppraisalAiExtractor;
+use App\Modules\UserProfile\Order\Services\Extraction\PdfGutachtenParser;
+use App\Modules\UserProfile\Order\Services\Extraction\PdftotextExtractor;
 use App\Modules\UserProfile\Payment\Contracts\LexwareGateway;
 use App\Modules\UserProfile\Payment\Contracts\StripeGateway;
 use App\Modules\UserProfile\Payment\Services\LexwareClient;
@@ -46,6 +52,12 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(StripeGateway::class, StripeClient::class);
 
         $this->app->bind(LexwareGateway::class, LexwareClient::class);
+
+        $this->app->bind(AppraisalDocumentParser::class, PdfGutachtenParser::class);
+
+        $this->app->bind(AppraisalAiExtractor::class, DisabledAppraisalAiExtractor::class);
+
+        $this->app->bind(PdfTextExtractor::class, PdftotextExtractor::class);
     }
 
     /**

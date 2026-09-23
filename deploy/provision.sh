@@ -25,6 +25,8 @@ fi
 # shellcheck source=config.example.sh
 source "${SCRIPT_DIR}/config.sh"
 
+PHP_POST_MAX="${PHP_POST_MAX:-56M}"
+
 if [[ "${EUID}" -ne 0 ]]; then
     echo "ERROR: provision.sh must run as root (use: sudo bash provision.sh)."
     exit 1
@@ -63,7 +65,7 @@ cat >"/etc/php/${PHP_VERSION}/fpm/conf.d/99-leasyback.ini" <<EOF
 ; Managed by deploy/provision.sh
 memory_limit = ${PHP_MEMORY_LIMIT}
 upload_max_filesize = ${PHP_UPLOAD_MAX}
-post_max_size = ${PHP_UPLOAD_MAX}
+post_max_size = ${PHP_POST_MAX}
 max_execution_time = 120
 max_input_time = 120
 expose_php = Off
@@ -230,7 +232,7 @@ sed -e "s|__DOMAIN__|${DOMAIN}|g" \
     -e "s|__APP_DIR__|${APP_DIR}|g" \
     -e "s|__PHP_VERSION__|${PHP_VERSION}|g" \
     -e "s|__REVERB_PORT__|${REVERB_PORT}|g" \
-    -e "s|__UPLOAD_MAX__|${PHP_UPLOAD_MAX}|g" \
+    -e "s|__UPLOAD_MAX__|${PHP_POST_MAX}|g" \
     "${SCRIPT_DIR}/nginx/leasyback.conf.template" >/etc/nginx/sites-available/leasyback.conf
 
 ln -sfn /etc/nginx/sites-available/leasyback.conf /etc/nginx/sites-enabled/leasyback.conf

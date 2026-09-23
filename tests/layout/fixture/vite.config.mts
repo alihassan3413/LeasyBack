@@ -1,7 +1,7 @@
 import tailwindcss from '@tailwindcss/vite';
 import vue from '@vitejs/plugin-vue';
-import Icons from 'unplugin-icons/vite';
 import path from 'node:path';
+import Icons from 'unplugin-icons/vite';
 import { defineConfig } from 'vite';
 
 /**
@@ -23,6 +23,10 @@ export default defineConfig({
             input: {
                 main: path.resolve(import.meta.dirname, 'index.html'),
                 tasks: path.resolve(import.meta.dirname, 'tasks.html'),
+                gallery: path.resolve(import.meta.dirname, 'gallery.html'),
+                picker: path.resolve(import.meta.dirname, 'picker.html'),
+                positions: path.resolve(import.meta.dirname, 'positions.html'),
+                extraction: path.resolve(import.meta.dirname, 'extraction.html'),
             },
         },
     },
