@@ -390,7 +390,12 @@ watch(
                                     </td>
                                 </tr>
 
-                                <VehicleExpandedPanel v-else-if="expandedId === vehicle.vehicle_id && panelVehicle" :vehicle="panelVehicle" admin />
+                                <VehicleExpandedPanel
+                                    v-else-if="expandedId === vehicle.vehicle_id && panelVehicle"
+                                    :vehicle="panelVehicle"
+                                    admin
+                                    :colspan="6"
+                                />
                             </template>
                         </tbody>
                     </table>

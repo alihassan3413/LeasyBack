@@ -55,8 +55,16 @@ const props = withDefaults(
          * section, where that wrapper collapses the cell to zero width.
          */
         embedded?: boolean;
+        /**
+         * Column count of the table this panel is expanded inside. Must match
+         * the host table's real column count — the dashboard has 5, the Admin
+         * vehicle list 6. A colspan larger than the actual column count makes
+         * the browser widen the table with phantom empty columns, leaving
+         * white space on its right side.
+         */
+        colspan?: number;
     }>(),
-    { admin: false, embedded: false },
+    { admin: false, embedded: false, colspan: 5 },
 );
 
 const editVehicleOpen = ref(false);
@@ -428,7 +436,7 @@ function formatDate(value: string | null): string {
 </script>
 
 <template>
-    <VehiclePanelShell :embedded="embedded">
+    <VehiclePanelShell :embedded="embedded" :colspan="colspan">
         <div class="columns-1 gap-4 bg-[#EFEFEF] p-4 *:mb-4 *:break-inside-avoid md:columns-2 2xl:columns-3">
             <div class="flex w-full flex-col overflow-hidden rounded-3xl border bg-white" style="border-color: #ececec">
                 <OrderStatusTimeline
