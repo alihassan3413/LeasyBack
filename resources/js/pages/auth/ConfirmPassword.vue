@@ -34,7 +34,7 @@ const fieldClass = 'h-auto rounded-full border-brand-green-gray bg-white px-4 py
             </p>
 
             <form class="space-y-5" @submit.prevent="submit">
-                <FormField id="password" v-slot="{ id, describedBy, invalid }" label="Passwort" :error="form.errors.password">
+                <FormField id="password" v-slot="{ id, describedBy, invalid }" label="Passwort" required :error="form.errors.password">
                     <PasswordInput
                         :id="id"
                         v-model="form.password"

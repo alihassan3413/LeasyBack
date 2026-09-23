@@ -46,7 +46,7 @@ const fieldClass = 'h-auto rounded-full border-brand-green-gray bg-white px-4 py
             </div>
 
             <form class="space-y-5" @submit.prevent="submit">
-                <FormField id="email" v-slot="{ id, describedBy, invalid }" label="E-Mail-Adresse" :error="form.errors.email">
+                <FormField id="email" v-slot="{ id, describedBy, invalid }" label="E-Mail-Adresse" required :error="form.errors.email">
                     <Input
                         :id="id"
                         v-model="form.email"
@@ -63,7 +63,7 @@ const fieldClass = 'h-auto rounded-full border-brand-green-gray bg-white px-4 py
                 </FormField>
 
                 <div>
-                    <FormField id="password" v-slot="{ id, describedBy, invalid }" label="Passwort" :error="form.errors.password">
+                    <FormField id="password" v-slot="{ id, describedBy, invalid }" label="Passwort" required :error="form.errors.password">
                         <PasswordInput
                             :id="id"
                             v-model="form.password"

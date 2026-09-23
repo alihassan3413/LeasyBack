@@ -46,6 +46,23 @@ const nextPage = ref<number | null>(null);
 
 let boundUserId: number | null = null;
 
+type NotificationHandler = (notification: AppNotification) => void;
+
+const handlers = new Set<NotificationHandler>();
+
+/**
+ * Run `handler` for every notification that arrives over the socket, and stop
+ * when the returned function is called.
+ *
+ * The bell was the only thing listening, so a page whose data the notification
+ * describes stayed one manual refresh behind it. See useLiveUpdates.ts.
+ */
+function onNotification(handler: NotificationHandler): () => void {
+    handlers.add(handler);
+
+    return () => handlers.delete(handler);
+}
+
 /** Returns false when the notification was already known, so a redelivered
  *  broadcast can't inflate the badge or re-fire the toast/sound. */
 function upsert(notification: AppNotification): boolean {
@@ -183,6 +200,8 @@ function listen(userId: number): void {
         useToast().toast(notification.variant, notification.title, { description: notification.body });
         useNotificationSound().playSound();
         showBrowserNotification(notification);
+
+        handlers.forEach((handler) => handler(notification));
     });
 }
 
@@ -209,5 +228,6 @@ export function useNotifications() {
         clearAll,
         listen,
         stopListening,
+        onNotification,
     };
 }

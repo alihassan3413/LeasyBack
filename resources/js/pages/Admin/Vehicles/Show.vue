@@ -6,6 +6,7 @@ import VehicleExpandedPanel from '@/components/vehicle/VehicleExpandedPanel.vue'
 import AdminLayout from '@/layouts/AdminLayout.vue';
 import { getAdminDashboardStatus as getStatus } from '@/lib/adminStatus';
 import { toVehicleData } from '@/lib/adminVehicle';
+import { formatPortalDate } from '@/lib/portalDate';
 import type { AdminVehicleRow } from '@/types/admin';
 import type { StationData } from '@/types/order';
 import { Head, Link, router } from '@inertiajs/vue3';
@@ -48,13 +49,7 @@ const specs = computed(() => [
 ]);
 
 function formatDate(value: string | null): string {
-    if (!value) {
-        return '—';
-    }
-
-    const date = new Date(value);
-
-    return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    return formatPortalDate(value) || '—';
 }
 
 function formatFileSize(bytes: number): string {
@@ -152,15 +147,17 @@ function deleteDocument(documentId: string) {
                         :order-status="currentOrder?.order_status"
                         :available-transitions="currentOrder?.available_transitions"
                         :stations="stations"
-                        :has-open-order="vehicle.has_open_order"
+                        :blocks-new-order="vehicle.blocks_new_order"
                         :can-pull-documents="vehicle.can_pull_documents"
+                        :vehicle-belongs="vehicle.vehicle_belongs"
+                        :collection-address="vehicle.collection_address"
                     />
                 </div>
             </div>
         </template>
 
-        <div class="flex h-full flex-col gap-5">
-            <main class="flex flex-1 flex-col gap-5 overflow-y-auto pr-1 pb-4">
+        <div class="flex flex-col gap-5">
+            <main class="flex flex-col gap-5 pb-4">
                 <section class="grid grid-cols-[1.15fr_1fr_1fr] gap-4 max-[1100px]:grid-cols-1">
                     <div class="identity-card">
                         <div class="absolute -top-24 -right-20 h-64 w-64 rounded-full bg-white/10 blur-2xl"></div>
@@ -306,8 +303,10 @@ function deleteDocument(documentId: string) {
                                 :order-status="order.order_status"
                                 :available-transitions="order.available_transitions"
                                 :stations="stations"
-                                :has-open-order="vehicle.has_open_order"
+                                :blocks-new-order="vehicle.blocks_new_order"
                                 :can-pull-documents="vehicle.can_pull_documents"
+                                :vehicle-belongs="vehicle.vehicle_belongs"
+                                :collection-address="vehicle.collection_address"
                             />
                         </div>
                     </div>

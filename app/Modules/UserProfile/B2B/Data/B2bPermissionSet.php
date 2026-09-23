@@ -69,6 +69,14 @@ final class B2bPermissionSet
         return $this->values;
     }
 
+    /**
+     * Whether every permission in this set is also held by `$other`.
+     */
+    public function isSubsetOf(self $other): bool
+    {
+        return array_diff($this->values, $other->values) === [];
+    }
+
     public function isEmpty(): bool
     {
         return $this->values === [];

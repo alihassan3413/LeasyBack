@@ -133,6 +133,12 @@ return [
     'maintenance' => [
         'driver' => env('APP_MAINTENANCE_DRIVER', 'file'),
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
+
+        /*
+         * Optional downtime notice rendered on the 503 page. Left empty the
+         * page falls back to its generic maintenance copy.
+         */
+        'message' => env('APP_MAINTENANCE_MESSAGE'),
     ],
 
 ];

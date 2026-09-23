@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import RequiredMark from '@/components/form/RequiredMark.vue';
 import InputError from '@/components/InputError.vue';
 import AppLayout from '@/layouts/AppLayout.vue';
 import SettingsLayout from '@/layouts/settings/Layout.vue';
@@ -67,7 +68,7 @@ const updatePassword = () => {
 
                 <form @submit.prevent="updatePassword" class="space-y-6">
                     <div class="grid gap-2">
-                        <Label for="current_password">Current Password</Label>
+                        <Label for="current_password">Current Password<RequiredMark /></Label>
                         <Input
                             id="current_password"
                             ref="currentPasswordInput"
@@ -81,7 +82,7 @@ const updatePassword = () => {
                     </div>
 
                     <div class="grid gap-2">
-                        <Label for="password">New password</Label>
+                        <Label for="password">New password<RequiredMark /></Label>
                         <Input
                             id="password"
                             ref="passwordInput"
@@ -95,7 +96,7 @@ const updatePassword = () => {
                     </div>
 
                     <div class="grid gap-2">
-                        <Label for="password_confirmation">Confirm password</Label>
+                        <Label for="password_confirmation">Confirm password<RequiredMark /></Label>
                         <Input
                             id="password_confirmation"
                             v-model="form.password_confirmation"

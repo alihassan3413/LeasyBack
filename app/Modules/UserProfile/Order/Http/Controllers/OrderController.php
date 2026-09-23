@@ -7,8 +7,10 @@ use App\Models\InspectionStation;
 use App\Models\LeasybackOrder;
 use App\Models\OrderConfirmation;
 use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
+use App\Modules\UserProfile\Order\Services\OrderCollectionService;
 use App\Modules\UserProfile\Order\Services\OrderService;
 use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
+use App\Support\PartnerLifecyclePermissions;
 use Carbon\Carbon;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
@@ -41,6 +43,7 @@ class OrderController extends Controller
             'station_id' => 'required|uuid',
             'termin' => 'required|string',
             'remarks' => 'nullable|string',
+            ...OrderCollectionService::customerRules(false),
         ]);
 
         try {
@@ -65,11 +68,49 @@ class OrderController extends Controller
     }
 
     /**
+     * POST /order/b2b/create/{vehicleId} — B2B collection order. No station,
+     * no appointment, no external call; staged as order_requested for Admin.
+     */
+    public function createB2bCollection(Request $request, string $vehicleId): JsonResponse
+    {
+        $user = $request->user();
+        $vehicle = $this->scope->findVehicleWithAccess($vehicleId, $user);
+
+        if (! $vehicle) {
+            return response()->json(['error' => 'Vehicle not found or access denied'], 404);
+        }
+
+        $validated = $request->validate(OrderCollectionService::b2bOrderRules());
+
+        try {
+            $order = $this->orderService->createB2bCollectionOrder($vehicle, $user, $validated);
+        } catch (HttpResponseException $e) {
+            return $e->getResponse();
+        }
+
+        return response()->json([
+            'message' => 'Collection order request created successfully',
+            'auftragsnummer' => $order->auftragsnummer,
+            'order_id' => $order->id,
+            'order_status' => $order->order_status,
+        ]);
+    }
+
+    /**
      * GET /order/tuvsud/confirm — external callback. API-key auth is
      * enforced by the `tuvsud.webhook` route middleware, not inline here.
+     *
+     * The status it sets is fixed in code, so nothing a caller sends can
+     * redirect it — but it still asks the same ownership question status()
+     * asks, so "may this integration confirm an appointment" has exactly one
+     * answer rather than one per endpoint.
      */
     public function confirm(Request $request): JsonResponse
     {
+        if ($denied = $this->denyUnownedTransition($request, OrderStatus::Confirmed->value)) {
+            return $denied;
+        }
+
         $auftragsnummer = $request->query('auftragsnummer');
         if (! $auftragsnummer) {
             return response()->json(['error' => 'auftragsnummer is required'], 400);
@@ -135,7 +176,9 @@ class OrderController extends Controller
             return response()->json(['error' => 'auftragsnummer and status are required'], 400);
         }
 
-        if (OrderStatus::tryFrom($newStatus) === null) {
+        $target = PartnerLifecyclePermissions::resolveStatus($newStatus);
+
+        if ($target === null) {
             return response()->json(['error' => 'Invalid status value'], 422);
         }
 
@@ -144,10 +187,24 @@ class OrderController extends Controller
             return response()->json(['error' => 'Auftragsnummer not found'], 404);
         }
 
+        // Both questions, in this order: does the edge exist at all, and does
+        // this caller own it. Asking about the graph first keeps an illegal
+        // jump reporting as an illegal jump rather than as a permission
+        // problem, which is what it is for any actor.
+        if (! $this->isReachable($order, $target)) {
+            return response()->json([
+                'error' => "Cannot transition order from '{$order->order_status}' to '{$target}'.",
+            ], 422);
+        }
+
+        if ($denied = $this->denyUnownedTransition($request, $target)) {
+            return $denied;
+        }
+
         try {
             $this->transitionOrderStatus->__invoke(
                 $order,
-                $newStatus,
+                $target,
                 'api_key',
                 'tuvsud_api_key',
                 null,
@@ -160,6 +217,51 @@ class OrderController extends Controller
         }
 
         return response()->json(['status' => 'success', 'message' => 'Status updated']);
+    }
+
+    /**
+     * Is this edge on the canonical graph at all?
+     *
+     * Re-sending the status the order already holds counts: TransitionOrderStatus
+     * treats it as a no-op rather than an error precisely so a redelivered
+     * callback does not fail for doing nothing, and that has to survive this
+     * gate or a provider's retry would start 422-ing.
+     */
+    private function isReachable(LeasybackOrder $order, string $target): bool
+    {
+        if ($order->order_status === $target) {
+            return true;
+        }
+
+        return in_array(
+            $target,
+            TransitionOrderStatus::allowedNextStatuses(
+                $order->order_status,
+                TransitionOrderStatus::isB2bOrder($order),
+            ),
+            true,
+        );
+    }
+
+    /**
+     * Does the authenticated integration own this transition? The provider is
+     * read from the request attribute its middleware set, so a caller cannot
+     * name itself.
+     */
+    private function denyUnownedTransition(Request $request, string $target): ?JsonResponse
+    {
+        $provider = (string) $request->attributes->get(PartnerLifecyclePermissions::REQUEST_ATTRIBUTE, '');
+
+        if (PartnerLifecyclePermissions::owns($provider, $target)) {
+            return null;
+        }
+
+        // Deliberately says only that the transition is not this caller's to
+        // make. Which statuses exist, and where the order currently stands,
+        // are not an unauthorized caller's business.
+        return response()->json([
+            'error' => "This integration may not set order status '{$target}'.",
+        ], 403);
     }
 
     /**
@@ -177,7 +279,7 @@ class OrderController extends Controller
             return response()->json(['error' => 'Order request not found'], 404);
         }
 
-        if (! in_array('order_placed', TransitionOrderStatus::allowedNextStatuses($order->order_status), true)) {
+        if (! in_array('order_placed', TransitionOrderStatus::allowedNextStatuses($order->order_status, TransitionOrderStatus::isB2bOrder($order)), true)) {
             return response()->json([
                 'error' => 'Only order_requested orders can be approved',
                 'current_status' => $order->order_status,
@@ -278,6 +380,7 @@ class OrderController extends Controller
             'station_id' => 'required|uuid',
             'termin' => 'required|string',
             'remarks' => 'nullable|string',
+            ...OrderCollectionService::customerRules(false),
         ]);
 
         $order = $this->orderService->createOtherOrder($vehicle, $user, $validated);

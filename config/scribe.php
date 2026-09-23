@@ -46,6 +46,16 @@ return [
     // a JSON API contract. UserProfile, DekraProcess, and other business
     // modules are excluded because they have not been reviewed/hardened
     // under this auth work yet.
+    //
+    // `api/v1/partner/*` is deliberately **not** here. The Partner API is a
+    // third-party-facing contract whose documentation is itself the deliverable,
+    // and it has its own generator config — `config/scribe_partner.php`, driven
+    // by `php artisan partner:docs`. Two reasons it is not a second group in
+    // this file: these docs are served from the unauthenticated `/docs` route
+    // and nothing partner-facing may be generated into `public/`; and a partner
+    // handed a reference must not have to scroll past our internal auth module
+    // to find their own endpoints. Documenting a route in exactly one place also
+    // means "which artefact do I regenerate" has one answer.
     'routes' => [
         [
             'match' => [

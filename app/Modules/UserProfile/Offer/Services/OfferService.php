@@ -3,25 +3,35 @@
 namespace App\Modules\UserProfile\Offer\Services;
 
 use App\Enums\NotificationType;
-use App\Mail\StatusChangeNotification;
+use App\Enums\OrderStatus;
 use App\Models\LeasybackOffer;
 use App\Models\LeasybackOrder;
 use App\Models\OfferAuditLog;
 use App\Models\OrderAuditLog;
 use App\Models\User;
+use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
+use App\Modules\UserProfile\Order\Services\AdminOfferDecisionAnnouncer;
+use App\Modules\UserProfile\Order\Services\PartnerOfferAnnouncer;
+use App\Modules\UserProfile\Order\Services\RepairOfferService;
 use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
 use App\Notifications\NotificationPayload;
+use App\Services\Mail\OrderMailer;
 use App\Services\Notifier;
+use App\Support\OfferPricingPolicy;
+use App\Support\OneSelectedOfferPerOrder;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 
 class OfferService
 {
     public function __construct(
         private readonly VehicleScopeService $vehicleScope,
         private readonly Notifier $notifier,
+        private readonly OrderMailer $orderMailer,
+        private readonly RepairOfferService $repairOfferService,
+        private readonly PartnerOfferAnnouncer $announcer,
+        private readonly AdminOfferDecisionAnnouncer $adminAnnouncer,
     ) {}
 
     /**
@@ -33,6 +43,18 @@ class OfferService
      */
     public function createOffer(LeasybackOrder $order, array $validated, User $user): LeasybackOffer
     {
+        // The same boundaries as a quotation-backed offer: nothing to offer on
+        // a closed order, and no second offer once the customer has decided.
+        $status = LeasybackOrder::whereKey($order->id)->value('order_status');
+
+        if ($status === null || in_array($status, OrderStatus::closedValues(), true)) {
+            $this->fail(422, 'Für einen abgeschlossenen oder stornierten Auftrag kann kein Angebot mehr erstellt werden.');
+        }
+
+        if (LeasybackOffer::where('order_id', $order->id)->where('offer_status', 'selected')->exists()) {
+            $this->fail(422, 'Für diesen Auftrag wurde bereits ein Angebot angenommen. Ein weiteres Angebot kann nicht erstellt werden.');
+        }
+
         return DB::transaction(function () use ($order, $validated, $user) {
             $maxSeq = LeasybackOffer::where('order_id', $order->id)->max('offer_sequence') ?? 0;
 
@@ -42,6 +64,7 @@ class OfferService
                 'offer_sequence' => $maxSeq + 1,
                 'offer_status' => 'draft',
                 ...$validated,
+                'vat_rate' => OfferPricingPolicy::rateFor(TransitionOrderStatus::isB2bOrder($order)),
                 'created_by_user_id' => $user->id,
             ]);
 
@@ -57,6 +80,39 @@ class OfferService
             $this->fail(400, 'Only draft offers can be published');
         }
 
+        /*
+         * A closed case has nothing left to decide. Publishing into one put a
+         * live "Reparatur freigeben" action in front of a customer whose order
+         * had already ended — by their own rejection, by a no-show, or by
+         * completion — and no acceptance path behind it.
+         */
+        $order = LeasybackOrder::find($offer->order_id);
+
+        if ($order !== null && in_array($order->order_status, OrderStatus::closedValues(), true)) {
+            $this->fail(422, 'Der Auftrag ist bereits abgeschlossen. Für einen abgeschlossenen Auftrag kann kein Angebot mehr veröffentlicht werden.');
+        }
+
+        // Once the customer has accepted an offer the decision is made (see
+        // replayOrConflict()). Publishing a second one would put an
+        // acceptance button in front of them that can only ever fail.
+        if (LeasybackOffer::where('order_id', $offer->order_id)->whereIn('offer_status', ['selected'])->exists()) {
+            $this->fail(422, 'Für diesen Auftrag wurde bereits ein Angebot angenommen. Ein weiteres Angebot kann nicht veröffentlicht werden.');
+        }
+
+        /*
+         * Net, not gross: a B2B offer carries no gross at all
+         * (OfferPricingPolicy stamps no rate for that channel), so a gross
+         * check would refuse every B2B offer ever written. Net is the figure
+         * both channels populate.
+         *
+         * An offer with nothing to pay is a data error rather than a free
+         * repair: it reaches the customer as "0,00 €", settles to a payment
+         * nobody owes, and bills a 0,00 € invoice to the accounting system.
+         */
+        if (bccomp((string) ($offer->final_total_net ?? '0'), '0', 2) <= 0) {
+            $this->fail(422, 'Ein Angebot über 0,00 € kann nicht veröffentlicht werden. Bitte prüfen Sie die Beträge.');
+        }
+
         $offer = DB::transaction(function () use ($offer, $user) {
             $offer->update([
                 'offer_status' => 'published',
@@ -64,18 +120,35 @@ class OfferService
                 'published_by_user_id' => $user->id,
             ]);
 
+            // Freezes what the customer is about to see (§10). A no-op for a
+            // manually created offer, which has no presentation row to freeze.
+            $this->repairOfferService->snapshotOnPublish($offer);
+
+            // The snapshot re-derives the totals from the positions as they
+            // stand now, so the 0,00 € guard above has to hold for the frozen
+            // figures too — otherwise a position edited away between drafting
+            // and publishing slips a 0,00 € offer past it. Raised inside the
+            // transaction, so the snapshot rolls back with it.
+            if (bccomp((string) ($offer->fresh()?->final_total_net ?? '0'), '0', 2) <= 0) {
+                $this->fail(422, 'Ein Angebot über 0,00 € kann nicht veröffentlicht werden. Bitte prüfen Sie die Beträge.');
+            }
+
             $this->auditOffer($offer, 'published', ['offer_status' => 'draft'], ['offer_status' => 'published'], $user->id);
 
-            return $offer->fresh();
+            $published = $offer->fresh();
+
+            // After the snapshot, so the event carries the frozen lines rather
+            // than the pre-publish draft. The announcer decides on its own
+            // whether a partner should hear about this offer at all.
+            $this->announcer->announce('published', $published);
+
+            return $published;
         });
 
         // A published offer is the moment the customer has something
-        // actionable to review — the second of the two real notification
-        // triggers this checkpoint wires up (order-created and
-        // order-status-changed cover the rest; see OrderService/
-        // TransitionOrderStatus). Reuses StatusChangeNotification's
-        // existing generic "there's an update to your vehicle" copy rather
-        // than inventing offer-specific content.
+        // actionable to review, so it gets its own "Reparaturangebot liegt
+        // vor" email (OrderMailer::repairQuotationAvailable) rather than the
+        // generic status-update copy.
         $this->notifyOfferPublished($offer);
 
         return $offer;
@@ -84,7 +157,18 @@ class OfferService
     public function cancelOffer(LeasybackOffer $offer, ?string $reason, User $user): LeasybackOffer
     {
         return DB::transaction(function () use ($offer, $reason, $user) {
+            /** @var LeasybackOffer $offer */
+            $offer = LeasybackOffer::whereKey($offer->getKey())->lockForUpdate()->firstOrFail();
             $oldStatus = $offer->offer_status;
+
+            // Only an offer nobody has decided on can be withdrawn. An accepted
+            // offer is the customer's repair authorisation — cancelling it
+            // would leave its closed siblings with no way back and silently
+            // drop the order out of the savings figures — and a rejected one
+            // is the customer's answer, which must not be overwritten.
+            if (! in_array($oldStatus, ['draft', 'published'], true)) {
+                $this->fail(422, 'Nur Entwürfe und veröffentlichte Angebote können storniert werden.');
+            }
 
             $offer->update([
                 'offer_status' => 'cancelled',
@@ -95,7 +179,18 @@ class OfferService
 
             $this->auditOffer($offer, 'cancelled', ['offer_status' => $oldStatus], ['offer_status' => 'cancelled'], $user->id);
 
-            return $offer->fresh();
+            $cancelled = $offer->fresh();
+
+            // `offer.updated` and not a withdrawal event of its own: what
+            // changed is the status of an offer the customer has already been
+            // shown, and there is no `offer.withdrawn` in the vocabulary
+            // because there is no separate state. An offer cancelled while
+            // still a draft was never presented and emits nothing.
+            if ($oldStatus === 'published') {
+                $this->announcer->announce('updated', $cancelled);
+            }
+
+            return $cancelled;
         });
     }
 
@@ -105,92 +200,225 @@ class OfferService
      * (OfferPolicy::select) — this assumes the caller is already allowed
      * to select $offer.
      *
-     * @return array{offer: LeasybackOffer, closed_count: int}
-     */
-    /**
+     * At most one offer per order may ever hold `selected`, and that is
+     * guaranteed by a partial unique index rather than by this method being
+     * careful: the check the service makes and the constraint the database
+     * makes answer the same question, so bypassing the service cannot produce
+     * a second accepted offer either.
+     *
+     * The returned `already_selected` marks a replay: the decision it
+     * describes was made by an earlier request, and this call wrote nothing
+     * and sent nothing.
+     *
      * @param  bool  $onBehalfOfCustomer  True when an admin accepts for the
      *                                    customer. Only changes the audit
      *                                    trail — the state transition and its
      *                                    guards are identical either way, and
      *                                    `selected_by_user_id` records who
      *                                    actually clicked regardless.
+     * @return array{offer: LeasybackOffer, closed_count: int, already_selected: bool}
      */
     public function selectOffer(LeasybackOffer $offer, User $user, bool $onBehalfOfCustomer = false): array
     {
-        if ($offer->offer_status !== 'published') {
+        try {
+            $result = DB::transaction(fn () => $this->decide($offer, $user, $onBehalfOfCustomer));
+        } catch (UniqueConstraintViolationException $e) {
+            if (! str_contains($e->getMessage(), OneSelectedOfferPerOrder::INDEX)) {
+                throw $e;
+            }
+
+            // Lost the race on the index rather than on the in-transaction
+            // re-read — the other request committed in the window between the
+            // two. The outcome is decided by whichever offer actually won, not
+            // by who arrived second.
+            $result = $this->settleLostRace($offer);
+        }
+
+        // After the commit, and only for the request that really made the
+        // decision: a replay must not send a second acceptance mail.
+        if (! $result['already_selected']) {
+            $this->notifyOfferSelected($result['offer'], $onBehalfOfCustomer);
+        }
+
+        return $result;
+    }
+
+    /**
+     * The decision itself, always inside a transaction.
+     *
+     * Reading the order's current decision here rather than before the
+     * transaction is what makes the operation idempotent and safe at once: a
+     * replay of the same decision finds it already made and writes nothing, a
+     * different decision is refused, and both answers are derived from the
+     * same locked read that guards the write.
+     *
+     * @return array{offer: LeasybackOffer, closed_count: int, already_selected: bool}
+     */
+    private function decide(LeasybackOffer $offer, User $user, bool $onBehalfOfCustomer): array
+    {
+        /** @var LeasybackOffer $locked */
+        $locked = LeasybackOffer::whereKey($offer->getKey())->lockForUpdate()->firstOrFail();
+
+        $decided = LeasybackOffer::where('order_id', $locked->order_id)
+            ->where('offer_status', 'selected')
+            ->lockForUpdate()
+            ->first();
+
+        if ($decided !== null) {
+            return $this->replayOrConflict($decided, $locked);
+        }
+
+        if ($locked->offer_status !== 'published') {
             $this->fail(400, 'This offer is no longer available');
         }
 
-        $alreadySelected = LeasybackOffer::where('order_id', $offer->order_id)
-            ->where('offer_status', 'selected')
-            ->exists();
+        // Acceptance is the repair authorisation (§10). A cancelled or
+        // otherwise closed order has nothing left to authorise, whether the
+        // customer clicks or an admin accepts on their behalf.
+        $orderStatus = LeasybackOrder::whereKey($locked->order_id)->value('order_status');
 
-        if ($alreadySelected) {
-            $this->fail(400, 'An offer has already been selected for this order');
+        if ($orderStatus === null || in_array($orderStatus, OrderStatus::closedValues(), true)) {
+            $this->fail(422, 'Der Auftrag ist bereits abgeschlossen oder storniert. Das Angebot kann nicht mehr angenommen werden.');
+        }
+
+        // A quotation-backed offer may carry a validity date (§10). Enforced
+        // here rather than in the controller so the customer route and Admin's
+        // accept-on-behalf route are both covered by the one rule. A manually
+        // created offer has no presentation row, so expiredOn() is null for it
+        // and this guard leaves the fallback untouched.
+        //
+        // Checked after the decision read on purpose: an offer that was
+        // accepted while still valid stays accepted, so a replay arriving
+        // after the validity date is answered from the decision above rather
+        // than refused here.
+        $expiredOn = $this->repairOfferService->expiredOn($locked);
+
+        if ($expiredOn !== null) {
+            $this->fail(422, sprintf(
+                'Dieses Angebot war bis zum %s gültig und kann nicht mehr freigegeben werden. Bitte fordern Sie ein neues Angebot an.',
+                $expiredOn->format('d.m.Y'),
+            ));
         }
 
         $closedCount = 0;
+        $offer = $locked;
 
-        DB::transaction(function () use ($offer, $user, $onBehalfOfCustomer, &$closedCount) {
-            $offer->update([
-                'offer_status' => 'selected',
-                'selected_at' => now(),
-                'selected_by_user_id' => $user->id,
+        $offer->update([
+            'offer_status' => 'selected',
+            'selected_at' => now(),
+            'selected_by_user_id' => $user->id,
+        ]);
+
+        $this->auditOffer(
+            $offer,
+            $onBehalfOfCustomer ? 'selected_by_admin_on_behalf' : 'selected_by_customer',
+            ['offer_status' => 'published'],
+            ['offer_status' => 'selected'],
+            $user->id,
+        );
+
+        $siblingIds = LeasybackOffer::where('order_id', $offer->order_id)
+            ->where('offer_id', '!=', $offer->offer_id)
+            ->where('offer_status', 'published')
+            ->pluck('offer_id');
+
+        $closedCount = $siblingIds->count();
+
+        if ($closedCount > 0) {
+            LeasybackOffer::whereIn('offer_id', $siblingIds)->update([
+                'offer_status' => 'closed',
+                'closed_at' => now(),
             ]);
 
-            $this->auditOffer(
-                $offer,
-                $onBehalfOfCustomer ? 'selected_by_admin_on_behalf' : 'selected_by_customer',
-                ['offer_status' => 'published'],
-                ['offer_status' => 'selected'],
-                $user->id,
-            );
-
-            $siblingIds = LeasybackOffer::where('order_id', $offer->order_id)
-                ->where('offer_id', '!=', $offer->offer_id)
-                ->where('offer_status', 'published')
-                ->pluck('offer_id');
-
-            $closedCount = $siblingIds->count();
-
-            if ($closedCount > 0) {
-                LeasybackOffer::whereIn('offer_id', $siblingIds)->update([
-                    'offer_status' => 'closed',
-                    'closed_at' => now(),
+            foreach ($siblingIds as $siblingId) {
+                OfferAuditLog::create([
+                    'auftragsnummer' => $offer->auftragsnummer,
+                    'offer_id' => $siblingId,
+                    'order_id' => $offer->order_id,
+                    'action' => 'closed_after_customer_selection',
+                    'old_values' => ['offer_status' => 'published'],
+                    'new_values' => ['offer_status' => 'closed'],
+                    'changed_by_user_id' => $user->id,
                 ]);
 
-                foreach ($siblingIds as $siblingId) {
-                    OfferAuditLog::create([
-                        'auftragsnummer' => $offer->auftragsnummer,
-                        'offer_id' => $siblingId,
-                        'order_id' => $offer->order_id,
-                        'action' => 'closed_after_customer_selection',
-                        'old_values' => ['offer_status' => 'published'],
-                        'new_values' => ['offer_status' => 'closed'],
-                        'changed_by_user_id' => $user->id,
-                    ]);
-                }
+                // A sibling the customer had been shown is no longer on
+                // the table. Announced as `offer.updated` for the same
+                // reason a withdrawal is: the offer changed, it was not
+                // decided.
+                $this->announcer->announce(
+                    'updated',
+                    LeasybackOffer::where('offer_id', $siblingId)->first(),
+                );
             }
+        }
 
-            // Offer selection deliberately never touches order_status
-            // (Checkpoint 6/7 decisions: stays fully independent, no
-            // confirmed product requirement to auto-transition). It's
-            // still a real order-lifecycle touchpoint worth recording on
-            // the order's own audit trail, per
-            // docs/B2C_ADMIN_STATUS_MATRIX.md §6's "offer-related order
-            // touchpoints" — otherwise nothing on the order itself shows
-            // an offer was ever selected.
-            OrderAuditLog::create([
-                'order_id' => $offer->order_id,
-                'vehicle_id' => $offer->order?->vehicle_id,
-                'action' => 'OFFER_SELECTED',
-                'old_values' => null,
-                'new_values' => ['offer_id' => $offer->offer_id],
-                'changed_by_user_id' => $user->id,
-            ]);
-        });
+        // Offer selection deliberately never touches order_status
+        // (Checkpoint 6/7 decisions: stays fully independent, no
+        // confirmed product requirement to auto-transition). It's
+        // still a real order-lifecycle touchpoint worth recording on
+        // the order's own audit trail, per
+        // docs/B2C_ADMIN_STATUS_MATRIX.md §6's "offer-related order
+        // touchpoints" — otherwise nothing on the order itself shows
+        // an offer was ever selected.
+        OrderAuditLog::create([
+            'order_id' => $offer->order_id,
+            'vehicle_id' => $offer->order?->vehicle_id,
+            'action' => 'OFFER_SELECTED',
+            'old_values' => null,
+            'new_values' => ['offer_id' => $offer->offer_id],
+            'changed_by_user_id' => $user->id,
+        ]);
 
-        return ['offer' => $offer->fresh(), 'closed_count' => $closedCount];
+        $this->announcer->announce('accepted', $offer->fresh());
+
+        return [
+            'offer' => $offer->fresh() ?? $offer,
+            'closed_count' => $closedCount,
+            'already_selected' => false,
+        ];
+    }
+
+    /**
+     * An offer on this order is already selected. Whether that is a replay or
+     * a conflict is decided by *which* offer it is, never by who is asking:
+     * the customer double-clicking, the customer retrying after a dropped
+     * response and an admin accepting the same offer on their behalf all
+     * describe one decision that has already been made.
+     *
+     * @return array{offer: LeasybackOffer, closed_count: int, already_selected: bool}
+     */
+    private function replayOrConflict(LeasybackOffer $decided, LeasybackOffer $requested): array
+    {
+        if ($decided->getKey() === $requested->getKey()) {
+            return ['offer' => $decided, 'closed_count' => 0, 'already_selected' => true];
+        }
+
+        $this->fail(409, sprintf(
+            'Für diesen Auftrag wurde bereits Angebot %d angenommen. Eine Entscheidung kann nicht geändert werden.',
+            $decided->offer_sequence,
+        ));
+    }
+
+    /**
+     * The index refused the write, so another request decided this order
+     * first. Re-read who won and answer exactly as the in-transaction check
+     * would have: the same offer is a replay, a different one is a conflict.
+     *
+     * @return array{offer: LeasybackOffer, closed_count: int, already_selected: bool}
+     */
+    private function settleLostRace(LeasybackOffer $requested): array
+    {
+        $decided = LeasybackOffer::where('order_id', $requested->order_id)
+            ->where('offer_status', 'selected')
+            ->first();
+
+        if ($decided === null) {
+            // The winner disappeared between the violation and this read —
+            // no state to report, and retrying blindly could double-decide.
+            $this->fail(409, 'Die Angebotsauswahl konnte nicht abgeschlossen werden. Bitte laden Sie die Seite neu.');
+        }
+
+        return $this->replayOrConflict($decided, $requested);
     }
 
     private function auditOffer(LeasybackOffer $offer, string $action, ?array $old, ?array $new, ?int $userId): void
@@ -227,24 +455,21 @@ class OfferService
             ),
         );
 
-        $owner = $this->vehicleScope->resolveOwnerContact($vehicle);
-        if ($owner === null) {
-            Log::warning('Could not resolve a vehicle owner contact — skipping offer-published notification', [
-                'auftragsnummer' => $offer->auftragsnummer,
-                'offer_id' => $offer->offer_id,
-            ]);
+        $this->orderMailer->repairQuotationAvailable($offer);
+    }
 
-            return;
-        }
+    /**
+     * Best-effort, never breaks the selection if the send fails.
+     */
+    private function notifyOfferSelected(LeasybackOffer $offer, bool $onBehalfOfCustomer): void
+    {
+        $this->orderMailer->repairApprovalConfirmed($offer);
 
-        try {
-            Mail::to($owner['email'])->queue(new StatusChangeNotification(
-                firstName: $owner['name'],
-                licensePlate: $vehicle->license_plate,
-                actionUrl: rtrim((string) config('app.frontend_url'), '/').'/dashboard',
-            ));
-        } catch (\Throwable $e) {
-            Log::error('Offer-published notification failed', ['offer_id' => $offer->offer_id, 'error' => $e->getMessage()]);
+        // An admin who accepted on the customer's behalf is already on the
+        // order — telling Admin what Admin just did is noise, and the audit
+        // trail already separates the two cases.
+        if (! $onBehalfOfCustomer) {
+            $this->adminAnnouncer->accepted($offer);
         }
     }
 

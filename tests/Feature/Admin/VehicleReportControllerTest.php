@@ -33,6 +33,8 @@ class VehicleReportControllerTest extends TestCase
         $admin = $this->admin();
         $vehicle = Vehicle::factory()->create();
 
+        LeasybackOrder::factory()->create(['vehicle_id' => $vehicle->vehicle_id, 'auftragsnummer' => 'AUF-12345678']);
+
         $response = $this->actingAs($admin)
             ->post(route('admin.vehicles.reports.upload', $vehicle->vehicle_id), [
                 'auftragsnummer' => 'AUF-12345678',
@@ -70,6 +72,8 @@ class VehicleReportControllerTest extends TestCase
         $admin = $this->admin();
         $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
         $vehicle = Vehicle::factory()->create(['vehicle_belongs' => 'B2C', 'b2c_user_id' => $owner->id]);
+
+        LeasybackOrder::factory()->create(['vehicle_id' => $vehicle->vehicle_id, 'auftragsnummer' => 'AUF-DRAFT-UP']);
 
         $this->actingAs($admin)
             ->post(route('admin.vehicles.reports.upload', $vehicle->vehicle_id), [
@@ -116,6 +120,8 @@ class VehicleReportControllerTest extends TestCase
         $admin = $this->admin();
         $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
         $vehicle = Vehicle::factory()->create(['vehicle_belongs' => 'B2C', 'b2c_user_id' => $owner->id]);
+
+        LeasybackOrder::factory()->create(['vehicle_id' => $vehicle->vehicle_id, 'auftragsnummer' => 'AUF-PUB-UP']);
 
         $this->actingAs($admin)
             ->post(route('admin.vehicles.reports.upload', $vehicle->vehicle_id), [

@@ -9,7 +9,9 @@ use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Order\Models\OrderStatusUpdate;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle;
 use App\Modules\UserProfile\Vehicle\Models\VehicleDocument;
+use App\Modules\UserProfile\Vehicle\Models\VehicleReportDocument;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Inertia\Testing\AssertableInertia;
 use Tests\TestCase;
 
@@ -50,6 +52,30 @@ class VehicleDashboardControllerTest extends TestCase
                 ->has('vehicles.0.documents', 1)
                 ->where('vehicles.0.documents.0.document_type', 'Leasingvertrag')
                 ->has('vehicles.0.orders', 0)
+            );
+    }
+
+    /**
+     * The customer's document rows offer "open/download" purely from this
+     * signed URL — without it the dashboard panel can only offer a delete
+     * button, with no way to read back what was uploaded.
+     */
+    public function test_dashboard_documents_carry_a_signed_url_to_open_them(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create(['b2c_user_id' => $owner->id]);
+        VehicleDocument::factory()->create(['vehicle_id' => $vehicle->vehicle_id, 'document_type' => 'Leasingvertrag']);
+
+        $this->actingAs($owner)
+            ->get(route('dashboard'))
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->whereNot('vehicles.0.documents.0.url', null)
+            );
+
+        $this->actingAs($owner)
+            ->get(route('vehicles.show', $vehicle->vehicle_id))
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->whereNot('vehicle.documents.0.url', null)
             );
     }
 
@@ -146,8 +172,10 @@ class VehicleDashboardControllerTest extends TestCase
             ->from(route('dashboard'))
             ->post(route('vehicles.store'), [
                 'license_plate' => 'K LB 2026',
+                'vin' => 'WVWZZZ1JZXW000001',
                 'make' => 'Volkswagen',
                 'model' => 'Golf',
+                'leasinggeber' => 'Alte Bank',
             ])
             ->assertRedirect(route('dashboard'));
 
@@ -156,6 +184,64 @@ class VehicleDashboardControllerTest extends TestCase
             'vehicle_belongs' => 'B2C',
             'b2c_user_id' => $owner->id,
         ]);
+    }
+
+    public function test_vehicle_is_not_created_without_the_mandatory_fields(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+
+        $this->actingAs($owner)
+            ->from(route('dashboard'))
+            ->post(route('vehicles.store'), ['license_plate' => 'K LB 2026'])
+            ->assertSessionHasErrors(['vin', 'make', 'leasinggeber']);
+
+        $this->assertDatabaseMissing('vehicles', ['license_plate' => 'K LB 2026']);
+    }
+
+    public function test_blank_leasinggeber_is_only_accepted_when_declared_unknown(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+
+        $payload = [
+            'license_plate' => 'K LB 2026',
+            'vin' => 'WVWZZZ1JZXW000001',
+            'make' => 'Volkswagen',
+            'leasinggeber' => '',
+        ];
+
+        $this->actingAs($owner)
+            ->from(route('dashboard'))
+            ->post(route('vehicles.store'), $payload)
+            ->assertSessionHasErrors('leasinggeber');
+
+        $this->assertDatabaseMissing('vehicles', ['license_plate' => 'K LB 2026']);
+
+        $this->actingAs($owner)
+            ->from(route('dashboard'))
+            ->post(route('vehicles.store'), [...$payload, 'leasinggeber_unknown' => true])
+            ->assertRedirect(route('dashboard'));
+
+        $this->assertDatabaseHas('vehicles', ['license_plate' => 'K LB 2026', 'leasinggeber' => null]);
+    }
+
+    public function test_mandatory_fields_cannot_be_blanked_by_an_update(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create([
+            'b2c_user_id' => $owner->id,
+            'vehicle_belongs' => 'B2C',
+            'vin' => 'WVWZZZ1JZXW000001',
+            'make' => 'Volkswagen',
+        ]);
+
+        $this->actingAs($owner)
+            ->from(route('dashboard'))
+            ->patch(route('vehicles.update', $vehicle->vehicle_id), ['vin' => null, 'make' => null])
+            ->assertSessionHasErrors(['vin', 'make']);
+
+        $fresh = $vehicle->fresh();
+        $this->assertSame('WVWZZZ1JZXW000001', $fresh->vin);
+        $this->assertSame('Volkswagen', $fresh->make);
     }
 
     public function test_owner_can_update_own_vehicle(): void
@@ -171,6 +257,87 @@ class VehicleDashboardControllerTest extends TestCase
         $this->assertSame('Volkswagen', $vehicle->fresh()->make);
     }
 
+    /**
+     * Ticking "Das genaue Datum des Leasingendes liegt mir aktuell nicht vor"
+     * sends an explicit null for the field. That has to reach the column: the
+     * update used to drop nulls, so the old date came straight back into the
+     * vehicle card and the edit looked like it had been ignored.
+     */
+    public function test_owner_can_clear_leasing_end_date_and_leasinggeber(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create([
+            'b2c_user_id' => $owner->id,
+            'vehicle_belongs' => 'B2C',
+            'leasing_end_date' => '2026-01-01',
+            'leasinggeber' => 'Alte Bank',
+        ]);
+
+        $this->actingAs($owner)
+            ->from(route('dashboard'))
+            ->patch(route('vehicles.update', $vehicle->vehicle_id), [
+                'leasing_end_date' => null,
+                'leasinggeber' => null,
+                'leasinggeber_unknown' => true,
+            ])
+            ->assertRedirect(route('dashboard'));
+
+        $fresh = $vehicle->fresh();
+        $this->assertNull($fresh->leasing_end_date);
+        $this->assertNull($fresh->leasinggeber);
+
+        $this->actingAs($owner)
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('vehicles.0.leasing_end_date', null)
+                ->where('vehicles.0.leasinggeber', null)
+            );
+    }
+
+    /**
+     * An emptied text input arrives as "" rather than null, and means the same
+     * thing — otherwise the field reads back as set and the "liegt mir nicht
+     * vor" checkbox would not come back ticked on the next edit.
+     */
+    public function test_owner_can_clear_leasinggeber_with_an_empty_string(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create([
+            'b2c_user_id' => $owner->id,
+            'vehicle_belongs' => 'B2C',
+            'leasinggeber' => 'Alte Bank',
+        ]);
+
+        $this->actingAs($owner)
+            ->from(route('dashboard'))
+            ->patch(route('vehicles.update', $vehicle->vehicle_id), ['leasinggeber' => '', 'leasinggeber_unknown' => true])
+            ->assertRedirect(route('dashboard'));
+
+        $this->assertNull($vehicle->fresh()->leasinggeber);
+    }
+
+    public function test_update_leaves_omitted_fields_alone(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create([
+            'b2c_user_id' => $owner->id,
+            'vehicle_belongs' => 'B2C',
+            'leasing_end_date' => '2026-01-01',
+            'leasinggeber' => 'Alte Bank',
+        ]);
+
+        $this->actingAs($owner)
+            ->from(route('dashboard'))
+            ->patch(route('vehicles.update', $vehicle->vehicle_id), ['make' => 'Volkswagen'])
+            ->assertRedirect(route('dashboard'));
+
+        $fresh = $vehicle->fresh();
+        $this->assertSame('Volkswagen', $fresh->make);
+        $this->assertSame('2026-01-01', $fresh->leasing_end_date->format('Y-m-d'));
+        $this->assertSame('Alte Bank', $fresh->leasinggeber);
+    }
+
     public function test_non_owner_cannot_update_vehicle(): void
     {
         $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
@@ -183,5 +350,134 @@ class VehicleDashboardControllerTest extends TestCase
             ->assertNotFound();
 
         $this->assertSame('Original', $vehicle->fresh()->make);
+    }
+
+    /**
+     * Typing make and model together used to return nothing, because every
+     * word was matched against one column at a time and no single column
+     * holds "BMW X5".
+     */
+    public function test_search_matches_words_spread_across_columns(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        Vehicle::factory()->create(['b2c_user_id' => $owner->id, 'license_plate' => 'K LB 1', 'make' => 'BMW', 'model' => 'X5']);
+        Vehicle::factory()->create(['b2c_user_id' => $owner->id, 'license_plate' => 'K LB 2', 'make' => 'BMW', 'model' => 'X3']);
+        Vehicle::factory()->create(['b2c_user_id' => $owner->id, 'license_plate' => 'K LB 3', 'make' => 'Audi', 'model' => 'X5']);
+
+        $this->actingAs($owner)
+            ->get(route('dashboard', ['search' => 'BMW X5']))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->has('vehicles', 1)
+                ->where('vehicles.0.license_plate', 'K LB 1')
+            );
+    }
+
+    public function test_search_still_matches_a_single_column_phrase(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        Vehicle::factory()->create(['b2c_user_id' => $owner->id, 'license_plate' => 'K LB 1', 'make' => 'BMW', 'model' => 'X5']);
+        Vehicle::factory()->create(['b2c_user_id' => $owner->id, 'license_plate' => 'M AB 9', 'make' => 'Audi', 'model' => 'A4']);
+
+        $this->actingAs($owner)
+            ->get(route('dashboard', ['search' => 'K LB 1']))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->has('vehicles', 1)
+                ->where('vehicles.0.license_plate', 'K LB 1')
+            );
+    }
+
+    public function test_search_returns_nothing_when_one_word_matches_no_column(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        Vehicle::factory()->create(['b2c_user_id' => $owner->id, 'make' => 'BMW', 'model' => 'X5']);
+
+        $this->actingAs($owner)
+            ->get(route('dashboard', ['search' => 'BMW Passat']))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page->has('vehicles', 0));
+    }
+
+    /**
+     * The edit form binds these straight into CalendarDateField, which reads
+     * `YYYY-MM-DD`. Serialised as the default ISO-8601 timestamp they rendered
+     * as "13T00:00:00.000000Z.03.2026".
+     */
+    public function test_dashboard_sends_vehicle_dates_without_a_time_component(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        Vehicle::factory()->create([
+            'b2c_user_id' => $owner->id,
+            'first_registration_date' => '2021-03-14',
+            'leasing_end_date' => '2026-03-13',
+        ]);
+
+        $this->actingAs($owner)
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('vehicles.0.first_registration_date', '2021-03-14')
+                ->where('vehicles.0.leasing_end_date', '2026-03-13')
+            );
+    }
+
+    /** Rows written before the `date:Y-m-d` cast still hold "2026-03-13 00:00:00". */
+    public function test_dashboard_normalises_a_stored_date_that_still_carries_a_time(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create(['b2c_user_id' => $owner->id]);
+
+        DB::table('vehicles')
+            ->where('vehicle_id', $vehicle->vehicle_id)
+            ->update(['leasing_end_date' => '2026-03-13 00:00:00']);
+
+        $this->actingAs($owner)
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('vehicles.0.leasing_end_date', '2026-03-13')
+            );
+    }
+
+    /**
+     * The customer timeline decides which stages are complete partly from the
+     * report documents it is given — a published Nachgutachten is what marks
+     * the reinspection stage done, because B2C has no order status that says
+     * so. That makes "the customer is never handed a draft" a guarantee the
+     * timeline leans on, not just a privacy nicety: a report an admin has
+     * uploaded but not released must not light up a stage, and must not be
+     * downloadable either.
+     *
+     * Admin deliberately does receive drafts (see
+     * VehicleControllerTest::test_admin_sees_unpublished_report_documents_with_their_state),
+     * which is why the flow builder filters on `published` rather than trusting
+     * whatever payload it is rendered from.
+     */
+    public function test_the_customer_payload_never_carries_an_unpublished_report(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        $vehicle = Vehicle::factory()->create(['b2c_user_id' => $owner->id]);
+        $order = LeasybackOrder::factory()->create([
+            'vehicle_id' => $vehicle->vehicle_id,
+            'order_status' => 'inspected',
+        ]);
+
+        foreach ([['gutachten', true], ['nachgutachten', false]] as [$type, $published]) {
+            VehicleReportDocument::factory()->create([
+                'auftragsnummer' => $order->auftragsnummer,
+                'vehicle_id' => $vehicle->vehicle_id,
+                'document_type' => $type,
+                'published' => $published,
+            ]);
+        }
+
+        $this->actingAs($owner)
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->has('vehicles.0.orders.0.report_documents', 1)
+                ->where('vehicles.0.orders.0.report_documents.0.document_type', 'gutachten')
+            );
     }
 }

@@ -1,0 +1,126 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-15T00:00:00Z",
+  "title": "Design System: LeasyBack",
+  "extensions": {
+    "colorMeta": {
+      "brand-orange": { "role": "primary", "displayName": "Brand Orange", "canonical": "#EF8450" },
+      "brand-green": { "role": "secondary", "displayName": "Brand Teal-Green", "canonical": "#01B990" },
+      "brand-teal": { "role": "neutral", "displayName": "Brand Ink", "canonical": "#10393B" },
+      "brand-green-gray": { "role": "neutral", "displayName": "Brand Muted", "canonical": "#B7C2C2" },
+      "brand-black": { "role": "neutral", "displayName": "Brand Body", "canonical": "#2E3E3F" },
+      "surface-white": { "role": "neutral", "displayName": "Surface White", "canonical": "#FFFFFF" },
+      "admin-mist": { "role": "neutral", "displayName": "Admin Mist", "canonical": "#F8FAF9" },
+      "admin-hairline": { "role": "neutral", "displayName": "Admin Hairline", "canonical": "#EEF3F2" },
+      "admin-label": { "role": "neutral", "displayName": "Admin Label", "canonical": "#9BB0AF" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Landing hero headline only." },
+      "heading": { "displayName": "Heading", "purpose": "Section and card-title headings across admin and customer screens." },
+      "body": { "displayName": "Body", "purpose": "Dominant text size across the product." },
+      "label": { "displayName": "Label / Eyebrow", "purpose": "Uppercase kicker labels and admin table column headers." }
+    },
+    "shadows": [
+      { "name": "card-rest", "value": "0 6px 22px rgba(16, 57, 59, 0.04)", "purpose": "Default elevation for .content-card, the standard white card surface." },
+      { "name": "card-elevated", "value": "0 20px 45px rgba(1, 185, 144, 0.24)", "purpose": "The gradient identity-card surface at the top of Admin/*/Show.vue pages." },
+      { "name": "sidebar-panel", "value": "0 8px 30px rgba(16, 57, 59, 0.18)", "purpose": "The dark sidebar shell, customer and admin." },
+      { "name": "modal-drop", "value": "drop-shadow(0 10px 30px rgba(0, 0, 0, 0.15))", "purpose": "AppModal's shadow, applied via filter since its shape comes from a CSS mask." },
+      { "name": "drift-gray-lg", "value": "0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1)", "purpose": "Non-canonical: stock Tailwind shadow-lg found on unstyled floating elements (e.g. the dashboard FAB). Flagged as drift, not recommended." }
+    ],
+    "motion": [
+      { "name": "ease-standard", "value": "150ms ease", "purpose": "Default transition timing for hover/focus state changes on admin chrome (search, pagination)." },
+      { "name": "ease-modal", "value": "200ms", "purpose": "Dialog open/close animate-in/out duration on the base Dialog primitive." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Main call-to-action button. Auth/landing use a sharp 5px radius; elsewhere the base Button component defaults to pill.",
+      "html": "<button class=\"ds-btn-primary\">Einloggen</button>",
+      "css": ".ds-btn-primary { background: #EF8450; color: #FFFFFF; padding: 12px 24px; border: none; border-radius: 5px; font-size: 14px; font-weight: 700; transition: background 0.15s ease; } .ds-btn-primary:hover { background: rgba(239,132,80,0.9); } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 2px #FFFFFF, 0 0 0 4px #01B990; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Base text field. Pill radius is baked into the shared component, not a page-level override.",
+      "html": "<input class=\"ds-input\" placeholder=\"E-Mail-Adresse\" />",
+      "css": ".ds-input { width: 100%; height: 40px; border-radius: 9999px; border: 1px solid #B7C2C2; background: #FFFFFF; padding: 0 16px; font-size: 14px; color: #2E3E3F; } .ds-input:focus-visible { outline: none; border-color: #01B990; box-shadow: 0 0 0 2px rgba(1,185,144,0.3); } .ds-input::placeholder { color: #B7C2C2; }"
+    },
+    {
+      "name": "Status Badge",
+      "kind": "chip",
+      "refersTo": "badge-status",
+      "description": "Pill-shaped status indicator. Color source currently varies by screen; this shows the canonical positive-state treatment.",
+      "html": "<span class=\"ds-badge ds-badge-positive\">Geprüft</span>",
+      "css": ".ds-badge { display: inline-flex; align-items: center; border-radius: 9999px; padding: 2px 10px; font-size: 12px; font-weight: 600; } .ds-badge-positive { background: rgba(1,185,144,0.15); color: #01843C; }"
+    },
+    {
+      "name": "Content Card",
+      "kind": "card",
+      "refersTo": "card-content",
+      "description": "The standard white card surface used across ~14 admin/customer files.",
+      "html": "<div class=\"ds-card\"><div class=\"ds-card-title\">Fahrzeugdaten</div><div class=\"ds-card-body\">Kennzeichen · VIN · Modell</div></div>",
+      "css": ".ds-card { background: #FFFFFF; border: 1px solid #EEF3F2; border-radius: 24px; padding: 24px; box-shadow: 0 6px 22px rgba(16, 57, 59, 0.04); } .ds-card-title { font-size: 16px; font-weight: 700; color: #10393B; margin-bottom: 8px; } .ds-card-body { font-size: 14px; color: #2E3E3F; }"
+    },
+    {
+      "name": "Identity Card",
+      "kind": "card",
+      "refersTo": "card-elevated",
+      "description": "Elevated gradient surface used at the top of every Admin/*/Show.vue page.",
+      "html": "<div class=\"ds-card-elevated\"><div class=\"ds-card-elevated-title\">Übersicht</div></div>",
+      "css": ".ds-card-elevated { position: relative; min-height: 160px; border: 1px solid #01B990; border-radius: 26px; background: linear-gradient(145deg, #55bd99 0%, #0a8d70 100%); padding: 28px; box-shadow: 0 20px 45px rgba(1, 185, 144, 0.24); color: #FFFFFF; } .ds-card-elevated-title { font-size: 18px; font-weight: 700; }"
+    },
+    {
+      "name": "Sidebar Nav Item",
+      "kind": "nav",
+      "refersTo": null,
+      "description": "Active-state nav item on the dark-teal-gradient sidebar shared by customer and admin shells.",
+      "html": "<div class=\"ds-sidebar\"><a class=\"ds-nav-item ds-nav-item-active\">Dashboard</a><a class=\"ds-nav-item\">Fahrzeuge</a></div>",
+      "css": ".ds-sidebar { background: linear-gradient(180deg, #10393B 0%, #0D3133 100%); box-shadow: 0 8px 30px rgba(16, 57, 59, 0.18); padding: 12px; border-radius: 22px; display: flex; flex-direction: column; gap: 4px; width: 224px; } .ds-nav-item { display: block; padding: 10px 14px; border-radius: 10px; font-size: 14px; color: rgba(255,255,255,0.7); text-decoration: none; } .ds-nav-item-active { background: #01B990; color: #FFFFFF; font-weight: 600; }"
+    },
+    {
+      "name": "AppModal (signature)",
+      "kind": "custom",
+      "refersTo": null,
+      "description": "The product's distinctive default modal shape: a scalloped notch cut into the top-right corner via a CSS mask, with an overhanging circular close button. Simplified here as a static approximation — the real component drives the notch from a conic-gradient mask.",
+      "html": "<div class=\"ds-modal-wrap\"><button class=\"ds-modal-close\" aria-label=\"Schließen\">×</button><div class=\"ds-modal\"><div class=\"ds-modal-title\">Fahrzeug hinzufügen</div><div class=\"ds-modal-body\">Formularinhalt</div></div></div>",
+      "css": ".ds-modal-wrap { position: relative; display: inline-block; } .ds-modal { background: #FFFFFF; border: 1px solid #C6C6CD; border-radius: 20px; padding: 24px; width: 420px; filter: drop-shadow(0 10px 30px rgba(0,0,0,0.15)); clip-path: polygon(0 0, calc(100% - 56px) 0, calc(100% - 56px) 56px, 100% 56px, 100% 100%, 0 100%); } .ds-modal-title { font-size: 20px; font-weight: 700; color: #000000; margin-bottom: 12px; } .ds-modal-body { font-size: 14px; color: #2E3E3F; } .ds-modal-close { position: absolute; top: -4px; right: -4px; z-index: 1; width: 44px; height: 44px; border-radius: 9999px; background: #10B981; color: #FFFFFF; border: none; font-size: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.2); cursor: pointer; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Current-state baseline (documentary, not aspirational)",
+    "overview": "This document captures LeasyBack's visual system as currently implemented — a factual baseline recorded ahead of a planned redesign, not an aspirational description. A prior design critique and technical audit found this system reads as generic/\"AI-generated\" in places (excessive pill shapes, decorative gradients, inconsistent surface treatment); this file documents what those findings were measured against, so a future redesign has an accurate anti-reference rather than guessing at the starting point. The product identity is built on three brand colors — dark teal, teal-green, and orange — applied with real consistency across both the B2C customer product and the B2B admin product (confirmed: no divergent palette between the two). Where the system is inconsistent is in structure: radius, shadow, card treatment, and pill usage vary from screen to screen with no single enforced rule, even though the color identity itself holds together.",
+    "keyCharacteristics": [
+      "One consistent three-color brand identity (dark teal / teal-green / orange) shared across every surface, customer and admin alike.",
+      "Pill/full-radius shape is systemic, not incidental — baked into the base Input and Badge components themselves.",
+      "Auth and landing screens use a sharper 5px control radius that the rest of the product doesn't share.",
+      "Two shadow vocabularies coexist: a brand-tinted soft-elevation family (canonical) and plain default-Tailwind-gray shadows left over from unstyled components.",
+      "A stock shadcn-derived token layer exists in parallel to the brand tokens and is largely, but not entirely, unused.",
+      "Single typeface throughout (Instrument Sans); hierarchy currently comes from ad hoc size/weight combinations rather than a small enforced scale."
+    ],
+    "rules": [
+      { "name": "The Unused Blue Rule", "body": "--primary/--secondary/--accent/--chart-* still carry their original shadcn-scaffold blue and are not part of the brand, yet still leak through on unstyled components like the default Checkbox. Treat as a known gap, not a second valid accent.", "section": "colors" },
+      { "name": "The One-Family Rule", "body": "There is no second typeface anywhere in the product — every weight and size variation comes from Instrument Sans alone.", "section": "typography" },
+      { "name": "The Ink-Tint Rule", "body": "A shadow belongs to the system only if its color is derived from --brand-teal (rgba(16, 57, 59, …)) or, for the one green-gradient surface, --brand-green. A plain black/gray shadow on a new component is a missed override, not a style choice.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do use the three brand tokens (--brand-orange, --brand-green, --brand-teal) via their existing Tailwind utilities rather than hex literals.",
+      "Do treat brand-tinted shadows (rgba(16, 57, 59, …)) as the only canonical shadow family.",
+      "Do keep the pill shape for inputs and badges — it's load-bearing in the base component kit, not a one-off."
+    ],
+    "donts": [
+      "Don't hardcode brand hex values directly in new markup — use the existing brand-token utilities instead.",
+      "Don't leave a component on the stock shadcn --primary/--secondary/--accent blue.",
+      "Don't mix plain default-Tailwind-gray shadows into the same screen as the brand-tinted shadow family.",
+      "Don't treat this file's inventory of current inconsistencies as license to add a third variant of any of them — they are documented as known gaps to resolve, not options to choose from."
+    ]
+  }
+}

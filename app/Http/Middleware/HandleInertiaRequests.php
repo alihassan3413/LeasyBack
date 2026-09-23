@@ -96,11 +96,37 @@ class HandleInertiaRequests extends Middleware
             'notifications' => [
                 'unread_count' => $request->user() ? $request->user()->unreadNotifications()->count() : 0,
             ],
+            // The *publishable* key, and deliberately nothing else from the
+            // 'stripe' config block. It is designed to be public — Stripe.js
+            // cannot mount a card field without it — whereas the secret and
+            // the webhook secret never leave the server. Shared globally like
+            // `name` rather than passed as a page prop so the payment
+            // component works wherever it is mounted (the onboarding wizard,
+            // the dashboard banner, the pay page) without three call sites
+            // remembering to hand it over.
+            //
+            // Null when unconfigured rather than an empty string, so the
+            // frontend can tell "payments are not set up here" from "the key
+            // is blank", and fail visibly instead of half-rendering.
+            'stripe' => [
+                'key' => config('services.stripe.key') ?: null,
+            ],
+            // The fee named in the cancellation confirmation the customer has
+            // to agree to. Shared rather than hardcoded in the copy for the
+            // reason config/payments.php gives for holding it at all: the
+            // amount must not become a literal at a call site, least of all in
+            // the sentence someone is agreeing to.
+            'payments' => [
+                'cancellation_fee_cents' => (int) config('payments.cancellation_fee_cents'),
+            ],
             'flash' => [
                 'success' => $request->session()->get('success'),
                 'error' => $request->session()->get('error'),
                 'info' => $request->session()->get('info'),
                 'warning' => $request->session()->get('warning'),
+                'workshop_link' => $request->session()->get('workshop_link'),
+                'vehicle_import' => $request->session()->get('vehicle_import'),
+                'order_created' => $request->session()->get('order_created'),
             ],
         ]);
     }
@@ -109,14 +135,24 @@ class HandleInertiaRequests extends Middleware
      * @return array{
      *     active: array<string, mixed>|null,
      *     memberships: list<array<string, mixed>>,
-     *     permissions: list<string>
+     *     permissions: list<string>,
+     *     personal_available: bool
      * }|null
      */
     private function b2bState(Request $request): ?array
     {
         $user = $request->user();
 
-        if ($user === null || $user->user_type !== UserType::Firmenkunde) {
+        if ($user === null || $user->user_type === UserType::Admin) {
+            return null;
+        }
+
+        $memberships = $this->b2bContext->memberships($user);
+
+        // Nothing company-shaped about this account: a Werkstatt, or a
+        // Privatkunde who was never invited anywhere. Null is what tells the
+        // frontend "company permissions do not apply to you".
+        if ($memberships === [] && $user->user_type !== UserType::Firmenkunde) {
             return null;
         }
 
@@ -124,6 +160,9 @@ class HandleInertiaRequests extends Middleware
 
         return [
             'active' => $active?->toSharedArray(),
+            // A Privatkunde who joined a company keeps their private side and
+            // can switch back to it; the switcher needs to know it exists.
+            'personal_available' => $this->b2bContext->hasPersonalContext($user),
             // Only what a company switcher needs — not each membership's full
             // permission set, which is nobody's business but the active one's.
             'memberships' => array_map(
@@ -132,9 +171,9 @@ class HandleInertiaRequests extends Middleware
                     'company_name' => $membership->companyName,
                     'logo_url' => $membership->companyLogoUrl,
                     'role' => $membership->role->value,
-                    'role_label' => $membership->role->label(),
+                    'role_label' => $membership->roleLabel(),
                 ],
-                $this->b2bContext->memberships($user),
+                $memberships,
             ),
             'permissions' => $active?->permissions->toArray() ?? [],
         ];

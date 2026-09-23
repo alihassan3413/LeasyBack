@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import AdminLayout from '@/layouts/AdminLayout.vue';
 import { ADMIN_ORDER_STATUS_FILTERS, getAdminDashboardStatus as getStatus } from '@/lib/adminStatus';
-import type { AdminSummaryData } from '@/types/admin';
-import { Head, router } from '@inertiajs/vue3';
+import { PORTAL_LOCALE, PORTAL_TIME_ZONE, formatPortalDate } from '@/lib/portalDate';
+import type { AdminOpenTaskList, AdminSummaryData } from '@/types/admin';
+import { Head, Link, router } from '@inertiajs/vue3';
 import { computed, ref, watch } from 'vue';
 
 type PanelType = 'orders' | 'users' | 'vehicles';
@@ -47,6 +48,8 @@ interface DashboardFilters {
     search: string;
     status: string;
     user_type: 'B2C' | 'B2B';
+    /** Narrows the task list to one channel; null lists both. */
+    task_channel: 'B2B' | 'B2C' | null;
     page: number;
 }
 
@@ -56,9 +59,19 @@ const props = defineProps<{
     orders: PanelList<AdminPanelOrder> | null;
     users: PanelList<AdminPanelUser> | null;
     vehicles: PanelList<AdminPanelVehicle> | null;
+    /** Deferred — undefined until Inertia fetches it just after first paint. */
+    tasks?: AdminOpenTaskList;
 }>();
 
-const today = new Intl.DateTimeFormat('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date());
+// The German business day, not the reader's — an admin abroad is still working
+// LeasyBack's calendar, and the orders listed below are dated by it.
+const today = new Intl.DateTimeFormat(PORTAL_LOCALE, {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    timeZone: PORTAL_TIME_ZONE,
+}).format(new Date());
 
 const activePanel = ref<PanelType>(props.filters.panel);
 const search = ref(props.filters.search);
@@ -84,6 +97,74 @@ const pendingInspections = computed(() => toNumber(props.summary.pending_inspect
 const totalB2B = computed(() => toNumber(props.summary.total_b2b_companies));
 const totalB2C = computed(() => toNumber(props.summary.total_b2c_customers));
 const totalVehicles = computed(() => toNumber(props.summary.total_vehicles));
+
+/* ── Open tasks ──────────────────────────────────────────────────────────
+   The dashboard's headline figure: what is waiting on an admin right now,
+   ranked by TaskPriority::rank(). The list arrives deferred, so `tasks` is
+   undefined for the first moment and every reader of it says so. */
+const taskList = computed(() => props.tasks?.data ?? []);
+const openTaskCount = computed(() => props.tasks?.count ?? 0);
+const tasksLoaded = computed(() => props.tasks !== undefined);
+
+type TaskChannel = 'B2B' | 'B2C' | null;
+
+const taskChannel = ref<TaskChannel>(props.filters.task_channel ?? null);
+const tasksReloading = ref(false);
+
+/** Per-channel open-task counts — always over both channels, whatever the filter. */
+const taskChannelOptions = computed<Array<{ value: TaskChannel; label: string; count: number | null }>>(() => {
+    const counts = props.tasks?.channel_counts;
+
+    return [
+        { value: null, label: 'Alle', count: counts ? counts.B2B + counts.B2C : null },
+        { value: 'B2C', label: 'B2C', count: counts?.B2C ?? null },
+        { value: 'B2B', label: 'B2B', count: counts?.B2B ?? null },
+    ];
+});
+
+/**
+ * Reloads the task list alone. The panel's own query params ride along so the
+ * URL keeps describing the whole page, but only `tasks` and `filters` are
+ * fetched — the panel lists are untouched.
+ */
+function selectTaskChannel(channel: TaskChannel) {
+    if (taskChannel.value === channel) {
+        return;
+    }
+
+    taskChannel.value = channel;
+    tasksReloading.value = true;
+
+    router.get(route('admin.dashboard'), dashboardQuery(), {
+        preserveState: true,
+        preserveScroll: true,
+        replace: true,
+        only: ['tasks', 'filters'],
+        onFinish: () => (tasksReloading.value = false),
+    });
+}
+
+/**
+ * How each priority looks. The list is already sorted by TaskPriority::rank(),
+ * so this only has to make that order *visible*: the accent bar down the left
+ * edge escalates with urgency, and `immediate_red` is set apart from `red` —
+ * a solid pill against red text — because "do this now" and "this is late"
+ * are different instructions and used to share one colour.
+ */
+const TASK_PRIORITY_STYLE: Record<string, { label: string; accent: string; badge: string }> = {
+    immediate_red: { label: 'Sofort', accent: 'bg-[#E5533D]', badge: 'bg-[#E5533D] text-white' },
+    red: { label: 'Überfällig', accent: 'bg-[#E5533D]/70', badge: 'bg-[#E5533D]/10 text-[#c0392b]' },
+    yellow: { label: 'Bald fällig', accent: 'bg-[#EF8450]', badge: 'bg-[#EF8450]/12 text-[#c0622e]' },
+    green: { label: 'Im Zeitplan', accent: 'bg-[#01B990]', badge: 'bg-[#01B990]/10 text-[#00856a]' },
+    neutral: { label: 'Offen', accent: 'bg-[#dbe4e3]', badge: 'bg-[#f4f7f6] text-[#6f8585]' },
+};
+
+function taskStyle(priority: string) {
+    return TASK_PRIORITY_STYLE[priority] ?? TASK_PRIORITY_STYLE.neutral;
+}
+
+/** Tasks that are late or must be done now — counted server-side over all of them. */
+const urgentTaskCount = computed(() => props.tasks?.urgent ?? 0);
 const totalCustomers = computed(() => totalB2B.value + totalB2C.value);
 
 const panelUsers = computed(() => props.users?.data ?? []);
@@ -101,26 +182,28 @@ const panelUsersTotalPages = computed(() => totalPages(panelUsersTotal.value));
 const panelVehiclesTotalPages = computed(() => totalPages(panelVehiclesTotal.value));
 const panelOrdersTotalPages = computed(() => totalPages(panelOrdersTotal.value));
 
+/** The dashboard's full query string — panel state plus the task channel. */
+function dashboardQuery() {
+    return {
+        panel: activePanel.value,
+        search: search.value || undefined,
+        status: activePanel.value === 'orders' && panelOrdersFilter.value ? panelOrdersFilter.value : undefined,
+        user_type: activePanel.value === 'users' ? panelUsersType.value : undefined,
+        page: page.value > 1 ? page.value : undefined,
+        task_channel: taskChannel.value ?? undefined,
+    };
+}
+
 function reloadActivePanel() {
     loading.value = true;
 
-    router.get(
-        route('admin.dashboard'),
-        {
-            panel: activePanel.value,
-            search: search.value || undefined,
-            status: activePanel.value === 'orders' && panelOrdersFilter.value ? panelOrdersFilter.value : undefined,
-            user_type: activePanel.value === 'users' ? panelUsersType.value : undefined,
-            page: page.value > 1 ? page.value : undefined,
-        },
-        {
-            preserveState: true,
-            preserveScroll: true,
-            replace: true,
-            only: [activePanel.value, 'filters'],
-            onFinish: () => (loading.value = false),
-        },
-    );
+    router.get(route('admin.dashboard'), dashboardQuery(), {
+        preserveState: true,
+        preserveScroll: true,
+        replace: true,
+        only: [activePanel.value, 'filters'],
+        onFinish: () => (loading.value = false),
+    });
 }
 
 const debouncedReload = useDebounceFn(reloadActivePanel, 300);
@@ -170,13 +253,7 @@ function userInitials(user: AdminPanelUser): string {
 }
 
 function formatGermanDate(value: string | null): string {
-    if (!value) {
-        return '';
-    }
-
-    const date = new Date(value);
-
-    return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    return formatPortalDate(value);
 }
 
 const donutDistribution = computed(() => [
@@ -223,8 +300,8 @@ function openCustomer(user: AdminPanelUser) {
     <Head title="Admin Dashboard" />
 
     <AdminLayout>
-        <div class="flex h-full flex-col gap-5">
-            <main class="flex flex-1 flex-col gap-5 overflow-y-auto pr-1 pb-4">
+        <div class="flex flex-col gap-5">
+            <main class="flex flex-col gap-5 pb-4">
                 <div class="flex items-end justify-between gap-5 max-[760px]:items-start">
                     <div>
                         <p class="mb-1.5 text-[12px] font-bold text-[#01B990] capitalize">{{ today }}</p>
@@ -234,6 +311,148 @@ function openCustomer(user: AdminPanelUser) {
                         <p class="mt-2 text-[13.5px] font-medium text-[#6f8585]">Willkommen zurück — der aktuelle Stand Ihrer Flotte.</p>
                     </div>
                 </div>
+
+                <!--
+                    ── Workload ──
+                    The dashboard's reason to exist: what is waiting on an
+                    admin, most urgent first. Placed first and given the
+                    largest figures on the page, because an admin opening
+                    this wants their queue before they want totals. The order,
+                    customer and vehicle tiles below stay — they switch the
+                    panels — but they are context, not the headline.
+                -->
+                <section class="mb-4 grid grid-cols-3 gap-4 max-[900px]:grid-cols-1">
+                    <div class="content-card">
+                        <p class="text-[12px] font-bold tracking-[0.08em] text-[#9bb0af] uppercase">Offene Aufgaben</p>
+                        <p class="mt-2 text-[48px] leading-none font-extrabold tracking-[-2px] text-[#10393b] tabular-nums">
+                            {{ tasksLoaded ? numberFormat.format(openTaskCount) : '–' }}
+                        </p>
+                        <p class="mt-2 text-[14px] font-bold text-[#6f8585]">warten auf Bearbeitung</p>
+                    </div>
+
+                    <div class="content-card">
+                        <p class="text-[12px] font-bold tracking-[0.08em] text-[#9bb0af] uppercase">Davon dringend</p>
+                        <p
+                            class="mt-2 text-[48px] leading-none font-extrabold tracking-[-2px] tabular-nums"
+                            :class="tasksLoaded && urgentTaskCount > 0 ? 'text-[#E5533D]' : 'text-[#10393b]'"
+                        >
+                            {{ tasksLoaded ? numberFormat.format(urgentTaskCount) : '–' }}
+                        </p>
+                        <p class="mt-2 text-[14px] font-bold text-[#6f8585]">überfällig oder sofort fällig</p>
+                    </div>
+
+                    <div class="content-card">
+                        <p class="text-[12px] font-bold tracking-[0.08em] text-[#9bb0af] uppercase">Fahrzeuge</p>
+                        <p class="mt-2 text-[48px] leading-none font-extrabold tracking-[-2px] text-[#10393b] tabular-nums">
+                            {{ numberFormat.format(totalVehicles) }}
+                        </p>
+                        <p class="mt-2 text-[14px] font-bold text-[#6f8585]">im Portal registriert</p>
+                    </div>
+                </section>
+
+                <section class="content-card mb-4">
+                    <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+                        <div class="min-w-0">
+                            <h2 class="text-[18px] font-extrabold tracking-[-0.3px] text-[#10393b]">Aufgabenliste</h2>
+                            <p class="mt-1 text-[12px] font-medium text-[#9bb0af]">
+                                {{ tasksLoaded ? 'Nach Dringlichkeit sortiert — wichtigste zuerst.' : 'Aufgaben werden ermittelt …' }}
+                            </p>
+                        </div>
+
+                        <div class="flex flex-wrap items-center gap-3">
+                            <p v-if="tasksLoaded && openTaskCount > taskList.length" class="text-[12px] font-bold text-[#6f8585]">
+                                {{ taskList.length }} von {{ numberFormat.format(openTaskCount) }} angezeigt
+                            </p>
+
+                            <div class="flex gap-0.5 rounded-[12px] bg-[#f4f7f6] p-[3px]" role="group" aria-label="Aufgaben nach Kanal filtern">
+                                <button
+                                    v-for="option in taskChannelOptions"
+                                    :key="option.label"
+                                    type="button"
+                                    class="segment-button"
+                                    :class="{ 'segment-button-active': taskChannel === option.value }"
+                                    :aria-pressed="taskChannel === option.value"
+                                    :disabled="tasksReloading"
+                                    @click="selectTaskChannel(option.value)"
+                                >
+                                    {{ option.label }}
+                                    <span v-if="option.count !== null" class="ml-1 tabular-nums opacity-70">{{
+                                        numberFormat.format(option.count)
+                                    }}</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Skeleton rows while the deferred prop is in flight. -->
+                    <div v-if="!tasksLoaded" class="space-y-2">
+                        <div v-for="row in 6" :key="row" class="h-[58px] animate-pulse rounded-[13px] bg-[#f4f7f6]"></div>
+                    </div>
+
+                    <div v-else-if="!taskList.length" class="py-14 text-center">
+                        <p class="text-[14px] font-bold text-[#10393b]">Keine offenen Aufgaben</p>
+                        <p class="mt-1 text-[13px] text-[#9bb0af]">Alle laufenden Aufträge warten derzeit auf Kunden oder Werkstatt.</p>
+                    </div>
+
+                    <ul v-else class="divide-y divide-[#eef3f2]">
+                        <li v-for="task in taskList" :key="`${task.order_id}-${task.key}`">
+                            <!--
+                                A real link, not a button: working a queue means
+                                opening several orders side by side, and only an
+                                href can be middle-clicked into a new tab.
+                            -->
+                            <Link
+                                :href="
+                                    route(
+                                        'admin.orders.show',
+                                        task.section ? { orderId: task.order_id, section: task.section } : { orderId: task.order_id },
+                                    )
+                                "
+                                class="group relative flex items-center gap-4 py-3.5 pr-2 pl-4 transition-colors hover:bg-[#f8faf9]"
+                            >
+                                <span
+                                    class="absolute top-2 bottom-2 left-0 w-[3px] rounded-full"
+                                    :class="taskStyle(task.priority).accent"
+                                    aria-hidden="true"
+                                />
+
+                                <span class="min-w-0 flex-1">
+                                    <span class="flex min-w-0 items-center gap-2">
+                                        <span class="truncate text-[14px] font-bold text-[#10393b]">{{ task.title }}</span>
+                                        <span
+                                            v-if="task.is_detached"
+                                            class="shrink-0 rounded-full bg-[#f4f7f6] px-2 py-0.5 text-[10px] font-bold text-[#6f8585]"
+                                        >
+                                            Nachfassen
+                                        </span>
+                                    </span>
+
+                                    <span class="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 text-[12px] font-medium text-[#9bb0af]">
+                                        <span class="font-bold text-[#10393b]">{{ task.license_plate ?? '—' }}</span>
+                                        <span aria-hidden="true">·</span>
+                                        <span>{{ task.auftragsnummer ?? '—' }}</span>
+                                        <span aria-hidden="true">·</span>
+                                        <span class="truncate">{{ task.customer ?? 'Unbekannter Kunde' }}</span>
+                                        <span class="rounded bg-[#f4f7f6] px-1.5 py-px text-[10px] font-bold text-[#6f8585]">
+                                            {{ task.vehicle_belongs }}
+                                        </span>
+                                    </span>
+                                </span>
+
+                                <span class="flex shrink-0 flex-col items-end gap-1">
+                                    <span class="rounded-full px-2.5 py-0.5 text-[11px] font-extrabold" :class="taskStyle(task.priority).badge">
+                                        {{ taskStyle(task.priority).label }}
+                                    </span>
+                                    <span v-if="task.priority_date" class="text-[11px] font-medium text-[#9bb0af]">
+                                        seit {{ formatPortalDate(task.priority_date) }}
+                                    </span>
+                                </span>
+
+                                <span class="shrink-0 text-[#c3d0d0] transition-transform group-hover:translate-x-0.5" aria-hidden="true">›</span>
+                            </Link>
+                        </li>
+                    </ul>
+                </section>
 
                 <section class="grid grid-cols-3 gap-4 max-[1100px]:grid-cols-1">
                     <button
@@ -330,7 +549,12 @@ function openCustomer(user: AdminPanelUser) {
                         </div>
                     </button>
 
-                    <button type="button" class="dashboard-card" :class="{ 'dashboard-card-active': activePanel === 'users' }" @click="activatePanel('users')">
+                    <button
+                        type="button"
+                        class="dashboard-card"
+                        :class="{ 'dashboard-card-active': activePanel === 'users' }"
+                        @click="activatePanel('users')"
+                    >
                         <div v-if="activePanel === 'users'" class="absolute -top-24 -right-20 h-64 w-64 rounded-full bg-white/15 blur-2xl"></div>
 
                         <div class="relative z-10 flex h-full flex-col">
@@ -695,7 +919,9 @@ function openCustomer(user: AdminPanelUser) {
                             </div>
 
                             <div v-else class="flex flex-col gap-1">
-                                <div v-if="panelOrders.length === 0" class="py-12 text-center text-[13px] text-[#9bb0af]">Keine Aufträge gefunden.</div>
+                                <div v-if="panelOrders.length === 0" class="py-12 text-center text-[13px] text-[#9bb0af]">
+                                    Keine Aufträge gefunden.
+                                </div>
 
                                 <div
                                     v-for="order in panelOrders"
@@ -731,7 +957,9 @@ function openCustomer(user: AdminPanelUser) {
                                             {{ getStatus(order.order_status).label }}
                                         </span>
 
-                                        <span class="hidden text-[11px] text-[#9bb0af] tabular-nums lg:block">{{ formatGermanDate(order.created_at) }}</span>
+                                        <span class="hidden text-[11px] text-[#9bb0af] tabular-nums lg:block">{{
+                                            formatGermanDate(order.created_at)
+                                        }}</span>
                                     </div>
                                 </div>
                             </div>

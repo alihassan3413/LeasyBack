@@ -7,7 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Models\InspectionStation;
 use App\Models\Vehicle;
 use App\Modules\UserProfile\Admin\Services\AdminQueryService;
-use App\Modules\UserProfile\Vehicle\Http\Requests\StoreVehicleRequest;
+use App\Modules\UserProfile\Vehicle\Http\Requests\StoreWebVehicleRequest;
 use App\Modules\UserProfile\Vehicle\Services\VehicleService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -80,13 +80,13 @@ class VehicleController extends Controller
     }
 
     /**
-     * "Create on behalf of a customer" — StoreVehicleRequest already
+     * "Create on behalf of a customer" — StoreWebVehicleRequest already
      * requires and validates vehicle_belongs/b2b_id/b2c_user_id as real
      * records when the caller is Admin (see docs/B2C_ADMIN_PERMISSION_MATRIX.md's
      * Vehicle `create` row). Redirects to the new vehicle's own detail
      * page rather than a listing, unlike the B2C dashboard's store().
      */
-    public function store(StoreVehicleRequest $request): RedirectResponse
+    public function store(StoreWebVehicleRequest $request): RedirectResponse
     {
         $vehicle = null;
         $denied = $this->withServiceErrorHandling('vehicle', function () use ($request, &$vehicle) {

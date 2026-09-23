@@ -14,9 +14,13 @@
  *
  * "Auftrag erstellen" reuses the customer's OrderCreationModal and its
  * orders.store route — VehicleScopeService's Admin branch is unfiltered, so
- * that route already accepts an admin booking for any vehicle. "Dokumente
- * abrufen" posts to admin.vehicles.reports.pull, which syncs the TÜV SÜD
- * appraisal and copies its documents in server-side.
+ * that route already accepts an admin booking for any vehicle. The modal
+ * branches on `vehicleBelongs`, so a B2B vehicle gets the same collection
+ * form (Wunschtermin + Abholadresse) the company user gets rather than the
+ * B2C station/appointment form — which is also what `orders.store` validates
+ * for a B2B vehicle. "Dokumente abrufen" posts to
+ * admin.vehicles.reports.pull, which syncs the TÜV SÜD appraisal and copies
+ * its documents in server-side.
  */
 import CreateOfferModal from '@/components/admin/CreateOfferModal.vue';
 import UploadReportDocumentModal from '@/components/admin/UploadReportDocumentModal.vue';
@@ -31,9 +35,12 @@ import {
     DropdownMenuSubTrigger,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { AppModal } from '@/components/ui/modal';
 import OrderCreationModal from '@/components/vehicle/OrderCreationModal.vue';
 import { getAdminDashboardStatus } from '@/lib/adminStatus';
+import type { AdminWorkshopQuotation } from '@/types/admin';
 import type { StationData } from '@/types/order';
+import type { VehicleCollectionAddress } from '@/types/vehicle';
 import { router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 
@@ -49,9 +56,25 @@ const props = withDefaults(
         /** Inspection stations for the "Auftrag erstellen" picker; empty disables the action. */
         stations?: StationData[];
         /** True while the vehicle has an order that is neither delivered nor cancelled. */
-        hasOpenOrder?: boolean;
+        blocksNewOrder?: boolean;
         /** Only a TÜV SÜD order can have its appraisal documents pulled. */
         canPullDocuments?: boolean;
+        /**
+         * Which order-creation flow this vehicle uses. Left null where the
+         * menu has no vehicle context (the order detail page, which disables
+         * "Auftrag erstellen" anyway), and treated as B2C then.
+         */
+        vehicleBelongs?: 'B2B' | 'B2C' | null;
+        /** The B2B vehicle's default pickup address, prefilled into the collection form. */
+        collectionAddress?: VehicleCollectionAddress | null;
+        /**
+         * The order's workshop quotations, where the host has them. With a
+         * submitted one, "Angebot erstellen" opens on the quotation-backed flow
+         * rather than the manual form.
+         */
+        quotations?: AdminWorkshopQuotation[];
+        /** False where the host knows offers can no longer be created (AdminOrderDetail.editable.offers). */
+        canCreateOffer?: boolean;
     }>(),
     {
         orderId: null,
@@ -60,8 +83,12 @@ const props = withDefaults(
         availableTransitions: () => [],
         align: 'end',
         stations: () => [],
-        hasOpenOrder: false,
+        blocksNewOrder: false,
         canPullDocuments: false,
+        vehicleBelongs: null,
+        collectionAddress: null,
+        quotations: () => [],
+        canCreateOffer: true,
     },
 );
 
@@ -74,20 +101,42 @@ const hasOrder = computed(() => !!props.orderId && !!props.auftragsnummer);
  */
 const canApprove = computed(() => hasOrder.value && props.orderStatus === 'order_requested');
 
+/**
+ * Exactly the server's `available_transitions` — already filtered to what
+ * `admin.orders.status` will accept (prerequisites, commissioning done through
+ * its own action). Nothing is added here; `cancelled` only moves to its own
+ * confirmed menu entry.
+ */
 const transitions = computed(() => (hasOrder.value ? props.availableTransitions.filter((status) => status !== 'cancelled') : []));
 const canCancel = computed(() => hasOrder.value && props.availableTransitions.includes('cancelled'));
 
 const auftragsnummerOptions = computed(() => (props.auftragsnummer ? [{ value: props.auftragsnummer, label: props.auftragsnummer }] : []));
 
-/** OrderService rejects a second order while one is still running (hasUnfinishedOrder). */
-const canCreateOrder = computed(() => !props.hasOpenOrder && props.stations.length > 0);
+const isB2bVehicle = computed(() => props.vehicleBelongs === 'B2B');
+
+/** What OrderCreationModal needs to pick its flow — the B2C branch passes no vehicle at all. */
+const orderCreationVehicle = computed(() =>
+    props.vehicleBelongs === null ? null : { vehicle_belongs: props.vehicleBelongs, collection_address: props.collectionAddress },
+);
+
+/**
+ * OrderService rejects a second order unless the vehicle's only orders were
+ * called off (blocksNewOrder) — a running order and a completed one both bar
+ * it. A B2B collection order books no inspection appointment, so it does not
+ * need a station either — requiring one would disable the action on every B2B
+ * vehicle.
+ */
+const canCreateOrder = computed(() => !props.blocksNewOrder && (isB2bVehicle.value || props.stations.length > 0));
 
 const createOrderHint = computed(() => {
-    if (props.hasOpenOrder) {
-        return 'Für dieses Fahrzeug läuft bereits ein Auftrag';
+    if (props.blocksNewOrder) {
+        // Deliberately not "läuft bereits ein Auftrag": the flag is also true
+        // for a finished one, and that wording sent admins looking for an open
+        // order that had closed weeks ago.
+        return 'Für dieses Fahrzeug besteht bereits ein Auftrag';
     }
 
-    return props.stations.length === 0 ? 'Keine aktive Begutachtungsstelle hinterlegt' : '';
+    return canCreateOrder.value ? '' : 'Keine aktive Begutachtungsstelle hinterlegt';
 });
 
 const createOrderOpen = ref(false);
@@ -100,21 +149,80 @@ function pullDocuments() {
 }
 
 const createOfferOpen = ref(false);
+const noShowOpen = ref(false);
+const markingNoShow = ref(false);
+
+/**
+ * Only where a TÜV appointment could actually have been missed: a B2C order
+ * that has been confirmed but not yet inspected. The endpoint refuses anything
+ * else; this decides whether the action is worth offering.
+ */
+const NO_SHOW_STATUSES = new Set(['confirmed']);
+
+const canMarkNoShow = computed(() => !!props.orderId && props.vehicleBelongs !== 'B2B' && NO_SHOW_STATUSES.has(props.orderStatus ?? ''));
+
+function markNoShow() {
+    if (!props.orderId) {
+        return;
+    }
+
+    markingNoShow.value = true;
+
+    router.post(
+        route('admin.orders.no-show', props.orderId),
+        {},
+        {
+            preserveScroll: true,
+            onFinish: () => {
+                markingNoShow.value = false;
+                noShowOpen.value = false;
+            },
+        },
+    );
+}
 const uploadOpen = ref(false);
-const uploadVariant = ref<'gutachten' | 'rechnung'>('gutachten');
+const uploadVariant = ref<UploadVariant>('gutachten');
 const cancelDialogOpen = ref(false);
 const busy = ref(false);
 
-const uploadPreset = computed(() =>
-    uploadVariant.value === 'rechnung'
-        ? { documentType: 'rechnung', title: 'Rechnung hochladen', description: `Rechnung für Auftrag ${props.auftragsnummer} hochladen.` }
-        : { documentType: 'gutachten', title: 'Gutachten hochladen', description: `Gutachten für Auftrag ${props.auftragsnummer} hochladen.` },
-);
+type UploadVariant = 'gutachten' | 'nachgutachten' | 'rechnung';
 
-function openUpload(variant: 'gutachten' | 'rechnung') {
+/**
+ * `nachgutachten` was previously unreachable from this menu: both report
+ * uploads opened titled "Gutachten hochladen" preset to `gutachten`, so the
+ * follow-up report could only be filed correctly by noticing the type dropdown
+ * inside the modal — and filing it wrong leaves upload_final_appraisal open
+ * with no visible cause.
+ */
+const UPLOAD_VARIANTS: Record<UploadVariant, { documentType: string; title: string }> = {
+    gutachten: { documentType: 'gutachten', title: 'Erstgutachten hochladen' },
+    nachgutachten: { documentType: 'nachgutachten', title: 'Nachgutachten hochladen' },
+    rechnung: { documentType: 'rechnung', title: 'Rechnung hochladen' },
+};
+
+const uploadPreset = computed(() => {
+    const variant = UPLOAD_VARIANTS[uploadVariant.value] ?? UPLOAD_VARIANTS.gutachten;
+
+    return { ...variant, description: `${variant.title} für Auftrag ${props.auftragsnummer}.` };
+});
+
+function openUpload(variant: UploadVariant) {
     uploadVariant.value = variant;
     uploadOpen.value = true;
 }
+
+/**
+ * Driven by the tasks card so a task opens the modal it actually means,
+ * already configured — rather than duplicating the uploader next to the card.
+ */
+defineExpose({
+    openUpload,
+    openCreateOffer: () => {
+        if (props.canCreateOffer) {
+            createOfferOpen.value = true;
+        }
+    },
+});
 
 function transitionTo(status: string) {
     if (!props.orderId) {
@@ -160,8 +268,16 @@ function approve() {
     router.post(route('admin.orders.approve', props.orderId), {}, { preserveScroll: true, onFinish: () => (busy.value = false) });
 }
 
+/**
+ * Menu wording where the action reads differently from the status it lands
+ * on: moving a B2B request to `discarded` is turning the request down.
+ */
+const TRANSITION_ACTION_LABELS: Record<string, string> = {
+    discarded: 'Anfrage ablehnen',
+};
+
 function statusLabel(status: string): string {
-    return getAdminDashboardStatus(status).label;
+    return TRANSITION_ACTION_LABELS[status] ?? getAdminDashboardStatus(status).label;
 }
 </script>
 
@@ -207,14 +323,24 @@ function statusLabel(status: string): string {
 
             <DropdownMenuSeparator v-if="canApprove || transitions.length" />
 
-            <DropdownMenuItem :disabled="!hasOrder" @select="createOfferOpen = true">
+            <DropdownMenuItem v-if="canMarkNoShow" class="text-[#c0392b] focus:text-[#c0392b]" @select="noShowOpen = true">
+                <IconMdiAccountCancelOutline />
+                Termin nicht wahrgenommen
+            </DropdownMenuItem>
+
+            <DropdownMenuItem :disabled="!hasOrder || !canCreateOffer" @select="createOfferOpen = true">
                 <IconMdiTagPlusOutline />
                 Angebot erstellen
             </DropdownMenuItem>
 
             <DropdownMenuItem :disabled="!hasOrder" @select="openUpload('gutachten')">
                 <IconMdiFileUploadOutline />
-                Bericht hochladen
+                Erstgutachten hochladen
+            </DropdownMenuItem>
+
+            <DropdownMenuItem :disabled="!hasOrder" @select="openUpload('nachgutachten')">
+                <IconMdiFileUploadOutline />
+                Nachgutachten hochladen
             </DropdownMenuItem>
 
             <DropdownMenuItem :disabled="!hasOrder" @select="openUpload('rechnung')">
@@ -290,9 +416,43 @@ function statusLabel(status: string): string {
         </div>
     </div>
 
-    <OrderCreationModal v-if="stations.length" v-model:open="createOrderOpen" :vehicle-id="vehicleId" :stations="stations" />
+    <OrderCreationModal
+        v-if="canCreateOrder"
+        v-model:open="createOrderOpen"
+        :vehicle-id="vehicleId"
+        :stations="stations"
+        :vehicle="orderCreationVehicle"
+    />
 
-    <CreateOfferModal v-if="orderId" v-model:open="createOfferOpen" :order-id="orderId" />
+    <AppModal :open="noShowOpen" title="Termin als nicht wahrgenommen markieren?" :width="560" @update:open="(v) => (noShowOpen = v)">
+        <div class="min-w-0 space-y-4 px-2">
+            <p class="text-sm leading-relaxed text-black">
+                Damit wird festgehalten, dass der Kunde den TÜV-Termin nicht wahrgenommen hat. Dadurch wird eine Gebühr von
+                <span class="font-bold">200,00 €</span> ausgelöst und der hinterlegten Zahlungsmethode des Kunden belastet.
+            </p>
+            <p class="text-muted-foreground text-sm">Dieser Schritt kann nicht rückgängig gemacht werden.</p>
+        </div>
+
+        <template #footer>
+            <button
+                type="button"
+                class="rounded-[5px] border border-[#e9efee] bg-white px-8 py-2.5 text-sm font-bold text-[#10393b] hover:bg-[#f4f7f6]"
+                @click="noShowOpen = false"
+            >
+                Abbrechen
+            </button>
+            <button
+                type="button"
+                :disabled="markingNoShow"
+                class="rounded-[5px] bg-[#E5533D] px-8 py-2.5 text-sm font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+                @click="markNoShow"
+            >
+                {{ markingNoShow ? 'Wird gespeichert …' : 'Nicht wahrgenommen — 200,00 € berechnen' }}
+            </button>
+        </template>
+    </AppModal>
+
+    <CreateOfferModal v-if="orderId" v-model:open="createOfferOpen" :order-id="orderId" :quotations="quotations" :vehicle-belongs="vehicleBelongs" />
 
     <UploadReportDocumentModal
         v-model:open="uploadOpen"

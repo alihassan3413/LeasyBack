@@ -14,6 +14,7 @@ import CalendarDateField from '@/components/form/CalendarDateField.vue';
 import FormField from '@/components/form/FormField.vue';
 import LicensePlateInput from '@/components/form/LicensePlateInput.vue';
 import SearchableSelectField from '@/components/form/SearchableSelectField.vue';
+import VinInput from '@/components/form/VinInput.vue';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -87,6 +88,7 @@ function submit() {
         vin: data.vin || null,
         leasing_end_date: leasingEndUnknown.value ? null : data.leasing_end_date || null,
         leasinggeber: leasinggeberUnknown.value ? null : data.leasinggeber || null,
+        leasinggeber_unknown: leasinggeberUnknown.value,
         vehicle_belongs: props.type === 'b2b' ? 'B2B' : 'B2C',
         b2b_id: props.type === 'b2b' ? props.ownerId : null,
         b2c_user_id: props.type === 'b2c' ? props.ownerId : null,
@@ -108,19 +110,9 @@ function submit() {
             <div class="grid grid-cols-1 gap-x-6 gap-y-3 px-2 md:grid-cols-2">
                 <LicensePlateInput v-model="form.license_plate" :server-error="form.errors.license_plate" />
 
-                <FormField v-slot="{ id, describedBy, invalid }" label="FIN" label-hint="* (siehe Fahrzeugschein – Feld E)" :error="form.errors.vin">
-                    <Input
-                        :id="id"
-                        v-model="form.vin"
-                        maxlength="17"
-                        placeholder="FIN eingeben"
-                        class="uppercase"
-                        :aria-invalid="invalid"
-                        :aria-describedby="describedBy"
-                    />
-                </FormField>
+                <VinInput v-model="form.vin" :error="form.errors.vin" />
 
-                <FormField v-slot="{ id, describedBy, invalid }" label="Marke" :error="form.errors.make">
+                <FormField v-slot="{ id, describedBy, invalid }" label="Marke" required :error="form.errors.make">
                     <SearchableSelectField
                         :id="id"
                         v-model="form.make"
@@ -134,7 +126,14 @@ function submit() {
                 </FormField>
 
                 <FormField v-slot="{ id, describedBy, invalid }" label="Modell" :error="form.errors.model">
-                    <Input :id="id" v-model="form.model" placeholder="Modell eingeben" :aria-invalid="invalid" :aria-describedby="describedBy" />
+                    <Input
+                        :id="id"
+                        v-model="form.model"
+                        placeholder="Modell eingeben"
+                        autocomplete="off"
+                        :aria-invalid="invalid"
+                        :aria-describedby="describedBy"
+                    />
                 </FormField>
 
                 <div>
@@ -161,11 +160,12 @@ function submit() {
                 </div>
 
                 <div>
-                    <FormField v-slot="{ id, describedBy, invalid }" label="Leasinggeber" label-hint="*" :error="form.errors.leasinggeber">
+                    <FormField v-slot="{ id, describedBy, invalid }" label="Leasinggeber" required :error="form.errors.leasinggeber">
                         <Input
                             :id="id"
                             v-model="form.leasinggeber"
                             placeholder="Leasinggeber eingeben"
+                            autocomplete="off"
                             :disabled="leasinggeberUnknown"
                             :aria-invalid="invalid"
                             :aria-describedby="describedBy"

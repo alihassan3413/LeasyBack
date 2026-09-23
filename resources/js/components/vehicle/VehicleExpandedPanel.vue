@@ -1,17 +1,24 @@
 <script setup lang="ts">
 import AdminReportDocumentsList, { type AdminPanelReportDocument } from '@/components/admin/AdminReportDocumentsList.vue';
+import PaymentCheckoutPanel from '@/components/payment/PaymentCheckoutPanel.vue';
+import PaymentMethodStep from '@/components/payment/PaymentMethodStep.vue';
+import MasonryGrid from '@/components/shared/MasonryGrid.vue';
 import OrderStatusTimeline from '@/components/shared/OrderStatusTimeline.vue';
 import { AppModal } from '@/components/ui/modal';
 import AddVehicleModal from '@/components/vehicle/AddVehicleModal.vue';
 import OfferComparison from '@/components/vehicle/OfferComparison.vue';
+import OrderHistoryList from '@/components/vehicle/OrderHistoryList.vue';
 import UploadDocumentModal from '@/components/vehicle/UploadDocumentModal.vue';
 import VehiclePanelShell from '@/components/vehicle/VehiclePanelShell.vue';
-import { CUSTOMER_PAYMENT_FEATURE_ENABLED, formatGermanDateTime, getCustomerOrderFlowSteps, getCustomerOrderHeadline } from '@/lib/customerOrderFlow';
+import { useB2bPermissions } from '@/composables/useB2bPermissions';
+import { formatGermanDateTime, getCustomerOrderFlowSteps, getCustomerOrderHeadline } from '@/lib/customerOrderFlow';
+import { formatPortalDate } from '@/lib/portalDate';
 import { toOrderTimelineEntries, type OrderTimelineEntry } from '@/lib/timeline';
 import { getOrderStatusLabel } from '@/lib/vehicleStatus';
-import type { OfferData } from '@/types/order';
-import type { VehicleData } from '@/types/vehicle';
-import { router } from '@inertiajs/vue3';
+import type { SharedData } from '@/types';
+import type { B2bOfferPresentationData, B2bOfferPresentationLine, OfferData } from '@/types/order';
+import type { VehicleCollectionAddress, VehicleData } from '@/types/vehicle';
+import { router, usePage } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 
 interface PanelDocument {
@@ -30,6 +37,7 @@ interface PanelOffer {
     note: string;
     accepted: boolean;
     status: string;
+    presentation?: B2bOfferPresentationData | null;
 }
 
 const props = withDefaults(
@@ -61,6 +69,19 @@ const props = withDefaults(
 
 const editVehicleOpen = ref(false);
 const uploadDocsOpen = ref(false);
+
+const { can } = useB2bPermissions();
+
+/**
+ * What this viewer may do from the panel. `can()` is true for any account
+ * with no company membership — Admin and Privatkunde alike — so only company
+ * members are narrowed, and only in the UI. Every action is still refused
+ * server-side by `b2b.can:*` and the policies.
+ */
+const canEditVehicle = computed(() => props.admin || can('vehicles.update'));
+const canUploadDocument = computed(() => props.admin || can('vehicles.documents.upload'));
+/** Accepting or rejecting a repair offer commits the company to a bill. */
+const canDecideOffer = computed(() => can('offers.select'));
 
 const DOCUMENT_TYPE_LABELS: Record<string, string> = {
     leasingvertrag: 'Leasingvertrag',
@@ -94,7 +115,10 @@ const documents = computed<PanelDocument[]>(() => {
         id: doc.document_id,
         documentType: doc.document_type ?? '',
         title: doc.original_file_name ?? '',
-        url: null,
+        // The payload already carries a signed URL for customer-uploaded
+        // documents (VehicleService::hydrateVehicles()); dropping it here left
+        // the row with a delete button and no way to open the file.
+        url: doc.url,
         isReport: false,
     }));
 
@@ -138,6 +162,12 @@ function isReportLike(doc: PanelDocument): boolean {
 }
 
 function canDeleteDocument(doc: PanelDocument): boolean {
+    // Admin-uploaded reports and invoices are undeletable for everyone; on top
+    // of that, a company member needs the right to delete their own uploads.
+    if (!props.admin && !can('vehicles.documents.delete')) {
+        return false;
+    }
+
     if (doc.isReport) {
         return false;
     }
@@ -189,9 +219,80 @@ const groupedDocuments = computed(() => {
     return groups;
 });
 
-const firstOrder = computed(() => props.vehicle.orders[0] ?? null);
+/**
+ * The order this panel speaks for. Server-decided
+ * (App\Support\OrderHistory::split()) rather than read off the front of the
+ * list, so the panel, the row's badge and the timeline cannot end up on
+ * different orders. Everything behind it lives in `order_history` and opens
+ * on its own page.
+ */
+const currentOrder = computed(() => props.vehicle.current_order);
 
-const besichtigungsort = computed(() => firstOrder.value?.request_payload?.besichtigungsort ?? null);
+/**
+ * The recovery path for an order whose mandate was never set up — most often
+ * one Admin created on the customer's behalf, since Admin is never shown the
+ * payment step. Surfaced as a persistent banner rather than an auto-opening
+ * modal, so it can be read and returned to rather than dismissed by reflex.
+ *
+ * `requires_setup` is decided server-side and is already false for Admin and
+ * for closed orders, so this needs no viewer check of its own.
+ */
+const paymentSetupOrder = computed(() => props.vehicle.orders.find((order) => order.payment?.requires_setup) ?? null);
+
+const paymentModalOpen = ref(false);
+
+function openPaymentSetup() {
+    paymentModalOpen.value = true;
+}
+
+function onPaymentComplete() {
+    paymentModalOpen.value = false;
+    // Re-fetch so the banner disappears from the server's answer rather than
+    // from local state that could disagree with it.
+    router.reload({ preserveScroll: true });
+}
+
+/**
+ * A repair charge the automatic attempt could not finish. `payable` is decided
+ * server-side and is already false for Admin, for anything settled, and for a
+ * charge of 0,00 € — so this needs no rule of its own.
+ */
+const repairPaymentOrder = computed(() => props.vehicle.orders.find((order) => order.payment?.repair?.payable) ?? null);
+
+const repairPaymentModalOpen = ref(false);
+
+const repairPaymentUrl = computed(() => repairPaymentOrder.value?.payment?.repair?.payment_url ?? null);
+
+function openRepairPayment() {
+    if (repairPaymentUrl.value) {
+        window.open(repairPaymentUrl.value, '_blank', 'noopener');
+
+        return;
+    }
+
+    repairPaymentModalOpen.value = true;
+}
+
+function onRepairPaid() {
+    repairPaymentModalOpen.value = false;
+    router.reload({ preserveScroll: true });
+}
+
+/**
+ * An outstanding cancellation fee. Separate from the repair charge in every
+ * respect — an order can owe both — so it gets its own banner, its own modal
+ * and its own pair of endpoints.
+ */
+const cancellationFeeOrder = computed(() => props.vehicle.orders.find((order) => order.payment?.cancellation_fee?.payable) ?? null);
+
+const feeModalOpen = ref(false);
+
+function onFeePaid() {
+    feeModalOpen.value = false;
+    router.reload({ preserveScroll: true });
+}
+
+const besichtigungsort = computed(() => currentOrder.value?.request_payload?.besichtigungsort ?? null);
 
 const terminFormatted = computed(() => {
     const termin = besichtigungsort.value?.termin;
@@ -211,10 +312,10 @@ const adminReportDocuments = computed<AdminPanelReportDocument[]>(() =>
     props.vehicle.orders.flatMap((order) => order.report_documents.map((document) => ({ ...document, auftragsnummer: order.auftragsnummer }))),
 );
 
-const rawOffers = computed<OfferData[]>(() => firstOrder.value?.offers ?? []);
+const rawOffers = computed<OfferData[]>(() => currentOrder.value?.offers ?? []);
 
 const customerFlowSteps = computed(() => {
-    const order = firstOrder.value;
+    const order = currentOrder.value;
 
     if (!order) {
         return null;
@@ -227,29 +328,48 @@ const customerFlowSteps = computed(() => {
         besichtigungsort: order.request_payload?.besichtigungsort,
         reportDocuments: allReportDocuments.value,
         offers: rawOffers.value,
+        collection: orderCollection.value,
+        channel: props.vehicle.vehicle_belongs,
+        // Straight from the server's derived stage, so the timeline, the
+        // header above it and the pay-now banner below it cannot disagree
+        // about whether the vehicle may be collected.
+        repairPayment: {
+            stage: order.payment?.repair_stage ?? 'none',
+            status: order.payment?.repair?.status ?? null,
+            amount_cents: order.payment?.repair?.amount_cents ?? null,
+            payable: order.payment?.repair?.payable ?? false,
+        },
+        cancellationFee: order.payment?.cancellation_fee
+            ? {
+                  status: order.payment.cancellation_fee.status,
+                  amount_cents: order.payment.cancellation_fee.amount_cents,
+                  reason_label: order.payment.cancellation_fee.trigger_label ?? null,
+              }
+            : null,
+        audience: 'customer',
     });
 });
 
 const customerHeadline = computed(() => getCustomerOrderHeadline(customerFlowSteps.value));
 
 const timelineHeaderLabel = computed(() => {
-    if (!firstOrder.value) {
+    if (!currentOrder.value) {
         return 'STATUS: KEINE AUFTRÄGE';
     }
 
     const headline = customerHeadline.value;
 
-    return `STATUS: ${(headline?.label ?? getOrderStatusLabel(firstOrder.value.order_status)).toUpperCase()}`;
+    return `STATUS: ${(headline?.label ?? getOrderStatusLabel(currentOrder.value.order_status)).toUpperCase()}`;
 });
 
 const timelineHeaderTooltipDescription = computed(() => customerHeadline.value?.tooltipDescription);
 
 const timelineEntries = computed<OrderTimelineEntry[]>(() => {
-    if (!firstOrder.value) {
+    if (!currentOrder.value) {
         return [{ datetime: '', label: 'Keine Aufträge vorhanden', completed: false }];
     }
 
-    return toOrderTimelineEntries(customerFlowSteps.value, firstOrder.value.order_status);
+    return toOrderTimelineEntries(customerFlowSteps.value, currentOrder.value.order_status, props.vehicle.vehicle_belongs);
 });
 
 const offersData = computed<PanelOffer[]>(() =>
@@ -257,14 +377,138 @@ const offersData = computed<PanelOffer[]>(() =>
         id: offer.offer_sequence.toString().padStart(2, '0'),
         offerId: offer.offer_id,
         name: `Angebot ${offer.offer_sequence}`,
-        cost: Number(offer.final_total_gross ?? 0),
+        // B2B never renders gross (b2b.txt §9) — the payload does not even
+        // carry the gross keys — so the net repair total is what is shown. A
+        // private customer pays the gross, so that is what they are quoted.
+        cost: Number(
+            (isB2bVehicle.value
+                ? (offer.presentation?.repair_total_net ?? offer.final_total_net)
+                : (offer.presentation?.repair_total_gross ?? offer.final_total_gross)) ?? 0,
+        ),
         note: offer.additional_notes ?? '',
         accepted: offer.offer_status === 'selected',
         status: offer.offer_status,
+        presentation: offer.presentation ?? null,
     })),
 );
 
+/**
+ * The detailed repair panel belongs to a *quotation-backed* offer, in either
+ * channel — it is the presentation row that gives it something to render.
+ * A manually created fallback offer has none and falls through to the plain
+ * offer table below, which is what it always did.
+ */
+const presentedOffers = computed(() => offersData.value.filter((offer) => offer.presentation !== null));
+
+/**
+ * Whether this panel is quoting gross follows the payload: the server sends
+ * gross totals only in a channel that shows them (OfferPricingPolicy), so the
+ * wording and the numbers can never disagree.
+ */
+const showsGross = computed(() => (pendingPresentedOffer.value ?? decidedPresentedOffer.value)?.presentation?.repair_total_gross != null);
+
+const presentedAmountsUnit = computed(() => (showsGross.value ? 'brutto' : 'netto'));
+
+const presentedAmountsLabel = computed(() => (showsGross.value ? 'Alle Beträge brutto, inkl. MwSt.' : 'Alle Beträge netto.'));
+
+const presentedWorkshopName = computed(() => (pendingPresentedOffer.value ?? decidedPresentedOffer.value)?.presentation?.workshop_name ?? null);
+
+const pendingPresentedOffer = computed(() => presentedOffers.value.find((offer) => offer.status === 'published') ?? null);
+
+/**
+ * The offer this panel speaks for once a decision exists.
+ *
+ * An accepted offer always wins over a rejected one, and the order matters
+ * because both stay in the payload — a customer keeps seeing what they turned
+ * down. Offers arrive sorted by `offer_sequence`, so a single `find()` across
+ * both states returned whichever was created *first*: reject offer 1, accept
+ * offer 2, and the panel showed offer 1 marked "Abgelehnt", along with the
+ * losing workshop's name and prices. Among rejections the most recent one is
+ * the one the customer just acted on, hence the last rather than the first.
+ */
+const decidedPresentedOffer = computed(
+    () =>
+        presentedOffers.value.find((offer) => offer.status === 'selected') ??
+        presentedOffers.value.findLast((offer) => offer.status === 'rejected') ??
+        null,
+);
+
+/** Gross is shown exactly where the payload carries it — the server's decision, not the component's. */
+function presentedAmount(presentation: PanelOffer['presentation'], key: 'appraisal_total' | 'repair_total' | 'saving'): string {
+    const gross = presentation?.[`${key}_gross`];
+
+    return gross != null ? formatEuro(gross) : formatEuro(presentation?.[`${key}_net`] ?? null);
+}
+
+function presentedLineAmount(line: B2bOfferPresentationLine, key: 'appraisal_amount' | 'repair_amount' | 'saving'): string {
+    const gross = line[`${key}_gross`];
+
+    return gross != null ? formatEuro(gross) : formatEuro(line[`${key}_net`] ?? null);
+}
+
+const page = usePage<SharedData>();
+
+const cancellationFeeLabel = computed(() =>
+    new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format((page.props.payments?.cancellation_fee_cents ?? 20000) / 100),
+);
+
+/** The one offer a customer can still act on. */
+const publishedOffer = computed(() => offersData.value.find((offer) => offer.status === 'published') ?? null);
+
+const rejectOpen = ref(false);
+const rejectComment = ref('');
+const rejectingOfferId = ref<string | null>(null);
+
+function submitReject(offerId: string) {
+    rejectingOfferId.value = offerId;
+
+    router.post(
+        route('offers.reject', offerId),
+        { customer_comment: rejectComment.value },
+        {
+            preserveScroll: true,
+            onFinish: () => {
+                rejectingOfferId.value = null;
+                rejectOpen.value = false;
+                rejectComment.value = '';
+            },
+        },
+    );
+}
+
+function formatEuro(value: string | number | null | undefined): string {
+    const amount = typeof value === 'string' ? Number.parseFloat(value) : (value ?? 0);
+
+    return Number.isFinite(amount) ? new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(amount as number) : '—';
+}
+
 const hasRealOffers = computed(() => offersData.value.length > 0);
+
+/**
+ * Admin sees the report/invoice list even when the customer's own groups are
+ * empty, so it only counts as empty once that has nothing to show either.
+ */
+const hasNoDocuments = computed(() => groupedDocuments.value.length === 0 && (!props.admin || adminReportDocuments.value.length === 0));
+
+/**
+ * Why there is nothing to show, which depends on where the order stands.
+ *
+ * "Keine Angebote" alone reads as a fault; on an order that has not been
+ * inspected yet, no offers is simply the correct state.
+ */
+const noOffersHint = computed(() => {
+    const status = currentOrder.value?.order_status ?? '';
+
+    if (status === 'cancelled' || status === 'discarded') {
+        return 'Für diesen Auftrag wurden keine Angebote erstellt.';
+    }
+
+    if (['order_requested', 'order_placed', 'confirmed'].includes(status)) {
+        return 'Nach der Erstbegutachtung erhalten Sie hier Ihre Reparaturangebote.';
+    }
+
+    return 'Sobald Reparaturangebote vorliegen, sehen Sie sie hier.';
+});
 
 /**
  * The side-by-side comparison lived only on the customer's vehicle detail
@@ -320,6 +564,7 @@ const OFFER_STATUS_LABELS: Record<string, string> = {
     selected: 'Angenommen',
     closed: 'Geschlossen',
     cancelled: 'Storniert',
+    rejected: 'Abgelehnt',
 };
 
 const OFFER_STATUS_PILLS: Record<string, string> = {
@@ -328,6 +573,7 @@ const OFFER_STATUS_PILLS: Record<string, string> = {
     selected: 'background: rgba(239, 132, 80, 0.14); color: #c0622e',
     closed: 'background: #f4f7f6; color: #9bb0af',
     cancelled: 'background: rgba(220, 38, 38, 0.1); color: #991b1b',
+    rejected: 'background: rgba(220, 38, 38, 0.1); color: #991b1b',
 };
 
 function offerStatusLabel(status: string): string {
@@ -417,74 +663,239 @@ function deleteDocument(doc: PanelDocument) {
 }
 
 function formatDate(value: string | null): string {
-    if (!value) {
+    return formatPortalDate(value);
+}
+
+const isB2bVehicle = computed(() => props.vehicle.vehicle_belongs === 'B2B');
+
+const fleetRows = computed(() => [
+    { label: 'Kilometerstand', value: props.vehicle.mileage != null ? `${props.vehicle.mileage.toLocaleString('de-DE')} km` : '' },
+    { label: 'Vertragsnummer', value: props.vehicle.contract_number ?? '' },
+    { label: 'Kostenstelle', value: props.vehicle.cost_centre ?? '' },
+    { label: 'Fahrer', value: props.vehicle.driver_name ?? '' },
+    { label: 'Kontakt', value: props.vehicle.driver_contact ?? '' },
+    { label: 'Abholadresse', value: formatAddress(props.vehicle.collection_address ?? null) },
+]);
+
+const orderCollection = computed(() => (isB2bVehicle.value ? (currentOrder.value?.collection ?? null) : null));
+
+/** Customer-visible notes (§16). Always empty for a B2C vehicle. */
+const orderNotes = computed(() => (isB2bVehicle.value ? (currentOrder.value?.notes ?? []) : []));
+
+const hasCollectionData = computed(() => {
+    const collection = orderCollection.value;
+
+    return !!collection && (!!collection.requested_collection_date || !!collection.confirmed_collection_date || !!collection.collection_address);
+});
+
+const collectionRows = computed(() => [
+    { label: 'Wunschtermin', value: formatDate(orderCollection.value?.requested_collection_date ?? null) },
+    { label: 'Bestätigter Termin', value: formatDate(orderCollection.value?.confirmed_collection_date ?? null) },
+    { label: 'Abholadresse', value: formatAddress(orderCollection.value?.collection_address ?? null) },
+    { label: 'Hinweis', value: orderCollection.value?.collection_note ?? '' },
+]);
+
+function formatAddress(address: VehicleCollectionAddress | null): string {
+    if (!address) {
         return '';
     }
 
-    const date = new Date(value);
-
-    return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('de-DE');
+    return [
+        [address.street, address.number].filter(Boolean).join(' '),
+        address.additional_address,
+        [address.zip_code, address.city].filter(Boolean).join(' '),
+        address.country,
+    ]
+        .filter(Boolean)
+        .join(', ');
 }
 </script>
 
 <template>
     <VehiclePanelShell :embedded="embedded">
-        <div class="columns-1 gap-4 bg-[#EFEFEF] p-4 *:mb-4 *:break-inside-avoid md:columns-2 2xl:columns-3">
-            <div class="flex w-full flex-col overflow-hidden rounded-3xl border bg-white" style="border-color: #ececec">
-                <OrderStatusTimeline
-                    :entries="timelineEntries"
-                    :header-label="timelineHeaderLabel"
-                    :header-tooltip-description="timelineHeaderTooltipDescription"
+        <div v-if="paymentSetupOrder" class="bg-[#EFEFEF] px-4 pt-4">
+            <div class="flex flex-col gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div class="flex items-start gap-3">
+                    <IconMdiCreditCardOutline class="mt-0.5 size-5 shrink-0 text-amber-700" />
+                    <div>
+                        <p class="text-[15px] font-bold text-amber-900">Zahlungsmethode erforderlich</p>
+                        <p class="text-sm text-amber-900/90">
+                            Für Auftrag {{ paymentSetupOrder.auftragsnummer }} ist noch keine Zahlungsmethode hinterlegt. Es wird jetzt nichts
+                            abgebucht.
+                        </p>
+                    </div>
+                </div>
+                <button
+                    type="button"
+                    class="bg-brand-green hover:bg-brand-green/90 shrink-0 rounded-[5px] px-6 py-2.5 text-sm font-bold text-white"
+                    @click="openPaymentSetup"
                 >
-                    <template #actions="{ entry }">
-                        <template v-if="entry.docUrl">
+                    Jetzt hinterlegen
+                </button>
+            </div>
+        </div>
+
+        <AppModal
+            :open="paymentModalOpen"
+            title="Zahlungsmethode hinterlegen"
+            description="Hinterlegen Sie eine Zahlungsmethode als Sicherheit für den Prozess."
+            :width="620"
+            @update:open="(value) => (paymentModalOpen = value)"
+        >
+            <div v-if="paymentSetupOrder" class="min-w-0 px-2">
+                <PaymentMethodStep :order-id="paymentSetupOrder.id" @complete="onPaymentComplete" />
+            </div>
+        </AppModal>
+
+        <div v-if="repairPaymentOrder" class="bg-[#EFEFEF] px-4 pt-4">
+            <div class="flex flex-col gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div class="flex items-start gap-3">
+                    <IconMdiCreditCardOutline class="mt-0.5 size-5 shrink-0 text-amber-700" />
+                    <div>
+                        <p class="text-[15px] font-bold text-amber-900">Zahlung erforderlich</p>
+                        <p class="text-sm text-amber-900/90">
+                            Für Auftrag {{ repairPaymentOrder.auftragsnummer }} sind die Reparaturkosten noch offen. Ihr Fahrzeug kann erst nach
+                            Zahlungseingang übergeben werden.
+                        </p>
+                    </div>
+                </div>
+                <button
+                    type="button"
+                    class="bg-brand-green hover:bg-brand-green/90 shrink-0 rounded-[5px] px-6 py-2.5 text-sm font-bold text-white"
+                    @click="openRepairPayment"
+                >
+                    Jetzt bezahlen
+                </button>
+            </div>
+        </div>
+
+        <AppModal
+            :open="repairPaymentModalOpen"
+            title="Reparaturkosten bezahlen"
+            description="Schließen Sie die Zahlung ab, damit Ihr Fahrzeug übergeben werden kann."
+            :width="620"
+            @update:open="(value) => (repairPaymentModalOpen = value)"
+        >
+            <div v-if="repairPaymentOrder" class="min-w-0 px-2">
+                <PaymentCheckoutPanel :order-id="repairPaymentOrder.id" purpose="repair" @paid="onRepairPaid" />
+            </div>
+        </AppModal>
+
+        <div v-if="cancellationFeeOrder" class="bg-[#EFEFEF] px-4 pt-4">
+            <div class="flex flex-col gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div class="flex items-start gap-3">
+                    <IconMdiCreditCardOutline class="mt-0.5 size-5 shrink-0 text-amber-700" />
+                    <div>
+                        <p class="text-[15px] font-bold text-amber-900">Stornogebühr offen</p>
+                        <p class="text-sm text-amber-900/90">
+                            Auftrag {{ cancellationFeeOrder.auftragsnummer }} wurde storniert. Es steht eine Stornogebühr von
+                            {{ formatEuro(cancellationFeeOrder.payment!.cancellation_fee!.amount_cents / 100) }} offen.
+                        </p>
+                    </div>
+                </div>
+                <button
+                    type="button"
+                    class="bg-brand-green hover:bg-brand-green/90 shrink-0 rounded-[5px] px-6 py-2.5 text-sm font-bold text-white"
+                    @click="feeModalOpen = true"
+                >
+                    Jetzt bezahlen
+                </button>
+            </div>
+        </div>
+
+        <AppModal
+            :open="feeModalOpen"
+            title="Stornogebühr bezahlen"
+            description="Schließen Sie die Zahlung der Stornogebühr ab."
+            :width="620"
+            @update:open="(value) => (feeModalOpen = value)"
+        >
+            <div v-if="cancellationFeeOrder" class="min-w-0 px-2">
+                <PaymentCheckoutPanel :order-id="cancellationFeeOrder.id" purpose="cancellation-fee" @paid="onFeePaid" />
+            </div>
+        </AppModal>
+
+        <div class="bg-[#EFEFEF] p-4">
+            <MasonryGrid class="grid-cols-1 md:grid-cols-2 2xl:grid-cols-3">
+                <div class="flex w-full flex-col overflow-hidden rounded-3xl border bg-white" style="border-color: #ececec">
+                    <OrderStatusTimeline
+                        :entries="timelineEntries"
+                        :header-label="timelineHeaderLabel"
+                        :header-tooltip-description="timelineHeaderTooltipDescription"
+                    >
+                        <template #actions="{ entry }">
+                            <template v-if="entry.docUrl">
+                                <a
+                                    :href="entry.docUrl"
+                                    target="_blank"
+                                    rel="noopener"
+                                    class="text-[#01b990] hover:opacity-70"
+                                    title="Gutachten herunterladen"
+                                >
+                                    <IconMaterialSymbolsDownload class="size-[18.5px] shrink-0" />
+                                </a>
+                                <a
+                                    :href="entry.docUrl"
+                                    target="_blank"
+                                    rel="noopener"
+                                    class="text-[#01b990] hover:opacity-70"
+                                    title="Gutachten öffnen"
+                                >
+                                    <IconMdiOpenInNew class="size-[18.5px] shrink-0" />
+                                </a>
+                            </template>
                             <a
-                                :href="entry.docUrl"
+                                v-if="entry.invoiceUrl"
+                                :href="entry.invoiceUrl"
                                 target="_blank"
                                 rel="noopener"
                                 class="text-[#01b990] hover:opacity-70"
-                                title="Gutachten herunterladen"
+                                title="Rechnung ansehen"
                             >
-                                <IconMaterialSymbolsDownload class="size-[18.5px] shrink-0" />
+                                <IconMdiReceiptTextOutline class="size-[18.5px] shrink-0" />
                             </a>
-                            <a :href="entry.docUrl" target="_blank" rel="noopener" class="text-[#01b990] hover:opacity-70" title="Gutachten öffnen">
-                                <IconMdiOpenInNew class="size-[18.5px] shrink-0" />
-                            </a>
+                            <button
+                                v-if="entry.showPaymentAction"
+                                type="button"
+                                :disabled="!repairPaymentOrder"
+                                class="text-[#01b990] hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-30"
+                                :title="repairPaymentOrder ? 'Reparaturkosten bezahlen' : 'Derzeit ist keine Zahlung offen'"
+                                @click="openRepairPayment"
+                            >
+                                <IconMdiCreditCardOutline class="size-[18.5px] shrink-0" />
+                            </button>
                         </template>
-                        <a
-                            v-if="entry.invoiceUrl"
-                            :href="entry.invoiceUrl"
-                            target="_blank"
-                            rel="noopener"
-                            class="text-[#01b990] hover:opacity-70"
-                            title="Rechnung ansehen"
-                        >
-                            <IconMdiReceiptTextOutline class="size-[18.5px] shrink-0" />
-                        </a>
-                        <button
-                            v-if="entry.showPaymentAction"
-                            type="button"
-                            :disabled="!CUSTOMER_PAYMENT_FEATURE_ENABLED"
-                            class="text-[#01b990] hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-30"
-                            title="Bezahlen (bald verfügbar)"
-                        >
-                            <IconMdiCreditCardOutline class="size-[18.5px] shrink-0" />
-                        </button>
-                    </template>
-                </OrderStatusTimeline>
-            </div>
+                    </OrderStatusTimeline>
+                </div>
 
-            <div class="flex w-full flex-col gap-4">
                 <div class="relative flex flex-col rounded-[16px] border bg-white" style="border-color: #ececec">
-                    <button class="absolute top-5 right-5 transition-opacity hover:opacity-60" @click="uploadDocsOpen = true">
+                    <button
+                        v-if="canUploadDocument"
+                        class="absolute top-5 right-5 transition-opacity hover:opacity-60"
+                        @click="uploadDocsOpen = true"
+                    >
                         <IconMdiFileUploadOutline class="size-[18.5px] shrink-0" style="color: #01b990" />
                     </button>
-                    <div class="p-6">
+                    <div :class="hasNoDocuments ? 'px-6 pt-6' : 'p-6'">
                         <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">Fahrzeugdokumente</p>
-                        <div class="mt-2 h-px bg-gray-200"></div>
+                        <div v-if="!hasNoDocuments" class="mt-2 h-px bg-gray-200"></div>
                     </div>
 
-                    <div class="flex flex-col gap-5 p-6 pt-0">
+                    <!--
+                        A card's worth of chrome — divider, section padding, a
+                        group heading — around one line of grey text is a tile
+                        the masonry has to reserve a slot for and nothing to
+                        read in it. Same empty state the Angebote card uses.
+                    -->
+                    <div v-if="hasNoDocuments" class="flex flex-col items-center gap-2 px-6 pt-2 pb-8 text-center">
+                        <IconMdiFileDocumentOutline class="size-7" style="color: #d3dbdb" />
+                        <p class="text-[14px] font-bold" style="color: #2e3e3f">Noch keine Dokumente</p>
+                        <p class="max-w-[280px] text-[12.5px] leading-snug" style="color: #8f9ba7">
+                            Laden Sie Fahrzeugschein, Serviceheft oder Fotos hoch — oben rechts über das Upload-Symbol.
+                        </p>
+                    </div>
+
+                    <div v-else class="flex flex-col gap-5 p-6 pt-0">
                         <div v-for="group in groupedDocuments" :key="group.key" class="flex flex-col gap-3">
                             <div>
                                 <p class="text-[16px] font-semibold text-[#000000] uppercase">
@@ -511,17 +922,166 @@ function formatDate(value: string | null): string {
                             </div>
                         </div>
                         <AdminReportDocumentsList v-if="admin" :documents="adminReportDocuments" />
-
-                        <div v-if="!admin && documents.length === 0" class="text-[14px] text-[#b7c2c2]">Keine Dokumente gefunden</div>
                     </div>
                 </div>
-            </div>
 
-            <div class="relative w-full">
                 <div
-                    class="flex flex-col rounded-[16px] border bg-white"
-                    :style="hasRealOffers ? 'border-color: #ececec' : 'border-color: #ececec; opacity: 0.5'"
+                    v-if="pendingPresentedOffer || decidedPresentedOffer"
+                    class="@container flex flex-col rounded-[16px] border bg-white"
+                    style="border-color: #ececec"
                 >
+                    <div class="px-6 pt-6">
+                        <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">Reparaturangebot</p>
+                        <p class="mt-1 text-[13px]" style="color: #64748b">
+                            {{ presentedAmountsLabel }} Gegenüberstellung von Erstgutachten und freigegebener Reparatur.
+                        </p>
+                        <p v-if="presentedWorkshopName" class="mt-1 text-[13px] font-bold" style="color: #2e3e3f">
+                            Ausführende Werkstatt: {{ presentedWorkshopName }}
+                        </p>
+                    </div>
+
+                    <template v-for="offer in [pendingPresentedOffer ?? decidedPresentedOffer]" :key="offer?.offerId">
+                        <div v-if="offer?.presentation" class="flex flex-col px-6 pt-4 pb-6">
+                            <!--
+                                Keyed to the card, not the viewport. This card is
+                                one masonry track wide — a third of the panel at
+                                the top breakpoint — so a `max-[560px]` viewport
+                                query never fired where it was needed and left
+                                three amount tiles fighting over ~300px.
+                            -->
+                            <div class="grid grid-cols-3 gap-3 @max-[420px]:grid-cols-1">
+                                <div class="rounded-[13px] bg-[#f6f9f8] px-4 py-3">
+                                    <p class="text-[12px]" style="color: #64748b">Gutachten {{ presentedAmountsUnit }}</p>
+                                    <p class="mt-1 text-[16px] font-bold" style="color: #000">
+                                        {{ presentedAmount(offer.presentation, 'appraisal_total') }}
+                                    </p>
+                                </div>
+                                <div class="rounded-[13px] bg-[#f6f9f8] px-4 py-3">
+                                    <p class="text-[12px]" style="color: #64748b">Reparatur {{ presentedAmountsUnit }}</p>
+                                    <p class="mt-1 text-[16px] font-bold" style="color: #000">
+                                        {{ presentedAmount(offer.presentation, 'repair_total') }}
+                                    </p>
+                                    <p v-if="offer.presentation.repair_total_gross" class="mt-0.5 text-[11.5px]" style="color: #9bb0af">
+                                        {{ formatEuro(offer.presentation.repair_total_net) }} netto
+                                    </p>
+                                </div>
+                                <div class="rounded-[13px] px-4 py-3" style="background: rgba(1, 185, 144, 0.1)">
+                                    <p class="text-[12px]" style="color: #00856a">Ihre Ersparnis</p>
+                                    <p class="mt-1 text-[16px] font-bold" style="color: #00856a">
+                                        {{ presentedAmount(offer.presentation, 'saving') }}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <p
+                                v-if="offer.presentation.customer_note"
+                                class="mt-4 rounded-[13px] bg-[#f9fbfa] px-4 py-3 text-[13px]"
+                                style="color: #2e3e3f"
+                            >
+                                {{ offer.presentation.customer_note }}
+                            </p>
+
+                            <p v-if="offer.presentation.valid_until" class="mt-3 text-[12.5px]" style="color: #64748b">
+                                Gültig bis {{ formatDate(offer.presentation.valid_until) }}
+                                <span v-if="offer.presentation.is_expired" class="font-bold" style="color: #991b1b"> · abgelaufen</span>
+                            </p>
+
+                            <div class="mt-4 overflow-x-auto">
+                                <table class="w-full min-w-[420px] border-collapse text-left">
+                                    <thead>
+                                        <tr class="border-b" style="border-color: #ececec">
+                                            <th class="py-2 pr-2 text-[12px] font-bold" style="color: #64748b">Position</th>
+                                            <th class="py-2 pr-2 text-right text-[12px] font-bold" style="color: #64748b">Gutachten</th>
+                                            <th class="py-2 pr-2 text-right text-[12px] font-bold" style="color: #64748b">Reparatur</th>
+                                            <th class="py-2 text-right text-[12px] font-bold" style="color: #64748b">Ersparnis</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr
+                                            v-for="line in offer.presentation.lines"
+                                            :key="line.appraisal_position_id"
+                                            class="border-b"
+                                            style="border-color: #f6f9f8"
+                                        >
+                                            <td class="py-2 pr-2 text-[13px]" style="color: #000">
+                                                {{ line.component }}
+                                                <span v-if="line.not_repairable" class="text-[11.5px] font-bold" style="color: #991b1b">
+                                                    · nicht instandsetzbar
+                                                </span>
+                                                <span v-if="line.repair_method" class="block text-[11.5px]" style="color: #9bb0af">
+                                                    {{ line.repair_method }}
+                                                </span>
+                                            </td>
+                                            <td class="py-2 pr-2 text-right text-[13px]" style="color: #64748b">
+                                                {{ presentedLineAmount(line, 'appraisal_amount') }}
+                                            </td>
+                                            <td class="py-2 pr-2 text-right text-[13px] font-bold" style="color: #000">
+                                                {{ presentedLineAmount(line, 'repair_amount') }}
+                                            </td>
+                                            <td class="py-2 text-right text-[13px] font-bold" style="color: #00856a">
+                                                {{ presentedLineAmount(line, 'saving') }}
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div v-if="!admin && canDecideOffer && offer.status === 'published'" class="mt-5 flex flex-wrap items-center gap-2">
+                                <button
+                                    type="button"
+                                    class="rounded-[13px] px-5 py-2.5 text-[13px] font-bold text-white transition-all hover:opacity-90"
+                                    style="background: #01b990"
+                                    @click.stop="requestSelect(offer.offerId)"
+                                >
+                                    Reparatur freigeben
+                                </button>
+
+                                <button
+                                    type="button"
+                                    class="rounded-[13px] border px-5 py-2.5 text-[13px] font-bold transition-all hover:opacity-80"
+                                    style="border-color: #ececec; color: #991b1b"
+                                    @click.stop="rejectOpen = !rejectOpen"
+                                >
+                                    {{ rejectOpen ? 'Abbrechen' : 'Angebot ablehnen' }}
+                                </button>
+                            </div>
+
+                            <div v-if="rejectOpen && !admin && canDecideOffer && offer.status === 'published'" class="mt-3 flex flex-col gap-2">
+                                <p class="rounded-[13px] border border-amber-300 bg-amber-50 p-3 text-[13px] leading-relaxed text-amber-900">
+                                    Wenn Sie dieses Reparaturangebot ablehnen, fällt eine Gebühr von
+                                    <span class="font-bold">{{ cancellationFeeLabel }}</span> an.
+                                </p>
+                                <textarea
+                                    v-model="rejectComment"
+                                    rows="3"
+                                    class="w-full resize-none rounded-[13px] border px-3 py-2 text-[13px] outline-none focus:border-[#01b990]"
+                                    style="border-color: #ececec"
+                                    placeholder="Optionale Anmerkung oder Rückfrage..."
+                                />
+                                <button
+                                    type="button"
+                                    :disabled="rejectingOfferId === offer.offerId"
+                                    class="self-start rounded-[13px] px-5 py-2.5 text-[13px] font-bold text-white transition-all hover:opacity-90 disabled:opacity-50"
+                                    style="background: #991b1b"
+                                    @click.stop="submitReject(offer.offerId)"
+                                >
+                                    {{ rejectingOfferId === offer.offerId ? 'Wird gesendet...' : 'Ablehnung bestätigen' }}
+                                </button>
+                            </div>
+
+                            <p
+                                v-if="offer.presentation.rejected_at"
+                                class="mt-4 rounded-[13px] px-4 py-3 text-[13px]"
+                                style="background: rgba(220, 38, 38, 0.06); color: #991b1b"
+                            >
+                                Sie haben dieses Angebot abgelehnt.
+                                <span v-if="offer.presentation.customer_comment">„{{ offer.presentation.customer_comment }}"</span>
+                            </p>
+                        </div>
+                    </template>
+                </div>
+
+                <div class="flex flex-col rounded-[16px] border bg-white" style="border-color: #ececec">
                     <div class="flex items-center justify-between gap-3 px-6 py-6">
                         <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">Angebote</p>
 
@@ -536,7 +1096,22 @@ function formatDate(value: string | null): string {
                         </button>
                     </div>
 
-                    <div class="flex flex-col gap-5 px-6">
+                    <!--
+                        A real empty state rather than the card's own skeleton
+                        dimmed to half opacity behind a floating pill: with no
+                        offers there was nothing to dim, so it rendered as a
+                        tall grey void with a disabled "accept" button under it
+                        and a label hovering in the middle of the emptiness.
+                    -->
+                    <div v-if="!hasRealOffers" class="flex flex-col items-center gap-2 px-6 pt-2 pb-8 text-center">
+                        <IconMdiTagOutline class="size-7" style="color: #d3dbdb" />
+                        <p class="text-[14px] font-bold" style="color: #2e3e3f">Noch keine Angebote</p>
+                        <p class="max-w-[280px] text-[12.5px] leading-snug" style="color: #8f9ba7">
+                            {{ noOffersHint }}
+                        </p>
+                    </div>
+
+                    <div v-else class="flex flex-col gap-5 px-6">
                         <div v-for="offer in offersData" :key="offer.id" class="flex flex-col gap-2">
                             <div
                                 class="flex items-center gap-4 rounded-[50px] border px-4 py-2"
@@ -624,7 +1199,9 @@ function formatDate(value: string | null): string {
                         </div>
                     </div>
 
-                    <div class="mt-6 px-6 pb-6">
+                    <!-- Only where there is an offer to accept. A permanently
+                         disabled call to action is not information. -->
+                    <div v-if="hasRealOffers" class="mt-6 px-6 pb-6">
                         <button
                             v-if="admin"
                             type="button"
@@ -646,6 +1223,55 @@ function formatDate(value: string | null): string {
                         </button>
                     </div>
 
+                    <div
+                        v-if="!admin && canDecideOffer && publishedOffer && !pendingPresentedOffer"
+                        class="flex flex-wrap items-center gap-2 px-6 pt-4"
+                    >
+                        <button
+                            type="button"
+                            class="rounded-[13px] px-5 py-2.5 text-[13px] font-bold text-white transition-all hover:opacity-90"
+                            style="background: #01b990"
+                            @click.stop="requestSelect(publishedOffer.offerId)"
+                        >
+                            Reparatur freigeben
+                        </button>
+
+                        <button
+                            type="button"
+                            class="rounded-[13px] border px-5 py-2.5 text-[13px] font-bold transition-all hover:opacity-80"
+                            style="border-color: #ececec; color: #991b1b"
+                            @click.stop="rejectOpen = !rejectOpen"
+                        >
+                            {{ rejectOpen ? 'Abbrechen' : 'Angebot ablehnen' }}
+                        </button>
+                    </div>
+
+                    <div
+                        v-if="rejectOpen && !admin && canDecideOffer && publishedOffer && !pendingPresentedOffer"
+                        class="flex flex-col gap-2 px-6 pt-3"
+                    >
+                        <p class="rounded-[13px] border border-amber-300 bg-amber-50 p-3 text-[13px] leading-relaxed text-amber-900">
+                            Wenn Sie dieses Reparaturangebot ablehnen, fällt eine Gebühr von
+                            <span class="font-bold">{{ cancellationFeeLabel }}</span> an.
+                        </p>
+                        <textarea
+                            v-model="rejectComment"
+                            rows="3"
+                            class="w-full resize-none rounded-[13px] border px-3 py-2 text-[13px] outline-none focus:border-[#01b990]"
+                            style="border-color: #ececec"
+                            placeholder="Optionale Anmerkung oder Rückfrage..."
+                        />
+                        <button
+                            type="button"
+                            :disabled="rejectingOfferId === publishedOffer.offerId"
+                            class="self-start rounded-[13px] px-5 py-2.5 text-[13px] font-bold text-white transition-all hover:opacity-90 disabled:opacity-50"
+                            style="background: #991b1b"
+                            @click.stop="submitReject(publishedOffer.offerId)"
+                        >
+                            {{ rejectingOfferId === publishedOffer.offerId ? 'Wird gesendet...' : 'Ablehnung bestätigen' }}
+                        </button>
+                    </div>
+
                     <div v-if="acceptedOffer" class="px-6 pt-5 pb-6">
                         <div class="flex items-center justify-between gap-3 rounded-[50px] px-7 py-2.5" style="background: #ef8450">
                             <span class="min-w-0 flex-1 text-[13px] leading-snug font-normal text-white">
@@ -657,85 +1283,159 @@ function formatDate(value: string | null): string {
                         </div>
                     </div>
                 </div>
-                <div v-if="!hasRealOffers" class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
-                    <div class="rounded-full bg-white/80 px-6 py-3 shadow-lg">
-                        <p class="text-[18px] font-bold" style="color: #ef8450">Keine Angebote</p>
-                    </div>
-                </div>
-            </div>
 
-            <div class="relative flex w-full flex-col rounded-[24px] border bg-white p-6" style="border-color: #ececec">
-                <div class="pb-6">
-                    <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">Besichtigungsort</p>
-                </div>
-
-                <template v-if="besichtigungsort">
-                    <div class="flex items-center gap-5 pb-6">
-                        <div
-                            class="flex size-[56px] shrink-0 items-center justify-center rounded-full"
-                            style="background-color: rgba(1, 185, 144, 0.1)"
-                        >
-                            <IconMdiOfficeBuildingOutline class="size-7" style="color: #01b990" />
-                        </div>
-                        <p class="min-w-0 flex-1 text-[18px] font-bold wrap-break-word" style="color: #2e3e3f">
-                            {{ besichtigungsort.name }}
-                        </p>
+                <div class="relative flex w-full flex-col rounded-[24px] border bg-white p-6" style="border-color: #ececec">
+                    <div :class="besichtigungsort ? 'pb-6' : 'pb-2'">
+                        <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">Besichtigungsort</p>
                     </div>
 
-                    <div class="pb-5">
-                        <p class="text-[10px] font-medium uppercase" style="color: #8f9ba7; letter-spacing: 0.5px">Termin</p>
-                        <div class="flex items-center gap-3 pt-2">
-                            <IconMdiCalendarClockOutline class="size-[18px] shrink-0" style="color: #5a6b7a" />
-                            <p class="text-[14px] font-bold" style="color: #2e3e3f">
-                                {{ terminFormatted || 'Kein Termin' }}
+                    <template v-if="besichtigungsort">
+                        <div class="flex items-center gap-5 pb-6">
+                            <div
+                                class="flex size-[56px] shrink-0 items-center justify-center rounded-full"
+                                style="background-color: rgba(1, 185, 144, 0.1)"
+                            >
+                                <IconMdiOfficeBuildingOutline class="size-7" style="color: #01b990" />
+                            </div>
+                            <p class="min-w-0 flex-1 text-[18px] font-bold wrap-break-word" style="color: #2e3e3f">
+                                {{ besichtigungsort.name }}
                             </p>
                         </div>
+
+                        <div class="pb-5">
+                            <p class="text-[10px] font-medium uppercase" style="color: #8f9ba7; letter-spacing: 0.5px">Termin</p>
+                            <div class="flex items-center gap-3 pt-2">
+                                <IconMdiCalendarClockOutline class="size-[18px] shrink-0" style="color: #5a6b7a" />
+                                <p class="text-[14px] font-bold" style="color: #2e3e3f">
+                                    {{ terminFormatted || 'Kein Termin' }}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="mb-5 h-px bg-gray-200"></div>
+
+                        <div class="flex items-start gap-4">
+                            <IconMdiMapMarkerOutline class="mt-0.5 size-[18px] shrink-0" style="color: #5a6b7a" />
+                            <span class="text-[14px] leading-relaxed font-normal" style="color: #2e3e3f">
+                                {{ besichtigungsort.strasse }}<br />
+                                {{ besichtigungsort.plz }} {{ besichtigungsort.ort }}
+                                <template v-if="besichtigungsort.land"> ({{ besichtigungsort.land.toUpperCase() }}) </template>
+                            </span>
+                        </div>
+                    </template>
+                    <div v-else class="flex flex-col items-center gap-2 pt-2 pb-2 text-center">
+                        <IconMdiMapMarkerOutline class="size-7" style="color: #d3dbdb" />
+                        <p class="text-[14px] font-bold" style="color: #2e3e3f">Noch kein Besichtigungsort</p>
+                        <p class="max-w-[280px] text-[12.5px] leading-snug" style="color: #8f9ba7">
+                            Sobald ein Auftrag angelegt ist, stehen hier Werkstatt, Termin und Adresse.
+                        </p>
                     </div>
-
-                    <div class="mb-5 h-px bg-gray-200"></div>
-
-                    <div class="flex items-start gap-4">
-                        <IconMdiMapMarkerOutline class="mt-0.5 size-[18px] shrink-0" style="color: #5a6b7a" />
-                        <span class="text-[14px] leading-relaxed font-normal" style="color: #2e3e3f">
-                            {{ besichtigungsort.strasse }}<br />
-                            {{ besichtigungsort.plz }} {{ besichtigungsort.ort }}
-                            <template v-if="besichtigungsort.land"> ({{ besichtigungsort.land.toUpperCase() }}) </template>
-                        </span>
-                    </div>
-                </template>
-                <div v-else class="text-[14px] font-normal" style="color: #b7c2c2">Kein Besichtigungsort verfügbar</div>
-            </div>
-
-            <div class="relative flex w-full flex-col overflow-hidden rounded-3xl border bg-white" style="border-color: #ececec">
-                <button class="absolute top-6 right-6 transition-opacity hover:opacity-60" @click="editVehicleOpen = true">
-                    <IconMdiPencil class="size-5 shrink-0" style="color: #01b990" />
-                </button>
-                <div class="px-6 pt-6">
-                    <p class="text-[16px] font-bold uppercase" style="color: #000">FAHRZEUGDATEN</p>
                 </div>
 
-                <div class="flex flex-col gap-0 px-6 pt-4 pb-6">
-                    <div class="flex items-center justify-between py-4">
-                        <span class="text-[16px] font-normal" style="color: #64748b">Kennzeichen</span>
-                        <span class="text-[16px] font-semibold" style="color: #000">{{ vehicle.license_plate }}</span>
+                <div class="relative flex w-full flex-col overflow-hidden rounded-3xl border bg-white" style="border-color: #ececec">
+                    <button v-if="canEditVehicle" class="absolute top-6 right-6 transition-opacity hover:opacity-60" @click="editVehicleOpen = true">
+                        <IconMdiPencil class="size-5 shrink-0" style="color: #01b990" />
+                    </button>
+                    <div class="px-6 pt-6">
+                        <p class="text-[16px] font-bold uppercase" style="color: #000">FAHRZEUGDATEN</p>
                     </div>
-                    <div class="h-px bg-gray-200"></div>
-                    <div class="flex items-center justify-between py-4">
-                        <span class="text-[16px] font-normal" style="color: #64748b">Modell</span>
-                        <span class="text-[16px] font-semibold" style="color: #000">{{ vehicle.make }} {{ vehicle.model }}</span>
-                    </div>
-                    <div class="h-px bg-gray-200"></div>
-                    <div class="flex items-center justify-between py-4">
-                        <span class="text-[16px] font-normal" style="color: #64748b">Leasinggeber</span>
-                        <span class="text-[16px] font-semibold" style="color: #000">{{ vehicle.leasinggeber || 'Nicht verfügbar' }}</span>
-                    </div>
-                    <div class="h-px bg-gray-200"></div>
-                    <div class="flex items-center justify-between py-4">
-                        <span class="text-[16px] font-normal" style="color: #64748b">Rückgabetermin</span>
-                        <span class="text-[16px] font-semibold" style="color: #000">{{ formatDate(vehicle.leasing_end_date) }}</span>
+
+                    <div class="flex flex-col gap-0 px-6 pt-4 pb-6">
+                        <div class="flex items-center justify-between py-4">
+                            <span class="text-[16px] font-normal" style="color: #64748b">Kennzeichen</span>
+                            <span class="text-[16px] font-semibold" style="color: #000">{{ vehicle.license_plate }}</span>
+                        </div>
+                        <div class="h-px bg-gray-200"></div>
+                        <div class="flex items-center justify-between py-4">
+                            <span class="text-[16px] font-normal" style="color: #64748b">Modell</span>
+                            <span class="text-[16px] font-semibold" style="color: #000">{{ vehicle.make }} {{ vehicle.model }}</span>
+                        </div>
+                        <div class="h-px bg-gray-200"></div>
+                        <div class="flex items-center justify-between py-4">
+                            <span class="text-[16px] font-normal" style="color: #64748b">Leasinggeber</span>
+                            <span class="text-[16px] font-semibold" style="color: #000">{{ vehicle.leasinggeber || 'Nicht verfügbar' }}</span>
+                        </div>
+                        <div class="h-px bg-gray-200"></div>
+                        <div class="flex items-center justify-between py-4">
+                            <span class="text-[16px] font-normal" style="color: #64748b">Rückgabetermin</span>
+                            <span class="text-[16px] font-semibold" style="color: #000">{{ formatDate(vehicle.leasing_end_date) }}</span>
+                        </div>
+
+                        <template v-if="isB2bVehicle">
+                            <template v-for="row in fleetRows" :key="row.label">
+                                <div class="h-px bg-gray-200"></div>
+                                <div class="flex items-start justify-between gap-4 py-4">
+                                    <span class="shrink-0 text-[16px] font-normal" style="color: #64748b">{{ row.label }}</span>
+                                    <span class="text-right text-[16px] font-semibold" style="color: #000">{{ row.value || 'Nicht verfügbar' }}</span>
+                                </div>
+                            </template>
+                        </template>
                     </div>
                 </div>
-            </div>
+
+                <div
+                    v-if="hasCollectionData"
+                    class="relative flex w-full flex-col overflow-hidden rounded-3xl border bg-white"
+                    style="border-color: #ececec"
+                >
+                    <div class="px-6 pt-6">
+                        <p class="text-[16px] font-bold uppercase" style="color: #000">ABHOLUNG</p>
+                    </div>
+
+                    <div class="flex flex-col gap-0 px-6 pt-4 pb-6">
+                        <template v-for="(row, index) in collectionRows" :key="row.label">
+                            <div v-if="index > 0" class="h-px bg-gray-200"></div>
+                            <div class="flex items-start justify-between gap-4 py-4">
+                                <span class="shrink-0 text-[16px] font-normal" style="color: #64748b">{{ row.label }}</span>
+                                <span class="text-right text-[16px] font-semibold" style="color: #000">{{ row.value || 'Nicht verfügbar' }}</span>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <!--
+                    Customer-visible notes only (§16). The payload never carries an
+                    internal note, so there is nothing to filter here.
+                -->
+                <div
+                    v-if="orderNotes.length"
+                    class="relative flex w-full flex-col overflow-hidden rounded-3xl border bg-white"
+                    style="border-color: #ececec"
+                >
+                    <div class="px-6 pt-6">
+                        <p class="text-[16px] font-bold uppercase" style="color: #000">HINWEISE VON LEASYBACK</p>
+                    </div>
+
+                    <div class="flex flex-col gap-0 px-6 pt-4 pb-6">
+                        <template v-for="(note, index) in orderNotes" :key="note.id">
+                            <div v-if="index > 0" class="h-px bg-gray-200"></div>
+                            <div class="py-4">
+                                <p class="text-[16px] whitespace-pre-line" style="color: #000">{{ note.body }}</p>
+                                <p class="mt-2 text-[14px]" style="color: #64748b">{{ note.author_name }} · {{ formatDate(note.created_at) }}</p>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <!--
+                    Everything behind the current order, each row linking to
+                    orders.show — so a closed order is reachable in full rather
+                    than reduced to whatever the current one happens to show.
+                    Customer-side only: those rows lead to the customer's order
+                    page, and an admin has admin.orders.show, reached from the
+                    Aufträge list on the same Admin page this panel is embedded
+                    in.
+                -->
+                <OrderHistoryList
+                    v-if="!admin && vehicle.order_history.length"
+                    :entries="vehicle.order_history"
+                    title="FRÜHERE AUFTRÄGE"
+                    container-class="relative flex w-full flex-col overflow-hidden rounded-3xl border bg-white"
+                    header-class="flex items-baseline justify-between gap-3 px-6 pt-6 pb-2"
+                    title-class="text-[16px] font-bold uppercase text-black"
+                    style="border-color: #ececec"
+                />
+            </MasonryGrid>
         </div>
     </VehiclePanelShell>
 
@@ -777,9 +1477,10 @@ function formatDate(value: string | null): string {
                     <button
                         v-if="entry.showPaymentAction"
                         type="button"
-                        :disabled="!CUSTOMER_PAYMENT_FEATURE_ENABLED"
+                        :disabled="!repairPaymentOrder"
                         class="text-[#01b990] hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-30"
-                        title="Bezahlen (bald verfügbar)"
+                        :title="repairPaymentOrder ? 'Reparaturkosten bezahlen' : 'Derzeit ist keine Zahlung offen'"
+                        @click="openRepairPayment"
                     >
                         <IconMdiCreditCardOutline class="size-[18.5px] shrink-0" />
                     </button>
@@ -788,15 +1489,23 @@ function formatDate(value: string | null): string {
         </div>
 
         <div class="relative flex flex-col rounded-[16px] border bg-white" style="border-color: #ececec">
-            <button class="absolute top-4 right-4 transition-opacity hover:opacity-60" @click="uploadDocsOpen = true">
+            <button v-if="canUploadDocument" class="absolute top-4 right-4 transition-opacity hover:opacity-60" @click="uploadDocsOpen = true">
                 <IconMdiFileUploadOutline class="size-[18.5px] shrink-0" style="color: #01b990" />
             </button>
-            <div class="p-4">
+            <div :class="hasNoDocuments ? 'px-4 pt-4' : 'p-4'">
                 <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">Fahrzeugdokumente</p>
-                <div class="mt-2 h-px bg-gray-200"></div>
+                <div v-if="!hasNoDocuments" class="mt-2 h-px bg-gray-200"></div>
             </div>
 
-            <div class="flex flex-col gap-4 p-4 pt-0">
+            <div v-if="hasNoDocuments" class="flex flex-col items-center gap-2 px-4 pt-2 pb-6 text-center">
+                <IconMdiFileDocumentOutline class="size-6" style="color: #d3dbdb" />
+                <p class="text-[13.5px] font-bold" style="color: #2e3e3f">Noch keine Dokumente</p>
+                <p class="text-[12px] leading-snug" style="color: #8f9ba7">
+                    Laden Sie Fahrzeugschein, Serviceheft oder Fotos hoch — oben rechts über das Upload-Symbol.
+                </p>
+            </div>
+
+            <div v-else class="flex flex-col gap-4 p-4 pt-0">
                 <div v-for="group in groupedDocuments" :key="group.key" class="flex flex-col gap-3">
                     <div>
                         <p class="text-[16px] font-semibold text-[#000000] uppercase">
@@ -819,16 +1528,11 @@ function formatDate(value: string | null): string {
                     </div>
                 </div>
                 <AdminReportDocumentsList v-if="admin" :documents="adminReportDocuments" compact />
-
-                <div v-if="!admin && documents.length === 0" class="text-[14px] text-[#b7c2c2]">Keine Dokumente gefunden</div>
             </div>
         </div>
 
-        <div class="relative">
-            <div
-                class="flex flex-col rounded-[16px] border bg-white"
-                :style="hasRealOffers ? 'border-color: #ececec' : 'border-color: #ececec; opacity: 0.5'"
-            >
+        <div>
+            <div class="flex flex-col rounded-[16px] border bg-white" style="border-color: #ececec">
                 <div class="flex items-center justify-between gap-3 px-4 py-4">
                     <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">Angebote</p>
 
@@ -843,7 +1547,13 @@ function formatDate(value: string | null): string {
                     </button>
                 </div>
 
-                <div class="flex flex-col gap-3 px-4">
+                <div v-if="!hasRealOffers" class="flex flex-col items-center gap-2 px-4 pb-6 text-center">
+                    <IconMdiTagOutline class="size-6" style="color: #d3dbdb" />
+                    <p class="text-[13.5px] font-bold" style="color: #2e3e3f">Noch keine Angebote</p>
+                    <p class="text-[12px] leading-snug" style="color: #8f9ba7">{{ noOffersHint }}</p>
+                </div>
+
+                <div v-else class="flex flex-col gap-3 px-4">
                     <div v-for="offer in offersData" :key="offer.id" class="flex flex-col gap-2">
                         <div
                             class="flex items-center gap-3 rounded-[20px] border px-3 py-3"
@@ -921,6 +1631,49 @@ function formatDate(value: string | null): string {
                     </div>
                 </div>
 
+                <div v-if="!admin && canDecideOffer && publishedOffer" class="flex flex-wrap items-center gap-2 px-4 pt-4">
+                    <button
+                        type="button"
+                        class="rounded-[13px] px-4 py-2.5 text-[13px] font-bold text-white transition-all hover:opacity-90"
+                        style="background: #01b990"
+                        @click.stop="requestSelect(publishedOffer.offerId)"
+                    >
+                        Reparatur freigeben
+                    </button>
+
+                    <button
+                        type="button"
+                        class="rounded-[13px] border px-4 py-2.5 text-[13px] font-bold transition-all hover:opacity-80"
+                        style="border-color: #ececec; color: #991b1b"
+                        @click.stop="rejectOpen = !rejectOpen"
+                    >
+                        {{ rejectOpen ? 'Abbrechen' : 'Angebot ablehnen' }}
+                    </button>
+                </div>
+
+                <div v-if="rejectOpen && !admin && canDecideOffer && publishedOffer" class="flex flex-col gap-2 px-4 pt-3">
+                    <p class="rounded-[13px] border border-amber-300 bg-amber-50 p-3 text-[13px] leading-relaxed text-amber-900">
+                        Wenn Sie dieses Reparaturangebot ablehnen, fällt eine Gebühr von
+                        <span class="font-bold">{{ cancellationFeeLabel }}</span> an.
+                    </p>
+                    <textarea
+                        v-model="rejectComment"
+                        rows="3"
+                        class="w-full resize-none rounded-[13px] border px-3 py-2 text-[13px] outline-none focus:border-[#01b990]"
+                        style="border-color: #ececec"
+                        placeholder="Optionale Anmerkung oder Rückfrage..."
+                    />
+                    <button
+                        type="button"
+                        :disabled="rejectingOfferId === publishedOffer.offerId"
+                        class="self-start rounded-[13px] px-5 py-2.5 text-[13px] font-bold text-white transition-all hover:opacity-90 disabled:opacity-50"
+                        style="background: #991b1b"
+                        @click.stop="submitReject(publishedOffer.offerId)"
+                    >
+                        {{ rejectingOfferId === publishedOffer.offerId ? 'Wird gesendet...' : 'Ablehnung bestätigen' }}
+                    </button>
+                </div>
+
                 <div v-if="admin && !acceptedOffer" class="px-4 pt-4">
                     <button
                         type="button"
@@ -945,15 +1698,10 @@ function formatDate(value: string | null): string {
                     </div>
                 </div>
             </div>
-            <div v-if="!hasRealOffers" class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
-                <div class="rounded-full bg-white/80 px-4 py-2 shadow-lg">
-                    <p class="text-[16px] font-bold" style="color: #ef8450">Keine Angebote</p>
-                </div>
-            </div>
         </div>
 
         <div class="relative flex flex-col rounded-[24px] border bg-white p-6" style="border-color: #ececec">
-            <div class="pb-4">
+            <div :class="besichtigungsort ? 'pb-4' : 'pb-2'">
                 <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">Besichtigungsort</p>
             </div>
 
@@ -988,7 +1736,13 @@ function formatDate(value: string | null): string {
                     </span>
                 </div>
             </template>
-            <div v-else class="text-[13px] font-normal" style="color: #b7c2c2">Kein Besichtigungsort verfügbar</div>
+            <div v-else class="flex flex-col items-center gap-2 pt-1 text-center">
+                <IconMdiMapMarkerOutline class="size-6" style="color: #d3dbdb" />
+                <p class="text-[13.5px] font-bold" style="color: #2e3e3f">Noch kein Besichtigungsort</p>
+                <p class="text-[12px] leading-snug" style="color: #8f9ba7">
+                    Sobald ein Auftrag angelegt ist, stehen hier Werkstatt, Termin und Adresse.
+                </p>
+            </div>
         </div>
 
         <div class="relative flex flex-col overflow-hidden rounded-3xl border bg-white" style="border-color: #ececec">
@@ -1019,6 +1773,32 @@ function formatDate(value: string | null): string {
                     <span class="text-[14px] font-normal" style="color: #64748b">Rückgabetermin</span>
                     <span class="text-[14px] font-semibold" style="color: #000">{{ formatDate(vehicle.leasing_end_date) }}</span>
                 </div>
+
+                <template v-if="isB2bVehicle">
+                    <template v-for="row in fleetRows" :key="row.label">
+                        <div class="h-px bg-gray-200"></div>
+                        <div class="flex items-start justify-between gap-3 py-3">
+                            <span class="shrink-0 text-[14px] font-normal" style="color: #64748b">{{ row.label }}</span>
+                            <span class="text-right text-[14px] font-semibold" style="color: #000">{{ row.value || 'Nicht verfügbar' }}</span>
+                        </div>
+                    </template>
+                </template>
+            </div>
+        </div>
+
+        <div v-if="hasCollectionData" class="flex flex-col overflow-hidden rounded-3xl border bg-white" style="border-color: #ececec">
+            <div class="px-4 pt-4">
+                <p class="text-[16px] font-bold uppercase" style="color: #000">ABHOLUNG</p>
+            </div>
+
+            <div class="flex flex-col gap-0 px-4 pt-3 pb-4">
+                <template v-for="(row, index) in collectionRows" :key="row.label">
+                    <div v-if="index > 0" class="h-px bg-gray-200"></div>
+                    <div class="flex items-start justify-between gap-3 py-3">
+                        <span class="shrink-0 text-[14px] font-normal" style="color: #64748b">{{ row.label }}</span>
+                        <span class="text-right text-[14px] font-semibold" style="color: #000">{{ row.value || 'Nicht verfügbar' }}</span>
+                    </div>
+                </template>
             </div>
         </div>
     </div>
@@ -1037,7 +1817,7 @@ function formatDate(value: string | null): string {
         "
     >
         <div class="px-2">
-            <OfferComparison :offers="rawOffers" :admin="admin" bare />
+            <OfferComparison :offers="rawOffers" :admin="admin" :vehicle-belongs="vehicle.vehicle_belongs" bare />
         </div>
     </AppModal>
 

@@ -3,6 +3,7 @@
 namespace App\Modules\UserProfile\B2B\Services;
 
 use App\Enums\B2bRole;
+use App\Enums\B2bRolePreset;
 use App\Enums\B2bVehicleScope;
 use App\Models\User;
 use App\Modules\UserProfile\B2B\Data\B2bMembership;
@@ -14,7 +15,7 @@ use Illuminate\Support\Facades\DB;
 /**
  * Reads and mutates company memberships.
  *
- * Two invariants are enforced here rather than at the controller, because
+ * Three invariants are enforced here rather than at the controller, because
  * they must hold no matter which entry point (web, API, console) does the
  * writing:
  *
@@ -24,6 +25,11 @@ use Illuminate\Support\Facades\DB;
  *  2. Only an owner may create another owner, or touch an existing owner's
  *     membership. A member holding ManageMembers can administer members, but
  *     cannot promote themselves past the ceiling they were given.
+ *  3. A non-owner manager acts strictly within their own authority
+ *     (B2bMembership::mayGrant): they grant no permission they lack and no
+ *     vehicle scope broader than their own, they cannot change their own
+ *     membership, and they cannot change or remove a member whose current
+ *     access already exceeds theirs.
  */
 class B2bMembershipService
 {
@@ -71,6 +77,11 @@ class B2bMembershipService
         return $rows->map(function (object $row) use ($vehicleCounts, $orderCounts) {
             $role = B2bRole::tryFrom((string) $row->role) ?? B2bRole::Member;
             $isOwner = $role === B2bRole::Owner;
+            $permissions = $isOwner
+                ? B2bPermissionSet::all()
+                : B2bPermissionSet::fromRaw($this->decodeJson($row->permissions));
+            // Display only — the stored role/permissions remain the authority.
+            $preset = B2bRolePreset::match($role, $permissions);
 
             return [
                 'user_id' => (int) $row->user_id,
@@ -78,13 +89,13 @@ class B2bMembershipService
                 'email' => $row->email,
                 'is_active' => (bool) $row->is_active,
                 'role' => $role->value,
-                'role_label' => $role->label(),
+                'role_label' => B2bRolePreset::labelFor($role, $permissions),
+                'preset' => $preset?->value,
+                'preset_label' => B2bRolePreset::labelFor($role, $permissions),
                 'vehicle_scope' => $isOwner
                     ? B2bVehicleScope::All->value
                     : (B2bVehicleScope::tryFrom((string) $row->vehicle_scope)?->value ?? B2bVehicleScope::All->value),
-                'permissions' => $isOwner
-                    ? B2bPermissionSet::all()->toArray()
-                    : B2bPermissionSet::fromRaw($this->decodeJson($row->permissions))->toArray(),
+                'permissions' => $permissions->toArray(),
                 'joined_at' => $row->joined_at ? Carbon::parse($row->joined_at)->toISOString() : null,
                 'invited_by_email' => $row->invited_by_email,
                 'vehicle_count' => (int) ($vehicleCounts[$row->user_id] ?? 0),
@@ -137,6 +148,11 @@ class B2bMembershipService
             $targetRole = B2bRole::tryFrom((string) $target->role) ?? B2bRole::Member;
 
             $this->assertMayAdminister($actor, $targetRole, $role);
+            $this->assertWithinAuthority($actor, $target, $targetUserId);
+
+            if (! $actor->mayGrant($role, $permissions, $scope)) {
+                $this->fail(403, 'Sie können keine Berechtigungen oder Fahrzeug-Sichtbarkeit vergeben, die Sie selbst nicht besitzen.');
+            }
 
             if ($targetRole === B2bRole::Owner && $role !== B2bRole::Owner) {
                 $this->assertNotLastOwner($actor->b2bId, $targetUserId);
@@ -167,6 +183,13 @@ class B2bMembershipService
      */
     public function removeMember(B2bMembership $actor, int $targetUserId): void
     {
+        // Removing yourself from the team page would pull the page out from
+        // under you — the very next request has no company to render — and
+        // is not what "remove member" is for. Another administrator has to.
+        if ($actor->userId === $targetUserId) {
+            $this->fail(422, 'Sie können sich nicht selbst aus dem Unternehmen entfernen. Bitten Sie einen anderen Administrator darum.');
+        }
+
         DB::transaction(function () use ($actor, $targetUserId) {
             $target = $this->lockedMembership($actor->b2bId, $targetUserId);
             $targetRole = B2bRole::tryFrom((string) $target->role) ?? B2bRole::Member;
@@ -178,6 +201,8 @@ class B2bMembershipService
 
                 $this->assertNotLastOwner($actor->b2bId, $targetUserId);
             }
+
+            $this->assertWithinAuthority($actor, $target, $targetUserId);
 
             DB::table('user_b2b')
                 ->where('b2b_id', $actor->b2bId)
@@ -224,7 +249,7 @@ class B2bMembershipService
             ->where('b2b_id', $b2bId)
             ->where('user_id', $userId)
             ->lockForUpdate()
-            ->first(['role', 'status']);
+            ->first(['role', 'status', 'permissions', 'vehicle_scope']);
 
         if (! $row) {
             $this->fail(404, 'Dieses Mitglied gehört nicht zu Ihrem Unternehmen.');
@@ -249,6 +274,33 @@ class B2bMembershipService
 
         if ($newRole === B2bRole::Owner) {
             $this->fail(403, 'Nur Inhaber können weitere Inhaber ernennen.');
+        }
+    }
+
+    /**
+     * A non-owner manager may only administer members who sit within their
+     * own authority — never themselves (that would be self-elevation), and
+     * never someone whose current access they could not have granted, since
+     * changing or removing that member would be acting above their rank.
+     */
+    private function assertWithinAuthority(B2bMembership $actor, object $target, int $targetUserId): void
+    {
+        if ($actor->isOwner()) {
+            return;
+        }
+
+        if ($actor->userId === $targetUserId) {
+            $this->fail(403, 'Sie können Ihre eigenen Berechtigungen nicht ändern. Bitten Sie einen Inhaber darum.');
+        }
+
+        $targetRole = B2bRole::tryFrom((string) $target->role) ?? B2bRole::Member;
+        $targetPermissions = $targetRole === B2bRole::Owner
+            ? B2bPermissionSet::all()
+            : B2bPermissionSet::fromRaw($this->decodeJson($target->permissions));
+        $targetScope = B2bVehicleScope::tryFrom((string) $target->vehicle_scope) ?? B2bVehicleScope::All;
+
+        if (! $actor->mayGrant($targetRole, $targetPermissions, $targetScope)) {
+            $this->fail(403, 'Dieses Mitglied hat weitergehende Rechte als Sie. Nur ein Inhaber kann es bearbeiten oder entfernen.');
         }
     }
 

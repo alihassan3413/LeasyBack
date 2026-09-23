@@ -36,11 +36,22 @@ class VehicleReportController extends Controller
         $request->user()->can('create', VehicleReportDocument::class) || abort(403, 'Only admin can upload published documents');
 
         $validated = $request->validate([
-            'auftragsnummer' => 'required|string',
+            // The document is filed under an order of *this* vehicle (§2: every
+            // document belongs to the central order). An unchecked number used
+            // to create documents for orders that do not exist or belong to a
+            // different car — and it becomes part of the storage path.
+            'auftragsnummer' => [
+                'required',
+                'string',
+                Rule::exists('leasyback_orders', 'auftragsnummer')->where('vehicle_id', $vehicleId),
+            ],
             'document_type' => ['required', 'string', Rule::in(DocumentType::values())],
-            'document_title' => 'nullable|string',
+            'document_title' => 'nullable|string|max:255',
             'published' => 'nullable|boolean',
-            'file' => 'required|file|max:51200',
+            // §19 file type validation: the portal only ever shows PDFs and
+            // photos, which is also what every upload field accepts. `mimes`
+            // checks the file's detected content, not only its extension.
+            'file' => 'required|file|mimes:pdf,jpg,jpeg,png|max:51200',
         ]);
 
         return $this->withServiceErrorHandling('report', function () use ($request, $vehicleId, $validated) {

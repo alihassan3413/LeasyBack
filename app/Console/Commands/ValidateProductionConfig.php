@@ -58,6 +58,46 @@ class ValidateProductionConfig extends Command
             $warnings[] = 'session.secure is not enabled — session cookies can be sent over plain HTTP.';
         }
 
+        /*
+         * Stripe. Checked unconditionally rather than behind isProduction():
+         * the whole point of this command is to judge a config *as* a
+         * production config, exactly as the app.debug and session.secure
+         * checks above already do.
+         */
+        $missingStripeKeys = array_keys(array_filter([
+            'STRIPE_KEY' => empty(config('services.stripe.key')),
+            'STRIPE_SECRET' => empty(config('services.stripe.secret')),
+            'STRIPE_WEBHOOK_SECRET' => empty(config('services.stripe.webhook_secret')),
+        ]));
+
+        if ($missingStripeKeys !== []) {
+            $critical[] = sprintf(
+                '%s not set — B2C payments cannot run (a missing webhook secret also makes the Stripe endpoint answer 503 by design).',
+                implode(', ', $missingStripeKeys),
+            );
+        }
+
+        /*
+         * A test-mode secret in production is worse than no secret at all:
+         * charges appear to succeed, customers are told their repair is paid,
+         * and no money ever moves.
+         */
+        $testModeCredentials = array_keys(array_filter([
+            'STRIPE_SECRET' => str_starts_with((string) config('services.stripe.secret'), 'sk_test_'),
+            'STRIPE_KEY' => str_starts_with((string) config('services.stripe.key'), 'pk_test_'),
+        ]));
+
+        if ($testModeCredentials !== []) {
+            $critical[] = sprintf(
+                '%s is a Stripe test-mode credential — payments would appear to succeed while collecting nothing.',
+                implode(' and ', $testModeCredentials),
+            );
+        }
+
+        if ((int) config('payments.cancellation_fee_cents') <= 0) {
+            $warnings[] = 'payments.cancellation_fee_cents is not positive — customers acknowledge a cancellation fee at booking that would then never be charged.';
+        }
+
         foreach ($critical as $message) {
             $this->components->error($message);
         }

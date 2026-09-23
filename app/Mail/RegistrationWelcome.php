@@ -44,9 +44,20 @@ class RegistrationWelcome extends Mailable implements ShouldQueue
         return new Content(
             view: 'emails.registration-welcome',
             with: [
-                'userName' => $this->user->name,
+                'userName' => $this->resolveUserName(),
                 'loginUrl' => rtrim((string) config('app.frontend_url'), '/').'/login',
             ],
         );
+    }
+
+    private function resolveUserName(): ?string
+    {
+        $name = trim((string) $this->user->name);
+
+        if ($name === '' || str_contains($name, '@')) {
+            return null;
+        }
+
+        return $name;
     }
 }

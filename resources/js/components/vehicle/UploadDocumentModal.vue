@@ -11,6 +11,7 @@ import FormField from '@/components/form/FormField.vue';
 import SelectField, { type SelectFieldOption } from '@/components/form/SelectField.vue';
 import InputError from '@/components/InputError.vue';
 import { AppModal, AppModalButton } from '@/components/ui/modal';
+import { useB2bPermissions } from '@/composables/useB2bPermissions';
 import type { VehicleDocumentData } from '@/types/vehicle';
 import { router, useForm } from '@inertiajs/vue3';
 import { FileText, Upload } from 'lucide-vue-next';
@@ -31,6 +32,15 @@ const documentTypeOptions: SelectFieldOption[] = [
 
 const isDraggingOver = ref(false);
 const duplicateType = ref<string | null>(null);
+
+const { can } = useB2bPermissions();
+
+/**
+ * Replacing a document deletes the old one first, so it needs the delete
+ * right as well as the upload right. Without it the replace prompt would
+ * offer a flow that 403s halfway through, leaving nothing uploaded.
+ */
+const canReplace = computed(() => can('vehicles.documents.delete'));
 const fileInput = ref<HTMLInputElement | null>(null);
 
 // Function form on purpose — see CreateOfferModal: an object literal would
@@ -156,14 +166,22 @@ function deleteSequentially(documents: VehicleDocumentData[], onDone: () => void
 
                 <div v-if="duplicateType" class="rounded-2xl bg-gray-50 p-4 text-sm">
                     <p class="text-[#00000080]">
-                        Ein Dokument vom Typ „{{ duplicateType }}" existiert bereits für dieses Fahrzeug. Möchten Sie das vorhandene Dokument
-                        ersetzen?
+                        Ein Dokument vom Typ „{{ duplicateType }}" existiert bereits für dieses Fahrzeug.
+                        <template v-if="canReplace">Möchten Sie das vorhandene Dokument ersetzen?</template>
+                        <template v-else>Zum Ersetzen fehlt Ihnen die Berechtigung, Dokumente zu löschen.</template>
                     </p>
                     <div class="mt-3 flex justify-end gap-3">
                         <button type="button" class="text-sm font-semibold text-gray-500 hover:text-gray-700" @click="cancelReplace">
                             Abbrechen
                         </button>
-                        <button type="button" class="text-sm font-semibold text-red-500 hover:text-red-600" @click="replaceExisting">Ersetzen</button>
+                        <button
+                            v-if="canReplace"
+                            type="button"
+                            class="text-sm font-semibold text-red-500 hover:text-red-600"
+                            @click="replaceExisting"
+                        >
+                            Ersetzen
+                        </button>
                     </div>
                 </div>
 

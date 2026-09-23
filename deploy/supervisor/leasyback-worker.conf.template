@@ -1,9 +1,19 @@
 ; Managed by deploy/provision.sh — placeholders are substituted at install time.
-; Laravel queue workers (mail, web-push notifications, DEKRA/TÜV SÜD jobs).
+; Laravel queue workers (mail, web-push notifications, DEKRA/TÜV SÜD jobs, and
+; Partner API webhook fan-out and delivery).
+;
+; `--queue=webhooks,default` is load-bearing. Partner webhook jobs run on their
+; own `webhooks` queue so a backlog of retries against one dead partner endpoint
+; cannot starve the application's own work — but a worker only consumes the
+; queues it is told to. A worker left on `--queue=default` records every event
+; and delivers none of them, and the sweeper keeps re-queueing them onto a queue
+; nobody reads. The symptom is a growing partner_webhook_deliveries table with
+; every row `pending`. Listed first so webhooks are drained ahead of default
+; work when both have jobs waiting.
 
 [program:leasyback-worker]
 process_name=%(program_name)s_%(process_num)02d
-command=/usr/bin/php__PHP_VERSION__ __APP_DIR__/artisan queue:work --queue=default --sleep=3 --tries=3 --max-time=3600 --max-jobs=1000
+command=/usr/bin/php__PHP_VERSION__ __APP_DIR__/artisan queue:work --queue=webhooks,default --sleep=3 --tries=3 --max-time=3600 --max-jobs=1000
 directory=__APP_DIR__
 autostart=true
 autorestart=true

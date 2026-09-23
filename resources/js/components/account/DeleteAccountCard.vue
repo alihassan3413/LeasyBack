@@ -1,5 +1,5 @@
 <template>
-    <div class="overflow-hidden rounded-2xl border border-[#F0D9D9] border-l-4 border-l-[#B4544F] bg-white shadow-sm">
+    <div class="overflow-hidden rounded-2xl border border-l-4 border-[#F0D9D9] border-l-[#B4544F] bg-white shadow-sm">
         <div class="flex flex-col gap-4 px-4 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-8 sm:py-6">
             <div class="flex items-start gap-4">
                 <div class="flex size-10 shrink-0 items-center justify-center rounded-full bg-[#FBF2F2] text-[#B4544F] shadow-sm sm:size-12">

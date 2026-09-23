@@ -6,7 +6,16 @@ import type { SelectFieldOption } from '@/components/form/SelectField.vue';
 import { AppModal, AppModalButton } from '@/components/ui/modal';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import AppLayout from '@/layouts/AppLayout.vue';
-import type { B2bAnalytics, B2bCompanySummary, B2bInvitationRow, B2bMemberRow, B2bPermissionGroup } from '@/types/b2b';
+import { formatPortalDate } from '@/lib/portalDate';
+import type {
+    B2bAnalytics,
+    B2bCompanySummary,
+    B2bInvitationRow,
+    B2bMemberRow,
+    B2bPermissionGroup,
+    B2bRolePresetOption,
+    B2bRolePresetValue,
+} from '@/types/b2b';
 import { Head, router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 import MdiAccountGroupOutline from '~icons/mdi/account-group-outline';
@@ -23,6 +32,8 @@ const props = defineProps<{
     invitations: B2bInvitationRow[];
     analytics: B2bAnalytics | null;
     permissionCatalog: B2bPermissionGroup[];
+    rolePresets: B2bRolePresetOption[];
+    defaultPreset: B2bRolePresetValue;
     roleOptions: SelectFieldOption[];
     vehicleScopeOptions: SelectFieldOption[];
     can: { manage_members: boolean; assign_owner: boolean };
@@ -54,10 +65,10 @@ function matches(...fields: (string | null)[]): boolean {
     return fields.some((field) => (field ?? '').toLowerCase().includes(normalisedSearch.value));
 }
 
-const filteredMembers = computed(() => props.members.filter((member) => matches(member.name, member.email, member.role_label)));
+const filteredMembers = computed(() => props.members.filter((member) => matches(member.name, member.email, member.role_label, member.preset_label)));
 
 const filteredInvitations = computed(() =>
-    props.invitations.filter((invitation) => matches(invitation.email, invitation.role_label, invitation.invited_by_email)),
+    props.invitations.filter((invitation) => matches(invitation.email, invitation.role_label, invitation.preset_label, invitation.invited_by_email)),
 );
 
 const stats = computed(() => {
@@ -111,6 +122,11 @@ function canRemove(member: B2bMemberRow): boolean {
         return false;
     }
 
+    // The server refuses it too (B2bMembershipService::removeMember).
+    if (member.user_id === props.currentUserId) {
+        return false;
+    }
+
     if (member.role === 'owner') {
         return props.can.assign_owner && ownerCount.value > 1;
     }
@@ -119,6 +135,10 @@ function canRemove(member: B2bMemberRow): boolean {
 }
 
 function removalTooltip(member: B2bMemberRow): string {
+    if (member.user_id === props.currentUserId) {
+        return 'Sie können sich nicht selbst entfernen';
+    }
+
     if (member.role === 'owner' && ownerCount.value <= 1) {
         return 'Der letzte Inhaber kann nicht entfernt werden';
     }
@@ -144,25 +164,43 @@ function confirmRemoval() {
     });
 }
 
+/**
+ * The invitation a resend/revoke request is currently running for. One at a
+ * time: a double click would otherwise send two emails, or revoke twice and
+ * surface the second request's 404 as an error toast.
+ */
+const invitationInFlight = ref<string | null>(null);
+
 function resendInvitation(invitation: B2bInvitationRow) {
-    router.post(route('b2b.invitations.resend', invitation.invitation_id), {}, { preserveScroll: true });
+    if (invitationInFlight.value !== null) {
+        return;
+    }
+
+    invitationInFlight.value = invitation.invitation_id;
+
+    router.post(
+        route('b2b.invitations.resend', invitation.invitation_id),
+        {},
+        { preserveScroll: true, onFinish: () => (invitationInFlight.value = null) },
+    );
 }
 
 function revokeInvitation(invitation: B2bInvitationRow) {
-    router.delete(route('b2b.invitations.revoke', invitation.invitation_id), { preserveScroll: true });
+    if (invitationInFlight.value !== null) {
+        return;
+    }
+
+    invitationInFlight.value = invitation.invitation_id;
+
+    router.delete(route('b2b.invitations.revoke', invitation.invitation_id), {
+        preserveScroll: true,
+        onFinish: () => (invitationInFlight.value = null),
+    });
 }
 
 /* ── Formatting ──────────────────────────────────────────────────────── */
-const dateFormatter = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-
 function formatDate(value: string | null): string {
-    if (!value) {
-        return '—';
-    }
-
-    const parsed = new Date(value);
-
-    return Number.isNaN(parsed.getTime()) ? '—' : dateFormatter.format(parsed);
+    return formatPortalDate(value) || '—';
 }
 
 function scopeLabel(member: B2bMemberRow): string {
@@ -177,8 +215,19 @@ function initials(member: B2bMemberRow): string {
 }
 
 /** Mint fill with dark-green text for owners; muted for everyone else. */
-function roleBadgeClass(member: B2bMemberRow): string {
-    return member.role === 'owner' ? 'bg-brand-green/12 text-brand-teal' : 'bg-muted text-muted-foreground';
+/**
+ * The role chip: 1px border, no fill, no shadow.
+ *
+ * Outlined rather than filled because the row already sits under a solid
+ * green header — a second block of colour competed with it, and at the length
+ * of "Unternehmens-Administrator" a filled pill wrapped to two lines and read
+ * as broken. The privileged role is the only one carrying brand colour, so the
+ * column is scannable without four different tints.
+ */
+const ROLE_CHIP_BASE = 'inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium whitespace-nowrap';
+
+function roleChipClass(preset: B2bRolePresetValue | null): string {
+    return preset === 'company_administrator' ? 'border-brand-teal/30 text-brand-teal' : 'border-border text-muted-foreground';
 }
 </script>
 
@@ -246,11 +295,11 @@ function roleBadgeClass(member: B2bMemberRow): string {
                         <table class="hidden w-full border-collapse md:table">
                             <thead>
                                 <tr class="bg-brand-green">
-                                    <th :class="[thBase, 'w-[34%] pr-4 pl-6 text-left']">Mitglied</th>
-                                    <th :class="[thBase, 'w-[14%] pr-4 text-left']">Rolle</th>
-                                    <th :class="[thBase, 'w-[20%] pr-4 text-left']">Sichtbare Fahrzeuge</th>
-                                    <th :class="[thBase, 'w-[9%] pr-4 text-right']">Fahrzeuge</th>
-                                    <th :class="[thBase, 'w-[9%] pr-4 text-right']">Aufträge</th>
+                                    <th :class="[thBase, 'w-[30%] pr-4 pl-6 text-left']">Mitglied</th>
+                                    <th :class="[thBase, 'w-[18%] pr-4 text-left']">Rolle</th>
+                                    <th :class="[thBase, 'w-[19%] pr-4 text-left']">Sichtbare Fahrzeuge</th>
+                                    <th :class="[thBase, 'w-[8%] pr-4 text-right']">Fahrzeuge</th>
+                                    <th :class="[thBase, 'w-[8%] pr-4 text-right']">Aufträge</th>
                                     <th :class="[thBase, 'w-[12%] pr-4 text-left']">Beigetreten</th>
                                     <th v-if="can.manage_members" :class="[thBase, 'w-[92px] pr-6 text-right']">
                                         <span class="sr-only">Optionen</span>
@@ -280,12 +329,7 @@ function roleBadgeClass(member: B2bMemberRow): string {
                                     </td>
 
                                     <td class="py-4 pr-4 align-middle">
-                                        <span
-                                            class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold"
-                                            :class="roleBadgeClass(member)"
-                                        >
-                                            {{ member.role_label }}
-                                        </span>
+                                        <span :class="[ROLE_CHIP_BASE, roleChipClass(member.preset)]">{{ member.preset_label }}</span>
                                         <span v-if="!member.is_active" class="text-destructive mt-1 block text-xs">deaktiviert</span>
                                     </td>
 
@@ -345,11 +389,8 @@ function roleBadgeClass(member: B2bMemberRow): string {
                                                 <p class="text-muted-foreground truncate text-xs">{{ member.email }}</p>
                                             </div>
 
-                                            <span
-                                                class="inline-flex shrink-0 items-center rounded-full px-2.5 py-1 text-xs font-semibold"
-                                                :class="roleBadgeClass(member)"
-                                            >
-                                                {{ member.role_label }}
+                                            <span :class="[ROLE_CHIP_BASE, roleChipClass(member.preset), 'shrink-0']">
+                                                {{ member.preset_label }}
                                             </span>
                                         </div>
 
@@ -445,17 +486,25 @@ function roleBadgeClass(member: B2bMemberRow): string {
                                 </span>
                             </span>
 
-                            <span class="bg-muted text-muted-foreground inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold">
-                                {{ invitation.role_label }}
+                            <span :class="[ROLE_CHIP_BASE, roleChipClass(invitation.preset), 'shrink-0']">
+                                {{ invitation.preset_label }}
                             </span>
 
                             <span class="text-muted-foreground text-sm whitespace-nowrap">bis {{ formatDate(invitation.expires_at) }}</span>
 
                             <span class="border-border inline-flex items-center gap-0.5 rounded-lg border p-0.5">
-                                <RowIconAction :icon="MdiEmailSyncOutline" label="Einladung erneut senden" @click="resendInvitation(invitation)" />
+                                <RowIconAction
+                                    :icon="MdiEmailSyncOutline"
+                                    label="Einladung erneut senden"
+                                    disabled-label="Wird bearbeitet …"
+                                    :disabled="invitationInFlight !== null"
+                                    @click="resendInvitation(invitation)"
+                                />
                                 <RowIconAction
                                     :icon="MdiCloseCircleOutline"
                                     label="Einladung zurückziehen"
+                                    disabled-label="Wird bearbeitet …"
+                                    :disabled="invitationInFlight !== null"
                                     danger
                                     @click="revokeInvitation(invitation)"
                                 />
@@ -471,6 +520,8 @@ function roleBadgeClass(member: B2bMemberRow): string {
             :mode="accessModalMode"
             :member="memberBeingEdited"
             :catalog="permissionCatalog"
+            :presets="rolePresets"
+            :default-preset="defaultPreset"
             :role-options="roleOptions"
             :vehicle-scope-options="vehicleScopeOptions"
             :can-assign-owner="can.assign_owner"

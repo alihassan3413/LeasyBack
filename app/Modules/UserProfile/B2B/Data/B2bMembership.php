@@ -4,6 +4,7 @@ namespace App\Modules\UserProfile\B2B\Data;
 
 use App\Enums\B2bPermission;
 use App\Enums\B2bRole;
+use App\Enums\B2bRolePreset;
 use App\Enums\B2bVehicleScope;
 
 /**
@@ -62,6 +63,15 @@ final class B2bMembership
         );
     }
 
+    /**
+     * The named company role ("Unternehmens-Administrator", "Standardnutzer",
+     * …, or "Individuell") — the label every customer-facing surface shows.
+     */
+    public function roleLabel(): string
+    {
+        return B2bRolePreset::labelFor($this->role, $this->permissions);
+    }
+
     public function isOwner(): bool
     {
         return $this->role === B2bRole::Owner;
@@ -74,6 +84,28 @@ final class B2bMembership
     public function can(B2bPermission $permission): bool
     {
         return $this->isOwner() || $this->permissions->has($permission);
+    }
+
+    /**
+     * The delegation ceiling: whether this member may hand out the given
+     * access — to a new invitee or to an existing member — without granting
+     * more than they hold themselves.
+     *
+     * An owner may grant anything. Anyone else may grant only:
+     * - the member role (never owner),
+     * - permissions they hold themselves (the set is already closed over its
+     *   dependencies, so a permission cannot be smuggled in through one), and
+     * - a vehicle scope no broader than their own (`own` may only grant `own`).
+     */
+    public function mayGrant(B2bRole $role, B2bPermissionSet $permissions, B2bVehicleScope $scope): bool
+    {
+        if ($this->isOwner()) {
+            return true;
+        }
+
+        return $role !== B2bRole::Owner
+            && $permissions->isSubsetOf($this->permissions)
+            && ($scope === B2bVehicleScope::Own || $this->vehicleScope === B2bVehicleScope::All);
     }
 
     /** True when this member may only see vehicles they created themselves. */
@@ -95,7 +127,7 @@ final class B2bMembership
             'company_name' => $this->companyName,
             'logo_url' => $this->companyLogoUrl,
             'role' => $this->role->value,
-            'role_label' => $this->role->label(),
+            'role_label' => $this->roleLabel(),
             'vehicle_scope' => $this->vehicleScope->value,
             'permissions' => $this->permissions->toArray(),
         ];

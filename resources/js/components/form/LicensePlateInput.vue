@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import RequiredMark from '@/components/form/RequiredMark.vue';
 import { normalizePlate, sanitizePlateNumber, toPlateUpperCase, validatePlateParts } from '@/lib/licensePlate';
 import { computed, ref, useId, watch } from 'vue';
 
@@ -7,13 +8,15 @@ const props = withDefaults(
         modelValue: string;
         id?: string;
         label?: string;
+        required?: boolean;
         hint?: string;
         disabled?: boolean;
         serverError?: string;
     }>(),
     {
         label: 'Kennzeichen',
-        hint: '*(Format: K LB 2026E)',
+        required: true,
+        hint: '(Format: K LB 2026E)',
         disabled: false,
     },
 );
@@ -67,13 +70,15 @@ function onNumberInput(value: string): void {
 const errors = computed(() => validatePlateParts(city.value, letters.value, number.value));
 
 const segmentClass =
-    'border-input focus:border-brand-green h-full w-full rounded-full border bg-white text-center text-sm font-bold text-gray-800 uppercase outline-none placeholder:text-gray-400 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400';
+    'border-input focus:border-brand-green h-full w-full rounded-full border bg-white text-center text-base font-bold text-gray-800 uppercase outline-none placeholder:text-gray-400 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400 md:text-sm';
 </script>
 
 <template>
     <div class="flex flex-col gap-1">
         <label v-if="label" :for="fieldId" class="text-sm font-semibold text-black">
             {{ label }}
+
+            <RequiredMark v-if="required" />
 
             <span v-if="hint" class="ml-2 text-[10px] font-medium text-gray-500">
                 {{ hint }}

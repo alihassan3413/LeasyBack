@@ -47,6 +47,14 @@ server {
         try_files $uri =404;
     }
 
+    # ---- Partner API reference (/api-docs) -------------------------------
+    # Basic-Auth'd static serve of storage/app/private/partner-api-docs, for
+    # external partners. Written by provision.sh from
+    # deploy/nginx/partner-api-docs.conf.template. Keep the include above the
+    # `\.php$` block so the file is easy to find; ordering does not affect
+    # matching, because the docs locations are `^~` and `=`.
+    include /etc/nginx/snippets/leasyback-partner-api-docs.conf;
+
     location = /favicon.ico { access_log off; log_not_found off; }
     location = /robots.txt  { access_log off; log_not_found off; }
 

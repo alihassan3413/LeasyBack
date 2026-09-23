@@ -68,6 +68,7 @@ function providerLabel(entry: OrderTimelineEntry): string {
                                     entry.isCancelled || entry.isRejected ? 'text-[#dc2626]' : entry.isFuture ? 'text-[#8f9ba7]' : 'text-[#2e3e3f]'
                                 "
                             >
+                                <IconMdiLockOutline v-if="entry.isLocked" class="size-[15px] shrink-0 text-[#8f9ba7]" aria-hidden="true" />
                                 {{ entry.label }}
                                 <StatusHelpTooltip v-if="entry.tooltipDescription" :text="entry.tooltipDescription" />
                             </p>
