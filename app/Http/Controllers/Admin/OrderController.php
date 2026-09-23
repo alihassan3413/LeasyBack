@@ -69,7 +69,9 @@ class OrderController extends Controller
 
     /**
      * The generic manual-progression endpoint: confirmed→inspected→
-     * workshop→reinspection→reworkshop/delivered, and any→cancelled.
+     * workshop→reinspection, with reinspection→reworkshop looping back to
+     * reinspection until the re-inspection passes and the order moves to
+     * delivered; any→cancelled.
      * order_placed (approve()'s job) and discarded (the not-yet-confirmed
      * reject action) are deliberately not accepted here — see
      * AdminQueryService::orderDetail()'s available_transitions doc comment.

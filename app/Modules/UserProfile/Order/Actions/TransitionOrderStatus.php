@@ -20,9 +20,9 @@ use Illuminate\Validation\ValidationException;
  * Replaces the reference system's (and this app's own pre-Checkpoint-6)
  * pattern of an unconditional `UPDATE ... SET order_status = ?` with no
  * guard on the current value — see docs/B2C_ADMIN_STATUS_MATRIX.md §1 for
- * the transition table this enforces and the open product questions it
- * deliberately does not resolve (e.g. whether `reworkshop` loops back to
- * `reinspection` — not implemented here until that's confirmed).
+ * the transition table this enforces. The workshop cycle is closed:
+ * `reinspection` ↔ `reworkshop` loops until a re-inspection passes and the
+ * order moves to `delivered`.
  *
  * Every call writes exactly one row to `leasyback_order_status_updates`,
  * per §6 of the same doc. Requesting the order's current status again is a
@@ -56,7 +56,7 @@ class TransitionOrderStatus
         'inspected' => ['workshop', 'cancelled'],
         'workshop' => ['reinspection', 'cancelled'],
         'reinspection' => ['reworkshop', 'delivered', 'cancelled'],
-        'reworkshop' => ['cancelled'],
+        'reworkshop' => ['reinspection', 'cancelled'],
         'delivered' => [],
         'cancelled' => [],
         'discarded' => [],

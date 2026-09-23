@@ -37,6 +37,7 @@ class TransitionOrderStatusTest extends TestCase
             ['reinspection', 'reworkshop'],
             ['reinspection', 'delivered'],
             ['reinspection', 'cancelled'],
+            ['reworkshop', 'reinspection'],
             ['reworkshop', 'cancelled'],
         ];
     }
@@ -55,9 +56,6 @@ class TransitionOrderStatusTest extends TestCase
             ['order_requested', 'inspected'],
             ['confirmed', 'order_placed'],
             ['inspected', 'confirmed'],
-            // Not in the documented table — an open product question
-            // (does reworkshop loop back?), deliberately not implemented.
-            ['reworkshop', 'reinspection'],
             ['reworkshop', 'delivered'],
         ];
     }
