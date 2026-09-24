@@ -241,5 +241,24 @@ else
     warn "${APP_URL}/up did not respond OK — check storage/logs/laravel.log and /var/log/nginx/leasyback-error.log"
 fi
 
+# Gutachten extraction shells out to poppler. No deploy installs it —
+# provision.sh does — so check it here rather than letting the first appraisal
+# upload after a server rebuild be what discovers it is missing. A warning, not
+# a failure: the portal works without poppler, only extraction does not, and a
+# hotfix should never be blocked by it.
+step "Checking Gutachten extraction dependencies"
+POPPLER_MISSING=false
+for binary in pdftotext pdfimages; do
+    if BINARY_PATH="$(command -v "${binary}")"; then
+        info "${binary} -> ${BINARY_PATH}"
+    else
+        POPPLER_MISSING=true
+        warn "${binary} not found"
+    fi
+done
+if [[ "${POPPLER_MISSING}" == "true" ]]; then
+    warn "every Gutachten upload will fail to extract. Fix with: sudo apt-get install -y poppler-utils"
+fi
+
 echo -e "\n\033[1;32mDeployed:\033[0m $(git log -1 --pretty='%h %s')"
 echo "Roll back with: bash ${SCRIPT_DIR}/deploy.sh --rollback --yes"

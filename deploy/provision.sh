@@ -39,12 +39,23 @@ warn() { echo -e "    \033[1;33mWARNING:\033[0m $1"; }
 export DEBIAN_FRONTEND=noninteractive
 
 # ---------------------------------------------------------------------------
+# `poppler-utils` is load-bearing. It provides pdftotext and pdfimages, the
+# only OS-level binaries the application shells out to: Gutachten extraction
+# reads appraisal PDFs and pulls the damage photos out of them through those
+# two (config/gutachten.php). A host without the package fails every single
+# extraction — the parser aborts with `no_extractor_available` and the
+# ExtractGutachtenImages job dies on its one attempt — while the rest of the
+# portal behaves normally, so the symptom is a red extraction card and missing
+# damage images rather than anything that looks like a broken deploy. deploy.sh
+# smoke-checks both binaries on every release for that reason.
 step "Installing base packages"
 apt-get update -qq
 apt-get install -y -qq \
     software-properties-common curl git unzip zip ca-certificates \
-    supervisor nginx redis-server ufw acl sqlite3 apache2-utils >/dev/null
+    supervisor nginx redis-server ufw acl sqlite3 apache2-utils \
+    poppler-utils >/dev/null
 info "base packages ready"
+info "$(pdftotext -v 2>&1 | head -1) (Gutachten extraction)"
 
 # ---------------------------------------------------------------------------
 step "Installing PHP ${PHP_VERSION} + extensions"
@@ -80,10 +91,38 @@ opcache.interned_strings_buffer = 16
 EOF
 cp "/etc/php/${PHP_VERSION}/fpm/conf.d/99-leasyback.ini" \
    "/etc/php/${PHP_VERSION}/cli/conf.d/99-leasyback.ini"
-# CLI (artisan, queue workers) must always read fresh code.
-sed -i 's/^opcache.validate_timestamps = 0/opcache.validate_timestamps = 1/' \
-   "/etc/php/${PHP_VERSION}/cli/conf.d/99-leasyback.ini"
-info "ini override written (opcache timestamps off for fpm — deploy.sh reloads fpm)"
+# The CLI inherits the web settings above, then overrides the two that are
+# wrong for long-running processes:
+#
+#   opcache.validate_timestamps — artisan and the queue workers must always
+#   read fresh code, where php-fpm is deliberately reloaded by deploy.sh.
+#
+#   max_execution_time — 120s is a sane ceiling for an HTTP request and a
+#   wrong one for a queue job. The CLI SAPI defaults to 0 (unlimited) but
+#   honours an explicit value, so copying the web ini silently capped every
+#   worker at two minutes. Gutachten extraction declares its own timeouts
+#   (ExtractGutachtenImages: 300s, ExtractAppraisalPositions: 180s), and PHP
+#   hitting its limit first turns a job Laravel would fail cleanly into a
+#   fatal error that kills the worker mid-job: failed() never runs and the
+#   extraction row is stranded in `processing`. Job timeouts are the right
+#   control here, so PHP's is disabled and Laravel's left to do the work.
+sed -i \
+    -e 's/^opcache.validate_timestamps = 0/opcache.validate_timestamps = 1/' \
+    -e 's/^max_execution_time = .*/max_execution_time = 0/' \
+    "/etc/php/${PHP_VERSION}/cli/conf.d/99-leasyback.ini"
+info "ini override written (fpm: max_execution_time 120, opcache timestamps off — deploy.sh reloads fpm)"
+info "cli override written (max_execution_time 0 — queue jobs are bounded by their own \$timeout)"
+
+# With PHP's own limit off, Laravel's per-job timeout is the only thing left
+# that stops a frozen job, and it is implemented with pcntl_alarm — Worker::
+# supportsAsyncSignals() is literally extension_loaded('pcntl'). Without the
+# extension the worker would silently run a hung job forever.
+if ! "php${PHP_VERSION}" -m | grep -qx pcntl; then
+    warn "pcntl is not loaded for php${PHP_VERSION}-cli — Laravel cannot enforce per-job timeouts."
+    warn "with max_execution_time = 0 nothing would stop a frozen queue job. Install the pcntl extension."
+else
+    info "pcntl loaded (Laravel can enforce per-job timeouts)"
+fi
 
 # ---------------------------------------------------------------------------
 step "Installing Composer"

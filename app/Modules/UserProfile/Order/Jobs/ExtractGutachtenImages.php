@@ -39,6 +39,19 @@ class ExtractGutachtenImages implements ShouldBeUnique, ShouldQueue
         return $this->documentId;
     }
 
+    /**
+     * Every image extracted from a Gutachten is filed under a directory named
+     * after that Gutachten. There is no foreign key tying the two together —
+     * source_assessment_document_id belongs to the TÜV SÜD pull and stays null
+     * here — so this prefix is the only link, which is why deleting a Gutachten
+     * resolves its derived images through this same method rather than
+     * rebuilding the convention a second time.
+     */
+    public static function directoryFor(string $documentId): string
+    {
+        return "gutachten-bilder/{$documentId}";
+    }
+
     public function handle(
         GutachtenImageExtractor $extractor,
         VehicleReportService $reports,
@@ -126,7 +139,7 @@ class ExtractGutachtenImages implements ShouldBeUnique, ShouldQueue
         $page = str_pad((string) ($image->pageNumber ?? 0), 3, '0', STR_PAD_LEFT);
         $index = str_pad((string) $image->index, 3, '0', STR_PAD_LEFT);
 
-        return "gutachten-bilder/{$document->id}/p{$page}-{$index}.{$image->extension()}";
+        return self::directoryFor($document->id)."/p{$page}-{$index}.{$image->extension()}";
     }
 
     private function titleFor(ExtractedImage $image, ?int $damageNumber): string
