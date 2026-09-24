@@ -130,6 +130,7 @@ function scheduleRender() {
 }
 
 onMounted(async () => {
+    console.log('AddressMapPicker mounted');
     try {
         gmaps = await loadGoogleMaps();
     } catch {

@@ -95,10 +95,12 @@ class OnboardingController extends Controller
 
     public function storeVehicle(StoreWebVehicleRequest $request): RedirectResponse
     {
-        return $this->withServiceErrorHandling(
-            'vehicle',
-            fn () => $this->vehicleService->createVehicle($request->user(), $request->validated())
-        ) ?? to_route('onboarding.show')->with('success', 'Fahrzeug wurde angelegt.');
+       return $this->withServiceErrorHandling(
+    'vehicle',
+    fn () => $this->vehicleService->createVehicle($request->user(), $request->validated())
+) ?? to_route('onboarding.show')
+        ->with('success', 'Fahrzeug wurde angelegt.')
+        ->with('create_new_vehicle', true);
     }
 
     /**

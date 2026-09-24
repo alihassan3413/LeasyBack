@@ -16,17 +16,25 @@ export function useAppointmentCalendar(
     selectedDate: Ref<string>,
     options: {
         minDaysAhead?: number;
+
         allowPast?: boolean;
+        allowFuture?: boolean;
         blockWeekends?: boolean;
     } = {},
 ) {
     const today = new Date();
     const minDaysAhead = options.minDaysAhead ?? 0;
     const allowPast = options.allowPast ?? false;
+    const allowFuture = options.allowFuture ?? true;
     const blockWeekends = options.blockWeekends ?? false;
 
-    const calendarYear = ref(today.getFullYear());
-    const calendarMonth = ref(today.getMonth());
+  const initialDate = selectedDate.value
+    ? new Date(selectedDate.value)
+    : today;
+
+
+const calendarYear = ref(initialDate.getFullYear());
+const calendarMonth = ref(initialDate.getMonth());
     const datePopoverOpen = ref(false);
 
     const monthNamesShort = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
@@ -52,7 +60,7 @@ export function useAppointmentCalendar(
             days.push({ day, monthOffset: 0 });
         }
 
-        const remainingDays = 35 - days.length;
+       const remainingDays = 42 - days.length;
 
         for (let day = 1; day <= remainingDays; day += 1) {
             days.push({ day, monthOffset: 1 });
@@ -60,7 +68,13 @@ export function useAppointmentCalendar(
 
         return days;
     });
+function getMaxSelectableDate(): Date {
+    const maxDate = new Date(today);
 
+    maxDate.setHours(0,0,0,0);
+
+    return maxDate;
+}
     const selectedDateDisplay = computed(() => {
         if (!selectedDate.value) {
             return '';
@@ -133,23 +147,37 @@ export function useAppointmentCalendar(
     }
 
     function isSelectableDay(calendarDay: CalendarDay): boolean {
-        if (allowPast) {
-            return true;
-        }
 
-        const date = new Date(calendarYear.value, calendarMonth.value + calendarDay.monthOffset, calendarDay.day);
-        date.setHours(0, 0, 0, 0);
+    const date = new Date(
+        calendarYear.value,
+        calendarMonth.value + calendarDay.monthOffset,
+        calendarDay.day
+    );
 
-        if (blockWeekends) {
-            const dayOfWeek = date.getDay();
+    date.setHours(0,0,0,0);
 
-            if (dayOfWeek === 0 || dayOfWeek === 6) {
-                return false;
-            }
-        }
 
-        return date >= getMinSelectableDate();
+    if (!allowPast && date < getMinSelectableDate()) {
+        return false;
     }
+
+
+    if (!allowFuture && date > getMaxSelectableDate()) {
+        return false;
+    }
+
+
+    if (blockWeekends) {
+        const day = date.getDay();
+
+        if(day === 0 || day === 6){
+            return false;
+        }
+    }
+
+
+    return true;
+}
 
     function selectDay(calendarDay: CalendarDay): void {
         if (!isSelectableDay(calendarDay)) {

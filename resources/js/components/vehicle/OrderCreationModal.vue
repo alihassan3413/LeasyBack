@@ -114,7 +114,15 @@ const form = useForm(() => ({
     collection_note: '',
     collection_address: vehicleCollectionAddress(),
 }));
-
+watch(
+    () => props.open,
+    (value) => {
+        console.log('Order modal open:', value);
+        console.log('Vehicle:', props.vehicle);
+        console.log('Stations:', props.stations);
+    },
+    { immediate: true }
+);
 const selectedStation = computed(() => props.stations.find((station) => station.station_id === form.station_id) ?? null);
 
 /**
@@ -198,17 +206,29 @@ collection_address: data.collection_address,
               },
     ).post(route('orders.store', props.vehicleId), {
         preserveScroll: true,
-        onSuccess: () => {
-            const created = page.props.flash?.order_created;
+      onSuccess: () => {
+    const created = page.props.flash?.order_created;
 
-            if (created?.requires_payment_method) {
-                paymentOrderId.value = created.order_id;
+    if (created?.requires_payment_method) {
+        paymentOrderId.value = created.order_id;
 
-                return;
-            }
+        return;
+    }
 
-            close();
-        },
+    close();
+
+    router.reload({
+        preserveScroll: true,
+        only: [
+            'bookableVehicles',
+            'recentOrders',
+            'analytics',
+            'statistics',
+            'myOverview',
+            'myVehicles',
+        ],
+    });
+},
     });
 }
 

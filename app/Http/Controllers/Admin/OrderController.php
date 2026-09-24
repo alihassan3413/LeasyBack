@@ -72,6 +72,9 @@ class OrderController extends Controller
         $order = $this->adminQueryService->orderDetail($orderId);
         abort_unless($order !== null, 404);
 
+        $order['sourceQuotation'] = collect($order['workshop_quotations'] ?? [])
+    ->firstWhere('offer_status', 'selected');
+    
         return Inertia::render('Admin/Orders/Show', [
             'order' => $order,
         ]);

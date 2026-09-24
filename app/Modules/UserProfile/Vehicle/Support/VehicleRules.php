@@ -27,7 +27,11 @@ final class VehicleRules
     public static function commonFields(): array
     {
         return [
-            'first_registration_date' => ['nullable', 'date'],
+            'first_registration_date' => [
+    'nullable',
+    'date',
+    'before_or_equal:today',
+],
             'leasing_end_date' => ['nullable', 'date'],
             'leasinggeber' => ['nullable', 'string'],
             'vin' => ['nullable', 'string', 'size:17'],

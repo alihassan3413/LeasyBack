@@ -1,4 +1,5 @@
 const API_KEY = import.meta.env.VITE_GOOGLE_PLACES_API_KEY as string | undefined;
+console.log('Google key loaded:', API_KEY);
 const CALLBACK = '__leasybackInitGoogleMaps__';
 
 let loadPromise: Promise<any> | null = null;

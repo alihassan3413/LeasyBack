@@ -122,7 +122,11 @@ class OrderCollectionService
     public static function repairAppointmentRules(): array
     {
         return [
-            'confirmed_repair_start_date' => ['required', 'date_format:Y-m-d'],
+           'confirmed_repair_start_date' => [
+    'required',
+    'date_format:Y-m-d',
+    'after_or_equal:today',
+],
             'estimated_processing_days' => ['nullable', 'integer', 'min:0', 'max:365'],
         ];
     }

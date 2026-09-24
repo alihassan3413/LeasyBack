@@ -115,9 +115,10 @@ function submit() {
     <OnboardingCard title="Fahrzeugdaten" description="Erfassen Sie das Fahrzeug, das Sie zurückgeben möchten.">
         <form novalidate @submit.prevent="submit">
             <InputError :message="form.errors.vehicle" />
-
-            <div class="grid grid-cols-1 gap-x-6 gap-y-3 md:grid-cols-2">
+            
+            <div class="grid grid-cols-1 items-start gap-x-6 gap-y-3 md:grid-cols-2">
                 <LicensePlateInput v-model="form.license_plate" :disabled="isEditMode" :server-error="form.errors.license_plate" />
+               
 
                 <VinInput v-model="form.vin" :input-class="fieldClass" :error="form.errors.vin" />
 
@@ -146,34 +147,47 @@ function submit() {
                     />
                 </FormField>
 
-                <div>
-                     <CalendarDateField
+<div class="md:col-span-1 flex flex-col gap-3">
+
+    <CalendarDateField
         v-model="form.leasing_end_date"
         label="Leasingende"
         allow-past
         :disabled="leasingEndUnknown"
         :error="form.errors.leasing_end_date"
     />
-           <CalendarDateField
+
+    <Label
+        :for="leasingEndUnknownId"
+        class="flex cursor-pointer items-start gap-2 font-normal"
+    >
+        <Checkbox
+            :id="leasingEndUnknownId"
+            v-model="leasingEndUnknown"
+            class="mt-0.5 size-4 shrink-0 rounded-[4px]"
+        />
+
+        <span class="text-xs leading-[1.45] text-[#00000099]">
+            Das genaue Datum des Leasingendes liegt mir aktuell nicht vor. Ich werde Ihnen diese Information zeitnah nachreichen.
+        </span>
+    </Label>
+
+    <CalendarDateField
         v-model="form.first_registration_date"
         label="Erstzulassung"
         allow-past
         :error="form.errors.first_registration_date"
     />
-                    <Label :for="leasingEndUnknownId" class="mt-1.5 flex cursor-pointer items-start gap-2 font-normal">
-                        <Checkbox
-                            :id="leasingEndUnknownId"
-                            v-model="leasingEndUnknown"
-                            class="mt-0.5 size-4 shrink-0 rounded-[4px] border-gray-300 data-[state=checked]:border-emerald-500 data-[state=checked]:bg-emerald-500"
-                        />
-                        <span class="text-xs leading-[1.45] font-normal text-[#00000099]">
-                            Das genaue Datum des Leasingendes liegt mir aktuell nicht vor. Ich werde Ihnen diese Information zeitnah nachreichen.
-                        </span>
-                    </Label>
-                </div>
 
-                <div>
-                    <FormField v-slot="{ id, describedBy, invalid }" label="Leasinggeber" required :error="form.errors.leasinggeber">
+</div>
+
+                <div class="md:col-span-1 self-start">
+    <FormField
+        v-slot="{ id, describedBy, invalid }"
+        label="Leasinggeber"
+        required
+        :error="form.errors.leasinggeber"
+    >
                         <Input
                             :id="id"
                             v-model="form.leasinggeber"

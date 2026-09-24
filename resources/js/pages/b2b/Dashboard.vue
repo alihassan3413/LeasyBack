@@ -185,10 +185,15 @@ function startService(service: ServiceDefinition) {
 
 function onVehicleChosen(vehicle: BookableVehicleData) {
     selectVehicleOpen.value = false;
-    orderVehicle.value = vehicle;
+
+    orderVehicle.value = {
+        ...vehicle,
+        collection_address: vehicle.collection_address ?? null,
+        vehicle_belongs: vehicle.vehicle_belongs ?? 'B2B',
+    };
+
     orderModalOpen.value = true;
 }
-
 const page = usePage<SharedData>();
 
 // The button below only ever opens it by hand: the first-visit auto-open is a
@@ -425,13 +430,13 @@ function onOnboardingOpenChange(value: boolean) {
         <!-- Step 1: which vehicle. Step 2: the appointment itself. -->
         <SelectVehicleModal v-model:open="selectVehicleOpen" :service="activeService" :vehicles="bookableVehicles" @confirm="onVehicleChosen" />
 
-        <OrderCreationModal
-            v-if="orderVehicle"
-            v-model:open="orderModalOpen"
-            :vehicle-id="orderVehicle.vehicle_id"
-            :stations="stations"
-            :vehicle="orderVehicle"
-        />
+    <OrderCreationModal
+    v-if="orderVehicle"
+    v-model:open="orderModalOpen"
+    :vehicle-id="orderVehicle.vehicle_id"
+    :vehicle="orderVehicle"
+    :stations="stations"
+/>
 
         <OnboardingModal
             :open="onboardingOpen"

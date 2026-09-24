@@ -20,6 +20,7 @@ const props = withDefaults(
         disabled?: boolean;
         minDaysAhead?: number;
         allowPast?: boolean;
+        allowFuture?: boolean;
         blockWeekends?: boolean;
         inputHeight?: string;
         inputRounded?: string;
@@ -32,6 +33,7 @@ const props = withDefaults(
         helpText: '',
         minDaysAhead: 0,
         allowPast: false,
+        allowFuture:true,
         blockWeekends: false,
         disabled: false,
         inputHeight: 'h-10',
@@ -79,6 +81,7 @@ const {
 } = useAppointmentCalendar(selectedDate, {
     minDaysAhead: props.minDaysAhead,
     allowPast: props.allowPast,
+      allowFuture: props.allowFuture,
     blockWeekends: props.blockWeekends,
 });
 
@@ -133,7 +136,7 @@ onMounted(async () => {
             <PopoverContent align="start" class="w-auto min-w-70">
                 <div class="mb-4 flex items-center justify-center gap-2">
                     <div
-                        class="border-brand-green-gray text-brand-black flex h-10 min-w-20 items-center justify-center gap-2 rounded-[6px] border bg-white px-2 text-[15px] font-bold"
+                        class="border-brand-green-gray text-brand-black flex h-10 w-24 items-center justify-center gap-2 rounded-[6px] border bg-white px-2 text-[15px] font-bold"
                     >
                         <span class="whitespace-nowrap">
                             {{ monthNamesShort[calendarMonth] }}
@@ -161,7 +164,7 @@ onMounted(async () => {
                     </div>
 
                     <div
-                        class="border-brand-green-gray text-brand-black flex h-10 min-w-24 items-center justify-center gap-2 rounded-[6px] border bg-white px-2 text-[15px] font-bold"
+                        class="border-brand-green-gray text-brand-black flex h-10 w-24 items-center justify-center gap-2 rounded-[6px] border bg-white px-2 text-[15px] font-bold"
                     >
                         <span class="whitespace-nowrap">
                             {{ calendarYear }}
@@ -193,13 +196,13 @@ onMounted(async () => {
                     </button>
                 </div>
 
-                <div class="text-brand-black grid grid-cols-7 text-center text-[13px] font-bold">
+             <div class="text-brand-black grid grid-cols-7 text-center text-[13px] font-bold">
                     <div v-for="dayHeader in dayHeaders" :key="dayHeader" class="pb-3">
                         {{ dayHeader }}
                     </div>
                 </div>
 
-                <div class="text-brand-black grid grid-cols-7 gap-y-2 text-center text-[13px] font-bold">
+                <div class="text-brand-black grid grid-cols-7 gap-y-2 text-center text-[13px] font-bold h-52">
                     <button
                         v-for="(calendarDay, index) in calendarDays"
                         :key="index"
