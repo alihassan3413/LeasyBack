@@ -100,9 +100,8 @@ function submit() {
             <fieldset :disabled="!editable" class="flex min-w-0 flex-col gap-3">
                 <div class="flex flex-col gap-1">
                     <label class="text-[12px] font-bold text-[#10393b]">Bestätigter Reparaturbeginn<RequiredMark /></label>
-                   <CalendarDateField
+                  <CalendarDateField
     v-model="form.confirmed_repair_start_date"
-    allow-past
     auto-focus
     :disabled="!editable"
     :invalid="!!form.errors.confirmed_repair_start_date"
