@@ -156,8 +156,16 @@ class WorkshopQuotationImageTest extends TestCase
             array_keys($position),
         );
         $this->assertSame([
-            ['id' => $first->id, 'url' => route('workshop.quotations.images.show', [$token, $first->id])],
-            ['id' => $second->id, 'url' => route('workshop.quotations.images.show', [$token, $second->id])],
+            [
+                'id' => $first->id,
+                'url' => route('workshop.quotations.images.show', [$token, $first->id]),
+                'thumbnail_url' => route('workshop.quotations.images.show', [$token, $first->id, 'size' => 'thumb']),
+            ],
+            [
+                'id' => $second->id,
+                'url' => route('workshop.quotations.images.show', [$token, $second->id]),
+                'thumbnail_url' => route('workshop.quotations.images.show', [$token, $second->id, 'size' => 'thumb']),
+            ],
         ], $position['images']);
 
         $this->get($position['images'][0]['url'])->assertOk();

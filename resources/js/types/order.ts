@@ -128,5 +128,7 @@ export interface CustomerOrderRow {
 export interface DamageGalleryImage {
     id: string;
     url: string;
+    /** Small WebP copy for grids and cards. Falls back to `url` when absent. */
+    thumbnail_url?: string | null;
     caption?: string | null;
 }

@@ -175,3 +175,38 @@ test.describe('preview', () => {
         await expect(previewButton(page, 'Bild 2')).toBeFocused();
     });
 });
+
+test.describe('thumbnail variants', () => {
+    test('the grid loads the derived thumbnail, not the full image', async ({ page }) => {
+        await open(page, { images: '2' });
+
+        const image = selectButton(page, 'Bild 2').locator('img');
+
+        await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBe(400);
+    });
+
+    test('the preview lightbox still opens the full image', async ({ page }) => {
+        await open(page, { images: '2' });
+
+        await page
+            .getByRole('button', { name: /vergrößern$/ })
+            .first()
+            .click();
+
+        const full = page.getByRole('dialog').getByTestId('damage-gallery-image');
+        await expect.poll(() => full.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBe(1200);
+    });
+
+    test('a thumbnail that fails to load falls back to a placeholder', async ({ page }) => {
+        await page.route('**/*.png', (route) => route.abort());
+        await open(page, { images: '2' });
+
+        await page.evaluate(() => {
+            for (const image of Array.from(document.querySelectorAll('[data-testid="damage-image-picker"] img'))) {
+                (image as HTMLImageElement).src = '/missing-thumbnail.png';
+            }
+        });
+
+        await expect(page.getByTestId('damage-image-fallback').first()).toBeVisible();
+    });
+});

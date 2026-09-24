@@ -227,3 +227,177 @@ test.describe('reduced motion', () => {
         await expect(lightbox(page).getByRole('button', { name: 'Nächstes Bild' })).toHaveCSS('transition-property', 'none');
     });
 });
+
+test.describe('thumbnail variants', () => {
+    test('the grid loads the small thumbnail and the lightbox the full image', async ({ page }) => {
+        await open(page, 3);
+
+        const gridImage = thumbnails(page).first().locator('img');
+        await expect.poll(() => gridImage.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBe(400);
+
+        await thumbnails(page).first().click();
+
+        const fullImage = lightbox(page).getByTestId('damage-gallery-image');
+        await expect.poll(() => fullImage.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBe(1600);
+    });
+
+    test('a skeleton holds the thumbnail slot until the image resolves', async ({ page }) => {
+        await page.route('**/missing-thumbnail.png', async () => {});
+        await page.goto('/gallery.html?count=2&broken=1');
+        await page.waitForSelector('#wrap');
+
+        await expect(thumbnails(page).first().getByTestId('damage-gallery-skeleton')).toBeVisible();
+        await expect(thumbnails(page).nth(1).getByTestId('damage-gallery-skeleton')).toHaveCount(0);
+    });
+});
+
+test.describe('zoom', () => {
+    async function openZoomed(page: Page) {
+        await open(page, 3);
+        await thumbnails(page).first().click();
+    }
+
+    function zoomLevel(page: Page) {
+        return lightbox(page).getByTestId('damage-gallery-zoom-level');
+    }
+
+    test('starts at 100% with zoom out and reset unavailable', async ({ page }) => {
+        await openZoomed(page);
+
+        await expect(zoomLevel(page)).toHaveText('100%');
+        await expect(lightbox(page).getByRole('button', { name: 'Verkleinern' })).toBeDisabled();
+        await expect(lightbox(page).getByRole('button', { name: 'Zoom zurücksetzen' })).toBeDisabled();
+        await expect(lightbox(page).getByRole('button', { name: 'Vergrößern' })).toBeEnabled();
+    });
+
+    test('zooming in scales the image and zooming out reverses it', async ({ page }) => {
+        await openZoomed(page);
+
+        const image = lightbox(page).getByTestId('damage-gallery-image');
+
+        await lightbox(page).getByRole('button', { name: 'Vergrößern' }).click();
+        await expect(zoomLevel(page)).toHaveText('150%');
+        await expect(image).toHaveCSS('transform', 'matrix(1.5, 0, 0, 1.5, 0, 0)');
+
+        await lightbox(page).getByRole('button', { name: 'Verkleinern' }).click();
+        await expect(zoomLevel(page)).toHaveText('100%');
+        await expect(image).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, 0)');
+    });
+
+    test('reset returns to 100% from any zoom level', async ({ page }) => {
+        await openZoomed(page);
+
+        await lightbox(page).getByRole('button', { name: 'Vergrößern' }).click();
+        await lightbox(page).getByRole('button', { name: 'Vergrößern' }).click();
+        await expect(zoomLevel(page)).toHaveText('200%');
+
+        await lightbox(page).getByRole('button', { name: 'Zoom zurücksetzen' }).click();
+
+        await expect(zoomLevel(page)).toHaveText('100%');
+        await expect(lightbox(page).getByTestId('damage-gallery-image')).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, 0)');
+    });
+
+    test('zoom stops at 400%', async ({ page }) => {
+        await openZoomed(page);
+
+        const zoomIn = lightbox(page).getByRole('button', { name: 'Vergrößern' });
+
+        for (let step = 0; step < 10; step++) {
+            if (await zoomIn.isEnabled()) {
+                await zoomIn.click();
+            }
+        }
+
+        await expect(zoomLevel(page)).toHaveText('400%');
+        await expect(zoomIn).toBeDisabled();
+    });
+
+    test('the keyboard zooms in, out and resets', async ({ page }) => {
+        await openZoomed(page);
+
+        await page.keyboard.press('+');
+        await expect(zoomLevel(page)).toHaveText('150%');
+
+        await page.keyboard.press('-');
+        await expect(zoomLevel(page)).toHaveText('100%');
+
+        await page.keyboard.press('+');
+        await page.keyboard.press('+');
+        await expect(zoomLevel(page)).toHaveText('200%');
+
+        await page.keyboard.press('0');
+        await expect(zoomLevel(page)).toHaveText('100%');
+    });
+
+    test('moving to another image resets the zoom', async ({ page }) => {
+        await openZoomed(page);
+
+        await lightbox(page).getByRole('button', { name: 'Vergrößern' }).click();
+        await expect(zoomLevel(page)).toHaveText('150%');
+
+        await lightbox(page).getByRole('button', { name: 'Nächstes Bild' }).click();
+
+        await expect(lightbox(page).getByText('Bild 2 von 3')).toBeVisible();
+        await expect(zoomLevel(page)).toHaveText('100%');
+    });
+
+    test('a swipe pans instead of paging while zoomed', async ({ page }) => {
+        await openZoomed(page);
+        await lightbox(page).getByRole('button', { name: 'Vergrößern' }).click();
+
+        const stage = await page.getByTestId('damage-gallery-stage').boundingBox();
+        if (!stage) {
+            throw new Error('stage not rendered');
+        }
+
+        const y = stage.y + stage.height / 2;
+        const center = stage.x + stage.width / 2;
+
+        await page.mouse.move(center + 120, y);
+        await page.mouse.down();
+        await page.mouse.move(center, y, { steps: 5 });
+        await page.mouse.move(center - 120, y, { steps: 5 });
+        await page.mouse.up();
+
+        await expect(lightbox(page).getByText('Bild 1 von 3')).toBeVisible();
+    });
+});
+
+test.describe('broken images', () => {
+    test('a thumbnail that fails to load falls back to a placeholder', async ({ page }) => {
+        await page.goto('/gallery.html?count=3&broken=1');
+        await page.waitForSelector('#wrap');
+
+        await expect(thumbnails(page).first().getByTestId('damage-gallery-fallback')).toBeVisible();
+        await expect(thumbnails(page).first().locator('img')).toHaveCSS('opacity', '0');
+
+        await expect(thumbnails(page).nth(1).getByTestId('damage-gallery-fallback')).toHaveCount(0);
+        await expect(thumbnails(page).nth(1).locator('img')).toHaveCSS('opacity', '1');
+    });
+
+    test('the placeholder keeps the thumbnail clickable and labelled', async ({ page }) => {
+        await page.goto('/gallery.html?count=3&broken=1');
+        await page.waitForSelector('#wrap');
+
+        await expect(thumbnails(page).first()).toHaveAccessibleName(`${LABEL}, Bild 1 von 3: Stoßfänger vorne links vergrößern`);
+
+        await thumbnails(page).first().click();
+
+        await expect(lightbox(page)).toBeVisible();
+    });
+
+    test('a full image that fails to load falls back inside the lightbox', async ({ page }) => {
+        await page.goto('/gallery.html?count=3&broken=1');
+        await page.waitForSelector('#wrap');
+
+        await thumbnails(page).first().click();
+
+        await expect(lightbox(page).getByTestId('damage-gallery-lightbox-fallback')).toBeVisible();
+        await expect(lightbox(page).getByText('Bild nicht verfügbar')).toBeVisible();
+
+        await lightbox(page).getByRole('button', { name: 'Nächstes Bild' }).click();
+
+        await expect(lightbox(page).getByTestId('damage-gallery-lightbox-fallback')).toHaveCount(0);
+        await expect(lightbox(page).getByTestId('damage-gallery-image')).toBeVisible();
+    });
+});

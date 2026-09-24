@@ -5,19 +5,31 @@ import './app.css';
 
 const params = new URLSearchParams(location.search);
 const count = Number.parseInt(params.get('count') ?? '3', 10);
+const broken = Number.parseInt(params.get('broken') ?? '0', 10);
 const COLORS = ['#c0392b', '#2f9e77', '#1a4a9c', '#9a5b00', '#10393b', '#6f8585'];
 
-function imageUrl(index: number): string {
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900"><rect width="1600" height="900" fill="${COLORS[index % COLORS.length]}"/></svg>`;
+/**
+ * Thumbnails and full images differ in intrinsic size on purpose: a test can
+ * then read naturalWidth to prove which variant the browser actually fetched,
+ * rather than trusting that the right URL was passed.
+ */
+function imageUrl(width: number, height: number, color: string): string {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="${width}" height="${height}" fill="${color}"/></svg>`;
 
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
-const images: DamageGalleryImage[] = Array.from({ length: count }, (_, index) => ({
-    id: `image-${index + 1}`,
-    url: imageUrl(index),
-    caption: index === 0 ? 'Stoßfänger vorne links' : null,
-}));
+const images: DamageGalleryImage[] = Array.from({ length: count }, (_, index) => {
+    const color = COLORS[index % COLORS.length];
+    const isBroken = index < broken;
+
+    return {
+        id: `image-${index + 1}`,
+        url: isBroken ? '/missing-image.png' : imageUrl(1600, 900, color),
+        thumbnail_url: isBroken ? '/missing-thumbnail.png' : imageUrl(400, 225, color),
+        caption: index === 0 ? 'Stoßfänger vorne links' : null,
+    };
+});
 
 createApp({
     setup() {

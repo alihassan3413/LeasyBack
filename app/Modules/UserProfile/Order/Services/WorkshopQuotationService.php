@@ -546,6 +546,11 @@ class WorkshopQuotationService
                         ->map(fn (string $documentId) => [
                             'id' => $documentId,
                             'url' => route('workshop.quotations.images.show', ['token' => $token, 'documentId' => $documentId]),
+                            'thumbnail_url' => route('workshop.quotations.images.show', [
+                                'token' => $token,
+                                'documentId' => $documentId,
+                                'size' => 'thumb',
+                            ]),
                         ])
                         ->values()
                         ->all(),
@@ -689,7 +694,7 @@ class WorkshopQuotationService
             ]);
     }
 
-    public function damageImage(WorkshopQuotation $quotation, string $documentId): ?array
+    public function damageImage(WorkshopQuotation $quotation, string $documentId, bool $thumbnail = false): ?array
     {
         $isAttached = $this->positionsFor($quotation->order_id)
             ->flatMap(fn (AppraisalPosition $position) => $position->damage_image_document_ids ?? [])
@@ -700,8 +705,22 @@ class WorkshopQuotationService
         }
 
         $order = LeasybackOrder::whereKey($quotation->order_id)->first(['auftragsnummer', 'vehicle_id']);
+        $image = $order === null ? null : $this->damageImageDocuments($order, [$documentId])->get($documentId);
 
-        return $order === null ? null : $this->damageImageDocuments($order, [$documentId])->get($documentId);
+        if ($image === null || ! $thumbnail) {
+            return $image;
+        }
+
+        // A thumbnail that was never generated falls back to the original, so
+        // an unsupported host or a failed resize costs bandwidth, not a broken
+        // image in the workshop's gallery.
+        $thumbnailPath = ReportDocumentImage::thumbnailPathFor($image['path']);
+
+        if ($thumbnailPath === null || ! Storage::disk('documents')->exists($thumbnailPath)) {
+            return $image;
+        }
+
+        return ['path' => $thumbnailPath, 'content_type' => ReportDocumentImage::THUMBNAIL_CONTENT_TYPE];
     }
 
     private function damageImageDocuments(LeasybackOrder $order, array $documentIds): Collection

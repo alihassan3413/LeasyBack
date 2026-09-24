@@ -7,8 +7,8 @@ const params = new URLSearchParams(location.search);
 const imageCount = Number.parseInt(params.get('images') ?? '3', 10);
 const COLORS = ['#c0392b', '#2f9e77', '#1a4a9c', '#9a5b00', '#10393b', '#6f8585'];
 
-function imageUrl(index: number): string {
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800"><rect width="1200" height="800" fill="${COLORS[index % COLORS.length]}"/></svg>`;
+function imageUrl(index: number, width = 1200, height = 800): string {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="${width}" height="${height}" fill="${COLORS[index % COLORS.length]}"/></svg>`;
 
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
@@ -34,10 +34,28 @@ const documents: AdminReportDocument[] = [
     ...Array.from({ length: imageCount }, (_, index) => reportDocument(`image-${index + 1}`, true, index === 0 ? 'Stoßfänger vorne' : null)),
 ];
 
-const urls = new Map(documents.filter((document) => document.is_image).map((document, index) => [document.id, imageUrl(index)]));
+const urls = new Map(
+    documents
+        .filter((document) => document.is_image)
+        .map((document, index) => [document.id, { full: imageUrl(index), thumbnail: imageUrl(index, 400, 267) }]),
+);
 
-function route(name: string, id: string): string {
-    return name === 'admin.vehicles.reports.image' ? (urls.get(id) ?? '') : '';
+/**
+ * Mirrors Ziggy's signature: the picker asks for the full image with a bare id
+ * and for the derived thumbnail with a parameter object.
+ */
+function route(name: string, params: string | { documentId: string; size?: string }): string {
+    if (name !== 'admin.vehicles.reports.image') {
+        return '';
+    }
+
+    const entry = urls.get(typeof params === 'string' ? params : params.documentId);
+
+    if (entry === undefined) {
+        return '';
+    }
+
+    return typeof params !== 'string' && params.size === 'thumb' ? entry.thumbnail : entry.full;
 }
 
 Object.assign(window, { route });

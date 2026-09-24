@@ -14,6 +14,7 @@ use App\Modules\UserProfile\Order\Jobs\ExtractGutachtenImages;
 use App\Modules\UserProfile\Order\Jobs\StartAppraisalExtraction;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle as CanonicalVehicle;
+use App\Modules\UserProfile\Vehicle\Services\DamageImageThumbnailService;
 use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
 use App\Modules\UserProfile\Vehicle\Support\ReportDocumentImage;
 use App\Notifications\NotificationPayload;
@@ -49,6 +50,7 @@ class VehicleReportService
         private readonly VehicleScopeService $vehicleScope,
         private readonly Notifier $notifier,
         private readonly PartnerWebhookEvents $webhooks,
+        private readonly DamageImageThumbnailService $thumbnails,
     ) {}
 
     /**
@@ -72,6 +74,7 @@ class VehicleReportService
         $destPath = "vehicle-reports/{$validated['auftragsnummer']}/{$filename}";
         Storage::disk('documents')->put($destPath, $bytes);
         Storage::disk('documents')->setVisibility(dirname($destPath), 'private');
+        $this->thumbnails->generate($destPath);
 
         // Read once and reuse: the notify check below used to test an
         // undefined `$published`, which PHP evaluated as null — so a
@@ -129,6 +132,7 @@ class VehicleReportService
 
         Storage::disk('documents')->put($path, file_get_contents($file));
         Storage::disk('documents')->setVisibility(dirname($path), 'private');
+        $this->thumbnails->generate($path);
 
         $doc = DB::transaction(function () use ($auftragsnummer, $vehicleId, $documentType, $documentTitle, $path, $published, $user) {
             $doc = VehicleReportDocument::create([
@@ -196,6 +200,7 @@ class VehicleReportService
         }
 
         Storage::disk('documents')->setVisibility(dirname($path), 'private');
+        $this->thumbnails->generate($path);
 
         if ($existing !== null) {
             return $existing;
@@ -231,12 +236,26 @@ class VehicleReportService
         return Storage::disk('documents')->exists($path);
     }
 
-    public function image(VehicleReportDocument $document): ?array
+    /**
+     * Resolving the thumbnail here rather than in the controller keeps the
+     * fallback in one place: asking for a thumbnail that was never generated
+     * — an unsupported host, a failed resize, a document uploaded before
+     * thumbnails existed — quietly serves the original instead of 404ing.
+     */
+    public function image(VehicleReportDocument $document, bool $thumbnail = false): ?array
     {
         $contentType = ReportDocumentImage::contentTypeFor((string) $document->path);
 
         if ($contentType === null || ! $this->fileExists($document->path)) {
             return null;
+        }
+
+        if ($thumbnail) {
+            $thumbnailPath = ReportDocumentImage::thumbnailPathFor((string) $document->path);
+
+            if ($thumbnailPath !== null && $this->fileExists($thumbnailPath)) {
+                return ['path' => $thumbnailPath, 'content_type' => ReportDocumentImage::THUMBNAIL_CONTENT_TYPE];
+            }
         }
 
         return ['path' => $document->path, 'content_type' => $contentType];
@@ -389,9 +408,16 @@ class VehicleReportService
             $doc->delete();
         });
 
+        $paths = [$doc->path, ...$derived->pluck('path')->all()];
+
+        // Thumbnails have no row of their own, so they would otherwise outlive
+        // every image they were derived from.
         Storage::disk('documents')->delete([
-            $doc->path,
-            ...$derived->pluck('path')->all(),
+            ...$paths,
+            ...array_filter(array_map(
+                fn (string $path) => ReportDocumentImage::thumbnailPathFor($path),
+                $paths,
+            )),
         ]);
 
         return [

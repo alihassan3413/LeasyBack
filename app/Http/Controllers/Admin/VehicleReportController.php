@@ -113,7 +113,7 @@ class VehicleReportController extends Controller
 
         $request->user()->can('view', $document) || abort(403, 'Only admin can view vehicle report images');
 
-        $image = $this->vehicleReportService->image($document);
+        $image = $this->vehicleReportService->image($document, $request->query('size') === 'thumb');
         abort_unless($image !== null, 404);
 
         return Storage::disk('documents')->response($image['path'], "schadenbild-{$document->id}", [

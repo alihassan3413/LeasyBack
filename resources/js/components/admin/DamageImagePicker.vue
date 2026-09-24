@@ -3,8 +3,9 @@ import DamageGalleryLightbox from '@/components/shared/DamageGalleryLightbox.vue
 import { cn } from '@/lib/utils';
 import type { AdminReportDocument } from '@/types/admin';
 import type { DamageGalleryImage } from '@/types/order';
-import { computed, ref, type ComponentPublicInstance } from 'vue';
+import { computed, reactive, ref, type ComponentPublicInstance } from 'vue';
 import MdiCheck from '~icons/mdi/check';
+import MdiImageBrokenVariant from '~icons/mdi/image-broken-variant';
 import MdiMagnifyPlusOutline from '~icons/mdi/magnify-plus-outline';
 
 const props = withDefaults(
@@ -38,10 +39,27 @@ const nonImageNotice = computed(() =>
         : `${linkedNonImageIds.value.length} verknüpfte Dokumente sind keine Bilder und werden Werkstätten nicht angezeigt.`,
 );
 
+type LoadState = 'loading' | 'loaded' | 'error';
+
+const states = reactive<Record<string, LoadState>>({});
+
+function stateFor(documentId: string): LoadState {
+    return states[documentId] ?? 'loading';
+}
+
+function imageUrl(documentId: string): string {
+    return route('admin.vehicles.reports.image', documentId);
+}
+
+function thumbnailUrl(documentId: string): string {
+    return route('admin.vehicles.reports.image', { documentId, size: 'thumb' });
+}
+
 const galleryImages = computed<DamageGalleryImage[]>(() =>
     imageDocuments.value.map((document) => ({
         id: document.id,
-        url: route('admin.vehicles.reports.image', document.id),
+        url: imageUrl(document.id),
+        thumbnail_url: thumbnailUrl(document.id),
         caption: document.document_title,
     })),
 );
@@ -117,13 +135,41 @@ function restorePreviewFocus() {
                     "
                     @click="toggle(document.id)"
                 >
+                    <div
+                        v-if="stateFor(document.id) === 'loading'"
+                        class="absolute inset-0 animate-pulse bg-[#e9efee] motion-reduce:animate-none"
+                        data-testid="damage-image-skeleton"
+                        aria-hidden="true"
+                    />
+
+                    <div
+                        v-else-if="stateFor(document.id) === 'error'"
+                        class="absolute inset-0 flex items-center justify-center bg-[#f6f9f8] text-[#6f8585]"
+                        data-testid="damage-image-fallback"
+                        title="Bild nicht verfügbar"
+                    >
+                        <MdiImageBrokenVariant class="size-5" aria-hidden="true" />
+                    </div>
+
+                    <!--
+                        Opacity, not v-show: a lazily loaded image that is
+                        display:none is never fetched by the browser.
+                    -->
                     <img
-                        :src="route('admin.vehicles.reports.image', document.id)"
+                        :src="thumbnailUrl(document.id)"
                         alt=""
                         loading="lazy"
                         decoding="async"
                         draggable="false"
-                        :class="cn('size-full object-cover', disabled && !isSelected(document.id) && 'opacity-60')"
+                        :class="
+                            cn(
+                                'size-full object-cover transition-opacity duration-200 motion-reduce:transition-none',
+                                stateFor(document.id) === 'loaded' ? 'opacity-100' : 'opacity-0',
+                                disabled && !isSelected(document.id) && stateFor(document.id) === 'loaded' && 'opacity-60',
+                            )
+                        "
+                        @load="states[document.id] = 'loaded'"
+                        @error="states[document.id] = 'error'"
                     />
                     <span
                         aria-hidden="true"

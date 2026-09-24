@@ -55,13 +55,13 @@ class QuotationSubmissionController extends Controller
         return redirect()->route('workshop.quotations.thanks');
     }
 
-    public function image(string $token, string $documentId): StreamedResponse
+    public function image(Request $request, string $token, string $documentId): StreamedResponse
     {
         $quotation = $this->workshopQuotationService->findOpenByToken($token);
 
         abort_if($quotation === null, 404);
 
-        $image = $this->workshopQuotationService->damageImage($quotation, $documentId);
+        $image = $this->workshopQuotationService->damageImage($quotation, $documentId, $request->query('size') === 'thumb');
 
         abort_if($image === null, 404);
 
