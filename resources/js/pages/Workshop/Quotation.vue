@@ -10,8 +10,10 @@
 import CalendarDateField from '@/components/form/CalendarDateField.vue';
 import RequiredMark from '@/components/form/RequiredMark.vue';
 import InputError from '@/components/InputError.vue';
+import DamageGallery from '@/components/shared/DamageGallery.vue';
 import { Input } from '@/components/ui/input';
 import { formatPortalDate } from '@/lib/portalDate';
+import type { DamageGalleryImage } from '@/types/order';
 import { Head, useForm } from '@inertiajs/vue3';
 import { computed } from 'vue';
 
@@ -21,6 +23,7 @@ interface QuotationPosition {
     damage_description: string | null;
     repair_method: string | null;
     requested_amount_net: string | null;
+    images: DamageGalleryImage[];
 }
 
 interface QuotationVehicle {
@@ -213,6 +216,11 @@ function submit() {
                                     <p class="text-[11px] text-[#9bb0af]">Angefragt netto</p>
                                     <p class="text-[12.5px] font-bold text-[#10393b]">{{ formatEuro(position.requested_amount_net) }}</p>
                                 </div>
+                            </div>
+
+                            <div v-if="position.images?.length" class="mb-3">
+                                <p class="mb-1.5 text-[11px] text-[#9bb0af]">Schadenbilder ({{ position.images.length }})</p>
+                                <DamageGallery :images="position.images" :label="`Schadenbilder zu Position ${index + 1}: ${position.component}`" />
                             </div>
 
                             <div class="grid grid-cols-2 gap-2 max-[560px]:grid-cols-1">

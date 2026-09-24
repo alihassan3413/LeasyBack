@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AdminAppraisalExtractionCard from '@/components/admin/AdminAppraisalExtractionCard.vue';
 import AdminAppraisalPositionsCard from '@/components/admin/AdminAppraisalPositionsCard.vue';
 import AdminCollectionCard from '@/components/admin/AdminCollectionCard.vue';
 import AdminInvoiceCard from '@/components/admin/AdminInvoiceCard.vue';
@@ -590,6 +591,13 @@ function formatDateTime(value: string | null): string {
                     Full width is also what the card wants — each position lays out as a
                     row instead of a stack of six fields.
                 -->
+                <AdminAppraisalExtractionCard
+                    :order-id="order.id"
+                    :extractions="order.appraisal_extractions"
+                    :report-documents="order.report_documents"
+                    :editable="order.editable.positions"
+                />
+
                 <AdminAppraisalPositionsCard
                     id="order-section-positionen"
                     :order-id="order.id"

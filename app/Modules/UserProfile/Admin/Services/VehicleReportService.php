@@ -2,6 +2,7 @@
 
 namespace App\Modules\UserProfile\Admin\Services;
 
+use App\Enums\DocumentType;
 use App\Enums\NotificationType;
 use App\Models\AssessmentDocument;
 use App\Models\User;
@@ -9,11 +10,16 @@ use App\Models\VehicleReportDocument;
 use App\Models\VehicleReportDocumentLog;
 use App\Modules\PartnerApi\Services\PartnerDocumentCatalog;
 use App\Modules\PartnerApi\Services\PartnerWebhookEvents;
+use App\Modules\UserProfile\Order\Jobs\ExtractGutachtenImages;
+use App\Modules\UserProfile\Order\Jobs\StartAppraisalExtraction;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle as CanonicalVehicle;
+use App\Modules\UserProfile\Vehicle\Services\DamageImageThumbnailService;
 use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
+use App\Modules\UserProfile\Vehicle\Support\ReportDocumentImage;
 use App\Notifications\NotificationPayload;
 use App\Services\Notifier;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -35,10 +41,16 @@ use RuntimeException;
  */
 class VehicleReportService
 {
+    private const EXTRACTABLE_DOCUMENT_TYPES = [
+        DocumentType::Gutachten->value,
+        DocumentType::Nachgutachten->value,
+    ];
+
     public function __construct(
         private readonly VehicleScopeService $vehicleScope,
         private readonly Notifier $notifier,
         private readonly PartnerWebhookEvents $webhooks,
+        private readonly DamageImageThumbnailService $thumbnails,
     ) {}
 
     /**
@@ -62,6 +74,7 @@ class VehicleReportService
         $destPath = "vehicle-reports/{$validated['auftragsnummer']}/{$filename}";
         Storage::disk('documents')->put($destPath, $bytes);
         Storage::disk('documents')->setVisibility(dirname($destPath), 'private');
+        $this->thumbnails->generate($destPath);
 
         // Read once and reuse: the notify check below used to test an
         // undefined `$published`, which PHP evaluated as null — so a
@@ -119,6 +132,7 @@ class VehicleReportService
 
         Storage::disk('documents')->put($path, file_get_contents($file));
         Storage::disk('documents')->setVisibility(dirname($path), 'private');
+        $this->thumbnails->generate($path);
 
         $doc = DB::transaction(function () use ($auftragsnummer, $vehicleId, $documentType, $documentTitle, $path, $published, $user) {
             $doc = VehicleReportDocument::create([
@@ -143,7 +157,22 @@ class VehicleReportService
             $this->notifyDocumentPublished($doc);
         }
 
+        $this->startAppraisalExtraction($doc, $user);
+
         return ['document' => $doc];
+    }
+
+    private function startAppraisalExtraction(VehicleReportDocument $document, User $user): void
+    {
+        $isAppraisal = in_array(strtolower((string) $document->document_type), self::EXTRACTABLE_DOCUMENT_TYPES, true);
+        $isPdf = strtolower(pathinfo((string) $document->path, PATHINFO_EXTENSION)) === 'pdf';
+
+        if (! $isAppraisal || ! $isPdf) {
+            return;
+        }
+
+        StartAppraisalExtraction::dispatch($document->id, $user->id)->afterCommit();
+        ExtractGutachtenImages::dispatch($document->id)->afterCommit();
     }
 
     public function storeGeneratedDocument(
@@ -156,7 +185,7 @@ class VehicleReportService
         bool $notifyCustomer = true,
         bool $published = true,
     ): VehicleReportDocument {
-        $path = "vehicle-reports/{$auftragsnummer}/{$filename}";
+        $path = $this->generatedDocumentPath($auftragsnummer, $filename);
 
         $existing = VehicleReportDocument::where('vehicle_id', $vehicleId)
             ->where('auftragsnummer', $auftragsnummer)
@@ -171,6 +200,7 @@ class VehicleReportService
         }
 
         Storage::disk('documents')->setVisibility(dirname($path), 'private');
+        $this->thumbnails->generate($path);
 
         if ($existing !== null) {
             return $existing;
@@ -204,6 +234,31 @@ class VehicleReportService
     public function fileExists(string $path): bool
     {
         return Storage::disk('documents')->exists($path);
+    }
+
+    /**
+     * Resolving the thumbnail here rather than in the controller keeps the
+     * fallback in one place: asking for a thumbnail that was never generated
+     * — an unsupported host, a failed resize, a document uploaded before
+     * thumbnails existed — quietly serves the original instead of 404ing.
+     */
+    public function image(VehicleReportDocument $document, bool $thumbnail = false): ?array
+    {
+        $contentType = ReportDocumentImage::contentTypeFor((string) $document->path);
+
+        if ($contentType === null || ! $this->fileExists($document->path)) {
+            return null;
+        }
+
+        if ($thumbnail) {
+            $thumbnailPath = ReportDocumentImage::thumbnailPathFor((string) $document->path);
+
+            if ($thumbnailPath !== null && $this->fileExists($thumbnailPath)) {
+                return ['path' => $thumbnailPath, 'content_type' => ReportDocumentImage::THUMBNAIL_CONTENT_TYPE];
+            }
+        }
+
+        return ['path' => $document->path, 'content_type' => $contentType];
     }
 
     /**
@@ -322,8 +377,24 @@ class VehicleReportService
         }
 
         $wasPublished = (bool) $doc->published;
+        $derived = $this->derivedGutachtenImages($doc);
 
-        DB::transaction(function () use ($doc, $user, $wasPublished) {
+        DB::transaction(function () use ($doc, $user, $wasPublished, $derived) {
+            // The images extracted from this Gutachten go with it. They exist
+            // only as a by-product of the source PDF, so leaving them behind
+            // strands them in the damage image picker with nothing to trace
+            // them back to, and re-uploading a corrected Gutachten would stack
+            // a second full set on top of the first.
+            foreach ($derived as $image) {
+                $this->auditDocument($image, 'deleted', $user->id);
+
+                if ((bool) $image->published) {
+                    $this->announceDocument($image, 'replaced', 'deleted');
+                }
+
+                $image->delete();
+            }
+
             $this->auditDocument($doc, 'deleted', $user->id);
 
             // Announced before the row goes, so the payload can still describe
@@ -337,7 +408,17 @@ class VehicleReportService
             $doc->delete();
         });
 
-        Storage::disk('documents')->delete($doc->path);
+        $paths = [$doc->path, ...$derived->pluck('path')->all()];
+
+        // Thumbnails have no row of their own, so they would otherwise outlive
+        // every image they were derived from.
+        Storage::disk('documents')->delete([
+            ...$paths,
+            ...array_filter(array_map(
+                fn (string $path) => ReportDocumentImage::thumbnailPathFor($path),
+                $paths,
+            )),
+        ]);
 
         return [
             'message' => 'Vehicle report document deleted successfully',
@@ -345,6 +426,37 @@ class VehicleReportService
             'auftragsnummer' => $doc->auftragsnummer,
             'vehicle_id' => $doc->vehicle_id,
         ];
+    }
+
+    private function generatedDocumentPath(string $auftragsnummer, string $filename): string
+    {
+        return "vehicle-reports/{$auftragsnummer}/{$filename}";
+    }
+
+    /**
+     * Images ExtractGutachtenImages produced from this document, matched on the
+     * storage prefix the job files them under plus its document type. Both
+     * conditions are needed: the prefix alone would be enough, but the type
+     * keeps a hand-uploaded file that happens to sit in that directory out of
+     * the result. A TÜV SÜD AnsichtsFoto is excluded by either one — those are
+     * transferred to a flat vehicle-reports/{auftragsnummer}/ path and carry
+     * their own document type.
+     *
+     * @return Collection<int, VehicleReportDocument>
+     */
+    private function derivedGutachtenImages(VehicleReportDocument $doc): Collection
+    {
+        $prefix = $this->generatedDocumentPath(
+            (string) $doc->auftragsnummer,
+            ExtractGutachtenImages::directoryFor((string) $doc->id),
+        ).'/';
+
+        return VehicleReportDocument::query()
+            ->where('vehicle_id', $doc->vehicle_id)
+            ->where('auftragsnummer', $doc->auftragsnummer)
+            ->where('document_type', ExtractGutachtenImages::DOCUMENT_TYPE)
+            ->where('path', 'like', $prefix.'%')
+            ->get();
     }
 
     private function auditDocument(VehicleReportDocument $doc, string $action, ?int $userId): void

@@ -20,6 +20,7 @@ use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Exceptions\PostTooLargeException;
 use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -126,6 +127,16 @@ return Application::configure(basePath: dirname(__DIR__))
                     'message' => 'Something went wrong. Please try again later.',
                 ], 500),
             };
+        });
+
+        $exceptions->render(function (PostTooLargeException $e, Request $request) {
+            if ($request->expectsJson() || ! $request->hasSession()) {
+                return null;
+            }
+
+            $message = 'Die Datei ist zu groß für den Upload. Bitte laden Sie eine kleinere Datei hoch.';
+
+            return back()->withErrors(['file' => $message])->with('error', $message);
         });
 
         // Everything else that ends as a 4xx/5xx HTML response gets the

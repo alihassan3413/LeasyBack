@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\AppraisalExtractionController;
 use App\Http\Controllers\Admin\AppraisalPositionController;
 use App\Http\Controllers\Admin\CustomerController;
 use App\Http\Controllers\Admin\DashboardController;
@@ -42,6 +43,7 @@ Route::middleware(['auth', 'active', 'verified', 'admin'])->prefix('admin')->nam
         // step (OrderCollectionService::updateByAdmin).
         Route::post('{vehicleId}/reports', [VehicleReportController::class, 'upload'])->whereUuid('vehicleId')->name('reports.upload');
         Route::post('{vehicleId}/reports/pull', [VehicleReportController::class, 'pull'])->whereUuid('vehicleId')->name('reports.pull');
+        Route::get('reports/{documentId}/image', [VehicleReportController::class, 'image'])->whereUuid('documentId')->name('reports.image');
         Route::patch('reports/{documentId}/publish', [VehicleReportController::class, 'publish'])->whereUuid('documentId')->name('reports.publish');
         Route::delete('reports/{documentId}', [VehicleReportController::class, 'delete'])->whereUuid('documentId')->name('reports.delete');
     });
@@ -76,6 +78,10 @@ Route::middleware(['auth', 'active', 'verified', 'admin'])->prefix('admin')->nam
         Route::post('{orderId}/billing/lexware-finalize', [OrderBillingController::class, 'lexwareFinalize'])
             ->whereUuid('orderId')->name('billing.lexware-finalize');
         Route::put('{orderId}/appraisal-positions', [AppraisalPositionController::class, 'update'])->whereUuid('orderId')->name('appraisal-positions');
+        Route::post('{orderId}/appraisal-extractions', [AppraisalExtractionController::class, 'store'])
+            ->whereUuid('orderId')->name('appraisal-extractions.store');
+        Route::post('appraisal-extractions/{extractionId}/apply', [AppraisalExtractionController::class, 'apply'])
+            ->whereUuid('extractionId')->name('appraisal-extractions.apply');
 
         /*
          * Order notes (§16). Admin-authored only: §16 gives company users the

@@ -19,6 +19,12 @@ Route::prefix('werkstatt/angebot')->name('workshop.quotations.')->group(function
         ->where('token', '[A-Za-z0-9]{64}')
         ->name('show');
 
+    Route::get('{token}/bilder/{documentId}', [QuotationSubmissionController::class, 'image'])
+        ->middleware('throttle:120,1')
+        ->where('token', '[A-Za-z0-9]{64}')
+        ->whereUuid('documentId')
+        ->name('images.show');
+
     Route::post('{token}', [QuotationSubmissionController::class, 'store'])
         ->middleware('throttle:10,1')
         ->where('token', '[A-Za-z0-9]{64}')

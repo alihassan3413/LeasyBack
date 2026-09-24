@@ -29,7 +29,8 @@ bash provision.sh
 ```
 
 `provision.sh` installs PHP 8.4 (incl. `php8.4-sqlite3` and `php8.4-gmp` for web push),
-Composer, Node 22, Nginx, Redis, Supervisor and Certbot; creates the `deploy` user; creates
+Composer, Node 22, Nginx, Redis, Supervisor, Certbot and `poppler-utils` (required — see
+**Gutachten extraction** below); creates the `deploy` user; creates
 `database/database.sqlite` **only if it is missing** and makes it writable by `deploy` and
 `www-data`; writes the nginx site, the queue-worker and Reverb supervisor programs, the
 `schedule:run` cron and the firewall rules. It is idempotent — re-run it any time you
@@ -99,6 +100,53 @@ bash deploy/deploy.sh --rollback --yes   # back to the previously deployed commi
   move `CACHE_STORE`, `QUEUE_CONNECTION` and `SESSION_DRIVER` to `redis` (already
   installed and running) before considering a bigger database.
 
+## Document storage
+
+Private customer documents (leasing contracts, appraisal PDFs, damage photos, invoices) use
+their own `documents` disk, **separate from `FILESYSTEM_DISK`**. Application code only ever
+calls `Storage::disk('documents')`, so the driver is an env choice, not a code change.
+
+- **`DOCUMENTS_FILESYSTEM_DRIVER=s3` is the recommended production value** and is what
+  `env.production.example` ships. It reuses the existing `AWS_*` credentials, so there is no
+  extra infrastructure to stand up.
+- **Set it explicitly either way.** The config default is `local`; leaving the variable unset
+  means customer documents land in `storage/app/private/documents`, which nothing backs up —
+  `deploy.sh` snapshots the SQLite file only — and which does not survive a server rebuild.
+- **Migrating an existing server from `local` to `s3` needs a copy step first.** Flipping the
+  variable makes the app look for every existing document in the bucket; anything still on
+  local disk returns 404. Documents are referenced by DB rows holding a relative `path`, and
+  those paths are identical on both drivers, so a straight copy is enough:
+  ```bash
+  cd /var/www/LeasyBack
+  php8.4 artisan down
+  aws s3 sync storage/app/private/documents "s3://${AWS_BUCKET}/" --acl private
+  # flip DOCUMENTS_FILESYSTEM_DRIVER=s3 in .env, then:
+  php8.4 artisan config:cache && php8.4 artisan queue:restart && php8.4 artisan up
+  ```
+  Verify a download from each of the admin, customer and workshop surfaces before deleting
+  the local copies — keep them until you have.
+- **On `s3`, directory-level `setVisibility()` calls silently no-op** (the disk sets
+  `'throw' => false`). Document privacy then rests on the bucket itself, so confirm Block
+  Public Access is on and the bucket policy denies anonymous reads. Authorization is
+  unaffected — every read still goes through the document's DB record and a Policy first.
+- `DOCUMENTS_S3_BUCKET` overrides the bucket for documents only, which is worth using if you
+  want versioning or a retention policy that differs from the vehicle-photo bucket.
+
+## Gutachten extraction (`poppler-utils`)
+
+- **`poppler-utils` is a required production dependency**, installed by `provision.sh`. It
+  is the application's only OS-level binary dependency: `pdftotext` reads the appraisal PDF
+  and `pdfimages` pulls the damage photos out of it.
+- Without it nothing looks broken — uploads still succeed, the portal still works — but
+  *every* Gutachten upload produces a failed extraction (`no_extractor_available`) and a
+  dead `ExtractGutachtenImages` job, so admins get a red extraction card and no damage
+  images. `deploy.sh` therefore smoke-checks both binaries on every release and warns if
+  either is missing.
+- On a server that predates this dependency: `sudo apt-get install -y poppler-utils`, or
+  just re-run `provision.sh` (it is idempotent).
+- The binary names are configurable via `PDFTOTEXT_BINARY` / `PDFIMAGES_BINARY` in `.env`
+  (see `config/gutachten.php`) — only needed if poppler lives outside `PATH`.
+
 ## Things worth knowing
 
 - **`.env` is never touched by `deploy.sh`.** Edit it on the server; run
@@ -125,6 +173,7 @@ sudo supervisorctl status                      # workers + reverb
 tail -f /var/www/LeasyBack/storage/logs/laravel.log
 tail -f /var/log/nginx/leasyback-error.log
 php8.4 artisan queue:failed                    # failed jobs
+which pdftotext && which pdfimages             # Gutachten extraction dependencies
 sqlite3 /var/www/LeasyBack/database/database.sqlite '.tables'
 sudo systemctl reload php8.4-fpm nginx
 ```

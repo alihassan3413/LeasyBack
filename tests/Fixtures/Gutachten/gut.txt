@@ -1,0 +1,570 @@
+TÜV SÜD Auto Partner GmbH                                  Fahrzeugbewertung
+                                                           Gutenbergstr. 13
+                                                           70771 Leinfelden-Echterdingen
+                                                           +49 (0) 711 722 084 0
+
+PROTOKOLLNUMMER: 42772146
+
+Bei Rückfragen bitte Protokollnummer und Datum angeben                                               Datum: 02.12.2025
+
+
+
+
+                                                         Gutachten
+
+Betreff                                                    Minderwertgutachten
+
+Besichtigungsdatum / Ort                                   18.11.2025 / Hamburg Flughafen P8
+                                                           Weg bei Jäger 200
+                                                           22335 Hamburg
+
+Auftrags-Nummer / Referenz                                 MW2705350-NT1
+
+Amtliches Kennzeichen                                      EU-ML 4904
+
+Fahrzeug-Identnummer                                       TMBJR7NU9R5024487
+
+
+                                                ZUSAMMENFASSUNG
+
+
+Kosten- und Wertzusammenfassung (geschätzt)
+                                                          ohne Mwst.                  19% MwSt.           mit MwSt.
+
+abrechnungsrelevante Minderwerte                            200,00 €                       38,00 €          238,00 €
+basierend auf Reparaturkosten                                200,00 €                      38,00 €          238,00 €
+
+
+
+
+02.12.2025                             FIN: TMBJR7NU9R5024487 - Protokollnummer: 42772146                     Seite 1 / 14
+TÜV SÜD Auto Partner GmbH                                  Fahrzeugbewertung
+                                                           Gutenbergstr. 13
+                                                           70771 Leinfelden-Echterdingen
+                                                           +49 (0) 711 722 084 0
+
+PROTOKOLLNUMMER: 42772146
+
+Bei Rückfragen bitte Protokollnummer und Datum angeben                                                 Datum: 02.12.2025
+
+
+
+
+                                                         Gutachten
+
+Betreff                                            Minderwertgutachten
+
+Auftrag durch                                      MWGA
+                                                   Rolshover Str. 45
+                                                   51105 Köln
+
+Besichtigungsdatum / Ort                           18.11.2025 / Hamburg Flughafen P8
+                                                   Weg bei Jäger 200
+                                                   22335 Hamburg
+
+Auftrags-Nummer / Referenz                         MW2705350-NT1
+
+Amtliches Kennzeichen                              EU-ML 4904
+
+Fahrzeugart                                        PKW Limousine
+
+Hersteller                                         Skoda
+
+Modell / Verkaufsbezeichnung                       KAROQ
+
+Schlüssel-Nummern HSN / TSN                        8004 ASO 04221
+
+Fahrzeug-Identnummer                               TMBJR7NU9R5024487
+
+Anzahl Besitzer                                    1
+
+Erstzulassung / Letzte Zulassung                   26.05.2025 / 26.05.2025
+
+Nächste HU                                         05/2026
+
+Fahrzeug Dokumente                                 Zum Zeitpunkt der Besichtigung lag die Zulassungsbescheinigung
+                                                   Teil 1 (Schein) vor, die Zulassungsbescheinigung Teil 2 (Brief) lag
+                                                   nicht vor. (Kopie)
+
+Laufleistung                                       23.293 km / abgelesen
+
+Farbe / Farbcode                                   Grau Metallic
+
+Nutzungsart                                        Mietwagen
+
+Antriebsart                                        Frontantrieb
+
+Kraftstoffart                                      Benzin
+
+Hubraum / Leistung                                 1.498 ccm/ 110 kW
+
+Zylinder / Schadstoffklasse                        4 / EURO6;WLTP;EA;PI/CI;M, N1, N2
+
+zul. Gesamtgewicht (kg)                            1.940
+
+
+
+
+02.12.2025                             FIN: TMBJR7NU9R5024487 - Protokollnummer: 42772146                       Seite 2 / 14
+TÜV SÜD Auto Partner GmbH                                  Fahrzeugbewertung
+                                                           Gutenbergstr. 13
+                                                           70771 Leinfelden-Echterdingen
+                                                           +49 (0) 711 722 084 0
+
+PROTOKOLLNUMMER: 42772146
+
+Bei Rückfragen bitte Protokollnummer und Datum angeben                                               Datum: 02.12.2025
+
+
+
+Anzahl Türen / Anzahl Sitze                        5/5
+
+Getriebe                                           Automatik
+
+Anzahl Gänge                                       7
+
+Polster / Farbe                                    Leder / Dunkelgrau
+
+Anzahl Schlüssel                                   1 von 2 Schlüsseln vorhanden
+
+Raucherfahrzeug                                    Nein
+
+Wartungsheft / Wartungsnachweis                    digitaler Nachweis / vollständig
+
+Restlauf bis Service                               6.800 km
+
+Probefahrt                                         nicht durchgeführt
+
+Fahrbereitschaft                                   fahrbereit
+
+Vorschaden                                         Keine Feststellbar
+
+Nachlackierung                                     Keine Feststellbar
+
+Bereifung / Felge
+
+Achse / Größe             Hersteller           Bereifung                                                 Profil [mm]
+#1 215/50 R18 92W         Maxxis               Ganzjahresreifen auf Leichtmetall                         6/6
+#2 215/50 R18 92W         Maxxis               Ganzjahresreifen auf Leichtmetall                         6/6
+
+Ersatzrad
+
+                          Ablauf: 04/2028 Tirefit vorhanden
+
+Zulässigkeit Räder                                 Alle Achsen zulässig.
+
+Verkehrssicherheit Räder                           Verkehrssicher
+
+Der Verschleißzustand sowie evtl. Schäden an der Bereifung sind wertmäßig berücksichtigt.
+
+
+Wertmindernde Faktoren
+Nr.     Bauteilgruppe                   Beschreibung                                        Rep.Kosten   Minderwert
+
+1       Verkleidungen/                  Heckdeckel, Innenverkleidung - Abrieb -                80,00 €          80,00 €
+        Abdeckungen                     Smart Repair
+
+2       Stossfänger hinten              Stossfänger hinten - verkratzt / verschürft -         120,00 €         120,00 €
+                                        Smart Repair
+
+Summe (netto):                                                                                200,00 €         200,00 €
+
+Gebrauchsspuren
+
+
+
+
+02.12.2025                             FIN: TMBJR7NU9R5024487 - Protokollnummer: 42772146                       Seite 3 / 14
+TÜV SÜD Auto Partner GmbH                                Fahrzeugbewertung
+                                                         Gutenbergstr. 13
+                                                         70771 Leinfelden-Echterdingen
+                                                         +49 (0) 711 722 084 0
+
+PROTOKOLLNUMMER: 42772146
+
+Bei Rückfragen bitte Protokollnummer und Datum angeben                                               Datum: 02.12.2025
+
+
+
+Nr.     Bauteilgruppe                   Beschreibung                                        Rep.Kosten   Minderwert
+
+1       Ausrüstung                      Fahrzeugschlüssel - fehlt - entkleben/                  0,00 €         0,00 €
+                                        neutralisieren
+
+Summe (netto):                                                                                  0,00 €         0,00 €
+
+
+
+Hinweise zum Gutachten
+Angaben zum Auftrag und zum Begutachtungsumfang:
+Es wurde der Auftrag erteilt, ein Minderwertgutachten über das beschriebene Fahrzeug zu erstellen. Das
+vorliegende Gutachten beinhaltet auftragsgemäß:
+
+
+      ▪ eine Fahrzeugzustandsbewertung
+
+
+      ▪ Auftragsgemäß erfolgte die Fahrzeugzustandsbewertung in demontagefreien Zustand. Grundlage
+        dieses Produktes stellt der Leitfaden für Fahrzeugrücknahmen und Bewertungen gemäß des
+        Schadengrenzmusterkatalog des Auftraggebers dar. Die expliziten Feststellungen im Einzelfall trifft
+        der Sachverständige objektiv im Rahmen der vorgegebenen Standards aufgrund eigener Sachkunde.
+
+
+      ▪ Schäden oder Mängel, die aus einer normalen Nutzung bzw. Abnutzung des Fahrzeuges entstanden
+        sind, werden akzeptiert und sind daher bei der Zustandsbewertung nicht in Abzug gebracht worden.
+
+
+      ▪ Schäden oder Mängel, die nicht mehr einer normalen Nutzung bzw. Abnutzung zugeordnet werden
+        können, werden in der Zustandsbewertung aufgelistet und in Anrechnung gebracht
+
+
+      ▪ Dabei wird zwischen Schäden, die sich zu 100 % der Kosten auswirken und Schäden, die anteilig
+        nach dem Fahrzeugalter und der Laufleistung bemessen werden, unterschieden.
+
+
+      ▪ Schäden, die mit 100 % in Anrechnung gebracht werden, sind Unfallschäden, fehlende Teile und/oder
+        Schäden, die den Erhalt der Betriebs- und Verkehrssicherheit beeinträchtigen.
+
+
+      ▪ Anteilig dem Fahrzeugalter und der Laufleistung sind Schäden und Mängel bewertet, die den
+        optischen und/oder funktionalen Zustand des Fahrzeugs beeinträchtigen und damit den Preis eines
+        potentiellen Käufers beeinflussen.
+
+
+
+
+02.12.2025                             FIN: TMBJR7NU9R5024487 - Protokollnummer: 42772146                     Seite 4 / 14
+TÜV SÜD Auto Partner GmbH                                Fahrzeugbewertung
+                                                         Gutenbergstr. 13
+                                                         70771 Leinfelden-Echterdingen
+                                                         +49 (0) 711 722 084 0
+
+PROTOKOLLNUMMER: 42772146
+
+Bei Rückfragen bitte Protokollnummer und Datum angeben                                      Datum: 02.12.2025
+
+
+
+
+Fahrzeug-Identifizierung:
+     ▪ Die Fahrzeug-Identifizierungsnummer (FIN) wurde am Fahrzeug abgelesen und die Übereinstimmung
+        im Verlauf der Besichtigung durch den Unterzeichner mit den vorgelegten Unterlagen festgestellt.
+
+
+Besichtigungsbedingungen:
+     ▪ Eine ordnungsgemäße Sichtprüfung der Lackierung und der Karosserie war wegen unzureichender
+        Lichtverhältnisse/ Nässe oder Verschmutzung nur eingeschränkt möglich.
+
+
+     ▪ Zur Untersuchung des Fahrzeuges standen keine Hubmittel bzw. Grube zur Verfügung. Aus diesem
+        Grund war die Besichtigung der Fahrzeugunterseite nur begrenzt möglich.
+
+
+Probefahrt / Probelauf von Motor und Aggregaten:
+     ▪ Es wurde bei der Besichtigung des Fahrzeuges keine Probefahrt/keine Rangierfahrt durchgeführt.
+
+
+     ▪ Ein Probelauf des Motors wurde durchgeführt.
+
+
+Vorschäden:
+     ▪ Am Fahrzeug konnten augenscheinlich keine reparierten Vorschäden festgestellt werden.
+
+
+Weitere Hinweise und Feststellungen:
+     ▪ Die im Gutachten errechneten und angegebenen Minderwerte beziehen sich nur auf festgestellte
+        Schäden oder Mängel, die über die normale Abnutzung entsprechend Fahrzeug-Alter und
+        Laufleistung bzw. über das übliche Verschleißmaß hinausgehen. Beschädigungen, die durch
+        normalen Gebrauch während der Dauer der Nutzung entstanden sind, wurden nicht berücksichtigt
+        (Gebrauchsspuren).
+
+
+     ▪ Die getroffene Feststellung beinhalten weder eine Fahrzeugabnahme im Sinne der StVZO, noch im
+        Sinne des Gewährleistungsrechtes.
+
+
+     ▪ Werden Schäden oder Mängel welche erst im Rahmen von Zerlege-/ Diagnosearbeiten oder durch
+        erweiterte Kenntnisse festgestellt, sowie durch verschwiegene Mängel oder arglistige Täuschung
+        hervorgerufen, wird um sofortige Benachrichtigung des Sachverständigen gebeten.
+
+
+
+
+02.12.2025                             FIN: TMBJR7NU9R5024487 - Protokollnummer: 42772146            Seite 5 / 14
+TÜV SÜD Auto Partner GmbH                                  Fahrzeugbewertung
+                                                           Gutenbergstr. 13
+                                                           70771 Leinfelden-Echterdingen
+                                                           +49 (0) 711 722 084 0
+
+PROTOKOLLNUMMER: 42772146
+
+Bei Rückfragen bitte Protokollnummer und Datum angeben                                                      Datum: 02.12.2025
+
+
+
+
+        Eine Nachbesichtigung des Fahrzeuges zur Feststellung des Umfanges der Reparaturerweiterung
+        und damit verbundenen Kostenausweitung wird in diesem Fall durch den Sachverständigen
+        umgehend durchgeführt. Die für die Schadenerweiterung ursächlichen Altteile sind bis zur
+        Nachbesichtigung durch den Sachverständigen aufzubewahren.
+
+
+Bemerkungen
+Der Schlüssel ist zentral eingelagert.
+
+
+Die Lackschichtdicke liegt beim gesamten Fahrzeug im Normbereich zwischen 110 μm und 160 μm.
+
+
+
+
+Unterschrift Sachverständiger (Mario Krämer)                           Unterschrift Fahrzeugnutzer
+
+Vorliegendes Druckexemplar wurde auf elektronischem Wege erzeugt. Der benannte Sachverständige versichert, dass der Inhalt die
+von ihm getroffenen Feststellungen korrekt wiedergibt. Es ist ohne Originalunterschrift gültig.
+
+
+
+
+Anlagen: 41 Übersichtsfotos, 5 Beschädigungsfotos
+
+
+
+
+02.12.2025                             FIN: TMBJR7NU9R5024487 - Protokollnummer: 42772146                             Seite 6 / 14
+TÜV SÜD Auto Partner GmbH                                Fahrzeugbewertung
+                                                         Gutenbergstr. 13
+                                                         70771 Leinfelden-Echterdingen
+                                                         +49 (0) 711 722 084 0
+
+PROTOKOLLNUMMER: 42772146
+
+Bei Rückfragen bitte Protokollnummer und Datum angeben                                                     Datum: 02.12.2025
+
+
+
+Übersichtsfotos
+
+
+
+
+Abbildung 1: Schräg vorne (links)                                    Abbildung 2: Schräg vorne (rechts)
+
+
+
+
+Abbildung 3: Schräg hinten (links)                                   Abbildung 4: Schräg hinten (rechts)
+
+
+
+
+Abbildung 5: Frontansicht                                            Abbildung 6: Seitenansicht links
+
+
+
+
+02.12.2025                             FIN: TMBJR7NU9R5024487 - Protokollnummer: 42772146                           Seite 7 / 14
+TÜV SÜD Auto Partner GmbH                                Fahrzeugbewertung
+                                                         Gutenbergstr. 13
+                                                         70771 Leinfelden-Echterdingen
+                                                         +49 (0) 711 722 084 0
+
+PROTOKOLLNUMMER: 42772146
+
+Bei Rückfragen bitte Protokollnummer und Datum angeben                                          Datum: 02.12.2025
+
+
+
+
+Abbildung 7: Seitenansicht rechts                                    Abbildung 8: Heckansicht
+
+
+
+
+Abbildung 9: Innenraum                                               Abbildung 10: Innenraum
+
+
+
+
+Abbildung 11: Laderaum                                               Abbildung 12: Laderaum
+
+
+
+
+02.12.2025                             FIN: TMBJR7NU9R5024487 - Protokollnummer: 42772146                Seite 8 / 14
+TÜV SÜD Auto Partner GmbH                                Fahrzeugbewertung
+                                                         Gutenbergstr. 13
+                                                         70771 Leinfelden-Echterdingen
+                                                         +49 (0) 711 722 084 0
+
+PROTOKOLLNUMMER: 42772146
+
+Bei Rückfragen bitte Protokollnummer und Datum angeben                                               Datum: 02.12.2025
+
+
+
+
+Abbildung 13: Laderaum                                               Abbildung 14: Laderaum
+
+
+
+
+Abbildung 15: Kombiinstrument                                        Abbildung 16: Kombiinstrument
+
+
+
+
+Abbildung 17: Kombiinstrument                                        Abbildung 18: Kombiinstrument
+
+
+
+
+02.12.2025                             FIN: TMBJR7NU9R5024487 - Protokollnummer: 42772146                     Seite 9 / 14
+TÜV SÜD Auto Partner GmbH                                Fahrzeugbewertung
+                                                         Gutenbergstr. 13
+                                                         70771 Leinfelden-Echterdingen
+                                                         +49 (0) 711 722 084 0
+
+PROTOKOLLNUMMER: 42772146
+
+Bei Rückfragen bitte Protokollnummer und Datum angeben                                         Datum: 02.12.2025
+
+
+
+
+Abbildung 19: Kombiinstrument                                        Abbildung 20: FIN
+
+
+
+
+Abbildung 21: Dokumente                                              Abbildung 22: Dokumente
+
+
+
+
+Abbildung 23: Dokumente                                              Abbildung 24: Dokumente
+
+
+
+
+02.12.2025                             FIN: TMBJR7NU9R5024487 - Protokollnummer: 42772146             Seite 10 / 14
+TÜV SÜD Auto Partner GmbH                                Fahrzeugbewertung
+                                                         Gutenbergstr. 13
+                                                         70771 Leinfelden-Echterdingen
+                                                         +49 (0) 711 722 084 0
+
+PROTOKOLLNUMMER: 42772146
+
+Bei Rückfragen bitte Protokollnummer und Datum angeben                                                   Datum: 02.12.2025
+
+
+
+
+Abbildung 25: Montierte Bereifung                                    Abbildung 26: Montierte Bereifung
+
+
+
+
+Abbildung 27: Montierte Bereifung                                    Abbildung 28: Montierte Bereifung
+
+
+
+
+Abbildung 29: Sonstiges                                              Abbildung 30: Sonstiges
+
+
+
+
+02.12.2025                             FIN: TMBJR7NU9R5024487 - Protokollnummer: 42772146                        Seite 11 / 14
+TÜV SÜD Auto Partner GmbH                                Fahrzeugbewertung
+                                                         Gutenbergstr. 13
+                                                         70771 Leinfelden-Echterdingen
+                                                         +49 (0) 711 722 084 0
+
+PROTOKOLLNUMMER: 42772146
+
+Bei Rückfragen bitte Protokollnummer und Datum angeben                                         Datum: 02.12.2025
+
+
+
+
+Abbildung 31: Sonstiges                                              Abbildung 32: Sonstiges
+
+
+
+
+Abbildung 33: Sonstiges                                              Abbildung 34: Sonstiges
+
+
+
+
+Abbildung 35: Sonstiges                                              Abbildung 36: Sonstiges
+
+
+
+
+02.12.2025                             FIN: TMBJR7NU9R5024487 - Protokollnummer: 42772146             Seite 12 / 14
+TÜV SÜD Auto Partner GmbH                                Fahrzeugbewertung
+                                                         Gutenbergstr. 13
+                                                         70771 Leinfelden-Echterdingen
+                                                         +49 (0) 711 722 084 0
+
+PROTOKOLLNUMMER: 42772146
+
+Bei Rückfragen bitte Protokollnummer und Datum angeben                                         Datum: 02.12.2025
+
+
+
+
+Abbildung 37: Sonstiges                                              Abbildung 38: Sonstiges
+
+
+
+
+Abbildung 39: Sonstiges                                              Abbildung 40: Sonstiges
+
+
+
+
+Abbildung 41: Sonstiges
+
+
+
+
+02.12.2025                             FIN: TMBJR7NU9R5024487 - Protokollnummer: 42772146             Seite 13 / 14
+TÜV SÜD Auto Partner GmbH                                Fahrzeugbewertung
+                                                         Gutenbergstr. 13
+                                                         70771 Leinfelden-Echterdingen
+                                                         +49 (0) 711 722 084 0
+
+PROTOKOLLNUMMER: 42772146
+
+Bei Rückfragen bitte Protokollnummer und Datum angeben                                                       Datum: 02.12.2025
+
+
+
+Beschädigungsfotos
+
+
+
+
+Beschädigung 1: Verkleidungen/Abdeckungen: Heckdeckel,               Beschädigung 1: Verkleidungen/Abdeckungen: Heckdeckel,
+Innenverkleidung - Abrieb - Smart Repair                             Innenverkleidung - Abrieb - Smart Repair
+
+
+
+
+Beschädigung 2: Stossfänger hinten: Stossfänger hinten -             Beschädigung 2: Stossfänger hinten: Stossfänger hinten -
+verkratzt / verschürft - Smart Repair                                verkratzt / verschürft - Smart Repair
+
+
+
+
+Beschädigung 2: Stossfänger hinten: Stossfänger hinten -
+verkratzt / verschürft - Smart Repair
+
+
+
+
+02.12.2025                             FIN: TMBJR7NU9R5024487 - Protokollnummer: 42772146                            Seite 14 / 14
+

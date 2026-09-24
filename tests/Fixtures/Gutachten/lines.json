@@ -1,0 +1,22 @@
+[
+    {
+        "component": "Verkleidungen\/ Heckdeckel, Innenverkleidung",
+        "damage_description": "Abrieb",
+        "original_amount_net": "80.00",
+        "chargeable_amount_net": null,
+        "repair_method": "Abdeckungen Smart Repair",
+        "page_number": 3,
+        "source_text": "1 Verkleidungen\/ Heckdeckel, Innenverkleidung - Abrieb - 80,00 € 80,00 €",
+        "confidence": 0.9
+    },
+    {
+        "component": "Stossfänger hinten",
+        "damage_description": "verkratzt \/ verschürft",
+        "original_amount_net": "120.00",
+        "chargeable_amount_net": null,
+        "repair_method": "Smart Repair",
+        "page_number": 3,
+        "source_text": "2 Stossfänger hinten Stossfänger hinten - verkratzt \/ verschürft - 120,00 € 120,00 €",
+        "confidence": 0.9
+    }
+]

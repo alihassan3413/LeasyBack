@@ -15,6 +15,8 @@ use App\Modules\UserProfile\Order\Models\B2bOfferPresentation;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Order\Models\WorkshopQuotation;
 use App\Modules\UserProfile\Order\Models\WorkshopQuotationItem;
+use App\Modules\UserProfile\Vehicle\Models\VehicleReportDocument;
+use App\Modules\UserProfile\Vehicle\Support\ReportDocumentImage;
 use App\Notifications\NotificationPayload;
 use App\Services\Notifier;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -22,6 +24,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -507,11 +510,16 @@ class WorkshopQuotationService
      *
      * @return array<string, mixed>
      */
-    public function publicPayload(WorkshopQuotation $quotation): array
+    public function publicPayload(WorkshopQuotation $quotation, string $token): array
     {
         $order = LeasybackOrder::whereKey($quotation->order_id)->first();
         $vehicle = $order === null ? null : Vehicle::where('vehicle_id', $order->vehicle_id)->first();
         $showAmounts = $quotation->show_appraisal_amounts;
+        $positions = $this->positionsFor($quotation->order_id);
+        $images = $order === null ? collect() : $this->damageImageDocuments(
+            $order,
+            $positions->flatMap(fn (AppraisalPosition $position) => $position->damage_image_document_ids ?? [])->unique()->values()->all(),
+        );
 
         return [
             'workshop_label' => $quotation->workshop_label,
@@ -525,13 +533,27 @@ class WorkshopQuotationService
                 'first_registration_date' => $vehicle->first_registration_date?->toDateString(),
                 'mileage' => $vehicle->mileage,
             ],
-            'positions' => $this->positionsFor($quotation->order_id)
+            'positions' => $positions
                 ->map(fn (AppraisalPosition $position) => [
                     'id' => $position->id,
                     'component' => $position->component,
                     'damage_description' => $position->damage_description,
                     'repair_method' => $position->repair_method,
                     'requested_amount_net' => $showAmounts ? $position->effectiveAmountNet() : null,
+                    'images' => collect($position->damage_image_document_ids ?? [])
+                        ->unique()
+                        ->filter(fn (string $documentId) => $images->has($documentId))
+                        ->map(fn (string $documentId) => [
+                            'id' => $documentId,
+                            'url' => route('workshop.quotations.images.show', ['token' => $token, 'documentId' => $documentId]),
+                            'thumbnail_url' => route('workshop.quotations.images.show', [
+                                'token' => $token,
+                                'documentId' => $documentId,
+                                'size' => 'thumb',
+                            ]),
+                        ])
+                        ->values()
+                        ->all(),
                 ])
                 ->values()
                 ->all(),
@@ -670,6 +692,54 @@ class WorkshopQuotationService
                 'offer_sequence' => (int) $row->offer_sequence,
                 'offer_status' => $row->offer_status,
             ]);
+    }
+
+    public function damageImage(WorkshopQuotation $quotation, string $documentId, bool $thumbnail = false): ?array
+    {
+        $isAttached = $this->positionsFor($quotation->order_id)
+            ->flatMap(fn (AppraisalPosition $position) => $position->damage_image_document_ids ?? [])
+            ->contains($documentId);
+
+        if (! $isAttached) {
+            return null;
+        }
+
+        $order = LeasybackOrder::whereKey($quotation->order_id)->first(['auftragsnummer', 'vehicle_id']);
+        $image = $order === null ? null : $this->damageImageDocuments($order, [$documentId])->get($documentId);
+
+        if ($image === null || ! $thumbnail) {
+            return $image;
+        }
+
+        // A thumbnail that was never generated falls back to the original, so
+        // an unsupported host or a failed resize costs bandwidth, not a broken
+        // image in the workshop's gallery.
+        $thumbnailPath = ReportDocumentImage::thumbnailPathFor($image['path']);
+
+        if ($thumbnailPath === null || ! Storage::disk('documents')->exists($thumbnailPath)) {
+            return $image;
+        }
+
+        return ['path' => $thumbnailPath, 'content_type' => ReportDocumentImage::THUMBNAIL_CONTENT_TYPE];
+    }
+
+    private function damageImageDocuments(LeasybackOrder $order, array $documentIds): Collection
+    {
+        if ($documentIds === []) {
+            return collect();
+        }
+
+        $disk = Storage::disk('documents');
+
+        return VehicleReportDocument::whereKey($documentIds)
+            ->where('auftragsnummer', $order->auftragsnummer)
+            ->where('vehicle_id', $order->vehicle_id)
+            ->get(['id', 'path'])
+            ->mapWithKeys(fn (VehicleReportDocument $document) => [$document->id => [
+                'path' => $document->path,
+                'content_type' => ReportDocumentImage::contentTypeFor($document->path),
+            ]])
+            ->filter(fn (array $image) => $image['content_type'] !== null && $disk->exists($image['path']));
     }
 
     /**

@@ -16,6 +16,7 @@
  * a workshop has already priced cannot be deleted; the server refuses that
  * under the `positions` key, shown next to the save action.
  */
+import DamageImagePicker from '@/components/admin/DamageImagePicker.vue';
 import RequiredMark from '@/components/form/RequiredMark.vue';
 import InputError from '@/components/InputError.vue';
 import { Input } from '@/components/ui/input';
@@ -167,22 +168,28 @@ function removePosition(index: number) {
     openRows.value = new Set([...openRows.value].filter((row) => row !== index).map((row) => (row > index ? row - 1 : row)));
 }
 
-function toggleImage(row: PositionRow, documentId: string) {
-    const at = row.damage_image_document_ids.indexOf(documentId);
-
-    if (at === -1) {
-        row.damage_image_document_ids.push(documentId);
-    } else {
-        row.damage_image_document_ids.splice(at, 1);
-    }
-}
-
-function documentLabel(document: AdminReportDocument): string {
-    return document.document_title || document.document_type || 'Dokument';
-}
-
 function error(index: number, field: string): string | undefined {
     return form.errors[`positions.${index}.${field}` as keyof typeof form.errors] as string | undefined;
+}
+
+function imageError(index: number): string | undefined {
+    const prefix = `positions.${index}.damage_image_document_ids`;
+    const errors = form.errors as Record<string, string | undefined>;
+    const key = Object.keys(errors).find((field) => field === prefix || field.startsWith(`${prefix}.`));
+
+    return key ? errors[key] : undefined;
+}
+
+const imageDocumentIds = computed(() => new Set(props.reportDocuments.filter((document) => document.is_image).map((document) => document.id)));
+
+function detailToggleLabel(row: PositionRow): string {
+    const count = row.damage_image_document_ids.filter((id) => imageDocumentIds.value.has(id)).length;
+
+    if (count === 0) {
+        return 'Beschreibung und Schadenbilder';
+    }
+
+    return count === 1 ? 'Beschreibung und Schadenbilder (1 Bild verknüpft)' : `Beschreibung und Schadenbilder (${count} Bilder verknüpft)`;
 }
 
 function submit() {
@@ -311,7 +318,7 @@ function submit() {
                                 class="relative flex h-8 w-8 items-center justify-center rounded-[9px] transition-all hover:bg-[#f4f7f6]"
                                 :class="openRows.has(index) ? 'text-[#10393b]' : 'text-[#bcccca]'"
                                 :aria-expanded="openRows.has(index)"
-                                title="Beschreibung und Schadenbilder"
+                                :title="detailToggleLabel(row)"
                                 @click="toggleRow(index)"
                             >
                                 <MdiChevronDown class="size-[17px] transition-transform" :class="openRows.has(index) ? 'rotate-180' : ''" />
@@ -333,7 +340,10 @@ function submit() {
                         </div>
                     </div>
 
-                    <div v-if="openRows.has(index)" class="grid gap-3 border-t border-[#f6f9f8] bg-[#fcfdfd] p-3 lg:grid-cols-[1fr_320px] lg:pl-12">
+                    <div
+                        v-if="openRows.has(index)"
+                        class="grid gap-4 border-t border-[#f6f9f8] bg-[#fcfdfd] p-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)] lg:pl-12"
+                    >
                         <div class="flex min-w-0 flex-col gap-1">
                             <label class="text-[11px] font-bold tracking-[0.04em] text-[#9bb0af] uppercase">Schadenbeschreibung</label>
                             <textarea
@@ -346,28 +356,15 @@ function submit() {
                             <InputError :message="error(index, 'damage_description')" />
                         </div>
 
-                        <div v-if="reportDocuments.length" class="flex min-w-0 flex-col gap-1">
-                            <label class="text-[11px] font-bold tracking-[0.04em] text-[#9bb0af] uppercase">
-                                Schadenbilder ({{ row.damage_image_document_ids.length }})
-                            </label>
-                            <div
-                                class="flex max-h-[104px] flex-col gap-1.5 overflow-y-auto rounded-[13px] border border-[#e9efee] bg-white px-3 py-2"
-                            >
-                                <label
-                                    v-for="document in reportDocuments"
-                                    :key="document.id"
-                                    class="flex cursor-pointer items-center gap-2 text-[12px] text-[#10393b]"
-                                >
-                                    <input
-                                        type="checkbox"
-                                        :checked="row.damage_image_document_ids.includes(document.id)"
-                                        :disabled="!editable"
-                                        class="size-3.5 shrink-0 accent-[#01b990]"
-                                        @change="toggleImage(row, document.id)"
-                                    />
-                                    <span class="truncate">{{ documentLabel(document) }}</span>
-                                </label>
-                            </div>
+                        <div class="flex min-w-0 flex-col gap-1">
+                            <span class="text-[11px] font-bold tracking-[0.04em] text-[#9bb0af] uppercase">Schadenbilder</span>
+                            <DamageImagePicker
+                                v-model="row.damage_image_document_ids"
+                                :documents="reportDocuments"
+                                :disabled="!editable"
+                                :label="`Schadenbilder Position ${index + 1}`"
+                            />
+                            <InputError :message="imageError(index)" />
                         </div>
                     </div>
                 </div>

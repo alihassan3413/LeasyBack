@@ -47,4 +47,5 @@ RUN_MIGRATIONS=true
 
 # PHP limits written to the php-fpm/cli ini override (vehicle photo uploads).
 PHP_UPLOAD_MAX="50M"
+PHP_POST_MAX="56M"
 PHP_MEMORY_LIMIT="512M"

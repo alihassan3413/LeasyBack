@@ -8,8 +8,16 @@
 @source '../../../resources/js/components/shared';
 @source '../../../resources/js/components/admin/AdminOrderTasksCard.vue';
 @source '../../../resources/js/components/admin/AdminRepairBillingCard.vue';
+@source '../../../resources/js/components/admin/DamageImagePicker.vue';
+@source '../../../resources/js/components/admin/AdminAppraisalPositionsCard.vue';
+@source '../../../resources/js/components/admin/AdminAppraisalExtractionCard.vue';
+@source '../../../resources/js/components/admin/AdminExtractionReview.vue';
 @source './main.ts';
 @source './tasks.ts';
+@source './gallery.ts';
+@source './picker.ts';
+@source './positions.ts';
+@source './extraction.ts';
 
 @layer components {
     .content-card {

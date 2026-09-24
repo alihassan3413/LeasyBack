@@ -10,7 +10,9 @@ use App\Modules\UserProfile\Admin\Services\AppraisalDocumentPullService;
 use App\Modules\UserProfile\Admin\Services\VehicleReportService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Session-authenticated counterpart of the Sanctum API's
@@ -102,6 +104,23 @@ class VehicleReportController extends Controller
         return $result['skipped'] > 0
             ? $message." {$result['skipped']} bereits vorhanden."
             : $message;
+    }
+
+    public function image(Request $request, string $documentId): StreamedResponse
+    {
+        $document = VehicleReportDocument::find($documentId);
+        abort_unless($document !== null, 404);
+
+        $request->user()->can('view', $document) || abort(403, 'Only admin can view vehicle report images');
+
+        $image = $this->vehicleReportService->image($document, $request->query('size') === 'thumb');
+        abort_unless($image !== null, 404);
+
+        return Storage::disk('documents')->response($image['path'], "schadenbild-{$document->id}", [
+            'Content-Type' => $image['content_type'],
+            'Cache-Control' => 'private, no-store, max-age=0',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
     }
 
     public function publish(Request $request, string $documentId): RedirectResponse
