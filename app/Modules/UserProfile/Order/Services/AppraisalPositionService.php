@@ -104,10 +104,8 @@ class AppraisalPositionService
      *
      * @param  array<string, mixed>  $validated
      */
-    public function sync(LeasybackOrder $order, User $user, array $validated): void
+    public function assertEditable(LeasybackOrder $order): void
     {
-        $submitted = array_values($validated['positions'] ?? []);
-
         $status = LeasybackOrder::whereKey($order->id)->value('order_status');
 
         if (! in_array($status, self::EDITABLE_STATUSES, true)) {
@@ -121,6 +119,42 @@ class AppraisalPositionService
                 'positions' => 'Der Kunde hat bereits ein Angebot freigegeben. Die Gutachtenpositionen können nicht mehr geändert werden.',
             ]);
         }
+    }
+
+    public function appendExtracted(LeasybackOrder $order, User $user, array $positions): int
+    {
+        $this->assertEditable($order);
+
+        $sortOrder = (int) AppraisalPosition::where('order_id', $order->id)->lockForUpdate()->max('sort_order');
+        $created = 0;
+
+        foreach (array_values($positions) as $position) {
+            AppraisalPosition::create([
+                'order_id' => $order->id,
+                'auftragsnummer' => $order->auftragsnummer,
+                'sort_order' => ++$sortOrder,
+                'component' => trim((string) $position['component']),
+                'damage_description' => $this->trimToNull($position['damage_description'] ?? null),
+                'original_amount_net' => $position['original_amount_net'],
+                'chargeable_amount_net' => $this->amountOrNull($position['chargeable_amount_net'] ?? null),
+                'repair_method' => $this->trimToNull($position['repair_method'] ?? null),
+                'damage_image_document_ids' => $this->imageIds($position['damage_image_document_ids'] ?? null),
+                'source' => AppraisalPosition::SOURCE_EXTRACTED,
+                'created_by_user_id' => $user->id,
+                'updated_by_user_id' => $user->id,
+            ]);
+
+            $created++;
+        }
+
+        return $created;
+    }
+
+    public function sync(LeasybackOrder $order, User $user, array $validated): void
+    {
+        $submitted = array_values($validated['positions'] ?? []);
+
+        $this->assertEditable($order);
 
         DB::transaction(function () use ($order, $user, $submitted) {
             $existing = AppraisalPosition::where('order_id', $order->id)->lockForUpdate()->get()->keyBy('id');

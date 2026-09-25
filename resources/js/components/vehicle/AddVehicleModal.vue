@@ -67,7 +67,6 @@ const form = useForm({
     leasing_end_date: '',
     leasinggeber: '',
     mileage: '',
-    first_registration_date: '',
     contract_number: '',
     cost_centre: '',
     driver_name: '',
@@ -136,7 +135,6 @@ function submit() {
         vin: form.vin || null,
         leasing_end_date: leasingEndUnknown.value ? null : form.leasing_end_date || null,
         leasinggeber: leasinggeberUnknown.value ? null : form.leasinggeber || null,
-        first_registration_date: form.first_registration_date || null,
         leasinggeber_unknown: leasinggeberUnknown.value,
         ...(showFleetFields.value
             ? {
@@ -207,12 +205,6 @@ function submit() {
                             :disabled="leasingEndUnknown"
                             :invalid="invalid"
                             :described-by="describedBy"
-                        />
-                        <CalendarDateField
-                            v-model="form.first_registration_date"
-                            label="Erstzulassung"
-                            allow-past
-                            :error="form.errors.first_registration_date"
                         />
                     </FormField>
                     <Label :for="leasingEndUnknownId" class="mt-1.5 flex cursor-pointer items-start gap-2 font-normal">
