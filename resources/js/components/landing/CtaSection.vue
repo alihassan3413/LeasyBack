@@ -29,7 +29,7 @@ import { ArrowRight } from 'lucide-vue-next';
                     </p>
                     <div class="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
                         <Link
-                            :href="route('register')"
+                            :href="route('register', { user_type: 'Privatkunde' })"
                             class="group bg-brand-orange hover:bg-brand-orange/90 focus-visible:ring-brand-orange focus-visible:ring-offset-brand-teal inline-flex w-full items-center justify-center gap-2 rounded-[5px] px-4 py-3 text-center text-[15px] leading-snug font-bold text-white transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none sm:w-auto sm:px-6 sm:text-base"
                         >
                             Kostenloses Gutachten starten

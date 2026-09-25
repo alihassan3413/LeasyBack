@@ -5,6 +5,7 @@ import { ArrowRight, Check } from 'lucide-vue-next';
 const audiences = [
     {
         eyebrow: 'Privatkunde',
+        user_type: 'Privatkunde',
         title: 'Kostenlos',
         priceNote: 'Gutachten inklusive',
         text: 'Für alle, die ihr geleastes Fahrzeug in den nächsten Monaten zurückgeben.',
@@ -14,6 +15,7 @@ const audiences = [
     },
     {
         eyebrow: 'Firmenkunde',
+        user_type: 'Firmenkunde',
         title: 'Flotte',
         priceNote: 'Preis auf Anfrage',
         text: 'Für Fuhrparks, die mehrere Rückläufer pro Jahr abwickeln — mit Sammelabrechnung.',
@@ -29,6 +31,8 @@ const audiences = [
     },
     {
         eyebrow: 'Werkstatt',
+        // "Werksatatt" is the real stored enum value (see UserType::Werkstatt).
+        user_type: 'Werksatatt',
         title: 'Partner',
         priceNote: 'kostenfrei gelistet',
         text: 'Für Betriebe, die planbare Aufträge aus qualifizierten Gutachten übernehmen möchten.',
@@ -102,7 +106,7 @@ const audiences = [
                     </div>
 
                     <Link
-                        :href="route('register')"
+                        :href="route('register', { user_type: audience.user_type })"
                         class="group mt-8 inline-flex w-full items-center justify-center gap-2 rounded-[5px] px-5 py-3 text-sm font-bold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none motion-reduce:transition-none"
                         :class="
                             audience.featured
