@@ -30,12 +30,19 @@ const props = defineProps<{
         company_name: string;
         role_label: string;
     } | null;
+    /**
+     * Preselected account type from a landing card (e.g. Flotte → Firmenkunde,
+     * Partner → Werkstatt). Null when absent, not registrable, or the
+     * registration is invitation-driven. Mirrors the value of
+     * UserType::registrableValues()'s allow-list.
+     */
+    user_type?: UserType | null;
 }>();
 
 const isInvited = computed(() => props.invitation !== null);
 
 const form = useForm({
-    user_type: '' as UserType | '',
+    user_type: props.user_type ?? ('' as UserType | ''),
     email: props.invitation?.email ?? '',
     password: '',
     invitation: props.invitation?.token ?? '',
