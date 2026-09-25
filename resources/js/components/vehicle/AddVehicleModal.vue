@@ -67,7 +67,7 @@ const form = useForm({
     leasing_end_date: '',
     leasinggeber: '',
     mileage: '',
-     first_registration_date: '',
+    first_registration_date: '',
     contract_number: '',
     cost_centre: '',
     driver_name: '',
@@ -204,17 +204,16 @@ function submit() {
                         <CalendarDateField
                             :id="id"
                             v-model="form.leasing_end_date"
-                            allow-past
                             :disabled="leasingEndUnknown"
                             :invalid="invalid"
                             :described-by="describedBy"
                         />
                         <CalendarDateField
-    v-model="form.first_registration_date"
-    label="Erstzulassung"
-    allow-past
-    :error="form.errors.first_registration_date"
-/>
+                            v-model="form.first_registration_date"
+                            label="Erstzulassung"
+                            allow-past
+                            :error="form.errors.first_registration_date"
+                        />
                     </FormField>
                     <Label :for="leasingEndUnknownId" class="mt-1.5 flex cursor-pointer items-start gap-2 font-normal">
                         <Checkbox

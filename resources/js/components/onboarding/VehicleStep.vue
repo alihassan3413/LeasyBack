@@ -147,19 +147,18 @@ function submit() {
                 </FormField>
 
                 <div>
-                     <CalendarDateField
-        v-model="form.leasing_end_date"
-        label="Leasingende"
-        allow-past
-        :disabled="leasingEndUnknown"
-        :error="form.errors.leasing_end_date"
-    />
-           <CalendarDateField
-        v-model="form.first_registration_date"
-        label="Erstzulassung"
-        allow-past
-        :error="form.errors.first_registration_date"
-    />
+                    <CalendarDateField
+                        v-model="form.leasing_end_date"
+                        label="Leasingende"
+                        :disabled="leasingEndUnknown"
+                        :error="form.errors.leasing_end_date"
+                    />
+                    <CalendarDateField
+                        v-model="form.first_registration_date"
+                        label="Erstzulassung"
+                        allow-past
+                        :error="form.errors.first_registration_date"
+                    />
                     <Label :for="leasingEndUnknownId" class="mt-1.5 flex cursor-pointer items-start gap-2 font-normal">
                         <Checkbox
                             :id="leasingEndUnknownId"
