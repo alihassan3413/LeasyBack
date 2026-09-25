@@ -22,14 +22,15 @@ Companion to `docs/B2C_ADMIN_MIGRATION_AUDIT.md`. Every status-bearing entity fo
 | `confirmed` | `inspected` | Admin only | Manual progression once inspection has occurred | — | Confirm reversibility with product |
 | `inspected` | `workshop` | Admin only | Vehicle sent to a workshop for repair | — | — |
 | `workshop` | `reinspection` | Admin only | Repair complete, re-inspection scheduled | — | — |
-| `reinspection` | `reworkshop` | Admin only | Re-inspection found more work needed | — | Loop back to `workshop` is presumably possible from here — confirm the real cycle with product; it's not evidenced anywhere in the reference code, only the status name suggests it |
+| `reinspection` | `reworkshop` | Admin only | Re-inspection found more work needed | — | Loop back to `reinspection` is defined and implemented below — confirmed with product: the cycle is unbounded | No |
 | `reinspection` | `delivered` | Admin only | Re-inspection passed, vehicle/process complete | Terminal | No |
+| `reworkshop` | `reinspection` | Admin only | Repeat repair carried out, next follow-up inspection scheduled | Re-opens the repair & reinspection tasks (`OrderTaskResolver` ranks 5/6); the workshop is recommissible (`WorkshopCommissionService::RESENDABLE_STATUSES`); `reinspection_completed` webhook accepted from here | No — `reworkshop` cannot skip its inspection (no direct jump to `delivered`) |
 | any non-terminal status | `cancelled` | Admin (customer-initiated cancellation, if that's a real requirement — not evidenced in the reference handlers reviewed, confirm with product) | — | Terminal | No |
 
 **Terminal statuses:** `delivered`, `cancelled`, `discarded`. (These three are exactly the set already used by the reference system's "does this vehicle have an unfinished order" guard — `order_status NOT IN ('delivered','cancelled','discarded')` — confirming they're the intended terminal set, even though no explicit state machine enforces it.)
 
 **Open questions this table surfaces (see plan §13):**
-1. Is `inspected → workshop → reinspection → reworkshop/delivered` really a strict linear sequence, or can it loop (`reworkshop → reinspection` again)? The reference system never enforces or evidences a real cycle — only Admin's free-text override, which accepts any-to-any.
+1. ~~Is `inspected → workshop → reinspection → reworkshop/delivered` really a strict linear sequence, or can it loop (`reworkshop → reinspection` again)?~~ **Resolved:** the loop is defined and implemented — `TransitionOrderStatus` maps `reinspection → reworkshop | delivered | cancelled` and `reworkshop → reinspection | cancelled`, deliberately unbounded. The reference system's free-text override and the lack of a documented cycle were the reason it was open; this codebase is the authoritative implementation now.
 2. Does TÜV SÜD's real webhook ever drive statuses beyond `confirmed` (i.e., can their system report "inspection complete" automatically), or are `inspected`/`workshop`/`reinspection`/`reworkshop`/`delivered` always manual Admin actions? The reference code suggests always-manual (the API-key webhook path is hardcoded to only ever set `confirmed`).
 3. Is customer-initiated cancellation a real requirement, and from which statuses? Not evidenced anywhere in the audited code.
 4. Does the never-shipped `reject` action matter, or was it abandoned mid-build?
