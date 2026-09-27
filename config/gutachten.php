@@ -171,4 +171,13 @@ return [
         'source_text' => 500,
         'rows' => 200,
     ],
+
+    /*
+     * Percentage added to the appraiser's amount to propose a chargeable one,
+     * for review only. It fills the field an admin would otherwise type by
+     * hand, and only where the Gutachten row carried a single amount — a row
+     * that already states its own second amount keeps it (GutachtenRowSplitter).
+     * Set to 0 to propose nothing and leave the field empty as before.
+     */
+    'chargeable_markup_percent' => env('GUTACHTEN_CHARGEABLE_MARKUP_PERCENT', '10'),
 ];

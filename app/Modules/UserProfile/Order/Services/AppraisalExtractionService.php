@@ -251,6 +251,40 @@ class AppraisalExtractionService
         return $this->imageMatcher->suggest($order, AppraisalExtractionProposal::fromArray($extraction->proposal));
     }
 
+    /**
+     * The chargeable amount an admin would otherwise type. A row whose
+     * Gutachten stated its own second amount keeps that one — the markup only
+     * fills the gap left by a single-amount row — and it is proposed only
+     * while the extraction is still awaiting review, so an applied or
+     * discarded one keeps showing exactly what it was applied with.
+     *
+     * @param  array<string, mixed>  $line
+     */
+    private function proposedChargeableAmount(AppraisalExtraction $extraction, array $line): ?string
+    {
+        $chargeable = $line['chargeable_amount_net'] ?? null;
+        $original = $line['original_amount_net'] ?? null;
+
+        if ($chargeable !== null && $chargeable !== '') {
+            return (string) $chargeable;
+        }
+
+        $percent = (string) config('gutachten.chargeable_markup_percent', '0');
+
+        if ($original === null || $original === '' || ! is_numeric($original) || bccomp($percent, '0', 4) <= 0) {
+            return $chargeable === null ? null : (string) $chargeable;
+        }
+
+        if ($extraction->status !== AppraisalExtractionStatus::Ready) {
+            return null;
+        }
+
+        // bcmath truncates, so the half is added before cutting to two places.
+        $multiplier = bcadd('1', bcdiv($percent, '100', 6), 6);
+
+        return bcadd(bcmul((string) $original, $multiplier, 6), '0.005', 2);
+    }
+
     private function present(AppraisalExtraction $extraction, ?LeasybackOrder $order = null): array
     {
         $proposal = $extraction->proposal ?? [];
@@ -278,7 +312,7 @@ class AppraisalExtractionService
                 'component' => (string) ($line['component'] ?? ''),
                 'damage_description' => $line['damage_description'] ?? null,
                 'original_amount_net' => $line['original_amount_net'] ?? null,
-                'chargeable_amount_net' => $line['chargeable_amount_net'] ?? null,
+                'chargeable_amount_net' => $this->proposedChargeableAmount($extraction, $line),
                 'repair_method' => $line['repair_method'] ?? null,
                 'page_number' => isset($line['page_number']) ? (int) $line['page_number'] : null,
                 'source_text' => $line['source_text'] ?? null,
