@@ -10,6 +10,7 @@
  * Net throughout (b2b.txt §9). The gross a B2C customer sees is derived
  * server-side when the offer is built, never here.
  */
+import DamageGallery from '@/components/shared/DamageGallery.vue';
 import type { AdminWorkshopQuotation } from '@/types/admin';
 
 defineProps<{ quotation: AdminWorkshopQuotation }>();
@@ -82,6 +83,39 @@ function formatEuro(value: string | null): string {
                     </tr>
                 </tfoot>
             </table>
+        </div>
+
+        <!-- Outside the table on purpose: these have no appraisal amount to sit
+             beside, and merging them into it would read as if the Gutachten had
+             listed them. -->
+        <div v-if="quotation.additional_positions.length" class="mt-4" data-testid="admin-additional-positions">
+            <p class="mb-2 text-[11.5px] font-extrabold text-[#a9741b]">Zusätzlicher Schaden – von der Werkstatt gemeldet</p>
+
+            <ul class="flex flex-col gap-2">
+                <li
+                    v-for="position in quotation.additional_positions"
+                    :key="position.id"
+                    class="rounded-[13px] border border-dashed border-[#d9a441] bg-[#fffaf0] p-3"
+                >
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                            <p class="text-[12.5px] font-bold text-[#10393b]">{{ position.component }}</p>
+                            <p class="mt-0.5 text-[11.5px] text-[#6f8585]">{{ position.damage_description }}</p>
+                            <p v-if="position.repair_method" class="mt-0.5 text-[11.5px] text-[#9bb0af]">
+                                Reparaturweg: {{ position.repair_method }}
+                            </p>
+                        </div>
+                        <span class="shrink-0 text-[12.5px] font-extrabold text-[#10393b]">{{ formatEuro(position.amount_net) }}</span>
+                    </div>
+
+                    <DamageGallery
+                        v-if="position.images.length"
+                        class="mt-2"
+                        :images="position.images"
+                        :label="`Schadenbilder: ${position.component}`"
+                    />
+                </li>
+            </ul>
         </div>
     </div>
 </template>

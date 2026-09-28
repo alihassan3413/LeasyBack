@@ -77,6 +77,15 @@ cat >"/etc/php/${PHP_VERSION}/fpm/conf.d/99-leasyback.ini" <<EOF
 memory_limit = ${PHP_MEMORY_LIMIT}
 upload_max_filesize = ${PHP_UPLOAD_MAX}
 post_max_size = ${PHP_POST_MAX}
+; Pinned, not left to PHP's default, because the workshop quotation form
+; depends on the value. PHP keeps the first max_file_uploads files of a
+; multipart body and discards the rest before any application code runs — with
+; no UPLOAD_ERR_* marker and with every text field still intact, so the loss is
+; undetectable from PHP. WorkshopQuotationService::MAX_ADDITIONAL_IMAGES_TOTAL
+; is deliberately held below this number so a truncated submission always
+; arrives over the application's own cap and is refused with a message instead
+; of being stored short. Raising the application limit means raising this first.
+max_file_uploads = 20
 max_execution_time = 120
 max_input_time = 120
 expose_php = Off

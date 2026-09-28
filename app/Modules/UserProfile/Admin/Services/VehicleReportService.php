@@ -231,6 +231,17 @@ class VehicleReportService
         return $doc;
     }
 
+    /**
+     * Remove a file written by storeGeneratedDocument() whose surrounding
+     * transaction did not commit. The document row rolled back with it, so
+     * only the bytes and their thumbnail are left to clear.
+     */
+    public function deleteGeneratedDocument(string $path): void
+    {
+        Storage::disk('documents')->delete($path);
+        $this->thumbnails->delete($path);
+    }
+
     public function fileExists(string $path): bool
     {
         return Storage::disk('documents')->exists($path);

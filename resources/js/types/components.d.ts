@@ -12,6 +12,7 @@ export {}
 declare module 'vue' {
   export interface GlobalComponents {
     AccountDetailCard: typeof import('./../components/account/AccountDetailCard.vue')['default']
+    AdditionalDamageCard: typeof import('./../components/workshop/AdditionalDamageCard.vue')['default']
     AddressAutocompleteField: typeof import('./../components/form/AddressAutocompleteField.vue')['default']
     AddressMapPicker: typeof import('./../components/form/AddressMapPicker.vue')['default']
     AddVehicleModal: typeof import('./../components/vehicle/AddVehicleModal.vue')['default']
@@ -345,6 +346,7 @@ declare module 'vue' {
     VehicleStep: typeof import('./../components/onboarding/VehicleStep.vue')['default']
     VehicleToolbar: typeof import('./../components/vehicle/VehicleToolbar.vue')['default']
     VinInput: typeof import('./../components/form/VinInput.vue')['default']
+    WorkshopDocumentActions: typeof import('./../components/workshop/WorkshopDocumentActions.vue')['default']
     WorkshopQuotationComparison: typeof import('./../components/admin/WorkshopQuotationComparison.vue')['default']
   }
 }

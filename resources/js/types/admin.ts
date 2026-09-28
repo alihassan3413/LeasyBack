@@ -619,6 +619,21 @@ export interface AdminWorkshopQuotation {
      */
     customer_offer: { offer_id: string; offer_sequence: number; offer_status: string } | null;
     comparison: AdminWorkshopComparisonRow[];
+    /** Damage this workshop reported that the Gutachten does not list. */
+    additional_positions: AdminWorkshopAdditionalPosition[];
+}
+
+/**
+ * A workshop-reported damage. Deliberately not an appraisal position: an admin
+ * decides whether it becomes one, and nothing in this payload does it for them.
+ */
+export interface AdminWorkshopAdditionalPosition {
+    id: string;
+    component: string;
+    damage_description: string;
+    repair_method: string | null;
+    amount_net: string;
+    images: DamageGalleryImage[];
 }
 
 /**

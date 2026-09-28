@@ -10,9 +10,11 @@ use App\Models\LeasybackOffer;
 use App\Models\OrderAuditLog;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Modules\UserProfile\Admin\Services\VehicleReportService;
 use App\Modules\UserProfile\Order\Models\AppraisalPosition;
 use App\Modules\UserProfile\Order\Models\B2bOfferPresentation;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
+use App\Modules\UserProfile\Order\Models\WorkshopAdditionalPosition;
 use App\Modules\UserProfile\Order\Models\WorkshopQuotation;
 use App\Modules\UserProfile\Order\Models\WorkshopQuotationItem;
 use App\Modules\UserProfile\Vehicle\Models\VehicleReportDocument;
@@ -20,6 +22,7 @@ use App\Modules\UserProfile\Vehicle\Support\ReportDocumentImage;
 use App\Notifications\NotificationPayload;
 use App\Services\Notifier;
 use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -27,6 +30,7 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 /**
  * Workshop quotations (§9). A workshop never gets a portal account: Admin
@@ -53,7 +57,51 @@ class WorkshopQuotationService
 {
     public const DEFAULT_TTL_DAYS = 14;
 
-    public function __construct(private readonly Notifier $notifier) {}
+    public const MAX_ADDITIONAL_POSITIONS = 20;
+
+    public const MAX_ADDITIONAL_IMAGES = 5;
+
+    public const MAX_ADDITIONAL_IMAGE_KILOBYTES = 10240;
+
+    /**
+     * How many images one submission may carry across all of its positions.
+     *
+     * This is a hard requirement of PHP's `max_file_uploads`, not a taste
+     * choice. That directive defaults to 20, deploy/provision.sh does not
+     * override it, and when a multipart body carries more files than it
+     * allows PHP keeps the first 20 and *discards the rest before any code
+     * runs* — the extras do not arrive with an UPLOAD_ERR_* code, they are
+     * simply absent, while every text field still arrives intact. A request
+     * carrying 21 images is therefore byte-for-byte indistinguishable from
+     * one carrying 20, so nothing in this service can detect the loss.
+     *
+     * Keeping this ceiling strictly below max_file_uploads is what makes the
+     * loss impossible instead of undetectable: a truncated body always
+     * arrives holding max_file_uploads images, which exceeds this number, so
+     * assertUploadsFitLimits() refuses it with a message. The workshop is
+     * told its photos did not fit rather than thanked for photos that
+     * silently vanished.
+     *
+     * @see self::maxTotalImages()
+     */
+    public const MAX_ADDITIONAL_IMAGES_TOTAL = 15;
+
+    /**
+     * Ceiling for one submission's images together. Twenty positions holding
+     * five 10 MB photos each would be a gigabyte, which PHP refuses at
+     * post_max_size long before any rule here runs — and a request killed
+     * there reaches no controller, so the workshop sees a blank failure
+     * instead of a message. This keeps the refusal inside the application,
+     * below that wall.
+     */
+    public const MAX_ADDITIONAL_UPLOAD_KILOBYTES = 40960;
+
+    public const ADDITIONAL_IMAGE_DOCUMENT_TYPE = 'WerkstattSchadenbild';
+
+    public function __construct(
+        private readonly Notifier $notifier,
+        private readonly VehicleReportService $reports,
+    ) {}
 
     /**
      * @return array<string, mixed>
@@ -93,6 +141,25 @@ class WorkshopQuotationService
             'items.*.amount_net' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
             'items.*.repair_method' => ['nullable', 'string', 'max:255'],
             'items.*.not_repairable' => ['nullable', 'boolean'],
+            // Damage the workshop found itself. Unlike an item it describes
+            // what is wrong, because no appraisal position says it, and it is
+            // always priced — there is no "not repairable" for a repair the
+            // workshop is the one proposing.
+            'additional_positions' => ['sometimes', 'array', 'max:'.self::MAX_ADDITIONAL_POSITIONS],
+            'additional_positions.*.component' => ['required', 'string', 'max:255'],
+            'additional_positions.*.damage_description' => ['required', 'string', 'max:2000'],
+            'additional_positions.*.repair_method' => ['nullable', 'string', 'max:255'],
+            'additional_positions.*.amount_net' => ['required', 'numeric', 'min:0.01', 'max:99999999.99'],
+            'additional_positions.*.images' => ['nullable', 'array', 'max:'.self::MAX_ADDITIONAL_IMAGES],
+            // `image` reads the file itself, so a renamed executable fails here
+            // rather than on the extension alone; `mimes` then narrows what
+            // `image` would otherwise allow through, notably svg.
+            'additional_positions.*.images.*' => [
+                'file',
+                'image',
+                'mimes:jpg,jpeg,png,webp',
+                'max:'.self::MAX_ADDITIONAL_IMAGE_KILOBYTES,
+            ],
         ];
     }
 
@@ -122,9 +189,83 @@ class WorkshopQuotationService
             }
         }
 
+        // A workshop that cannot price a single Gutachten position but did
+        // find and price new damage has answered the question this rule asks.
+        if (($validated['additional_positions'] ?? []) !== []) {
+            return;
+        }
+
         throw ValidationException::withMessages([
             'items' => 'Bitte geben Sie für mindestens eine Position einen Nettopreis an — oder kreuzen Sie an, dass die Reparatur zu diesem Betrag nicht möglich ist.',
         ]);
+    }
+
+    /**
+     * The image ceiling this request can actually honour: the configured one,
+     * or one below max_file_uploads whenever a server is stricter than this
+     * code expects. Deriving it rather than trusting the constant keeps the
+     * property that makes truncation detectable — a truncated body always
+     * holds more images than the cap — true on any php.ini, not only ours.
+     */
+    private function maxTotalImages(): int
+    {
+        $phpLimit = (int) ini_get('max_file_uploads');
+
+        if ($phpLimit > 0 && $phpLimit <= self::MAX_ADDITIONAL_IMAGES_TOTAL) {
+            return max(1, $phpLimit - 1);
+        }
+
+        return self::MAX_ADDITIONAL_IMAGES_TOTAL;
+    }
+
+    /**
+     * The two limits no per-field rule can express, because both are about the
+     * submission as a whole. Counted and summed before a single file is
+     * stored, so a refused submission writes nothing.
+     *
+     * Sizes come from the uploaded files themselves — getSize() reads the temp
+     * file PHP wrote, not anything the browser claimed.
+     *
+     * The count is checked first and deliberately: it is the guard that turns
+     * PHP's silent max_file_uploads truncation into a visible refusal, and a
+     * body truncated to 20 images can easily sit under the 40 MB budget.
+     *
+     * @param  array<string, mixed>  $validated
+     */
+    private function assertUploadsFitLimits(array $validated): void
+    {
+        $images = 0;
+        $bytes = 0;
+
+        foreach ($validated['additional_positions'] ?? [] as $position) {
+            foreach ($position['images'] ?? [] as $image) {
+                if ($image instanceof UploadedFile) {
+                    $images++;
+                    $bytes += (int) $image->getSize();
+                }
+            }
+        }
+
+        $maxImages = $this->maxTotalImages();
+
+        if ($images > $maxImages) {
+            throw ValidationException::withMessages([
+                'additional_positions' => sprintf(
+                    'Insgesamt sind höchstens %d Schadenbilder möglich, über alle zusätzlichen Schäden zusammen — bitte entfernen Sie einige Bilder.',
+                    $maxImages,
+                ),
+            ]);
+        }
+
+        if ($bytes > self::MAX_ADDITIONAL_UPLOAD_KILOBYTES * 1024) {
+            throw ValidationException::withMessages([
+                'additional_positions' => sprintf(
+                    'Die Schadenbilder sind zusammen %s MB groß. Insgesamt sind höchstens %d MB möglich — bitte entfernen Sie einige Bilder.',
+                    number_format($bytes / 1048576, 1, ',', '.'),
+                    intdiv(self::MAX_ADDITIONAL_UPLOAD_KILOBYTES, 1024),
+                ),
+            ]);
+        }
     }
 
     /**
@@ -156,6 +297,10 @@ class WorkshopQuotationService
             'max.numeric' => ':attribute darf höchstens :max betragen.',
             'max.array' => ':attribute darf höchstens :max Einträge enthalten.',
             'min.numeric' => ':attribute darf nicht kleiner als :min sein.',
+            'max.file' => ':attribute darf höchstens :max Kilobyte groß sein.',
+            'image' => ':attribute muss ein Bild sein.',
+            'mimes' => ':attribute muss eine JPG-, PNG- oder WebP-Datei sein.',
+            'file' => ':attribute konnte nicht gelesen werden.',
         ];
     }
 
@@ -178,6 +323,13 @@ class WorkshopQuotationService
             'items.*.amount_net' => 'Nettopreis',
             'items.*.repair_method' => 'Reparaturweg',
             'items.*.not_repairable' => 'Nicht reparierbar',
+            'additional_positions' => 'Zusätzliche Schäden',
+            'additional_positions.*.component' => 'Bauteil',
+            'additional_positions.*.damage_description' => 'Schadenbeschreibung',
+            'additional_positions.*.repair_method' => 'Reparaturweg',
+            'additional_positions.*.amount_net' => 'Nettopreis',
+            'additional_positions.*.images' => 'Schadenbilder',
+            'additional_positions.*.images.*' => 'Schadenbild',
         ];
     }
 
@@ -258,7 +410,7 @@ class WorkshopQuotationService
 
         try {
             Mail::to($quotation->invited_email)->send($this->invitationMail($order, $quotation, $url));
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             Log::error('Workshop quotation invitation email failed', [
                 'auftragsnummer' => $order->auftragsnummer,
                 'quotation_id' => $quotation->id,
@@ -366,7 +518,31 @@ class WorkshopQuotationService
             $this->fail(410, 'Dieser Link ist nicht mehr gültig.');
         }
 
-        DB::transaction(function () use ($quotation, $validated) {
+        // Files are not transactional. The rows a failed submission wrote roll
+        // back with everything else, but the bytes on disk do not, so the paths
+        // are collected as they are written and removed if the transaction
+        // never commits.
+        $storedPaths = [];
+
+        try {
+            $this->store($quotation, $validated, $storedPaths);
+        } catch (Throwable $exception) {
+            foreach ($storedPaths as $path) {
+                $this->reports->deleteGeneratedDocument($path);
+            }
+
+            throw $exception;
+        }
+
+        $this->announceSubmission($quotation->fresh());
+    }
+
+    /**
+     * @param  array<int, string>  $storedPaths
+     */
+    private function store(WorkshopQuotation $quotation, array $validated, array &$storedPaths): void
+    {
+        DB::transaction(function () use ($quotation, $validated, &$storedPaths) {
             $locked = WorkshopQuotation::whereKey($quotation->id)->lockForUpdate()->firstOrFail();
 
             if (! $locked->isOpenForSubmission() || ! $this->orderIsOpen($locked)) {
@@ -374,6 +550,7 @@ class WorkshopQuotationService
             }
 
             $this->assertQuotationIsPriced($validated);
+            $this->assertUploadsFitLimits($validated);
 
             WorkshopQuotationItem::where('quotation_id', $locked->id)->delete();
 
@@ -396,6 +573,8 @@ class WorkshopQuotationService
                 }
             }
 
+            $total = bcadd($total, $this->storeAdditionalPositions($locked, $validated, $storedPaths), 2);
+
             $locked->update([
                 'company_name' => trim((string) $validated['company_name']),
                 'contact_person' => trim((string) $validated['contact_person']),
@@ -409,8 +588,63 @@ class WorkshopQuotationService
                 'submitted_at' => now(),
             ]);
         });
+    }
 
-        $this->announceSubmission($quotation->fresh());
+    /**
+     * Each image becomes an unpublished vehicle report document, so it inherits
+     * the storage, thumbnailing and token-scoped delivery the Gutachten images
+     * already use rather than a second image path with its own rules. The
+     * auftragsnummer and vehicle come from the quotation's own order, never
+     * from the request.
+     *
+     * @param  array<int, string>  $storedPaths
+     */
+    private function storeAdditionalPositions(WorkshopQuotation $quotation, array $validated, array &$storedPaths): string
+    {
+        WorkshopAdditionalPosition::where('quotation_id', $quotation->id)->delete();
+
+        $order = LeasybackOrder::whereKey($quotation->order_id)->first(['auftragsnummer', 'vehicle_id']);
+        $total = '0';
+
+        if ($order === null) {
+            return $total;
+        }
+
+        foreach (array_values($validated['additional_positions'] ?? []) as $index => $position) {
+            $documentIds = [];
+
+            foreach (array_values($position['images'] ?? []) as $image) {
+                $document = $this->reports->storeGeneratedDocument(
+                    auftragsnummer: $order->auftragsnummer,
+                    vehicleId: $order->vehicle_id,
+                    filename: "werkstatt-schaeden/{$quotation->id}/".Str::uuid().'.'.$image->extension(),
+                    contents: $image->get(),
+                    documentType: self::ADDITIONAL_IMAGE_DOCUMENT_TYPE,
+                    documentTitle: 'Zusätzlicher Schaden: '.trim((string) $position['component']),
+                    notifyCustomer: false,
+                    published: false,
+                );
+
+                $storedPaths[] = $document->path;
+                $documentIds[] = $document->id;
+            }
+
+            $amount = (string) $position['amount_net'];
+
+            WorkshopAdditionalPosition::create([
+                'quotation_id' => $quotation->id,
+                'sort_order' => $index,
+                'component' => trim((string) $position['component']),
+                'damage_description' => trim((string) $position['damage_description']),
+                'repair_method' => $this->trimToNull($position['repair_method'] ?? null),
+                'amount_net' => $amount,
+                'damage_image_document_ids' => $documentIds,
+            ]);
+
+            $total = bcadd($total, $amount, 2);
+        }
+
+        return $total;
     }
 
     /**
@@ -510,6 +744,141 @@ class WorkshopQuotationService
      *
      * @return array<string, mixed>
      */
+    /**
+     * Everything the PDF document needs, resolved entirely from the quotation
+     * that the token already produced — no id is ever taken from the request.
+     *
+     * Deliberately not built on publicPayload(): that payload hands the browser
+     * *URLs* for images, which a PDF cannot use because dompdf runs with remote
+     * fetching disabled. This resolves each image to authorised bytes instead.
+     * Everything else is read through the same helpers the web payload uses, so
+     * the two cannot disagree about what a workshop is allowed to see.
+     *
+     * `show_appraisal_amounts` is honoured exactly as on the page: a workshop
+     * that is not shown Gutachten amounts on screen must not find them in the
+     * PDF either.
+     *
+     * @return array<string, mixed>
+     */
+    public function pdfDocument(WorkshopQuotation $quotation): array
+    {
+        $order = LeasybackOrder::whereKey($quotation->order_id)->first();
+        $vehicle = $order === null ? null : Vehicle::where('vehicle_id', $order->vehicle_id)->first();
+        $showAmounts = (bool) $quotation->show_appraisal_amounts;
+        $positions = $this->positionsFor($quotation->order_id);
+        $additional = $this->additionalPositionsByQuotation([$quotation->id])->get($quotation->id) ?? collect();
+
+        // Every image id on the order's appraisal positions and on this
+        // quotation's own reported damage, authorised in one query against the
+        // order's auftragsnummer and vehicle. An id that belongs to another
+        // order simply does not come back.
+        $documentIds = $positions
+            ->flatMap(fn (AppraisalPosition $position) => $position->damage_image_document_ids ?? [])
+            ->merge($additional->flatMap(fn (WorkshopAdditionalPosition $position) => $position->damage_image_document_ids ?? []))
+            ->unique()
+            ->values()
+            ->all();
+
+        $authorised = $order === null ? collect() : $this->damageImageDocuments($order, $documentIds);
+
+        $items = WorkshopQuotationItem::where('quotation_id', $quotation->id)
+            ->get()
+            ->keyBy('appraisal_position_id');
+
+        $appraisalTotal = '0';
+        $workshopTotal = '0';
+
+        $positionRows = $positions->values()->map(function (AppraisalPosition $position, int $index) use (
+            $items, $authorised, $showAmounts, &$appraisalTotal, &$workshopTotal
+        ) {
+            $item = $items->get($position->id);
+            $appraisal = $position->effectiveAmountNet();
+            $workshop = $item === null || $item->not_repairable ? null : $this->amountOrNull($item->amount_net);
+
+            if ($showAmounts) {
+                $appraisalTotal = bcadd($appraisalTotal, $appraisal, 2);
+            }
+
+            if ($workshop !== null) {
+                $workshopTotal = bcadd($workshopTotal, $workshop, 2);
+            }
+
+            return [
+                'number' => $index + 1,
+                'component' => $position->component,
+                'damage_description' => $position->damage_description,
+                'repair_method' => $item?->repair_method ?? $position->repair_method,
+                'appraisal_amount_net' => $showAmounts ? $appraisal : null,
+                'workshop_amount_net' => $workshop === null ? null : (string) $workshop,
+                'not_repairable' => (bool) ($item?->not_repairable ?? false),
+                'image_paths' => $this->authorisedPaths($position->damage_image_document_ids ?? [], $authorised),
+            ];
+        })->all();
+
+        $additionalTotal = '0';
+
+        $additionalRows = $additional->values()->map(function (WorkshopAdditionalPosition $position, int $index) use (
+            $authorised, &$additionalTotal
+        ) {
+            $additionalTotal = bcadd($additionalTotal, (string) $position->amount_net, 2);
+
+            return [
+                'number' => $index + 1,
+                'component' => $position->component,
+                'damage_description' => $position->damage_description,
+                'repair_method' => $position->repair_method,
+                'amount_net' => (string) $position->amount_net,
+                'image_paths' => $this->authorisedPaths($position->damage_image_document_ids ?? [], $authorised),
+            ];
+        })->all();
+
+        return [
+            'reference' => $quotation->auftragsnummer,
+            'workshop_label' => $quotation->workshop_label,
+            'company_name' => $quotation->company_name,
+            'contact_person' => $quotation->contact_person,
+            'submitted_at' => $quotation->submitted_at,
+            'expires_at' => $quotation->expires_at,
+            'earliest_repair_start' => $quotation->earliest_repair_start,
+            'processing_days' => $quotation->processing_days,
+            'cannot_repair_for_amount' => (bool) $quotation->cannot_repair_for_amount,
+            'cannot_repair_note' => $quotation->cannot_repair_note,
+            'shows_appraisal_amounts' => $showAmounts,
+            'vehicle' => $vehicle === null ? null : [
+                'license_plate' => $vehicle->license_plate,
+                'make' => $vehicle->make,
+                'model' => $vehicle->model,
+                'vin' => $vehicle->vin,
+                'first_registration_date' => $vehicle->first_registration_date,
+                'mileage' => $vehicle->mileage,
+            ],
+            'positions' => $positionRows,
+            'additional_positions' => $additionalRows,
+            'appraisal_total_net' => $showAmounts ? $appraisalTotal : null,
+            'workshop_total_net' => $workshopTotal,
+            'additional_total_net' => $additionalTotal,
+            'grand_total_net' => bcadd($workshopTotal, $additionalTotal, 2),
+        ];
+    }
+
+    /**
+     * The storage paths of the given document ids, keeping only those the
+     * authorised set contains and the order they were attached in.
+     *
+     * @param  array<int, string>  $documentIds
+     * @param  Collection<string, array{path: string, content_type: string|null}>  $authorised
+     * @return array<int, string>
+     */
+    private function authorisedPaths(array $documentIds, Collection $authorised): array
+    {
+        return collect($documentIds)
+            ->unique()
+            ->filter(fn (string $id) => $authorised->has($id))
+            ->map(fn (string $id) => $authorised->get($id)['path'])
+            ->values()
+            ->all();
+    }
+
     public function publicPayload(WorkshopQuotation $quotation, string $token): array
     {
         $order = LeasybackOrder::whereKey($quotation->order_id)->first();
@@ -557,6 +926,12 @@ class WorkshopQuotationService
                 ])
                 ->values()
                 ->all(),
+            // Only the image limits: the form starts empty every time, because
+            // the submission that would fill it also closes the link. The
+            // position cap is left out — the server refuses past it with a
+            // message and no workshop comes near twenty.
+            'max_additional_images' => self::MAX_ADDITIONAL_IMAGES,
+            'max_additional_images_total' => $this->maxTotalImages(),
         ];
     }
 
@@ -612,13 +987,22 @@ class WorkshopQuotationService
         $positions = $this->positionsFor($orderId)->keyBy('id');
         $offerByQuotation = $this->liveOffersByQuotation($orderId);
 
-        return WorkshopQuotation::where('order_id', $orderId)
+        $quotations = WorkshopQuotation::where('order_id', $orderId)
             ->orderByDesc('created_at')
-            ->get()
-            ->map(function (WorkshopQuotation $quotation) use ($positions, $offerByQuotation) {
-                $items = WorkshopQuotationItem::where('quotation_id', $quotation->id)
-                    ->get()
-                    ->keyBy('appraisal_position_id');
+            ->get();
+
+        // Both of these were a query per quotation inside the map below, so an
+        // order with ten workshops cost twenty-one. Loaded once for every
+        // quotation on the order and grouped in memory instead, the same way
+        // liveOffersByQuotation() already hands its rows in: forOrder() is now
+        // a fixed five queries whatever the workshop count.
+        $quotationIds = $quotations->pluck('id')->all();
+        $itemsByQuotation = $this->itemsByQuotation($quotationIds);
+        $additionalByQuotation = $this->additionalPositionsByQuotation($quotationIds);
+
+        return $quotations
+            ->map(function (WorkshopQuotation $quotation) use ($positions, $offerByQuotation, $itemsByQuotation, $additionalByQuotation) {
+                $items = $itemsByQuotation->get($quotation->id) ?? collect();
 
                 $comparison = $positions->map(function (AppraisalPosition $position) use ($items) {
                     $item = $items->get($position->id);
@@ -658,9 +1042,74 @@ class WorkshopQuotationService
                     'appraisal_total_net' => $this->appraisalTotal($comparison),
                     'customer_offer' => $offerByQuotation->get($quotation->id),
                     'comparison' => $comparison,
+                    // Kept out of `comparison` on purpose: that list is the
+                    // appraisal answered position by position, and these have
+                    // no appraisal side to compare against.
+                    // Scoped to the quotation, not the order: the damage
+                    // belongs to the workshop that reported it.
+                    'additional_positions' => ($additionalByQuotation->get($quotation->id) ?? collect())
+                        ->map(fn (WorkshopAdditionalPosition $position) => [
+                            'id' => $position->id,
+                            'component' => $position->component,
+                            'damage_description' => $position->damage_description,
+                            'repair_method' => $position->repair_method,
+                            'amount_net' => (string) $position->amount_net,
+                            'images' => collect($position->damage_image_document_ids ?? [])
+                                ->map(fn (string $documentId) => [
+                                    'id' => $documentId,
+                                    'url' => route('admin.vehicles.reports.image', $documentId),
+                                    'thumbnail_url' => route('admin.vehicles.reports.image', [
+                                        'documentId' => $documentId,
+                                        'size' => 'thumb',
+                                    ]),
+                                ])
+                                ->values()
+                                ->all(),
+                        ])
+                        ->values()
+                        ->all(),
                 ];
             })
             ->all();
+    }
+
+    /**
+     * Every quotation's priced items in one query, grouped by quotation id and
+     * keyed within each group by the appraisal position they answer — the shape
+     * the comparison builder reads.
+     *
+     * @param  array<int, string>  $quotationIds
+     * @return Collection<string, Collection<string, WorkshopQuotationItem>>
+     */
+    private function itemsByQuotation(array $quotationIds): Collection
+    {
+        if ($quotationIds === []) {
+            return collect();
+        }
+
+        return WorkshopQuotationItem::whereIn('quotation_id', $quotationIds)
+            ->get()
+            ->groupBy('quotation_id')
+            ->map(fn (Collection $items) => $items->keyBy('appraisal_position_id'));
+    }
+
+    /**
+     * Every quotation's self-reported damage in one query, grouped by quotation
+     * id. Ordered in SQL so each group is already in sort_order.
+     *
+     * @param  array<int, string>  $quotationIds
+     * @return Collection<string, Collection<int, WorkshopAdditionalPosition>>
+     */
+    private function additionalPositionsByQuotation(array $quotationIds): Collection
+    {
+        if ($quotationIds === []) {
+            return collect();
+        }
+
+        return WorkshopAdditionalPosition::whereIn('quotation_id', $quotationIds)
+            ->orderBy('sort_order')
+            ->get()
+            ->groupBy('quotation_id');
     }
 
     /**
@@ -696,6 +1145,9 @@ class WorkshopQuotationService
 
     public function damageImage(WorkshopQuotation $quotation, string $documentId, bool $thumbnail = false): ?array
     {
+        // Only the Gutachten images: a workshop's own uploads are written by
+        // the submission that closes its link, so no open quotation ever has
+        // one to fetch. Admin reads them through the admin image route.
         $isAttached = $this->positionsFor($quotation->order_id)
             ->flatMap(fn (AppraisalPosition $position) => $position->damage_image_document_ids ?? [])
             ->contains($documentId);

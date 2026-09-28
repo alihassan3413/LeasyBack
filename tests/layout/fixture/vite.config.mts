@@ -27,6 +27,8 @@ export default defineConfig({
                 picker: path.resolve(import.meta.dirname, 'picker.html'),
                 positions: path.resolve(import.meta.dirname, 'positions.html'),
                 extraction: path.resolve(import.meta.dirname, 'extraction.html'),
+                'additional-damage': path.resolve(import.meta.dirname, 'additional-damage.html'),
+                'document-actions': path.resolve(import.meta.dirname, 'document-actions.html'),
             },
         },
     },

@@ -126,6 +126,16 @@ export interface CustomerOrderRow {
     location: string | null;
 }
 
+/** A workshop-reported damage while the quotation form is still being filled in. */
+export interface AdditionalDamageDraft {
+    component: string;
+    damage_description: string;
+    repair_method: string;
+    amount_net: string;
+    /** `preview` is an object URL; the page revokes it when the image goes away. */
+    images: { file: File; preview: string }[];
+}
+
 export interface DamageGalleryImage {
     id: string;
     url: string;

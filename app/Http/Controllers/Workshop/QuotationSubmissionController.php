@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Workshop;
 
 use App\Http\Controllers\Controller;
 use App\Modules\UserProfile\Order\Models\AppraisalPosition;
+use App\Modules\UserProfile\Order\Services\WorkshopQuotationPdf;
 use App\Modules\UserProfile\Order\Services\WorkshopQuotationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response as HttpResponse;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -67,6 +69,35 @@ class QuotationSubmissionController extends Controller
 
         return Storage::disk('documents')->response($image['path'], "schadenbild-{$documentId}", [
             'Content-Type' => $image['content_type'],
+            'Cache-Control' => 'private, no-store, max-age=0',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
+    /**
+     * The quotation as a PDF business document.
+     *
+     * Resolved through findOpenByToken() like every other action here, so an
+     * unknown, revoked, expired or already-submitted token gets the same 404
+     * page as the form itself. No order, vehicle or quotation id is accepted
+     * from the request.
+     *
+     * `inline` rather than an attachment: the browser opens it in a tab, which
+     * is what makes "Drucken" work without a second print-only document. The
+     * download button asks for the same URL with ?download=1.
+     */
+    public function pdf(Request $request, string $token, WorkshopQuotationPdf $pdf): HttpResponse
+    {
+        $quotation = $this->workshopQuotationService->findOpenByToken($token);
+
+        abort_if($quotation === null, 404);
+
+        $filename = $pdf->filename($quotation);
+        $disposition = $request->boolean('download') ? 'attachment' : 'inline';
+
+        return response($pdf->render($quotation), 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => $disposition.'; filename="'.$filename.'"',
             'Cache-Control' => 'private, no-store, max-age=0',
             'X-Content-Type-Options' => 'nosniff',
         ]);
