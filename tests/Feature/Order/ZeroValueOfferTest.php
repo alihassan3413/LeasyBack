@@ -78,6 +78,36 @@ class ZeroValueOfferTest extends TestCase
         $this->assertSame('submitted', $quotation->fresh()->status());
     }
 
+    public function test_a_workshop_cannot_decline_the_requested_amount_when_appraisal_amounts_are_hidden(): void
+    {
+        [$order, $quotation] = $this->invitedQuotation(showAppraisalAmounts: false);
+
+        $this->post(route('workshop.quotations.submit', $this->tokenFor($order, $quotation)), [
+            'company_name' => 'Karosserie Meier GmbH',
+            'contact_person' => 'Jens Meier',
+            'contact_email' => 'jens@werkstatt.test',
+            'cannot_repair_for_amount' => true,
+            'items' => $this->items($order, null),
+        ])->assertSessionHasErrors('cannot_repair_for_amount');
+
+        $this->assertSame('invited', $quotation->fresh()->status());
+    }
+
+    public function test_a_workshop_can_submit_prices_when_appraisal_amounts_are_hidden(): void
+    {
+        [$order, $quotation] = $this->invitedQuotation(showAppraisalAmounts: false);
+
+        $this->post(route('workshop.quotations.submit', $this->tokenFor($order, $quotation)), [
+            'company_name' => 'Karosserie Meier GmbH',
+            'contact_person' => 'Jens Meier',
+            'contact_email' => 'jens@werkstatt.test',
+            'items' => $this->items($order, '450.00'),
+        ])->assertRedirect(route('workshop.quotations.thanks'));
+
+        $this->assertSame('submitted', $quotation->fresh()->status());
+        $this->assertSame('450.00', (string) $quotation->fresh()->total_net);
+    }
+
     public function test_a_zero_value_offer_cannot_be_published(): void
     {
         $order = $this->b2cOrder();
@@ -108,7 +138,7 @@ class ZeroValueOfferTest extends TestCase
     /**
      * @return array{0: LeasybackOrder, 1: WorkshopQuotation}
      */
-    private function invitedQuotation(): array
+    private function invitedQuotation(bool $showAppraisalAmounts = true): array
     {
         $order = $this->b2cOrder();
 
@@ -124,7 +154,10 @@ class ZeroValueOfferTest extends TestCase
         ]);
 
         $invite = app(WorkshopQuotationService::class)
-            ->invite($order, $this->makeAdmin(), ['workshop_label' => 'Karosserie Meier GmbH']);
+            ->invite($order, $this->makeAdmin(), [
+                'workshop_label' => 'Karosserie Meier GmbH',
+                'show_appraisal_amounts' => $showAppraisalAmounts,
+            ]);
 
         $this->tokens[$order->id] = $invite['token'];
 
