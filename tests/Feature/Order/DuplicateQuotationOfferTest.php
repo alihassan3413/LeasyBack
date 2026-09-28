@@ -129,6 +129,40 @@ class DuplicateQuotationOfferTest extends TestCase
         $this->assertSame('draft', $after['customer_offer']['offer_status']);
     }
 
+    public function test_the_card_keeps_a_closed_sibling_offer_marked_as_taken(): void
+    {
+        $order = $this->b2cOrder(['500.00']);
+        $closedQuotation = $this->quotedBy($order, ['400.00'], 'Werkstatt Eins');
+        $selectedQuotation = $this->quotedBy($order, ['380.00'], 'Werkstatt Zwei');
+
+        $this->createOffer($order, $closedQuotation)->assertRedirect();
+        $this->createOffer($order, $selectedQuotation)->assertRedirect();
+
+        $offers = LeasybackOffer::where('order_id', $order->id)->orderBy('offer_sequence')->get();
+        $closedOffer = $offers[0];
+        $selectedOffer = $offers[1];
+        $admin = $this->makeAdmin();
+
+        foreach ($offers as $offer) {
+            $this->actingAs($admin)
+                ->from(route('admin.orders.show', $order->id))
+                ->patch(route('admin.orders.offers.publish', $offer->offer_id))
+                ->assertRedirect();
+        }
+
+        $customer = User::findOrFail($order->vehicle->b2c_user_id);
+
+        $this->actingAs($customer)
+            ->from(route('dashboard'))
+            ->post(route('offers.select', $selectedOffer->offer_id))
+            ->assertRedirect(route('dashboard'));
+
+        $this->assertSame('closed', $closedOffer->fresh()->offer_status);
+        $payload = $this->quotationPayload($order, $closedQuotation);
+        $this->assertSame($closedOffer->offer_id, $payload['customer_offer']['offer_id']);
+        $this->assertSame('closed', $payload['customer_offer']['offer_status']);
+    }
+
     public function test_the_card_offers_the_action_again_after_the_offer_is_discarded(): void
     {
         $order = $this->b2cOrder(['500.00']);

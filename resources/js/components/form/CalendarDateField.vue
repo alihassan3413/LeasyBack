@@ -130,12 +130,12 @@ onMounted(async () => {
                 </button>
             </PopoverTrigger>
 
-            <PopoverContent align="start" class="w-auto min-w-70">
-                <div class="mb-4 flex items-center justify-center gap-2">
+            <PopoverContent align="start" class="w-[min(17.5rem,var(--reka-popover-trigger-width))] min-w-0">
+                <div class="mb-4 flex items-center justify-center gap-1 sm:gap-2">
                     <div
-                        class="border-brand-green-gray text-brand-black flex h-10 min-w-20 items-center justify-center gap-2 rounded-[6px] border bg-white px-2 text-[15px] font-bold"
+                        class="border-brand-green-gray text-brand-black flex h-10 min-w-0 flex-[1.4] items-center justify-center gap-1 rounded-[6px] border bg-white px-1 text-[15px] font-bold sm:gap-2 sm:px-2"
                     >
-                        <span class="whitespace-nowrap">
+                        <span class="min-w-0 truncate whitespace-nowrap">
                             {{ monthNamesShort[calendarMonth] }}
                         </span>
 
@@ -161,9 +161,9 @@ onMounted(async () => {
                     </div>
 
                     <div
-                        class="border-brand-green-gray text-brand-black flex h-10 min-w-24 items-center justify-center gap-2 rounded-[6px] border bg-white px-2 text-[15px] font-bold"
+                        class="border-brand-green-gray text-brand-black flex h-10 min-w-0 flex-1 items-center justify-center gap-1 rounded-[6px] border bg-white px-1 text-[15px] font-bold sm:gap-2 sm:px-2"
                     >
-                        <span class="whitespace-nowrap">
+                        <span class="min-w-0 truncate whitespace-nowrap">
                             {{ calendarYear }}
                         </span>
 
@@ -188,8 +188,8 @@ onMounted(async () => {
                         </div>
                     </div>
 
-                    <button type="button" class="text-brand-green-gray hover:text-brand-teal ml-1" aria-label="Nächster Monat" @click="nextMonth">
-                        <IconMaterialSymbolsLightKeyboardArrowRight class="text-3xl" />
+                    <button type="button" class="text-brand-green-gray hover:text-brand-teal shrink-0 sm:ml-1" aria-label="Nächster Monat" @click="nextMonth">
+                        <IconMaterialSymbolsLightKeyboardArrowRight class="text-2xl sm:text-3xl" />
                     </button>
                 </div>
 

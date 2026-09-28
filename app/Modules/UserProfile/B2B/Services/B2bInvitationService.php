@@ -94,19 +94,19 @@ class B2bInvitationService
             $this->fail(403, 'Nur Inhaber können weitere Inhaber einladen.');
         }
         if ($role === B2bRole::Owner) {
-    $alreadyHasOwner = DB::table('user_b2b')
-        ->where('b2b_id', $actor->b2bId)
-        ->where('role', B2bRole::Owner->value)
-        ->where('status', 'active')
-        ->exists();
+            $alreadyHasOwner = DB::table('user_b2b')
+                ->where('b2b_id', $actor->b2bId)
+                ->where('role', B2bRole::Owner->value)
+                ->where('status', 'active')
+                ->exists();
 
-    if ($alreadyHasOwner) {
-        $this->fail(
-            422,
-            'Dieses Unternehmen hat bereits einen Administrator.'
-        );
-    }
-}
+            if ($alreadyHasOwner) {
+                $this->fail(
+                    422,
+                    'Dieses Unternehmen hat bereits einen Administrator.'
+                );
+            }
+        }
 
         // The same delegation ceiling as updating a member
         // (B2bMembership::mayGrant): an invitation cannot carry more access
@@ -251,10 +251,15 @@ class B2bInvitationService
                 'accepted_by_user_id' => $user->id,
             ]);
 
-            // Land them in the company they just joined rather than whichever
-            // one they happened to be acting as before.
+            // A company-only account has nowhere else to land. A Privatkunde
+            // keeps their private context and can switch into the company
+            // deliberately, rather than having the invitation change their
+            // vehicle workflow underneath them.
             $this->context->forget($user);
-            $this->context->switchTo($user->refresh(), $fresh->b2b_id);
+
+            if (! $this->context->hasPersonalContext($user)) {
+                $this->context->switchTo($user->refresh(), $fresh->b2b_id);
+            }
         });
     }
 

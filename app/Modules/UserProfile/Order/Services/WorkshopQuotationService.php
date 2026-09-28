@@ -106,9 +106,15 @@ class WorkshopQuotationService
      *
      * @param  array<string, mixed>  $validated
      */
-    private function assertQuotationIsPriced(array $validated): void
+    private function assertQuotationIsPriced(array $validated, bool $showAppraisalAmounts): void
     {
         if ((bool) ($validated['cannot_repair_for_amount'] ?? false)) {
+            if (! $showAppraisalAmounts) {
+                throw ValidationException::withMessages([
+                    'cannot_repair_for_amount' => 'Diese Angabe ist nur möglich, wenn die Gutachtenbeträge sichtbar sind.',
+                ]);
+            }
+
             return;
         }
 
@@ -373,7 +379,7 @@ class WorkshopQuotationService
                 $this->fail(410, 'Dieser Link ist nicht mehr gültig.');
             }
 
-            $this->assertQuotationIsPriced($validated);
+            $this->assertQuotationIsPriced($validated, (bool) $locked->show_appraisal_amounts);
 
             WorkshopQuotationItem::where('quotation_id', $locked->id)->delete();
 
@@ -610,7 +616,7 @@ class WorkshopQuotationService
     public function forOrder(string $orderId): array
     {
         $positions = $this->positionsFor($orderId)->keyBy('id');
-        $offerByQuotation = $this->liveOffersByQuotation($orderId);
+        $offerByQuotation = $this->adoptedOffersByQuotation($orderId);
 
         return WorkshopQuotation::where('order_id', $orderId)
             ->orderByDesc('created_at')
@@ -665,20 +671,20 @@ class WorkshopQuotationService
 
     /**
      * The customer offer each quotation has already produced, keyed by
-     * quotation id — so the card can say "already taken" rather than offer an
-     * action RepairOfferService would refuse.
+     * quotation id — including a `closed` sibling, which was adopted before
+     * another offer was accepted and must not become available again.
      *
-     * Discarded offers are left out, matching the guard there: verwerfen frees
-     * the quotation to be taken again.
+     * Cancelled/discarded offers are left out, matching the guard there:
+     * verwerfen frees the quotation to be taken again.
      *
      * @return Collection<string, array{offer_id: string, offer_sequence: int, offer_status: string}>
      */
-    private function liveOffersByQuotation(string $orderId): Collection
+    private function adoptedOffersByQuotation(string $orderId): Collection
     {
         return B2bOfferPresentation::query()
             ->where('b2b_offer_presentations.order_id', $orderId)
             ->join('leasyback_offers', 'leasyback_offers.offer_id', '=', 'b2b_offer_presentations.offer_id')
-            ->whereIn('leasyback_offers.offer_status', ['draft', 'published', 'selected'])
+            ->whereIn('leasyback_offers.offer_status', ['draft', 'published', 'selected', 'closed'])
             ->orderBy('leasyback_offers.offer_sequence')
             ->get([
                 'b2b_offer_presentations.workshop_quotation_id',

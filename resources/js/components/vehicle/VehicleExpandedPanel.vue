@@ -894,15 +894,18 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                 </div>
 
                 <div class="relative flex flex-col rounded-[16px] border bg-white" style="border-color: #ececec">
-                    <button
-                        v-if="canUploadDocument"
-                        class="absolute top-5 right-5 transition-opacity hover:opacity-60"
-                        @click="uploadDocsOpen = true"
-                    >
-                        <IconMdiFileUploadOutline class="size-[18.5px] shrink-0" style="color: #01b990" />
-                    </button>
                     <div :class="hasNoDocuments ? 'px-6 pt-6' : 'p-6'">
-                        <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">Fahrzeugdokumente</p>
+                        <div class="flex items-start justify-between gap-2">
+                            <p class="min-w-0 flex-1 wrap-break-word text-[16px] font-bold uppercase" style="color: #2e3e3f">Fahrzeugdokumente</p>
+                            <button
+                                v-if="canUploadDocument"
+                                type="button"
+                                class="mt-0.5 shrink-0 transition-opacity hover:opacity-60"
+                                @click="uploadDocsOpen = true"
+                            >
+                                <IconMdiFileUploadOutline class="size-[18.5px] shrink-0" style="color: #01b990" />
+                            </button>
+                        </div>
                         <div v-if="!hasNoDocuments" class="mt-2 h-px bg-gray-200"></div>
                     </div>
 
@@ -1533,11 +1536,18 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
         </div>
 
         <div class="relative flex flex-col rounded-[16px] border bg-white" style="border-color: #ececec">
-            <button v-if="canUploadDocument" class="absolute top-4 right-4 transition-opacity hover:opacity-60" @click="uploadDocsOpen = true">
-                <IconMdiFileUploadOutline class="size-[18.5px] shrink-0" style="color: #01b990" />
-            </button>
             <div :class="hasNoDocuments ? 'px-4 pt-4' : 'p-4'">
-                <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">Fahrzeugdokumente</p>
+                <div class="flex items-start justify-between gap-2">
+                    <p class="min-w-0 flex-1 wrap-break-word text-[16px] font-bold uppercase" style="color: #2e3e3f">Fahrzeugdokumente</p>
+                    <button
+                        v-if="canUploadDocument"
+                        type="button"
+                        class="mt-0.5 shrink-0 transition-opacity hover:opacity-60"
+                        @click="uploadDocsOpen = true"
+                    >
+                        <IconMdiFileUploadOutline class="size-[18.5px] shrink-0" style="color: #01b990" />
+                    </button>
+                </div>
                 <div v-if="!hasNoDocuments" class="mt-2 h-px bg-gray-200"></div>
             </div>
 

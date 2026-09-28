@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import CalendarDateField from '@/components/form/CalendarDateField.vue';
 import RequiredMark from '@/components/form/RequiredMark.vue';
+import SelectField, { type SelectFieldOption } from '@/components/form/SelectField.vue';
 import SearchableSelectField, { type SearchableOption } from '@/components/form/SearchableSelectField.vue';
 import StationMap from '@/components/form/StationMap.vue';
 import StationSelectField from '@/components/form/StationSelectField.vue';
@@ -213,7 +214,7 @@ collection_address: data.collection_address,
 }
 
 
-const collectionTimeSlots = [
+const collectionTimeSlots: SelectFieldOption[] = [
     {
         value: '08:00-10:00',
         label: '08:00 AM - 10:00 AM',
@@ -295,7 +296,7 @@ const collectionTimeSlots = [
                         <div class="flex flex-col gap-1">
                             <label class="text-sm font-semibold text-black">Datum<RequiredMark /></label>
                             <CalendarDateField v-model="form.date" :min-days-ahead="3" block-weekends :invalid="!!form.errors.termin" />
-                           
+
                             <InputError :message="form.errors.termin" />
                         </div>
 
@@ -350,22 +351,13 @@ const collectionTimeSlots = [
         Zeitraum Abholung<RequiredMark />
     </label>
 
-    <select
+    <SelectField
         v-model="form.requested_collection_time_slot"
-        class="h-10 rounded-lg border border-gray-300 px-3 text-sm"
-    >
-        <option value="">
-            Zeitraum auswählen
-        </option>
-
-        <option
-            v-for="slot in collectionTimeSlots"
-            :key="slot.value"
-            :value="slot.value"
-        >
-            {{ slot.label }}
-        </option>
-    </select>
+        :options="collectionTimeSlots"
+        placeholder="Zeitraum auswählen"
+        :invalid="!!form.errors.requested_collection_time_slot"
+        class="rounded-lg"
+    />
 
     <InputError :message="form.errors.requested_collection_time_slot" />
 </div>
