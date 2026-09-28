@@ -184,7 +184,7 @@ function formatDateTime(value: string | undefined): string {
             </div>
         </template>
 
-        <div class="mx-auto flex max-w-[1100px] flex-col gap-5">
+        <div class="mx-auto flex w-full max-w-360 flex-col gap-5">
             <section class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <p class="text-[13.5px] text-[#00000080]">
                     {{ [vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Ohne Marke/Modell' }}
@@ -222,7 +222,7 @@ function formatDateTime(value: string | undefined): string {
                 </div>
             </section>
 
-            <div class="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_320px] lg:items-start">
+            <div class="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.38fr)] lg:items-start">
                 <div class="flex flex-col gap-5">
                     <OfferComparison :offers="offers" :vehicle-belongs="vehicle.vehicle_belongs" />
 
