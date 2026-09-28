@@ -258,7 +258,7 @@ function submit() {
                     </div>
                 </section>
 
-                <section class="rounded-3xl border border-[#ececec] bg-white p-6">
+                <section v-if="showsAmounts" class="rounded-3xl border border-[#ececec] bg-white p-6">
                     <label class="flex cursor-pointer items-start gap-2 text-[13px] text-[#10393b]">
                         <input v-model="form.cannot_repair_for_amount" type="checkbox" class="mt-0.5 size-4 accent-[#01b990]" />
                         <span>Die Reparatur ist zum angefragten Betrag nicht durchführbar.</span>
