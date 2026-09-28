@@ -3,10 +3,10 @@
 namespace App\Modules\UserProfile\Order\Services;
 
 use App\Enums\OrderStatus;
-use App\Modules\UserProfile\Offer\Models\LeasybackOffer;
 use App\Models\OfferAuditLog;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Modules\UserProfile\Offer\Models\LeasybackOffer;
 use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
 use App\Modules\UserProfile\Order\Models\AppraisalPosition;
 use App\Modules\UserProfile\Order\Models\B2bOfferPresentation;
@@ -122,12 +122,12 @@ class RepairOfferService
             // quotation, so the check below cannot be passed twice.
             WorkshopQuotation::whereKey($quotation->id)->lockForUpdate()->first();
 
-            $live = $this->liveOfferFromQuotation($quotation->id);
+            $adoptedOffer = $this->adoptedOfferFromQuotation($quotation->id);
 
-            if ($live !== null) {
+            if ($adoptedOffer !== null) {
                 $this->fail(422, sprintf(
-                    'Aus diesem Werkstattangebot wurde bereits Angebot %s erstellt. Verwerfen Sie es zuerst, wenn Sie es erneut übernehmen möchten.',
-                    str_pad((string) $live->offer_sequence, 2, '0', STR_PAD_LEFT),
+                    'Aus diesem Werkstattangebot wurde bereits Kundenangebot %s erstellt.',
+                    str_pad((string) $adoptedOffer->offer_sequence, 2, '0', STR_PAD_LEFT),
                 ));
             }
 
@@ -205,86 +205,86 @@ class RepairOfferService
      *
      * @param  array<string, mixed>  $validated
      */
-   public function reject(LeasybackOffer $offer, User $user, array $validated): void
-{
-    if ($offer->offer_status !== 'published') {
-        $this->fail(400, 'Nur veröffentlichte Angebote können abgelehnt werden.');
-    }
-
-    $rejectedOffer = DB::transaction(function () use ($offer, $user, $validated) {
-        $locked = LeasybackOffer::whereKey($offer->offer_id)
-            ->lockForUpdate()
-            ->firstOrFail();
-
-        if ($locked->offer_status !== 'published') {
+    public function reject(LeasybackOffer $offer, User $user, array $validated): void
+    {
+        if ($offer->offer_status !== 'published') {
             $this->fail(400, 'Nur veröffentlichte Angebote können abgelehnt werden.');
         }
 
-        $orderStatus = LeasybackOrder::whereKey($locked->order_id)
-            ->value('order_status');
+        $rejectedOffer = DB::transaction(function () use ($offer, $user, $validated) {
+            $locked = LeasybackOffer::whereKey($offer->offer_id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-        if ($orderStatus === null || in_array($orderStatus, OrderStatus::closedValues(), true)) {
-            $this->fail(422, 'Der Auftrag ist bereits abgeschlossen oder storniert.');
-        }
+            if ($locked->offer_status !== 'published') {
+                $this->fail(400, 'Nur veröffentlichte Angebote können abgelehnt werden.');
+            }
 
-        $expiredOn = $this->expiredOn($locked);
+            $orderStatus = LeasybackOrder::whereKey($locked->order_id)
+                ->value('order_status');
 
-        if ($expiredOn !== null) {
-            $this->fail(422, sprintf(
-                'Dieses Angebot war bis zum %s gültig.',
-                $expiredOn->format('d.m.Y'),
-            ));
-        }
+            if ($orderStatus === null || in_array($orderStatus, OrderStatus::closedValues(), true)) {
+                $this->fail(422, 'Der Auftrag ist bereits abgeschlossen oder storniert.');
+            }
 
-        $locked->update([
-            'offer_status' => self::STATUS_REJECTED,
-        ]);
+            $expiredOn = $this->expiredOn($locked);
 
-        B2bOfferPresentation::where('offer_id', $locked->offer_id)
-            ->update([
-                'rejected_at' => now(),
-                'rejected_by_user_id' => $user->id,
-                'customer_comment' => $this->trimToNull($validated['customer_comment'] ?? null),
+            if ($expiredOn !== null) {
+                $this->fail(422, sprintf(
+                    'Dieses Angebot war bis zum %s gültig.',
+                    $expiredOn->format('d.m.Y'),
+                ));
+            }
+
+            $locked->update([
+                'offer_status' => self::STATUS_REJECTED,
             ]);
 
-        OfferAuditLog::create([
-            'auftragsnummer' => $locked->auftragsnummer,
-            'offer_id' => $locked->offer_id,
-            'order_id' => $locked->order_id,
-            'action' => 'rejected_by_customer',
-            'old_values' => [
-                'offer_status' => 'published',
-            ],
-            'new_values' => [
-                'offer_status' => self::STATUS_REJECTED,
-            ],
-            'changed_by_user_id' => $user->id,
-        ]);
+            B2bOfferPresentation::where('offer_id', $locked->offer_id)
+                ->update([
+                    'rejected_at' => now(),
+                    'rejected_by_user_id' => $user->id,
+                    'customer_comment' => $this->trimToNull($validated['customer_comment'] ?? null),
+                ]);
 
-        return $locked->fresh();
-    });
+            OfferAuditLog::create([
+                'auftragsnummer' => $locked->auftragsnummer,
+                'offer_id' => $locked->offer_id,
+                'order_id' => $locked->order_id,
+                'action' => 'rejected_by_customer',
+                'old_values' => [
+                    'offer_status' => 'published',
+                ],
+                'new_values' => [
+                    'offer_status' => self::STATUS_REJECTED,
+                ],
+                'changed_by_user_id' => $user->id,
+            ]);
 
-    // Notifications AFTER commit
-    $this->announcer->announce('rejected', $rejectedOffer);
+            return $locked->fresh();
+        });
 
-    $this->adminAnnouncer->rejected(
-        $rejectedOffer,
-        $validated['customer_comment'] ?? null
-    );
+        // Notifications AFTER commit
+        $this->announcer->announce('rejected', $rejectedOffer);
 
-    $order = LeasybackOrder::find($offer->order_id);
-
-    if ($order !== null && ! TransitionOrderStatus::isB2bOrder($order)) {
-        app(B2cFeeService::class)->trigger(
-            $order,
-            FeeReason::RepairOfferRejected,
-            [
-                'offer_id' => $offer->offer_id,
-                'rejected_at' => now()->toIso8601String(),
-            ]
+        $this->adminAnnouncer->rejected(
+            $rejectedOffer,
+            $validated['customer_comment'] ?? null
         );
+
+        $order = LeasybackOrder::find($offer->order_id);
+
+        if ($order !== null && ! TransitionOrderStatus::isB2bOrder($order)) {
+            app(B2cFeeService::class)->trigger(
+                $order,
+                FeeReason::RepairOfferRejected,
+                [
+                    'offer_id' => $offer->offer_id,
+                    'rejected_at' => now()->toIso8601String(),
+                ]
+            );
+        }
     }
-}
 
     /**
      * Offers still genuinely awaiting a customer decision and due a §18
@@ -606,17 +606,14 @@ class RepairOfferService
     }
 
     /**
-     * The customer offer this quotation already produced, if it is still one
-     * an admin or a customer could act on.
-     *
-     * A discarded offer deliberately does not count: verwerfen is how a draft
-     * built from the wrong quotation is undone, and taking the quotation again
-     * afterwards is the whole point of undoing it.
+     * The customer offer this quotation already produced, unless it was
+     * explicitly discarded. A closed sibling still counts as adopted even
+     * though neither the customer nor Admin can act on it anymore.
      */
-    private function liveOfferFromQuotation(string $quotationId): ?LeasybackOffer
+    private function adoptedOfferFromQuotation(string $quotationId): ?LeasybackOffer
     {
         return LeasybackOffer::query()
-            ->whereIn('offer_status', ['draft', 'published', 'selected'])
+            ->whereIn('offer_status', ['draft', 'published', 'selected', 'closed'])
             ->whereIn(
                 'offer_id',
                 B2bOfferPresentation::query()->where('workshop_quotation_id', $quotationId)->select('offer_id'),
