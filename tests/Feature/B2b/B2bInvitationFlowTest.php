@@ -177,6 +177,7 @@ class B2bInvitationFlowTest extends TestCase
         ]);
         // user_type is deliberately untouched — the account keeps its private side.
         $this->assertSame(UserType::Privatkunde, $existing->fresh()->user_type);
+        $this->assertNull($existing->fresh()->active_b2b_id, 'Accepting a company invitation must not switch a B2C user out of their private context.');
         $this->assertSame('accepted', B2bInvitation::where('email', 'privat@example.com')->firstOrFail()->status());
     }
 
@@ -231,7 +232,13 @@ class B2bInvitationFlowTest extends TestCase
         $token = $this->inviteAndCaptureToken($owner, 'privat@example.com');
         $this->actingAs($existing)->post(route('b2b.invitations.accept', $token));
 
-        // Accepting lands them in the company they just joined.
+        // A dual-context user can choose the company they just joined.
+        $this->actingAs($existing->fresh())
+            ->post(route('b2b.switch'), ['b2b_id' => $company->b2b_id])
+            ->assertRedirect(route('dashboard'));
+
+        $this->assertSame($company->b2b_id, $existing->fresh()->active_b2b_id);
+
         $plates = collect($this->actingAs($existing->fresh())->get(route('vehicles.index'))
             ->viewData('page')['props']['vehicles'])->pluck('license_plate');
 
@@ -610,6 +617,10 @@ class B2bInvitationFlowTest extends TestCase
         $this->actingAs($existing)->post(route('b2b.invitations.accept', $token));
 
         $this->actingAs($existing->fresh())
+            ->post(route('b2b.switch'), ['b2b_id' => $alpha->b2b_id])
+            ->assertRedirect(route('dashboard'));
+
+        $this->actingAs($existing->fresh())
             ->get(route('vehicles.show', $foreign->vehicle_id))
             ->assertNotFound();
 
@@ -632,7 +643,7 @@ class B2bInvitationFlowTest extends TestCase
             ->post(route('b2b.switch'), ['b2b_id' => $beta->b2b_id])
             ->assertSessionHasErrors('b2b_id');
 
-        $this->assertSame($alpha->b2b_id, $existing->fresh()->active_b2b_id);
+        $this->assertNull($existing->fresh()->active_b2b_id);
     }
 
     public function test_a_firmenkunde_cannot_switch_to_a_private_area(): void
@@ -713,6 +724,11 @@ class B2bInvitationFlowTest extends TestCase
         $joined = $existing->fresh();
 
         $context->forget($joined);
+        $this->assertFalse($context->actsAsCompany($joined));
+        $this->assertSame(UserType::Privatkunde, $context->effectiveUserType($joined));
+        $this->assertNull($joined->active_b2b_id);
+
+        $context->switchTo($joined, $company->b2b_id);
         $this->assertTrue($context->actsAsCompany($joined));
         $this->assertSame(UserType::Firmenkunde, $context->effectiveUserType($joined));
 
