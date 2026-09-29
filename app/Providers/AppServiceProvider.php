@@ -100,7 +100,15 @@ class AppServiceProvider extends ServiceProvider
     private function registerWorkshopRateLimiters(): void
     {
         RateLimiter::for('workshop-page', fn (Request $request) => Limit::perMinute(30)->by((string) $request->ip()));
-        RateLimiter::for('workshop-images', fn (Request $request) => Limit::perMinute(120)->by((string) $request->ip()));
+        // Sized for how the gallery actually behaves, not for an ideal one. The
+        // image route answers `Cache-Control: no-store` on purpose — a
+        // customer's damage photos must not survive in the browser cache once
+        // the link dies — so every render refetches every thumbnail. A
+        // Gutachten with 40 photos therefore costs 40 requests per view, and
+        // 120 ran out partway through the third view, which is what the
+        // workshop saw as broken images. 600 covers repeated browsing of even
+        // a 60-photo appraisal while still bounding a single caller.
+        RateLimiter::for('workshop-images', fn (Request $request) => Limit::perMinute(600)->by((string) $request->ip()));
         RateLimiter::for('workshop-pdf', fn (Request $request) => Limit::perMinute(20)->by((string) $request->ip()));
         RateLimiter::for('workshop-submit', fn (Request $request) => Limit::perMinute(10)->by((string) $request->ip()));
     }

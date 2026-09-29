@@ -99,6 +99,36 @@ class WorkshopQuotationThrottleTest extends TestCase
         $this->submit($token)->assertRedirect();
     }
 
+    /**
+     * The image budget has to fit a real Gutachten, not a small one.
+     *
+     * The image route answers `Cache-Control: no-store` deliberately, so the
+     * browser refetches every thumbnail on every render. A 40-photo appraisal
+     * therefore costs 40 requests per view, and the old ceiling of 120 ran out
+     * partway through the third view — which is what a workshop saw as broken
+     * images even after each route got its own bucket.
+     */
+    public function test_an_image_heavy_quotation_survives_repeated_browsing(): void
+    {
+        [$order, $token] = $this->quotationWithImage(imageCount: 40);
+        $ids = AppraisalPosition::where('order_id', $order->id)->value('damage_image_document_ids');
+
+        // Three page views, each refetching every thumbnail.
+        for ($view = 0; $view < 3; $view++) {
+            foreach ($ids as $id) {
+                $this->get(route('workshop.quotations.images.show', [$token, $id]).'?size=thumb')
+                    ->assertOk();
+            }
+        }
+
+        // Then the lightbox on ten of them, which asks for the full image.
+        foreach (array_slice($ids, 0, 10) as $id) {
+            $this->get(route('workshop.quotations.images.show', [$token, $id]))->assertOk();
+        }
+
+        $this->submit($token)->assertRedirect();
+    }
+
     // ------------------------------------------- the limits themselves remain
 
     /**
@@ -130,7 +160,9 @@ class WorkshopQuotationThrottleTest extends TestCase
 
         $sawThrottle = false;
 
-        for ($i = 0; $i < 200; $i++) {
+        // Past the 600/min ceiling: the budget is large because `no-store`
+        // makes every render refetch, but it must still run out.
+        for ($i = 0; $i < 700; $i++) {
             if ($this->get(route('workshop.quotations.images.show', [$token, $documentId]))->getStatusCode() === 429) {
                 $sawThrottle = true;
                 break;
@@ -198,7 +230,7 @@ class WorkshopQuotationThrottleTest extends TestCase
     /**
      * @return array{0: LeasybackOrder, 1: string, 2: string}
      */
-    private function quotationWithImage(): array
+    private function quotationWithImage(int $imageCount = 1): array
     {
         $vehicle = Vehicle::factory()->create([
             'vehicle_belongs' => 'B2C',
@@ -211,21 +243,27 @@ class WorkshopQuotationThrottleTest extends TestCase
             'order_status' => 'inspected',
         ]);
 
-        $path = 'werkstatt-throttle/'.Str::uuid().'.jpg';
         $image = imagecreatetruecolor(40, 30);
         ob_start();
         imagejpeg($image, null, 70);
-        Storage::disk('documents')->put($path, (string) ob_get_clean());
+        $bytes = (string) ob_get_clean();
         imagedestroy($image);
 
-        $document = VehicleReportDocument::create([
-            'auftragsnummer' => $order->auftragsnummer,
-            'vehicle_id' => $order->vehicle_id,
-            'document_type' => 'Schadenbild',
-            'document_title' => 'Schadenbild',
-            'path' => $path,
-            'published' => false,
-        ]);
+        $documentIds = [];
+
+        for ($i = 0; $i < $imageCount; $i++) {
+            $path = 'werkstatt-throttle/'.Str::uuid().'.jpg';
+            Storage::disk('documents')->put($path, $bytes);
+
+            $documentIds[] = VehicleReportDocument::create([
+                'auftragsnummer' => $order->auftragsnummer,
+                'vehicle_id' => $order->vehicle_id,
+                'document_type' => 'Schadenbild',
+                'document_title' => 'Schadenbild',
+                'path' => $path,
+                'published' => false,
+            ])->id;
+        }
 
         AppraisalPosition::create([
             'order_id' => $order->id,
@@ -235,7 +273,7 @@ class WorkshopQuotationThrottleTest extends TestCase
             'damage_description' => 'Kratzer',
             'original_amount_net' => '500.00',
             'source' => AppraisalPosition::SOURCE_MANUAL,
-            'damage_image_document_ids' => [$document->id],
+            'damage_image_document_ids' => $documentIds,
         ]);
 
         $token = Str::random(64);
@@ -249,6 +287,6 @@ class WorkshopQuotationThrottleTest extends TestCase
             'expires_at' => now()->addDays(14),
         ]);
 
-        return [$order, $token, $document->id];
+        return [$order, $token, $documentIds[0]];
     }
 }
