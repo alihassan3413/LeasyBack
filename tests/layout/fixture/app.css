@@ -6,6 +6,7 @@
  * just this directory.
  */
 @source '../../../resources/js/components/shared';
+@source '../../../resources/js/components/workshop';
 @source '../../../resources/js/components/admin/AdminOrderTasksCard.vue';
 @source '../../../resources/js/components/admin/AdminRepairBillingCard.vue';
 @source '../../../resources/js/components/admin/DamageImagePicker.vue';
@@ -18,6 +19,8 @@
 @source './picker.ts';
 @source './positions.ts';
 @source './extraction.ts';
+@source './additional-damage.ts';
+@source './document-actions.ts';
 
 @layer components {
     .content-card {

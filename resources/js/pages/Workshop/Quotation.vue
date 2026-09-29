@@ -12,10 +12,13 @@ import RequiredMark from '@/components/form/RequiredMark.vue';
 import InputError from '@/components/InputError.vue';
 import DamageGallery from '@/components/shared/DamageGallery.vue';
 import { Input } from '@/components/ui/input';
+import AdditionalDamageCard from '@/components/workshop/AdditionalDamageCard.vue';
+import WorkshopDocumentActions from '@/components/workshop/WorkshopDocumentActions.vue';
 import { formatPortalDate } from '@/lib/portalDate';
-import type { DamageGalleryImage } from '@/types/order';
+import type { AdditionalDamageDraft, DamageGalleryImage } from '@/types/order';
 import { Head, useForm } from '@inertiajs/vue3';
 import { computed } from 'vue';
+import MdiPlus from '~icons/mdi/plus';
 
 interface QuotationPosition {
     id: string;
@@ -43,6 +46,8 @@ const props = defineProps<{
         shows_appraisal_amounts: boolean;
         vehicle: QuotationVehicle | null;
         positions: QuotationPosition[];
+        max_additional_images: number;
+        max_additional_images_total: number;
     };
 }>();
 
@@ -61,21 +66,61 @@ const form = useForm({
         repair_method: position.repair_method ?? '',
         not_repairable: false,
     })),
+    additional_positions: [] as AdditionalDamageDraft[],
 });
 
-const totalNet = computed(() =>
-    form.items.reduce((sum, item) => {
-        if (item.not_repairable) {
-            return sum;
-        }
+function addAdditionalPosition() {
+    form.additional_positions.push({ component: '', damage_description: '', repair_method: '', amount_net: '', images: [] });
+}
 
-        const amount = Number.parseFloat(item.amount_net);
+/**
+ * PHP's max_file_uploads silently drops files past its limit, so the server
+ * refuses a submission carrying more images than `max_additional_images_total`.
+ * Spending that allowance here as well means the workshop is stopped at the
+ * file picker instead of after uploading photos that were never going to be
+ * accepted. Each card is offered whatever is left plus what it already holds.
+ */
+function imageAllowanceFor(index: number): number {
+    const used = form.additional_positions.reduce((sum, position, other) => (other === index ? sum : sum + position.images.length), 0);
+
+    return Math.max(0, Math.min(props.quotation.max_additional_images, props.quotation.max_additional_images_total - used));
+}
+
+function removeAdditionalPosition(index: number) {
+    for (const image of form.additional_positions[index]?.images ?? []) {
+        URL.revokeObjectURL(image.preview);
+    }
+
+    form.additional_positions.splice(index, 1);
+}
+
+function additionalError(index: number, field: string): string | undefined {
+    return (form.errors as Record<string, string | undefined>)[`additional_positions.${index}.${field}`];
+}
+
+/**
+ * Refusals about the set as a whole — the combined upload budget — which no
+ * single field owns, so they would otherwise never be shown.
+ */
+const additionalPositionsError = computed(() => (form.errors as Record<string, string | undefined>).additional_positions ?? null);
+
+const totalNet = computed(() =>
+    [...form.items.filter((item) => !item.not_repairable), ...form.additional_positions].reduce((sum, row) => {
+        const amount = Number.parseFloat(row.amount_net);
 
         return Number.isFinite(amount) ? sum + amount : sum;
     }, 0),
 );
 
 const showsAmounts = computed(() => props.quotation.shows_appraisal_amounts);
+
+/**
+ * One server-rendered document serves both actions: `?download=1` sends it as
+ * an attachment, the bare URL opens it inline so the browser's own print dialog
+ * can handle it. Deliberately plain links — no fetch, no blob, no second
+ * print-only page, and nothing that touches the submission form's state.
+ */
+const pdfUrl = computed(() => route('workshop.quotations.pdf', props.token));
 
 function formatEuro(value: number | string | null): string {
     const amount = typeof value === 'string' ? Number.parseFloat(value) : value;
@@ -101,10 +146,19 @@ function itemError(index: number, field: string): string | undefined {
 const itemsError = computed(() => (form.errors as Record<string, string | undefined>).items ?? null);
 
 function submit() {
+    // The drafts carry a preview URL for the thumbnails; only the File itself
+    // is uploaded. Inertia switches to multipart on its own once it sees one.
     form.transform((data) => ({
         ...data,
         processing_days: data.processing_days === '' ? null : data.processing_days,
         earliest_repair_start: data.earliest_repair_start === '' ? null : data.earliest_repair_start,
+        additional_positions: data.additional_positions.map((position) => ({
+            component: position.component,
+            damage_description: position.damage_description,
+            repair_method: position.repair_method,
+            amount_net: position.amount_net,
+            images: position.images.map((image) => image.file),
+        })),
     })).post(route('workshop.quotations.submit', props.token));
 }
 </script>
@@ -122,6 +176,8 @@ function submit() {
                     <strong>{{ formatDate(quotation.expires_at) }}</strong
                     >.
                 </p>
+
+                <WorkshopDocumentActions class="mt-4" :pdf-url="pdfUrl" />
             </header>
 
             <section v-if="quotation.vehicle" class="rounded-3xl border border-[#ececec] bg-white p-6">
@@ -188,7 +244,7 @@ function submit() {
                 </section>
 
                 <section class="rounded-3xl border border-[#ececec] bg-white p-6">
-                    <h2 class="mb-1 text-[15px] font-extrabold text-[#10393b]">Positionen</h2>
+                    <h2 class="mb-1 text-[15px] font-extrabold text-[#10393b]">Gutachtenpositionen</h2>
                     <p class="mb-3 text-[12px] text-[#9bb0af]">Alle Beträge netto in Euro.</p>
 
                     <p
@@ -252,7 +308,50 @@ function submit() {
                         </div>
                     </div>
 
-                    <div v-if="quotation.positions.length" class="mt-4 flex items-center justify-between rounded-[13px] bg-[#f6f9f8] px-4 py-3">
+                    <div class="mt-6 border-t border-dashed border-[#e9efee] pt-5" data-testid="additional-damages">
+                        <h3 class="text-[15px] font-extrabold text-[#10393b]">Zusätzliche Schäden</h3>
+                        <p class="mb-3 text-[12px] text-[#9bb0af]">
+                            Von der Werkstatt festgestellt — nicht Teil des Gutachtens. Bitte nur Schäden melden, die oben nicht aufgeführt sind.
+                        </p>
+
+                        <p
+                            v-if="additionalPositionsError"
+                            role="alert"
+                            class="mb-3 rounded-[13px] border border-[#c0392b]/25 bg-[#c0392b]/5 px-3 py-2.5 text-[12.5px] font-bold text-[#c0392b]"
+                            data-testid="additional-damages-error"
+                        >
+                            {{ additionalPositionsError }}
+                        </p>
+
+                        <div v-if="form.additional_positions.length" class="mb-3 flex flex-col gap-3">
+                            <AdditionalDamageCard
+                                v-for="(position, index) in form.additional_positions"
+                                :key="index"
+                                v-model:position="form.additional_positions[index]"
+                                :index="index"
+                                :max-images="imageAllowanceFor(index)"
+                                :disabled="form.processing"
+                                :error="(field) => additionalError(index, field)"
+                                @remove="removeAdditionalPosition(index)"
+                            />
+                        </div>
+
+                        <button
+                            type="button"
+                            :disabled="form.processing"
+                            class="flex w-full cursor-pointer items-center justify-center gap-2 rounded-[13px] border border-dashed border-[#c9d6d5] bg-white px-4 py-3 text-[13px] font-bold text-[#10393b] transition-colors hover:border-[#01b990] hover:text-[#01b990] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#01b990] disabled:cursor-default disabled:opacity-50 motion-reduce:transition-none"
+                            data-testid="additional-damage-add"
+                            @click="addAdditionalPosition"
+                        >
+                            <MdiPlus class="size-5" aria-hidden="true" />
+                            Zusätzlichen Schaden melden
+                        </button>
+                    </div>
+
+                    <div
+                        v-if="quotation.positions.length || form.additional_positions.length"
+                        class="mt-4 flex items-center justify-between rounded-[13px] bg-[#f6f9f8] px-4 py-3"
+                    >
                         <span class="text-[13px] font-bold text-[#6f8585]">Gesamtsumme netto</span>
                         <span class="text-[15px] font-extrabold text-[#10393b]">{{ formatEuro(totalNet) }}</span>
                     </div>

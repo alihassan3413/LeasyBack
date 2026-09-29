@@ -19,6 +19,13 @@ Route::prefix('werkstatt/angebot')->name('workshop.quotations.')->group(function
         ->where('token', '[A-Za-z0-9]{64}')
         ->name('show');
 
+    // Throttled harder than the page: rendering a PDF costs real work, and the
+    // token is the only credential in front of it.
+    Route::get('{token}/pdf', [QuotationSubmissionController::class, 'pdf'])
+        ->middleware('throttle:20,1')
+        ->where('token', '[A-Za-z0-9]{64}')
+        ->name('pdf');
+
     Route::get('{token}/bilder/{documentId}', [QuotationSubmissionController::class, 'image'])
         ->middleware('throttle:120,1')
         ->where('token', '[A-Za-z0-9]{64}')
