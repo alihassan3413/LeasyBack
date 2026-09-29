@@ -14,6 +14,9 @@ use App\Modules\UserProfile\Payment\Contracts\LexwareGateway;
 use App\Modules\UserProfile\Payment\Contracts\StripeGateway;
 use App\Modules\UserProfile\Payment\Services\LexwareClient;
 use App\Modules\UserProfile\Payment\Services\StripeClient;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 
@@ -71,5 +74,34 @@ class AppServiceProvider extends ServiceProvider
         if ($this->app->isProduction()) {
             URL::forceScheme('https');
         }
+
+        $this->registerWorkshopRateLimiters();
+    }
+
+    /**
+     * One limiter per public workshop route (§9).
+     *
+     * Laravel's inline `throttle:n,m` keys every route on sha1(domain|ip) and
+     * only varies the ceiling it compares against, so all four workshop routes
+     * drew on one counter: opening a quotation and loading its damage photos
+     * spent the submission's budget, and the workshop got a 429 on the one
+     * request that mattered. A named limiter puts its own name in the key, so
+     * these budgets are genuinely separate.
+     *
+     * Keyed on the caller's IP, never on the token in the URL. The token is
+     * user input — keying on it would let anyone mint a fresh budget by
+     * changing one character. `by()` is also required rather than optional: a
+     * named limiter with no key falls back to '', which would make one bucket
+     * shared by every caller on the internet.
+     *
+     * The ceilings are the ones these routes already carried; only the buckets
+     * are new.
+     */
+    private function registerWorkshopRateLimiters(): void
+    {
+        RateLimiter::for('workshop-page', fn (Request $request) => Limit::perMinute(30)->by((string) $request->ip()));
+        RateLimiter::for('workshop-images', fn (Request $request) => Limit::perMinute(120)->by((string) $request->ip()));
+        RateLimiter::for('workshop-pdf', fn (Request $request) => Limit::perMinute(20)->by((string) $request->ip()));
+        RateLimiter::for('workshop-submit', fn (Request $request) => Limit::perMinute(10)->by((string) $request->ip()));
     }
 }
