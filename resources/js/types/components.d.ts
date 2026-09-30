@@ -30,7 +30,7 @@ declare module 'vue' {
     AdminRepairBillingCard: typeof import('./../components/admin/AdminRepairBillingCard.vue')['default']
     AdminReportDocumentsList: typeof import('./../components/admin/AdminReportDocumentsList.vue')['default']
     AdminSidebar: typeof import('./../components/AdminSidebar.vue')['default']
-    Admintransferprotocolcard: typeof import('./../components/admin/Admintransferprotocolcard.vue')['default']
+    AdminTransferProtocolCard: typeof import('./../components/admin/AdminTransferProtocolCard.vue')['default']
     AdminWorkshopCommissionCard: typeof import('./../components/admin/AdminWorkshopCommissionCard.vue')['default']
     AdminWorkshopQuotationsCard: typeof import('./../components/admin/AdminWorkshopQuotationsCard.vue')['default']
     AppContent: typeof import('./../components/AppContent.vue')['default']
