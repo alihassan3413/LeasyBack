@@ -60,6 +60,8 @@ export interface VehicleOrderData {
     request_payload: OrderRequestPayload | null;
     response_status: number | null;
     order_status: string;
+    /** Which service this order is for ('leasingrueckgabe', 'ueberfuehrung', …). Null on old orders. */
+    service_type?: string | null;
     created_by_user_id: number | null;
     created_at: string;
     status_updates: OrderStatusUpdateData[];

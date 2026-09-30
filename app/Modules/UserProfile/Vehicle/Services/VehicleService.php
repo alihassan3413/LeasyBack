@@ -35,6 +35,14 @@ use Illuminate\Support\Str;
 class VehicleService
 {
     /**
+     * The service an order is for when its row predates the `service_type`
+     * column. Every such order is a Leasingrückgabe — it was the only service.
+     */
+    private const DEFAULT_SERVICE_TYPE = 'leasingrueckgabe';
+
+    private const RELOCATION_SERVICE_TYPE = 'ueberfuehrung';
+
+    /**
      * Memoised per company, see companyAddressProfiles().
      *
      * @var array<string, Collection<int, LogisticsAddressProfile>>
@@ -431,9 +439,6 @@ class VehicleService
     }
 
     /**
-     * Validate allowed document types.
-     */
-    /**
      * Customer-selectable document types only — gutachten/Sonstiges are
      * Admin-managed report/invoice types, not something a customer upload
      * may declare (docs/B2C_ADMIN_PERMISSION_MATRIX.md's Vehicle Document
@@ -478,15 +483,6 @@ class VehicleService
     /** Each extra word adds an OR-group to the query; long phrases are capped rather than run. */
     private const VEHICLE_SEARCH_MAX_WORDS = 6;
 
-    /**
-     * List vehicles with nested orders for dashboard.
-     *
-     * Children are fetched in one batched query per relation and grouped in
-     * memory, so the query count stays constant (7) no matter how many
-     * vehicles or orders come back.
-     *
-     * @param  array{search?: string, status?: string, sort?: string, direction?: string}  $filters
-     */
     /**
      * The same per-vehicle shape listVehiclesWithOrders() returns, for one
      * vehicle — the detail page renders exactly what the dashboard row does.
@@ -574,6 +570,15 @@ class VehicleService
         ];
     }
 
+    /**
+     * List vehicles with nested orders for dashboard.
+     *
+     * Children are fetched in one batched query per relation and grouped in
+     * memory, so the query count stays constant no matter how many vehicles
+     * or orders come back.
+     *
+     * @param  array{search?: string, status?: string, sort?: string, direction?: string}  $filters
+     */
     public function listVehiclesWithOrders(?string $ownerId, string $belongs, array $filters = [], ?string $vehicleId = null, ?User $viewer = null): array
     {
         $query = $this->scopedVehicleQuery($ownerId, $belongs, $viewer);
@@ -601,7 +606,7 @@ class VehicleService
      * few rather than the page's whole list — applied in SQL so a long fleet
      * history is never loaded to show five lines of it.
      *
-     * @param  array{search?: string, status?: 'open'|'closed'|string  make?: string, model?: string, leasinggeber?: string,leasing_end?: string}  $filters
+     * @param  array{search?: string, status?: string, make?: string, model?: string, leasinggeber?: string, leasing_end?: string}  $filters
      * @return list<array<string, mixed>>
      */
     public function listCustomerOrders(?string $ownerId, string $belongs, array $filters = [], ?User $viewer = null, ?int $limit = null): array
@@ -666,6 +671,7 @@ class VehicleService
                 $filters['leasing_end']
             );
         }
+
         if ($limit !== null) {
             $query->limit($limit);
         }
@@ -674,6 +680,7 @@ class VehicleService
             'o.id',
             'o.auftragsnummer',
             'o.order_status',
+            'o.service_type',
             'o.created_at',
             'o.request_payload',
             'v.vehicle_id',
@@ -694,23 +701,52 @@ class VehicleService
             $payload = json_decode((string) $order->request_payload, true) ?: [];
             $besichtigungsort = $payload['besichtigungsort'] ?? [];
             $collection = $collections[$order->auftragsnummer] ?? null;
+            $serviceType = $order->service_type ?: self::DEFAULT_SERVICE_TYPE;
+
+            // An Überführung carries its own date and both addresses in the
+            // request payload; there is no collection row or station for it.
+            if ($serviceType === self::RELOCATION_SERVICE_TYPE) {
+                $appointment = $payload['preferred_date'] ?? null;
+                $location = self::relocationRoute($payload);
+            } else {
+                $appointment = $collection['confirmed_collection_date']
+                    ?? $collection['requested_collection_date']
+                    ?? ($besichtigungsort['termin'] ?? null);
+                $location = $collection === null ? ($besichtigungsort['name'] ?? null) : null;
+            }
 
             return [
                 'id' => $order->id,
                 'auftragsnummer' => $order->auftragsnummer,
                 'order_status' => $order->order_status,
+                'service_type' => $serviceType,
                 'created_at' => $order->created_at,
                 'vehicle_id' => $order->vehicle_id,
                 'license_plate' => $order->license_plate,
                 'make' => $order->make,
                 'model' => $order->model,
                 'vehicle_belongs' => $order->vehicle_belongs,
-                'appointment' => $collection['confirmed_collection_date']
-                    ?? $collection['requested_collection_date']
-                    ?? ($besichtigungsort['termin'] ?? null),
-                'location' => $collection === null ? ($besichtigungsort['name'] ?? null) : null,
+                'appointment' => $appointment,
+                'location' => $location,
             ];
         })->all();
+    }
+
+    /**
+     * "Köln → Berlin" for an Überführung row, from the cities in its payload.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private static function relocationRoute(array $payload): ?string
+    {
+        $from = trim((string) ($payload['pickup_address']['city'] ?? ''));
+        $to = trim((string) ($payload['destination_address']['city'] ?? ''));
+
+        if ($from === '' && $to === '') {
+            return null;
+        }
+
+        return trim($from.' → '.$to, ' →');
     }
 
     /**
@@ -1026,6 +1062,9 @@ class VehicleService
                     'response_status' => $order->response_status,
                     'response_body' => json_decode($order->response_body ?? '', false) ?: null,
                     'order_status' => $order->order_status,
+                    // Which service the order is for — the timeline and every
+                    // label branch on it. Old rows predate the column.
+                    'service_type' => ($order->service_type ?? null) ?: self::DEFAULT_SERVICE_TYPE,
                     'created_by_user_id' => $order->created_by_user_id,
                     'created_at' => PortalTimestamp::iso($order->created_at),
                     'status_updates' => $statusUpdates,
@@ -1087,13 +1126,6 @@ class VehicleService
         return $result;
     }
 
-    /**
-     * A vehicle date as the plain `Y-m-d` the edit form's date field reads.
-     *
-     * These rows come straight off the query builder, so the value is whatever
-     * the column holds: rows written before the `date:Y-m-d` cast still carry
-     * "2026-03-13 00:00:00", which the field rendered as "13 00:00:00.03.2026".
-     */
     /**
      * Whether this B2C order still needs a payment method, and what is on file.
      *
@@ -1177,6 +1209,13 @@ class VehicleService
         ];
     }
 
+    /**
+     * A vehicle date as the plain `Y-m-d` the edit form's date field reads.
+     *
+     * These rows come straight off the query builder, so the value is whatever
+     * the column holds: rows written before the `date:Y-m-d` cast still carry
+     * "2026-03-13 00:00:00", which the field rendered as "13 00:00:00.03.2026".
+     */
     public static function asDateString(mixed $value): ?string
     {
         if ($value === null || $value === '') {

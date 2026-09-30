@@ -39,6 +39,7 @@ class LeasybackOrder extends Model
         'auftragsnummer',
         'leasyback_partner',
         'order_status',
+        'service_type',
         'request_payload',
         'response_status',
         'response_body',

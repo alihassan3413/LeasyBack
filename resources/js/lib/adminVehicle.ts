@@ -27,6 +27,9 @@ import type { VehicleData, VehicleOrderData } from '@/types/vehicle';
  *   never reads the array (getCustomerOrderFlowSteps() derives the
  *   confirmation date from `status_updates`), so it maps to `[]` rather
  *   than being faked from `confirmation_date`.
+ * - `service_type` is passed through when the Admin payload carries it, so an
+ *   Überführung renders its own timeline here as well. Absent means the
+ *   order predates the column, i.e. a Leasingrückgabe.
  */
 export function toVehicleData(vehicle: AdminVehicleRow): VehicleData {
     const orders = vehicle.order_history.map(toVehicleOrderData);
@@ -62,6 +65,9 @@ export function toVehicleData(vehicle: AdminVehicleRow): VehicleData {
 }
 
 function toVehicleOrderData(order: AdminVehicleRow['order_history'][number]): VehicleOrderData {
+    // Read defensively: older Admin payloads do not carry the column yet.
+    const serviceType = (order as { service_type?: string | null }).service_type ?? null;
+
     return {
         id: order.id,
         auftragsnummer: order.auftragsnummer,
@@ -70,6 +76,7 @@ function toVehicleOrderData(order: AdminVehicleRow['order_history'][number]): Ve
         request_payload: order.request_payload ?? null,
         response_status: order.response_status,
         order_status: order.order_status,
+        service_type: serviceType,
         created_by_user_id: null,
         created_at: order.created_at,
         status_updates: (order.status_updates ?? []).map((update) => ({

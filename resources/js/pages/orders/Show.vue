@@ -18,9 +18,10 @@ import OrderHistoryList from '@/components/vehicle/OrderHistoryList.vue';
 import OrderProgress from '@/components/vehicle/OrderProgress.vue';
 import { useLiveUpdates } from '@/composables/useLiveUpdates';
 import AppLayout from '@/layouts/AppLayout.vue';
-import { getCustomerOrderFlowSteps } from '@/lib/customerOrderFlow';
+import { formatRelocationAddress, getCustomerOrderFlowSteps, type RelocationContact, type RelocationDetails } from '@/lib/customerOrderFlow';
 import { ORDER_OUTCOME_LABELS } from '@/lib/orderHistory';
 import { formatPortalDate, formatPortalDateTime } from '@/lib/portalDate';
+import { serviceTitle } from '@/lib/services';
 import { getOrderStatusLabel, getVehicleStatusDisplay } from '@/lib/vehicleStatus';
 import { formatCard, formatEuro } from '@/types/payment';
 import type { OrderDetailVehicle, OrderHistoryEntry, VehicleOrderData } from '@/types/vehicle';
@@ -35,6 +36,38 @@ const props = defineProps<{ vehicle: OrderDetailVehicle; order: VehicleOrderData
 useLiveUpdates((notification) => !notification.meta.vehicle_id || notification.meta.vehicle_id === props.vehicle.vehicle_id);
 
 const isB2b = computed(() => props.vehicle.vehicle_belongs === 'B2B');
+
+/** Überführung orders carry their form data in request_payload and get their own timeline. */
+const isRelocation = computed(() => props.order.service_type === 'ueberfuehrung');
+
+const relocation = computed<RelocationDetails | null>(() =>
+    isRelocation.value ? (props.order.request_payload as unknown as RelocationDetails | null) : null,
+);
+
+function contactText(contact?: RelocationContact | null): string {
+    return [contact?.name, contact?.phone, contact?.email].filter(Boolean).join(' · ');
+}
+
+const relocationRows = computed(() => {
+    const r = relocation.value;
+
+    if (!r) {
+        return [];
+    }
+
+    return [
+        { label: 'Abholadresse', value: formatRelocationAddress(r.pickup_address) },
+        { label: 'Zieladresse', value: formatRelocationAddress(r.destination_address) },
+        { label: 'Wunschtermin', value: r.preferred_date ? formatPortalDate(r.preferred_date) : '' },
+        { label: 'Zeitfenster', value: r.time_slot ?? '' },
+        { label: 'Fahrbereit', value: r.vehicle_ready == null ? '' : r.vehicle_ready ? 'Ja' : 'Nein' },
+        { label: 'Kontakt Abholung', value: contactText(r.pickup_contact) },
+        { label: 'Kontakt Ziel', value: contactText(r.destination_contact) },
+        { label: 'Rechnungsadresse', value: [r.billing_address?.name, formatRelocationAddress(r.billing_address)].filter(Boolean).join(', ') },
+        { label: 'Kostenstelle', value: [r.cost_centre?.name, r.cost_centre?.number].filter(Boolean).join(' · ') },
+        { label: 'Hinweis', value: r.notes ?? '' },
+    ].filter((row) => !!row.value);
+});
 
 const status = computed(() => getVehicleStatusDisplay(props.order.order_status, props.order.payment?.repair_stage));
 
@@ -104,6 +137,8 @@ const steps = computed(() =>
               }
             : null,
         audience: 'customer',
+        serviceType: props.order.service_type ?? null,
+        relocation: relocation.value,
     }),
 );
 
@@ -136,12 +171,12 @@ const paymentRows = computed(() => {
         rows.push({ label: 'Reparaturkosten', value: obligationLabel(state.repair.amount_cents, state.repair.paid_at) });
     }
 
-   if (!isB2b.value && state.cancellation_fee) {
-    rows.push({ 
-        label: 'Stornogebühr', 
-        value: obligationLabel(state.cancellation_fee.amount_cents, state.cancellation_fee.paid_at) 
-    });
-}
+    if (!isB2b.value && state.cancellation_fee) {
+        rows.push({
+            label: 'Stornogebühr',
+            value: obligationLabel(state.cancellation_fee.amount_cents, state.cancellation_fee.paid_at),
+        });
+    }
 
     return rows;
 });
@@ -173,16 +208,17 @@ const collectionRows = computed(() => {
 
     return [
         { label: 'Wunschtermin', value: formatPortalDate(collection.requested_collection_date) },
-       {
- label: 'Abholzeitraum',
- value: collection.requested_collection_time_slot ?? '—'
-},
+        {
+            label: 'Abholzeitraum',
+            value: collection.requested_collection_time_slot ?? '—',
+        },
         { label: 'Bestätigter Termin', value: formatPortalDate(collection.confirmed_collection_date) },
         { label: 'Hinweis', value: collection.collection_note ?? '' },
     ].filter((row) => !!row.value);
 });
 
 const orderFacts = computed(() => [
+    { label: 'Leistung', value: serviceTitle(props.order.service_type) },
     { label: 'Auftragsnummer', value: props.order.auftragsnummer },
     { label: 'Status', value: getOrderStatusLabel(props.order.order_status) },
     { label: 'Partner', value: props.order.leasyback_partner || '—' },
@@ -274,7 +310,7 @@ const siblingOrders = computed<OrderHistoryEntry[]>(() =>
                             </div>
                         </dl>
 
-                       <div v-if="payment.repair?.payable || (!isB2b && payment.cancellation_fee?.payable)" class="flex flex-wrap gap-2 px-5 py-4">
+                        <div v-if="payment.repair?.payable || (!isB2b && payment.cancellation_fee?.payable)" class="flex flex-wrap gap-2 px-5 py-4">
                             <button
                                 v-if="payment.repair?.payable"
                                 type="button"
@@ -285,7 +321,7 @@ const siblingOrders = computed<OrderHistoryEntry[]>(() =>
                                 Reparaturkosten bezahlen
                             </button>
                             <button
-                             v-if="!isB2b && payment.cancellation_fee?.payable"
+                                v-if="!isB2b && payment.cancellation_fee?.payable"
                                 type="button"
                                 class="h-9 rounded-full px-5 text-[13px] font-semibold text-white shadow-lg"
                                 style="background: #ef8450"
@@ -363,6 +399,20 @@ const siblingOrders = computed<OrderHistoryEntry[]>(() =>
                             <div v-for="fact in orderFacts" :key="fact.label" class="flex items-baseline justify-between gap-4 px-5 py-2.5">
                                 <dt class="text-[12.5px] text-[#00000080]">{{ fact.label }}</dt>
                                 <dd class="truncate text-right text-[13px] font-semibold text-[#10393b]">{{ fact.value }}</dd>
+                            </div>
+                        </dl>
+                    </section>
+
+                    <!-- Überführung: both addresses, the requested slot and the contacts from the booking form. -->
+                    <section v-if="relocationRows.length" class="overflow-hidden rounded-[16px] border border-[#e6eded] bg-white">
+                        <header class="border-b border-[#f1f5f5] px-5 py-4">
+                            <h2 class="text-[15px] font-bold text-[#10393b]">Überführung</h2>
+                        </header>
+
+                        <dl class="divide-y divide-[#f1f5f5]">
+                            <div v-for="row in relocationRows" :key="row.label" class="flex items-baseline justify-between gap-4 px-5 py-2.5">
+                                <dt class="shrink-0 text-[12.5px] text-[#00000080]">{{ row.label }}</dt>
+                                <dd class="text-right text-[13px] font-semibold text-[#10393b]">{{ row.value }}</dd>
                             </div>
                         </dl>
                     </section>

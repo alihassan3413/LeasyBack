@@ -9,6 +9,7 @@ import AdminOrderNotesCard from '@/components/admin/AdminOrderNotesCard.vue';
 import AdminOrderTasksCard from '@/components/admin/AdminOrderTasksCard.vue';
 import AdminRepairAppointmentCard from '@/components/admin/AdminRepairAppointmentCard.vue';
 import AdminRepairBillingCard from '@/components/admin/AdminRepairBillingCard.vue';
+import AdminTransferProtocolCard from '@/components/admin/AdminTransferProtocolCard.vue';
 import AdminWorkshopCommissionCard from '@/components/admin/AdminWorkshopCommissionCard.vue';
 import AdminWorkshopQuotationsCard from '@/components/admin/AdminWorkshopQuotationsCard.vue';
 import MasonryGrid from '@/components/shared/MasonryGrid.vue';
@@ -17,8 +18,15 @@ import OrderStatusTimeline from '@/components/shared/OrderStatusTimeline.vue';
 import { useLiveUpdates } from '@/composables/useLiveUpdates';
 import AdminLayout from '@/layouts/AdminLayout.vue';
 import { getAdminDashboardStatus as getStatus } from '@/lib/adminStatus';
-import { getCustomerOrderFlowSteps, getCustomerOrderHeadline } from '@/lib/customerOrderFlow';
+import {
+    formatRelocationAddress,
+    getCustomerOrderFlowSteps,
+    getCustomerOrderHeadline,
+    type RelocationContact,
+    type RelocationDetails,
+} from '@/lib/customerOrderFlow';
 import { formatPortalDate, formatPortalDateTimeShort } from '@/lib/portalDate';
+import { serviceTitle } from '@/lib/services';
 import { toOrderTimelineEntries } from '@/lib/timeline';
 import { getOrderStatusLabel } from '@/lib/vehicleStatus';
 import type { AdminOrderDetail, AdminOrderTaskAction } from '@/types/admin';
@@ -46,6 +54,58 @@ const ownerRoute = computed(() => {
 
 const ownerLabel = computed(() => props.order.company_name || props.order.user_email || 'Nicht zugeordnet');
 const vehicleTitle = computed(() => [props.order.make, props.order.model].filter(Boolean).join(' ') || 'Ohne Marke');
+
+/**
+ * The service fields, read defensively: AdminQueryService::orderDetail() only
+ * carries them once it sends `service_type` and `request_payload`. Until then
+ * every order reads as a Leasingrückgabe, exactly as before.
+ */
+const serviceFields = computed(
+    () => props.order as AdminOrderDetail & { service_type?: string | null; request_payload?: RelocationDetails | null },
+);
+
+const serviceType = computed(() => serviceFields.value.service_type ?? null);
+
+const isRelocation = computed(() => serviceType.value === 'ueberfuehrung');
+
+const relocation = computed<RelocationDetails | null>(() => (isRelocation.value ? (serviceFields.value.request_payload ?? null) : null));
+
+/** The customer's wish from the booking — what the appointment card offers to adopt. */
+const relocationRequest = computed(() =>
+    relocation.value
+        ? { requested_date: relocation.value.preferred_date ?? null, requested_time_slot: relocation.value.time_slot ?? null }
+        : null,
+);
+
+/** Saved once the relocation is scheduled; saving it completes the order. */
+const transferProtocolEditable = computed(
+    () => isRelocation.value && ['confirmed', 'vehicle_collected', 'vehicle_returned', 'invoice_processed'].includes(props.order.order_status),
+);
+
+function contactText(contact?: RelocationContact | null): string {
+    return [contact?.name, contact?.phone, contact?.email].filter(Boolean).join(' · ');
+}
+
+const relocationRows = computed(() => {
+    const r = relocation.value;
+
+    if (!r) {
+        return [];
+    }
+
+    return [
+        { label: 'Abholadresse', value: formatRelocationAddress(r.pickup_address) },
+        { label: 'Zieladresse', value: formatRelocationAddress(r.destination_address) },
+        { label: 'Wunschtermin', value: r.preferred_date ? formatDate(r.preferred_date) : '' },
+        { label: 'Zeitfenster', value: r.time_slot ?? '' },
+        { label: 'Fahrbereit', value: r.vehicle_ready == null ? '' : r.vehicle_ready ? 'Ja' : 'Nein' },
+        { label: 'Kontakt Abholung', value: contactText(r.pickup_contact) },
+        { label: 'Kontakt Ziel', value: contactText(r.destination_contact) },
+        { label: 'Rechnungsadresse', value: [r.billing_address?.name, formatRelocationAddress(r.billing_address)].filter(Boolean).join(', ') },
+        { label: 'Kostenstelle', value: [r.cost_centre?.name, r.cost_centre?.number].filter(Boolean).join(' · ') },
+        { label: 'Hinweis', value: r.notes ?? '' },
+    ].filter((row) => !!row.value);
+});
 
 /**
  * The same customer-flow timeline the dashboard's VehicleExpandedPanel.vue
@@ -89,6 +149,8 @@ const customerFlowSteps = computed(() =>
               }
             : null,
         audience: 'admin',
+        serviceType: serviceType.value,
+        relocation: relocation.value,
     }),
 );
 
@@ -224,6 +286,7 @@ const timelineHeaderLabel = computed(
 const timelineEntries = computed(() => toOrderTimelineEntries(customerFlowSteps.value, props.order.order_status, props.order.vehicle_belongs));
 
 const specs = computed(() => [
+    { label: 'Leistung', value: serviceTitle(serviceType.value), mono: false },
     { label: 'Kennzeichen', value: props.order.license_plate, mono: true },
     { label: 'FIN', value: props.order.vin || '—', mono: true },
     { label: 'Partner', value: props.order.leasyback_partner },
@@ -252,6 +315,7 @@ function formatDateTime(value: string | null): string {
                 <div class="min-w-0 flex-1">
                     <p class="text-[10.5px] font-bold tracking-[0.12em] text-[#9bb0af] uppercase">
                         {{ order.user_type === 'Firmenkunde' ? 'Firmenkunde' : 'Privatkunde' }}
+                        <template v-if="isRelocation"> · Überführung</template>
                     </p>
                     <h1 class="truncate text-[16px] leading-tight font-extrabold tracking-[-0.3px] text-[#10393b]">
                         {{ order.auftragsnummer }} · {{ order.license_plate }}
@@ -423,6 +487,25 @@ function formatDateTime(value: string | null): string {
                         </OrderStatusTimeline>
                     </div>
 
+                    <!-- Überführung: what the customer booked — both addresses, the slot and the contacts. -->
+                    <div v-if="relocationRows.length" id="order-section-ueberfuehrung" class="content-card">
+                        <div class="mb-4">
+                            <h2 class="text-[17px] font-extrabold tracking-[-0.3px] text-[#10393b]">Überführung</h2>
+                            <p class="mt-0.5 text-[12px] font-medium text-[#9bb0af]">Angaben aus der Buchung des Kunden</p>
+                        </div>
+
+                        <dl class="flex flex-col">
+                            <div
+                                v-for="row in relocationRows"
+                                :key="row.label"
+                                class="flex items-start justify-between gap-3 border-b border-[#f2f6f5] py-2 last:border-0"
+                            >
+                                <dt class="shrink-0 text-[12px] font-medium text-[#9bb0af]">{{ row.label }}</dt>
+                                <dd class="text-right text-[12.5px] font-bold text-[#10393b]">{{ row.value }}</dd>
+                            </div>
+                        </dl>
+                    </div>
+
                     <OrderMessages :order-id="order.id" :auftragsnummer="order.auftragsnummer" container-class="content-card overflow-hidden p-0" />
 
                     <AdminCollectionCard
@@ -431,6 +514,16 @@ function formatDateTime(value: string | null): string {
                         :order-id="order.id"
                         :collection="order.collection"
                         :editable="order.editable.collection"
+                        :relocation="relocationRequest"
+                    />
+
+                    <!-- Überführung: the protocol that completes the order. -->
+                    <AdminTransferProtocolCard
+                        v-if="isRelocation"
+                        id="order-section-uebergabeprotokoll"
+                        :order-id="order.id"
+                        :protocol="order.collection?.transfer_protocol ?? null"
+                        :editable="transferProtocolEditable"
                     />
 
                     <AdminOrderNotesCard
@@ -456,7 +549,7 @@ function formatDateTime(value: string | null): string {
                         that were not the invoice.
                     -->
                     <AdminInvoiceCard
-                        v-if="order.vehicle_belongs === 'B2B' && order.billing && showBilling"
+                        v-if="order.vehicle_belongs === 'B2B' && order.billing && showBilling && !isRelocation"
                         id="order-section-abrechnung"
                         :order-id="order.id"
                         :auftragsnummer="order.auftragsnummer"
@@ -590,54 +683,59 @@ function formatDateTime(value: string | null): string {
                     every other card put together only moves the dead space around.
                     Full width is also what the card wants — each position lays out as a
                     row instead of a stack of six fields.
+
+                    An Überführung has no appraisal, quotations or offers, so those
+                    sections are left out for it.
                 -->
-                <AdminAppraisalExtractionCard
-                    :order-id="order.id"
-                    :extractions="order.appraisal_extractions"
-                    :report-documents="order.report_documents"
-                    :editable="order.editable.positions"
-                />
-
-                <AdminAppraisalPositionsCard
-                    id="order-section-positionen"
-                    :order-id="order.id"
-                    :positions="order.appraisal_positions"
-                    :totals="order.appraisal_totals"
-                    :report-documents="order.report_documents"
-                    :editable="order.editable.positions"
-                />
-
-                <!--
-                    Quotations and offers are the two halves of one step — a quotation is
-                    what an offer is built from — so they stay under a single
-                    `order-section-angebote` anchor, which is what the task card scrolls
-                    to.
-
-                    They sit outside the masonry above, side by side. Inside it they were
-                    one unbreakable column item, and a multi-column layout clips an item
-                    taller than its column instead of pushing it down: a handful of
-                    quotations plus an open comparison plus a few offers, and the bottom
-                    of the card simply vanished. Full width also gives the comparison
-                    table its `min-w-[420px]` without forcing a sideways scroll.
-                -->
-                <section id="order-section-angebote" class="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
-                    <AdminWorkshopQuotationsCard
-                        ref="quotationsCard"
+                <template v-if="!isRelocation">
+                    <AdminAppraisalExtractionCard
                         :order-id="order.id"
-                        :quotations="order.workshop_quotations"
-                        :has-positions="!!order.appraisal_positions.length"
-                        :editable="order.editable.offers"
+                        :extractions="order.appraisal_extractions"
+                        :report-documents="order.report_documents"
+                        :editable="order.editable.positions"
                     />
 
-                    <AdminOffersCard
-                        ref="offersCard"
+                    <AdminAppraisalPositionsCard
+                        id="order-section-positionen"
                         :order-id="order.id"
-                        :offers="order.offers"
-                        :quotations="order.workshop_quotations"
-                        :vehicle-belongs="order.vehicle_belongs"
-                        :editable="order.editable.offers"
+                        :positions="order.appraisal_positions"
+                        :totals="order.appraisal_totals"
+                        :report-documents="order.report_documents"
+                        :editable="order.editable.positions"
                     />
-                </section>
+
+                    <!--
+                        Quotations and offers are the two halves of one step — a quotation is
+                        what an offer is built from — so they stay under a single
+                        `order-section-angebote` anchor, which is what the task card scrolls
+                        to.
+
+                        They sit outside the masonry above, side by side. Inside it they were
+                        one unbreakable column item, and a multi-column layout clips an item
+                        taller than its column instead of pushing it down: a handful of
+                        quotations plus an open comparison plus a few offers, and the bottom
+                        of the card simply vanished. Full width also gives the comparison
+                        table its `min-w-[420px]` without forcing a sideways scroll.
+                    -->
+                    <section id="order-section-angebote" class="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+                        <AdminWorkshopQuotationsCard
+                            ref="quotationsCard"
+                            :order-id="order.id"
+                            :quotations="order.workshop_quotations"
+                            :has-positions="!!order.appraisal_positions.length"
+                            :editable="order.editable.offers"
+                        />
+
+                        <AdminOffersCard
+                            ref="offersCard"
+                            :order-id="order.id"
+                            :offers="order.offers"
+                            :quotations="order.workshop_quotations"
+                            :vehicle-belongs="order.vehicle_belongs"
+                            :editable="order.editable.offers"
+                        />
+                    </section>
+                </template>
             </main>
         </div>
     </AdminLayout>

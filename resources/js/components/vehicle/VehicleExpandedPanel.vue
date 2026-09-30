@@ -11,7 +11,14 @@ import OrderHistoryList from '@/components/vehicle/OrderHistoryList.vue';
 import UploadDocumentModal from '@/components/vehicle/UploadDocumentModal.vue';
 import VehiclePanelShell from '@/components/vehicle/VehiclePanelShell.vue';
 import { useB2bPermissions } from '@/composables/useB2bPermissions';
-import { formatGermanDateTime, getCustomerOrderFlowSteps, getCustomerOrderHeadline } from '@/lib/customerOrderFlow';
+import {
+    formatGermanDateTime,
+    formatRelocationAddress,
+    getCustomerOrderFlowSteps,
+    getCustomerOrderHeadline,
+    type RelocationContact,
+    type RelocationDetails,
+} from '@/lib/customerOrderFlow';
 import { formatPortalDate } from '@/lib/portalDate';
 import { toOrderTimelineEntries, type OrderTimelineEntry } from '@/lib/timeline';
 import { getOrderStatusLabel } from '@/lib/vehicleStatus';
@@ -228,6 +235,38 @@ const groupedDocuments = computed(() => {
  */
 const currentOrder = computed(() => props.vehicle.current_order);
 
+/** Überführung orders get their own timeline and an address card instead of the Besichtigungsort. */
+const isRelocation = computed(() => currentOrder.value?.service_type === 'ueberfuehrung');
+
+const relocation = computed<RelocationDetails | null>(() =>
+    isRelocation.value ? (currentOrder.value?.request_payload as unknown as RelocationDetails | null) : null,
+);
+
+function contactText(contact?: RelocationContact | null): string {
+    return [contact?.name, contact?.phone, contact?.email].filter(Boolean).join(' · ');
+}
+
+const relocationRows = computed(() => {
+    const r = relocation.value;
+
+    if (!r) {
+        return [];
+    }
+
+    return [
+        { label: 'Abholadresse', value: formatRelocationAddress(r.pickup_address) },
+        { label: 'Zieladresse', value: formatRelocationAddress(r.destination_address) },
+        { label: 'Wunschtermin', value: r.preferred_date ? formatDate(r.preferred_date) : '' },
+        { label: 'Zeitfenster', value: r.time_slot ?? '' },
+        { label: 'Fahrbereit', value: r.vehicle_ready == null ? '' : r.vehicle_ready ? 'Ja' : 'Nein' },
+        { label: 'Kontakt Abholung', value: contactText(r.pickup_contact) },
+        { label: 'Kontakt Ziel', value: contactText(r.destination_contact) },
+        { label: 'Rechnungsadresse', value: [r.billing_address?.name, formatRelocationAddress(r.billing_address)].filter(Boolean).join(', ') },
+        { label: 'Kostenstelle', value: [r.cost_centre?.name, r.cost_centre?.number].filter(Boolean).join(' · ') },
+        { label: 'Hinweis', value: r.notes ?? '' },
+    ].filter((row) => !!row.value);
+});
+
 /**
  * The recovery path for an order whose mandate was never set up — most often
  * one Admin created on the customer's behalf, since Admin is never shown the
@@ -349,6 +388,8 @@ const customerFlowSteps = computed(() => {
               }
             : null,
         audience: 'customer',
+        serviceType: order.service_type ?? null,
+        relocation: relocation.value,
     });
 });
 
@@ -464,6 +505,8 @@ const publishedOffer = computed(() => offersData.value.find((offer) => offer.sta
 
 const rejectComment = ref('');
 const rejectingOfferId = ref<string | null>(null);
+/** The mobile layout's reject toggle — it was used in the template without ever being declared. */
+const rejectOpen = ref(false);
 
 function toggleReject(offerId: string) {
     rejectingOfferId.value = rejectingOfferId.value === offerId ? null : offerId;
@@ -491,6 +534,7 @@ function submitReject(offerId: string) {
             onFinish: () => {
                 rejectingOfferId.value = null;
                 rejectComment.value = '';
+                rejectOpen.value = false;
             },
         },
     );
@@ -517,6 +561,10 @@ const hasNoDocuments = computed(() => groupedDocuments.value.length === 0 && (!p
  * inspected yet, no offers is simply the correct state.
  */
 const noOffersHint = computed(() => {
+    if (isRelocation.value) {
+        return 'Für eine Überführung werden keine Reparaturangebote erstellt.';
+    }
+
     const status = currentOrder.value?.order_status ?? '';
 
     if (status === 'cancelled' || status === 'discarded') {
@@ -1328,7 +1376,29 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                     </div>
                 </div>
 
-                <div class="relative flex w-full flex-col rounded-[24px] border bg-white p-6" style="border-color: #ececec">
+                <!-- Überführung: pickup and destination instead of an inspection station. -->
+                <div
+                    v-if="isRelocation"
+                    class="relative flex w-full flex-col overflow-hidden rounded-3xl border bg-white"
+                    style="border-color: #ececec"
+                >
+                    <div class="px-6 pt-6">
+                        <p class="text-[16px] font-bold uppercase" style="color: #000">ÜBERFÜHRUNG</p>
+                    </div>
+
+                    <div class="flex flex-col gap-0 px-6 pt-4 pb-6">
+                        <template v-for="(row, index) in relocationRows" :key="row.label">
+                            <div v-if="index > 0" class="h-px bg-gray-200"></div>
+                            <div class="flex items-start justify-between gap-4 py-4">
+                                <span class="shrink-0 text-[16px] font-normal" style="color: #64748b">{{ row.label }}</span>
+                                <span class="text-right text-[16px] font-semibold" style="color: #000">{{ row.value }}</span>
+                            </div>
+                        </template>
+                        <p v-if="!relocationRows.length" class="py-4 text-[14px]" style="color: #8f9ba7">Keine Angaben vorhanden.</p>
+                    </div>
+                </div>
+
+                <div v-else class="relative flex w-full flex-col rounded-[24px] border bg-white p-6" style="border-color: #ececec">
                     <div :class="besichtigungsort ? 'pb-6' : 'pb-2'">
                         <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">Besichtigungsort</p>
                     </div>
@@ -1747,7 +1817,25 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
             </div>
         </div>
 
-        <div class="relative flex flex-col rounded-[24px] border bg-white p-6" style="border-color: #ececec">
+        <!-- Überführung (mobile) -->
+        <div v-if="isRelocation" class="flex flex-col overflow-hidden rounded-3xl border bg-white" style="border-color: #ececec">
+            <div class="px-4 pt-4">
+                <p class="text-[16px] font-bold uppercase" style="color: #000">ÜBERFÜHRUNG</p>
+            </div>
+
+            <div class="flex flex-col gap-0 px-4 pt-3 pb-4">
+                <template v-for="(row, index) in relocationRows" :key="row.label">
+                    <div v-if="index > 0" class="h-px bg-gray-200"></div>
+                    <div class="flex items-start justify-between gap-3 py-3">
+                        <span class="shrink-0 text-[14px] font-normal" style="color: #64748b">{{ row.label }}</span>
+                        <span class="text-right text-[14px] font-semibold" style="color: #000">{{ row.value }}</span>
+                    </div>
+                </template>
+                <p v-if="!relocationRows.length" class="py-3 text-[13px]" style="color: #8f9ba7">Keine Angaben vorhanden.</p>
+            </div>
+        </div>
+
+        <div v-else class="relative flex flex-col rounded-[24px] border bg-white p-6" style="border-color: #ececec">
             <div :class="besichtigungsort ? 'pb-4' : 'pb-2'">
                 <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">Besichtigungsort</p>
             </div>
