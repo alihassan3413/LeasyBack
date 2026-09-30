@@ -15,7 +15,7 @@ class VehicleDocumentPolicyTest extends TestCase
 
     private function bearer(User $user): array
     {
-        return ['Authorization' => 'Bearer '.$user->createToken('test')->plainTextToken];
+        return ['Authorization' => 'Bearer '.$this->mfaVerifiedToken($user)];
     }
 
     public function test_owner_can_list_and_view_own_vehicle_documents(): void

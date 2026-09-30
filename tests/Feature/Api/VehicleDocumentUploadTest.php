@@ -22,7 +22,7 @@ class VehicleDocumentUploadTest extends TestCase
 
     private function bearer(User $user): array
     {
-        return ['Authorization' => 'Bearer '.$user->createToken('test')->plainTextToken];
+        return ['Authorization' => 'Bearer '.$this->mfaVerifiedToken($user)];
     }
 
     public function test_upload_accepts_an_allowed_file_within_the_size_limit(): void

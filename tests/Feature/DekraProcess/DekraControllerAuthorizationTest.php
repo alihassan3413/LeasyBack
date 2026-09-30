@@ -21,7 +21,7 @@ class DekraControllerAuthorizationTest extends TestCase
 
     private function bearer(User $user): array
     {
-        return ['Authorization' => 'Bearer '.$user->createToken('test')->plainTextToken];
+        return ['Authorization' => 'Bearer '.$this->mfaVerifiedToken($user)];
     }
 
     /**

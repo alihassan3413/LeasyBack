@@ -28,7 +28,7 @@ Route::prefix('auth')->group(function () {
 });
 
 // Protected routes (require Sanctum token)
-Route::middleware(['auth:sanctum', 'active'])->group(function () {
+Route::middleware(['auth:sanctum', 'active', 'mfa'])->group(function () {
 
     // Auth endpoints
     Route::prefix('auth')->group(function () {

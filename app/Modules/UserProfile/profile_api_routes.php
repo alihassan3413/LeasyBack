@@ -5,7 +5,7 @@ use App\Modules\UserProfile\B2B\Http\Controllers\B2BController;
 use App\Modules\UserProfile\Profile\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Route;
 
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware(['auth:sanctum', 'mfa'])->group(function () {
     Route::prefix('userprofile')->name('userprofile.')->group(function () {
         Route::post('address-contact', [ProfileController::class, 'storeAddressContact'])->name('address-contact.store');
         Route::put('address-contact', [ProfileController::class, 'updateAddressContact'])->name('address-contact.update');

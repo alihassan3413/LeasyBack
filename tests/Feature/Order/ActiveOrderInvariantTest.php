@@ -313,7 +313,7 @@ class ActiveOrderInvariantTest extends TestCase
             'order_status' => OrderStatus::OrderPlaced->value,
         ]);
 
-        $this->actingAs($customer, 'sanctum')
+        $this->actingAsApi($customer)
             ->postJson('/api/order/others/create/'.$vehicle->vehicle_id, [
                 'provider' => 'dekra',
                 'station_id' => $station->station_id,
@@ -335,7 +335,7 @@ class ActiveOrderInvariantTest extends TestCase
             'order_status' => OrderStatus::OrderPlaced->value,
         ]);
 
-        $this->actingAs($customer, 'sanctum')
+        $this->actingAsApi($customer)
             ->postJson('/api/order/tuvsud/create/'.$vehicle->vehicle_id, [
                 'station_id' => $station->station_id,
                 'termin' => now()->addWeek()->toDateTimeString(),

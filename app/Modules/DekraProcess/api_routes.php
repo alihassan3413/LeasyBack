@@ -8,7 +8,7 @@ Route::post('dekra/terminbestaetigung', [DekraController::class, 'receiveTerminb
     ->middleware(['throttle:30,1', 'dekra.webhook'])
     ->name('dekra.terminbestaetigung.receive');
 
-Route::middleware('auth:sanctum')
+Route::middleware(['auth:sanctum', 'mfa'])
     ->prefix('dekra')
     ->name('dekra.')
     ->group(function () {

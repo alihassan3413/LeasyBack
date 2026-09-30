@@ -2,6 +2,7 @@
 
 use App\Exceptions\ErrorPageRenderer;
 use App\Http\Middleware\EnsureB2bPermission;
+use App\Http\Middleware\EnsureMfaSatisfied;
 use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Middleware\EnsureUserIsAdmin;
 use App\Http\Middleware\HandleInertiaRequests;
@@ -53,16 +54,34 @@ return Application::configure(basePath: dirname(__DIR__))
             Route::middleware('api')
                 ->prefix('api')
                 ->group(base_path('routes/stripe.php'));
+
+            // MFA registers its own groups (browser and token) because the
+            // challenge half must stay reachable by guests while the
+            // enrollment half requires a signed-in caller.
+            Route::group([], base_path('routes/mfa.php'));
         },
     )
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->web(append: [
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,
+
+            // Applied to the whole browser group rather than to chosen
+            // routes: a second factor that has to be remembered per route is
+            // one that will be forgotten on the next one. It is a no-op for
+            // guests and for accounts the rollout does not cover.
+            //
+            // The API side cannot be blanket-applied the same way — that group
+            // also carries the signature-authenticated webhooks, which have no
+            // user by design — so there `mfa` sits on each `auth:sanctum`
+            // group instead, and MfaMiddlewareCoverageTest proves none is
+            // missed.
+            EnsureMfaSatisfied::class,
         ]);
 
         $middleware->alias([
             'active' => EnsureUserIsActive::class,
+            'mfa' => EnsureMfaSatisfied::class,
             'admin' => EnsureUserIsAdmin::class,
             'b2b.can' => EnsureB2bPermission::class,
             'tuvsud.webhook' => VerifyTuvsudApiKey::class,

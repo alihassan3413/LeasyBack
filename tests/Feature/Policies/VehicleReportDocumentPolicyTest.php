@@ -17,7 +17,7 @@ class VehicleReportDocumentPolicyTest extends TestCase
 
     private function bearer(User $user): array
     {
-        return ['Authorization' => 'Bearer '.$user->createToken('test')->plainTextToken];
+        return ['Authorization' => 'Bearer '.$this->mfaVerifiedToken($user)];
     }
 
     public function test_non_admin_cannot_upload_report_document(): void
