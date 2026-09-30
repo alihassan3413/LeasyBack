@@ -9,10 +9,12 @@ use App\Models\User;
 use App\Modules\UserProfile\B2B\Services\B2bAnalyticsService;
 use App\Modules\UserProfile\B2B\Services\B2bContext;
 use App\Modules\UserProfile\B2B\Services\B2bStatisticsService;
+use App\Modules\UserProfile\Order\Models\LogisticsAddressProfile;
 use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
 use App\Modules\UserProfile\Vehicle\Services\VehicleService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -47,7 +49,6 @@ class DashboardController extends Controller
 
     public function index(Request $request): Response|RedirectResponse
     {
-    
         $user = $request->user();
         $membership = $this->b2bContext->activeMembership($user);
 
@@ -117,6 +118,9 @@ class DashboardController extends Controller
                 ->orderBy('provider')
                 ->orderBy('name')
                 ->get(['station_id', 'provider', 'name', 'strasse', 'plz', 'ort', 'bundesland', 'land']),
+            // What the Überführung form offers under "Gespeicherte Adresse /
+            // Kostenstelle wählen". The company's own data only.
+            'relocationOptions' => $this->relocationOptions($membership->b2bId),
             /*
              * The company overview — fleet states, key figures and the recent
              * activity above — is for whoever may see the company's numbers,
@@ -135,5 +139,44 @@ class DashboardController extends Controller
             // dashboard reads the same numbers rather than deriving its own.
             'statistics' => $seesCompanyOverview ? $this->statistics->summary($membership, $user->id) : null,
         ]);
+    }
+
+    /**
+     * Saved addresses (the same logistics address profiles the fleet uses as
+     * pickup addresses) and the cost centres already recorded on the
+     * company's vehicles.
+     *
+     * @return array{address_profiles: list<array{id: string, profile_name: string, details: array<string, mixed>|null}>, cost_centres: list<string>}
+     */
+    private function relocationOptions(string $b2bId): array
+    {
+        $addressProfiles = LogisticsAddressProfile::where('owner_type', 'B2B')
+            ->where('b2b_id', $b2bId)
+            ->orderByDesc('is_default')
+            ->orderBy('profile_name')
+            ->get(['id', 'profile_name', 'details'])
+            ->map(fn (LogisticsAddressProfile $profile) => [
+                'id' => $profile->id,
+                'profile_name' => $profile->profile_name,
+                'details' => $profile->details,
+            ])
+            ->values()
+            ->all();
+
+        $costCentres = DB::table('vehicles')
+            ->where('vehicle_belongs', 'B2B')
+            ->where('b2b_id', $b2bId)
+            ->whereNotNull('cost_centre')
+            ->where('cost_centre', '!=', '')
+            ->distinct()
+            ->orderBy('cost_centre')
+            ->pluck('cost_centre')
+            ->values()
+            ->all();
+
+        return [
+            'address_profiles' => $addressProfiles,
+            'cost_centres' => $costCentres,
+        ];
     }
 }

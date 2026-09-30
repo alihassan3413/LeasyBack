@@ -27,6 +27,7 @@ declare global {
   const PLATE_MESSAGES: typeof import('../lib/licensePlate').PLATE_MESSAGES
   const PORTAL_LOCALE: typeof import('../lib/portalDate').PORTAL_LOCALE
   const PORTAL_TIME_ZONE: typeof import('../lib/portalDate').PORTAL_TIME_ZONE
+  const RELOCATION_STAGE_SEQUENCE: typeof import('../lib/customerOrderFlow').RELOCATION_STAGE_SEQUENCE
   const REPORT_DOCUMENT_TYPES: typeof import('../lib/documentTypes').REPORT_DOCUMENT_TYPES
   const SERVICES: typeof import('../lib/services').SERVICES
   const TASK_PRIORITY_STYLE: typeof import('../lib/adminTaskPriority').TASK_PRIORITY_STYLE
@@ -49,6 +50,7 @@ declare global {
   const formatPortalDate: typeof import('../lib/portalDate').formatPortalDate
   const formatPortalDateTime: typeof import('../lib/portalDate').formatPortalDateTime
   const formatPortalDateTimeShort: typeof import('../lib/portalDate').formatPortalDateTimeShort
+  const formatRelocationAddress: typeof import('../lib/customerOrderFlow').formatRelocationAddress
   const getAdminDashboardStatus: typeof import('../lib/adminStatus').getAdminDashboardStatus
   const getCurrentInstance: typeof import('vue').getCurrentInstance
   const getCurrentScope: typeof import('vue').getCurrentScope
@@ -114,6 +116,7 @@ declare global {
   const router: typeof import('@inertiajs/vue3').router
   const sanitizePlateNumber: typeof import('../lib/licensePlate').sanitizePlateNumber
   const sanitizeVin: typeof import('../lib/vin').sanitizeVin
+  const serviceTitle: typeof import('../lib/services').serviceTitle
   const shallowReactive: typeof import('vue').shallowReactive
   const shallowReadonly: typeof import('vue').shallowReadonly
   const shallowRef: typeof import('vue').shallowRef
@@ -194,7 +197,7 @@ declare global {
   export type { StatusPillStyle } from '../lib/adminStatus'
   import('../lib/adminStatus')
   // @ts-ignore
-  export type { CustomerOrderStage, RepairPaymentStage, CustomerOrderCancellationFee, CustomerOrderRepairPayment, B2bOrderStage, CustomerOrderFlowStep, CustomerOrderStatusHistoryEntry, CustomerOrderBesichtigungsort, CustomerOrderReportDocument, CustomerOrderOffer, CustomerOrderFlowInput, CustomerOrderCollection, NewOrderAction } from '../lib/customerOrderFlow'
+  export type { CustomerOrderStage, RepairPaymentStage, CustomerOrderCancellationFee, CustomerOrderRepairPayment, B2bOrderStage, CustomerOrderFlowStep, CustomerOrderStatusHistoryEntry, CustomerOrderBesichtigungsort, CustomerOrderReportDocument, CustomerOrderOffer, CustomerOrderFlowInput, CustomerOrderCollection, RelocationStage, RelocationAddress, RelocationContact, RelocationDetails, NewOrderAction } from '../lib/customerOrderFlow'
   import('../lib/customerOrderFlow')
   // @ts-ignore
   export type { ErrorIllustrationVariant, ErrorPageCopy } from '../lib/errorPages'
@@ -245,6 +248,7 @@ declare module 'vue' {
     readonly PLATE_MESSAGES: UnwrapRef<typeof import('../lib/licensePlate')['PLATE_MESSAGES']>
     readonly PORTAL_LOCALE: UnwrapRef<typeof import('../lib/portalDate')['PORTAL_LOCALE']>
     readonly PORTAL_TIME_ZONE: UnwrapRef<typeof import('../lib/portalDate')['PORTAL_TIME_ZONE']>
+    readonly RELOCATION_STAGE_SEQUENCE: UnwrapRef<typeof import('../lib/customerOrderFlow')['RELOCATION_STAGE_SEQUENCE']>
     readonly REPORT_DOCUMENT_TYPES: UnwrapRef<typeof import('../lib/documentTypes')['REPORT_DOCUMENT_TYPES']>
     readonly SERVICES: UnwrapRef<typeof import('../lib/services')['SERVICES']>
     readonly TASK_PRIORITY_STYLE: UnwrapRef<typeof import('../lib/adminTaskPriority')['TASK_PRIORITY_STYLE']>
@@ -267,6 +271,7 @@ declare module 'vue' {
     readonly formatPortalDate: UnwrapRef<typeof import('../lib/portalDate')['formatPortalDate']>
     readonly formatPortalDateTime: UnwrapRef<typeof import('../lib/portalDate')['formatPortalDateTime']>
     readonly formatPortalDateTimeShort: UnwrapRef<typeof import('../lib/portalDate')['formatPortalDateTimeShort']>
+    readonly formatRelocationAddress: UnwrapRef<typeof import('../lib/customerOrderFlow')['formatRelocationAddress']>
     readonly getAdminDashboardStatus: UnwrapRef<typeof import('../lib/adminStatus')['getAdminDashboardStatus']>
     readonly getCurrentInstance: UnwrapRef<typeof import('vue')['getCurrentInstance']>
     readonly getCurrentScope: UnwrapRef<typeof import('vue')['getCurrentScope']>
@@ -332,6 +337,7 @@ declare module 'vue' {
     readonly router: UnwrapRef<typeof import('@inertiajs/vue3')['router']>
     readonly sanitizePlateNumber: UnwrapRef<typeof import('../lib/licensePlate')['sanitizePlateNumber']>
     readonly sanitizeVin: UnwrapRef<typeof import('../lib/vin')['sanitizeVin']>
+    readonly serviceTitle: UnwrapRef<typeof import('../lib/services')['serviceTitle']>
     readonly shallowReactive: UnwrapRef<typeof import('vue')['shallowReactive']>
     readonly shallowReadonly: UnwrapRef<typeof import('vue')['shallowReadonly']>
     readonly shallowRef: UnwrapRef<typeof import('vue')['shallowRef']>

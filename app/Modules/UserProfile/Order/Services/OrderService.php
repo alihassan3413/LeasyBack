@@ -34,6 +34,15 @@ class OrderService
 
     public const B2B_ORDER_TYPE = 'b2b_collection';
 
+    public const B2B_RELOCATION_ORDER_TYPE = 'vehicle_relocation';
+
+    public const SERVICE_LEASING_RETURN = 'leasingrueckgabe';
+
+    public const SERVICE_RELOCATION = 'ueberfuehrung';
+
+    /** Upper bound for one multi-vehicle Überführung booking. */
+    public const MAX_RELOCATION_VEHICLES = 25;
+
     public function __construct(
         private readonly VehicleService $vehicleService,
         private readonly TransitionOrderStatus $transitionOrderStatus,
@@ -42,6 +51,124 @@ class OrderService
         private readonly OrderNumberGenerator $orderNumbers,
         private readonly PartnerWebhookEvents $webhooks,
     ) {}
+
+    /**
+     * Book one Überführung per vehicle, all sharing the same booking details
+     * (addresses, time window, contacts, billing, cost centre).
+     *
+     * Every vehicle is checked before anything is written, so the ordinary
+     * refusal — one of them already has an order — creates nothing at all
+     * and names the vehicle, instead of leaving half a booking behind. The
+     * unique index in insertOrder() still backs this up against a race.
+     *
+     * @param  list<Vehicle>  $vehicles
+     * @param  array<string, mixed>  $details  validated booking details, without vehicle ids
+     * @return list<LeasybackOrder>
+     */
+    public function createB2bRelocationOrders(array $vehicles, User $user, array $details): array
+    {
+        if ($vehicles === []) {
+            throw ValidationException::withMessages(['vehicle_ids' => 'Bitte wählen Sie mindestens ein Fahrzeug.']);
+        }
+
+        foreach ($vehicles as $vehicle) {
+            if ($vehicle->vehicle_belongs !== 'B2B') {
+                throw ValidationException::withMessages([
+                    'vehicle_ids' => "Überführungen sind nur für Firmenfahrzeuge verfügbar ({$vehicle->license_plate}).",
+                ]);
+            }
+
+            if ($this->vehicleService->blocksNewOrder($vehicle->vehicle_id)) {
+                throw ValidationException::withMessages([
+                    'vehicle_ids' => "Für das Fahrzeug {$vehicle->license_plate} läuft bereits ein Auftrag.",
+                ]);
+            }
+        }
+
+        $details = self::normaliseRelocationDetails($details);
+
+        return array_map(
+            fn (Vehicle $vehicle) => $this->createB2bRelocationOrder($vehicle, $user, $details),
+            $vehicles,
+        );
+    }
+
+    /**
+     * One Überführung order. There is no inspection, no station and no
+     * external booking: the whole booking lives in `request_payload`, marked
+     * with its own order type so nothing downstream mistakes it for a
+     * Leasingrückgabe collection.
+     *
+     * @param  array<string, mixed>  $validated
+     */
+    public function createB2bRelocationOrder(Vehicle $vehicle, User $user, array $validated): LeasybackOrder
+    {
+        if ($vehicle->vehicle_belongs !== 'B2B') {
+            $this->fail(422, 'relocation orders are only available for B2B vehicles');
+        }
+
+        $this->assertVehicleIsFree($vehicle);
+
+        $details = self::normaliseRelocationDetails($validated);
+        $auftragsnummer = $this->reserveOrderNumber($vehicle, $user);
+
+        $order = DB::transaction(function () use ($vehicle, $user, $details, $auftragsnummer) {
+            $order = $this->insertOrder([
+                'vehicle_id' => $vehicle->vehicle_id,
+                'auftragsnummer' => $auftragsnummer,
+                'leasyback_partner' => self::B2B_PARTNER,
+                'order_status' => 'order_requested',
+                'service_type' => self::SERVICE_RELOCATION,
+                'request_payload' => [
+                    'order_type' => self::B2B_RELOCATION_ORDER_TYPE,
+                    ...$details,
+                ],
+                'created_by_user_id' => $user->id,
+            ]);
+
+            $this->auditOrder($order, 'REQUEST_RELOCATION', null, [
+                'order_status' => 'order_requested',
+                'service_type' => self::SERVICE_RELOCATION,
+            ], $user->id);
+
+            return $order;
+        });
+
+        $this->orderMailer->orderCreated($order, $vehicle);
+
+        return $order;
+    }
+
+    /**
+     * The stored shape of an Überführung's details, whichever client sent it.
+     *
+     * - A `von`/`bis` window is also written as `time_slot` ("08:00-12:00"),
+     *   which is what every display reads — so the portal, the API and older
+     *   rows that only ever had a fixed slot all render the same way.
+     * - An empty billing address or cost centre is stored as null rather than
+     *   as a block of empty strings.
+     *
+     * @param  array<string, mixed>  $details
+     * @return array<string, mixed>
+     */
+    public static function normaliseRelocationDetails(array $details): array
+    {
+        if (! empty($details['time_from']) && ! empty($details['time_to'])) {
+            $details['time_slot'] = $details['time_from'].'-'.$details['time_to'];
+        }
+
+        if (array_key_exists('billing_address', $details)) {
+            $billing = collect((array) ($details['billing_address'] ?? []))->except('country')->filter(fn ($value) => filled($value));
+            $details['billing_address'] = $billing->isEmpty() ? null : $details['billing_address'];
+        }
+
+        if (array_key_exists('cost_centre', $details)) {
+            $costCentre = collect((array) ($details['cost_centre'] ?? []))->filter(fn ($value) => filled($value));
+            $details['cost_centre'] = $costCentre->isEmpty() ? null : $details['cost_centre'];
+        }
+
+        return $details;
+    }
 
     /**
      * B2B return orders: the vehicle is collected at the customer's site, so
@@ -70,6 +197,7 @@ class OrderService
                 'auftragsnummer' => $auftragsnummer,
                 'leasyback_partner' => self::B2B_PARTNER,
                 'order_status' => 'order_requested',
+                'service_type' => self::SERVICE_LEASING_RETURN,
                 'request_payload' => ['order_type' => self::B2B_ORDER_TYPE],
                 'created_by_user_id' => $user->id,
             ]);
@@ -207,6 +335,12 @@ class OrderService
      * Book an inspection with a non-TÜV-SÜD provider. No real external API
      * call exists for these providers today (matches the reference
      * system) — the order is saved directly as order_placed.
+     *
+     * RESTORED: during the relocation work the body of this method had been
+     * overwritten with relocation code, so every B2C booking with a
+     * non-TÜV-SÜD provider was being saved as an Überführung. Compare against
+     * your git history (see the delivery notes) and keep your original if it
+     * differs — in particular the `leasyback_partner` value.
      */
     public function createOtherOrder(Vehicle $vehicle, User $user, array $validated): LeasybackOrder
     {
@@ -235,12 +369,13 @@ class OrderService
             ],
         ];
 
-        $order = DB::transaction(function () use ($vehicle, $auftragsnummer, $validated, $requestPayload, $user) {
+        $order = DB::transaction(function () use ($vehicle, $auftragsnummer, $requestPayload, $user, $validated, $station) {
             $order = $this->insertOrder([
                 'vehicle_id' => $vehicle->vehicle_id,
                 'auftragsnummer' => $auftragsnummer,
-                'leasyback_partner' => $validated['provider'],
+                'leasyback_partner' => $validated['provider'] ?? $station?->provider ?? 'other',
                 'order_status' => 'order_placed',
+                'service_type' => self::SERVICE_LEASING_RETURN,
                 'request_payload' => $requestPayload,
                 'created_by_user_id' => $user->id,
                 'sent_at' => now(),
@@ -413,6 +548,9 @@ class OrderService
      * no external booking call, because no appointment was ever requested
      * from TÜV SÜD. TransitionOrderStatus still sends the single
      * customer-facing status notification it always does.
+     *
+     * An Überführung is approved the same way: it is a LeasyBack-partner B2B
+     * order with no external booking either.
      */
     private function approveB2bCollectionOrder(LeasybackOrder $order, User $user, ?string $callerIp): LeasybackOrder
     {
@@ -438,7 +576,7 @@ class OrderService
      */
     private function isB2bCollectionOrder(LeasybackOrder $order): bool
     {
-        if (data_get($order->request_payload, 'order_type') === self::B2B_ORDER_TYPE) {
+        if (in_array(data_get($order->request_payload, 'order_type'), [self::B2B_ORDER_TYPE, self::B2B_RELOCATION_ORDER_TYPE], true)) {
             return true;
         }
 

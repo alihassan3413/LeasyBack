@@ -11,6 +11,12 @@
  * Editable only until the vehicle is collected (`editable`) — afterwards the
  * card stays as the record of what was agreed, read-only. A new confirmed date
  * cannot lie in the past; an unchanged existing one is left alone.
+ *
+ * With `relocation` set (an Überführung) the card becomes the appointment
+ * entry of the traffic-light spec: date *and* a full time window (von/bis,
+ * at least two hours). Saving both schedules the relocation. The customer's
+ * wish comes from the booking itself, and the addresses live in the
+ * Überführung card, so the address fields are left out.
  */
 import CalendarDateField from '@/components/form/CalendarDateField.vue';
 import InputError from '@/components/InputError.vue';
@@ -18,13 +24,50 @@ import { Input } from '@/components/ui/input';
 import { formatPortalDate } from '@/lib/portalDate';
 import type { OrderCollectionData } from '@/types/order';
 import { useForm } from '@inertiajs/vue3';
-import { computed } from 'vue';
+import { computed, watch } from 'vue';
 import MdiTruckOutline from '~icons/mdi/truck-outline';
 
-const props = defineProps<{ orderId: string; collection: OrderCollectionData | null; editable: boolean }>();
+const props = defineProps<{
+    orderId: string;
+    collection: OrderCollectionData | null;
+    editable: boolean;
+    /** Set for an Überführung: the customer's wish from the booking. */
+    relocation?: { requested_date: string | null; requested_time_slot: string | null } | null;
+}>();
+
+const isRelocation = computed(() => !!props.relocation);
+
+/* ── Time window (Überführung): 06:00–20:00 in half hours, at least 2 hours ── */
+const MIN_WINDOW_MINUTES = 120;
+
+const TIMES = Array.from({ length: 29 }, (_, index) => {
+    const minutes = 6 * 60 + index * 30;
+
+    return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+});
+
+function toMinutes(time: string): number {
+    const [hours, minutes] = time.split(':').map(Number);
+
+    return hours * 60 + minutes;
+}
+
+const lastTime = toMinutes(TIMES[TIMES.length - 1]);
+const startTimes = TIMES.filter((time) => toMinutes(time) + MIN_WINDOW_MINUTES <= lastTime);
+
+/** "08:00-12:00" → ['08:00', '12:00'], or empty strings when it is not a window. */
+function splitSlot(slot: string | null | undefined): [string, string] {
+    const match = /^(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})$/.exec((slot ?? '').trim());
+
+    return match ? [match[1], match[2]] : ['', ''];
+}
+
+const [initialFrom, initialTo] = splitSlot(props.collection?.confirmed_collection_time_slot);
 
 const form = useForm(() => ({
     confirmed_collection_date: props.collection?.confirmed_collection_date ?? '',
+    confirmed_time_from: initialFrom,
+    confirmed_time_to: initialTo,
     internal_note: props.collection?.internal_note ?? '',
     collection_address: {
         street: props.collection?.collection_address?.street ?? '',
@@ -36,9 +79,46 @@ const form = useForm(() => ({
     },
 }));
 
-const requestedDate = computed(() => props.collection?.requested_collection_date ?? null);
+const endTimes = computed(() =>
+    form.confirmed_time_from ? TIMES.filter((time) => toMinutes(time) >= toMinutes(form.confirmed_time_from) + MIN_WINDOW_MINUTES) : [],
+);
 
-const canAdoptRequested = computed(() => requestedDate.value !== null && form.confirmed_collection_date !== requestedDate.value);
+// A start change can make the chosen end too early — clear it rather than send an invalid window.
+watch(
+    () => form.confirmed_time_from,
+    () => {
+        if (form.confirmed_time_to && !endTimes.value.includes(form.confirmed_time_to)) {
+            form.confirmed_time_to = '';
+        }
+    },
+);
+
+const requestedDate = computed(() =>
+    isRelocation.value ? (props.relocation?.requested_date ?? null) : (props.collection?.requested_collection_date ?? null),
+);
+
+const requestedSlot = computed(() =>
+    isRelocation.value ? (props.relocation?.requested_time_slot ?? null) : (props.collection?.requested_collection_time_slot ?? null),
+);
+
+const canAdoptRequested = computed(() => {
+    if (requestedDate.value === null) {
+        return false;
+    }
+
+    if (!isRelocation.value) {
+        return form.confirmed_collection_date !== requestedDate.value;
+    }
+
+    const [from, to] = splitSlot(requestedSlot.value);
+
+    return form.confirmed_collection_date !== requestedDate.value || form.confirmed_time_from !== from || form.confirmed_time_to !== to;
+});
+
+/** An Überführung is only scheduled by date plus a complete window. */
+const relocationIncomplete = computed(
+    () => isRelocation.value && (form.confirmed_collection_date === '' || form.confirmed_time_from === '' || form.confirmed_time_to === ''),
+);
 
 function formatDate(value: string | null): string {
     return formatPortalDate(value) || '—';
@@ -46,15 +126,39 @@ function formatDate(value: string | null): string {
 
 function adoptRequested() {
     form.confirmed_collection_date = requestedDate.value ?? '';
+
+    if (isRelocation.value) {
+        const [from, to] = splitSlot(requestedSlot.value);
+
+        // The customer's window only when it satisfies the 2-hour rule here.
+        if (from && startTimes.includes(from)) {
+            form.confirmed_time_from = from;
+            form.confirmed_time_to = to && toMinutes(to) >= toMinutes(from) + MIN_WINDOW_MINUTES ? to : '';
+        }
+    }
 }
 
 function submit() {
-    if (!props.editable) {
+    if (!props.editable || relocationIncomplete.value) {
         return;
     }
 
-    form.patch(route('admin.orders.collection', props.orderId), { preserveScroll: true });
+    form.transform((data) => {
+        if (!isRelocation.value) {
+            // Unchanged for every other order: the time window is not sent.
+            const { confirmed_time_from: _from, confirmed_time_to: _to, ...rest } = data;
+
+            return rest;
+        }
+
+        // The Überführung's addresses live in its booking, not in this card.
+        const { collection_address: _address, ...rest } = data;
+
+        return rest;
+    }).patch(route('admin.orders.collection', props.orderId), { preserveScroll: true });
 }
+
+const selectClass = 'h-9 w-full rounded-md border border-[#e9efee] bg-transparent px-3 text-[12.5px] outline-none focus:border-[#01b990]';
 </script>
 
 <template>
@@ -63,38 +167,36 @@ function submit() {
             <span class="flex h-9 w-9 items-center justify-center rounded-[11px] bg-[#4FA3A6]/15 text-[#2c7a7d]">
                 <MdiTruckOutline class="size-[17px]" />
             </span>
-            <h2 class="text-[15px] font-extrabold tracking-[-0.3px] text-[#10393b]">Abholung</h2>
+            <h2 class="text-[15px] font-extrabold tracking-[-0.3px] text-[#10393b]">{{ isRelocation ? 'Überführungstermin' : 'Abholung' }}</h2>
         </div>
 
         <dl class="mb-4 flex flex-col">
             <div class="flex items-center justify-between gap-3 border-b border-[#f2f6f5] py-2">
                 <dt class="text-[12px] font-medium text-[#9bb0af]">Wunschtermin Kunde</dt>
                 <dd class="text-[12.5px] font-bold text-[#10393b]">{{ formatDate(requestedDate) }}</dd>
-                
             </div>
             <div class="flex items-center justify-between gap-3 border-b border-[#f2f6f5] py-2">
-    <dt class="text-[12px] font-medium text-[#9bb0af]">
-        Zeitraum
-    </dt>
-
-    <dd class="text-[12.5px] font-bold text-[#10393b]">
-        {{ collection?.requested_collection_time_slot || '—' }}
-    </dd>
-</div>
-            <div class="flex items-center justify-between gap-3 py-2">
+                <dt class="text-[12px] font-medium text-[#9bb0af]">Zeitraum</dt>
+                <dd class="text-[12.5px] font-bold text-[#10393b]">{{ requestedSlot || '—' }}</dd>
+            </div>
+            <div v-if="!isRelocation" class="flex items-center justify-between gap-3 py-2">
                 <dt class="text-[12px] font-medium text-[#9bb0af]">Hinweis Kunde</dt>
                 <dd class="text-right text-[12.5px] font-bold text-[#10393b]">{{ collection?.collection_note || '—' }}</dd>
             </div>
         </dl>
 
         <p v-if="!editable" class="mb-3 rounded-[11px] bg-[#f6f9f8] px-3 py-2 text-[11.5px] text-[#6f8585]">
-            Die Abholung kann in diesem Auftragsstatus nicht mehr geändert werden — sie ist nur bis zur Abholung des Fahrzeugs bearbeitbar.
+            {{
+                isRelocation
+                    ? 'Der Überführungstermin kann in diesem Auftragsstatus nicht mehr geändert werden.'
+                    : 'Die Abholung kann in diesem Auftragsstatus nicht mehr geändert werden — sie ist nur bis zur Abholung des Fahrzeugs bearbeitbar.'
+            }}
         </p>
 
         <form class="flex flex-col gap-3" @submit.prevent="submit">
             <fieldset :disabled="!editable" class="flex min-w-0 flex-col gap-3">
                 <div class="flex flex-col gap-1">
-                    <label class="text-[12px] font-bold text-[#10393b]">Bestätigter Abholtermin</label>
+                    <label class="text-[12px] font-bold text-[#10393b]">{{ isRelocation ? 'Termin (Datum)' : 'Bestätigter Abholtermin' }}</label>
                     <CalendarDateField
                         v-model="form.confirmed_collection_date"
                         :disabled="!editable"
@@ -111,7 +213,32 @@ function submit() {
                     </button>
                 </div>
 
-                <div class="grid grid-cols-2 gap-2">
+                <!-- Überführung: the full time window, required together with the date. -->
+                <div v-if="isRelocation" class="grid grid-cols-2 gap-2">
+                    <div class="flex flex-col gap-1">
+                        <label class="text-[12px] font-bold text-[#10393b]">Zeitfenster von</label>
+                        <select v-model="form.confirmed_time_from" :class="selectClass">
+                            <option value="">Startzeit wählen</option>
+                            <option v-for="time in startTimes" :key="time" :value="time">{{ time }}</option>
+                        </select>
+                        <InputError :message="form.errors.confirmed_time_from" />
+                    </div>
+
+                    <div class="flex flex-col gap-1">
+                        <label class="text-[12px] font-bold text-[#10393b]">Zeitfenster bis</label>
+                        <select v-model="form.confirmed_time_to" :class="selectClass" :disabled="!form.confirmed_time_from">
+                            <option value="">Endzeit wählen</option>
+                            <option v-for="time in endTimes" :key="time" :value="time">{{ time }}</option>
+                        </select>
+                        <InputError :message="form.errors.confirmed_time_to" />
+                    </div>
+
+                    <p class="col-span-2 text-[11px] text-[#9bb0af]">
+                        Mindestens 2 Stunden. Mit Datum und Zeitfenster ist die Überführung terminiert.
+                    </p>
+                </div>
+
+                <div v-if="!isRelocation" class="grid grid-cols-2 gap-2">
                     <div class="flex flex-col gap-1">
                         <label class="text-[12px] font-bold text-[#10393b]">Straße</label>
                         <Input v-model="form.collection_address.street" />
@@ -163,10 +290,10 @@ function submit() {
                 <button
                     v-if="editable"
                     type="submit"
-                    :disabled="form.processing"
+                    :disabled="form.processing || relocationIncomplete"
                     class="self-end rounded-[13px] bg-[#10393b] px-4 py-2.5 text-[13px] font-bold text-white transition-all hover:opacity-90 disabled:opacity-50"
                 >
-                    {{ form.processing ? 'Speichert...' : 'Abholung speichern' }}
+                    {{ form.processing ? 'Speichert...' : isRelocation ? 'Termin speichern' : 'Abholung speichern' }}
                 </button>
             </fieldset>
         </form>

@@ -10,27 +10,36 @@ import MdiMagnify from '~icons/mdi/magnify';
 
 /**
  * Step one of booking a service: which vehicle it is for. The appointment
- * itself is OrderCreationModal's job, which the caller opens with whatever
- * this confirms.
+ * itself is the next modal's job, which the caller opens with whatever this
+ * confirms.
  *
  * Only vehicles a new order can actually be placed for are ever passed in
  * (VehicleService::listBookableVehicles), so there is no disabled row here —
  * a vehicle already in a process is on the fleet page, where its running
  * order is the thing to look at.
+ *
+ * `multiple` turns the picker into a checklist (Überführung books several
+ * vehicles at once) and confirms with `confirm-many`. Without it the picker
+ * behaves exactly as before and confirms a single vehicle with `confirm`.
  */
-const props = defineProps<{
-    open: boolean;
-    service: ServiceDefinition | null;
-    vehicles: BookableVehicleData[];
-}>();
+const props = withDefaults(
+    defineProps<{
+        open: boolean;
+        service: ServiceDefinition | null;
+        vehicles: BookableVehicleData[];
+        multiple?: boolean;
+    }>(),
+    { multiple: false },
+);
 
 const emit = defineEmits<{
     (e: 'update:open', value: boolean): void;
     (e: 'confirm', vehicle: BookableVehicleData): void;
+    (e: 'confirm-many', vehicles: BookableVehicleData[]): void;
 }>();
 
 const search = ref('');
-const selectedId = ref<string | null>(null);
+const selectedIds = ref<string[]>([]);
 
 const filtered = computed(() => {
     const needle = search.value.trim().toLowerCase();
@@ -44,30 +53,76 @@ const filtered = computed(() => {
     );
 });
 
-const selected = computed(() => props.vehicles.find((vehicle) => vehicle.vehicle_id === selectedId.value) ?? null);
+const selected = computed(() => props.vehicles.filter((vehicle) => selectedIds.value.includes(vehicle.vehicle_id)));
+
+const allFilteredSelected = computed(() => filtered.value.length > 0 && filtered.value.every((vehicle) => selectedIds.value.includes(vehicle.vehicle_id)));
 
 watch(
     () => props.open,
     (open) => {
         if (open) {
             search.value = '';
-            selectedId.value = null;
+            selectedIds.value = [];
         }
     },
 );
 
-function confirm() {
-    if (selected.value) {
-        emit('confirm', selected.value);
-    }
+function isSelected(vehicle: BookableVehicleData): boolean {
+    return selectedIds.value.includes(vehicle.vehicle_id);
 }
+
+function toggle(vehicle: BookableVehicleData) {
+    if (!props.multiple) {
+        selectedIds.value = [vehicle.vehicle_id];
+
+        return;
+    }
+
+    selectedIds.value = isSelected(vehicle)
+        ? selectedIds.value.filter((id) => id !== vehicle.vehicle_id)
+        : [...selectedIds.value, vehicle.vehicle_id];
+}
+
+function toggleAllFiltered() {
+    const ids = filtered.value.map((vehicle) => vehicle.vehicle_id);
+
+    selectedIds.value = allFilteredSelected.value
+        ? selectedIds.value.filter((id) => !ids.includes(id))
+        : Array.from(new Set([...selectedIds.value, ...ids]));
+}
+
+function confirm() {
+    if (!selected.value.length) {
+        return;
+    }
+
+    if (props.multiple) {
+        emit('confirm-many', selected.value);
+
+        return;
+    }
+
+    emit('confirm', selected.value[0]);
+}
+
+const confirmLabel = computed(() => {
+    if (!props.multiple || selected.value.length <= 1) {
+        return 'Weiter';
+    }
+
+    return `Weiter mit ${selected.value.length} Fahrzeugen`;
+});
 </script>
 
 <template>
     <AppModal
         :open="open"
         :title="service ? `${service.title} buchen` : 'Fahrzeug wählen'"
-        description="Wählen Sie das Fahrzeug, für das die Leistung gebucht werden soll."
+        :description="
+            multiple
+                ? 'Wählen Sie ein oder mehrere Fahrzeuge, für die die Leistung gebucht werden soll.'
+                : 'Wählen Sie das Fahrzeug, für das die Leistung gebucht werden soll.'
+        "
         :width="560"
         @update:open="(value) => emit('update:open', value)"
     >
@@ -96,22 +151,41 @@ function confirm() {
                     />
                 </div>
 
+                <div v-if="multiple && filtered.length > 1" class="mb-2 flex items-center justify-between px-1">
+                    <span class="text-muted-foreground text-xs">{{ selected.length }} ausgewählt</span>
+                    <button type="button" class="text-brand-teal text-xs font-semibold hover:underline" @click="toggleAllFiltered">
+                        {{ allFilteredSelected ? 'Auswahl aufheben' : 'Alle auswählen' }}
+                    </button>
+                </div>
+
                 <p v-if="!filtered.length" class="text-muted-foreground py-6 text-center text-sm">Kein Fahrzeug gefunden.</p>
 
-                <div v-else class="flex flex-col gap-2">
+                <div v-else class="flex max-h-[360px] flex-col gap-2 overflow-y-auto">
                     <button
                         v-for="vehicle in filtered"
                         :key="vehicle.vehicle_id"
                         type="button"
                         class="hover:border-brand-green flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors"
-                        :class="selectedId === vehicle.vehicle_id ? 'border-brand-green bg-brand-green/[0.06]' : 'border-border'"
-                        @click="selectedId = vehicle.vehicle_id"
+                        :class="isSelected(vehicle) ? 'border-brand-green bg-brand-green/[0.06]' : 'border-border'"
+                        :aria-pressed="isSelected(vehicle)"
+                        @click="toggle(vehicle)"
                     >
+                        <!-- Checkbox for multi-select, radio dot for single. -->
                         <span
-                            class="flex size-4 shrink-0 items-center justify-center rounded-full border"
-                            :class="selectedId === vehicle.vehicle_id ? 'border-brand-green bg-brand-green' : 'border-muted-foreground/40'"
+                            v-if="multiple"
+                            class="flex size-4 shrink-0 items-center justify-center rounded-[4px] border"
+                            :class="isSelected(vehicle) ? 'border-brand-green bg-brand-green' : 'border-muted-foreground/40'"
                         >
-                            <span v-if="selectedId === vehicle.vehicle_id" class="size-1.5 rounded-full bg-white" />
+                            <svg v-if="isSelected(vehicle)" viewBox="0 0 12 12" class="size-3 text-white" fill="none" aria-hidden="true">
+                                <path d="M2.5 6.2 5 8.5l4.5-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                        </span>
+                        <span
+                            v-else
+                            class="flex size-4 shrink-0 items-center justify-center rounded-full border"
+                            :class="isSelected(vehicle) ? 'border-brand-green bg-brand-green' : 'border-muted-foreground/40'"
+                        >
+                            <span v-if="isSelected(vehicle)" class="size-1.5 rounded-full bg-white" />
                         </span>
 
                         <span class="min-w-0 flex-1">
@@ -127,7 +201,7 @@ function confirm() {
         </div>
 
         <template v-if="vehicles.length" #footer>
-            <AppModalButton :disabled="!selected" @click="confirm">Weiter</AppModalButton>
+            <AppModalButton :disabled="!selected.length" @click="confirm">{{ confirmLabel }}</AppModalButton>
         </template>
     </AppModal>
 </template>

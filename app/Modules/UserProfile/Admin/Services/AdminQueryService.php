@@ -36,6 +36,14 @@ use Illuminate\Validation\ValidationException;
 
 class AdminQueryService
 {
+    /**
+     * The service an order is for when its row predates the `service_type`
+     * column — every such order is a Leasingrückgabe.
+     */
+    private const DEFAULT_SERVICE_TYPE = 'leasingrueckgabe';
+
+    private const RELOCATION_SERVICE_TYPE = 'ueberfuehrung';
+
     public function __construct(
         private readonly OrderCollectionService $orderCollectionService,
         private readonly OrderTaskResolver $orderTaskResolver,
@@ -460,7 +468,7 @@ class AdminQueryService
     {
         return [
             'o.id', 'o.vehicle_id', 'o.auftragsnummer', 'o.leasyback_partner',
-            'o.order_status', 'o.sent_at', 'o.created_at', 'o.response_status', 'o.response_body',
+            'o.order_status', 'o.service_type', 'o.sent_at', 'o.created_at', 'o.response_status', 'o.response_body',
             'v.license_plate', 'v.vin', 'v.make', 'v.model',
             'v.b2c_user_id', 'v.b2b_id',
         ];
@@ -644,7 +652,8 @@ class AdminQueryService
             ->where('o.id', $orderId)
             ->select([
                 'o.id', 'o.vehicle_id', 'o.auftragsnummer', 'o.leasyback_partner',
-                'o.order_status', 'o.sent_at', 'o.created_at', 'o.response_status', 'o.response_body',
+                'o.order_status', 'o.service_type', 'o.request_payload',
+                'o.sent_at', 'o.created_at', 'o.response_status', 'o.response_body',
                 'v.license_plate', 'v.vin', 'v.make', 'v.model',
                 'v.b2c_user_id', 'v.b2b_id', 'v.vehicle_belongs',
             ])
@@ -658,6 +667,14 @@ class AdminQueryService
         if ($order === null) {
             return null;
         }
+
+        // The Überführung's booking data (addresses, slot, contacts, billing,
+        // cost centre) is its request payload. Only a relocation's payload is
+        // sent: a TÜV SÜD booking payload is a partner request, and older rows
+        // of it may still carry credentials.
+        $order['request_payload'] = $order['service_type'] === self::RELOCATION_SERVICE_TYPE
+            ? (json_decode((string) $row->request_payload, true) ?: null)
+            : null;
 
         $order['offers'] = DB::table('leasyback_offers')
             ->where('order_id', $orderId)
@@ -822,6 +839,10 @@ class AdminQueryService
      * customer, confirmation date and document lookups across a set of
      * orders, which is exactly the base shape the task path needs.
      *
+     * `service_type` is read defensively — a caller whose query does not
+     * select the column gets the Leasingrückgabe default, which is what every
+     * order was before the column existed.
+     *
      * @param  Collection<int, object>  $rows
      * @return list<array<string, mixed>>
      */
@@ -849,6 +870,7 @@ class AdminQueryService
                 'auftragsnummer' => $row->auftragsnummer,
                 'leasyback_partner' => $row->leasyback_partner,
                 'order_status' => $row->order_status,
+                'service_type' => ($row->service_type ?? null) ?: self::DEFAULT_SERVICE_TYPE,
                 'sent_at' => PortalTimestamp::iso($row->sent_at),
                 'created_at' => PortalTimestamp::iso($row->created_at),
                 'response_status' => $row->response_status,
@@ -1033,10 +1055,11 @@ class AdminQueryService
      *
      * What it adds is what VehicleExpandedPanel.vue (reused verbatim from
      * the customer dashboard) reads beyond the list shape: `request_payload`
-     * (Besichtigungsort card), `status_updates` (customer flow timeline),
-     * `offers` (Angebote card), plus `available_transitions` for the
-     * per-order admin action menu, and a signed `url` on customer documents
-     * — the panel links documents by `url`, the list only ever showed names.
+     * (Besichtigungsort card, or the Überführung card for a relocation),
+     * `status_updates` (customer flow timeline), `offers` (Angebote card),
+     * plus `available_transitions` for the per-order admin action menu, and
+     * a signed `url` on customer documents — the panel links documents by
+     * `url`, the list only ever showed names.
      *
      * @param  array<string, mixed>  $vehicle
      * @return array<string, mixed>
@@ -1111,7 +1134,7 @@ class AdminQueryService
             ->whereIn('o.vehicle_id', $vehicleIds)->orderByDesc('o.created_at')
             ->get([
                 'o.vehicle_id', 'o.id', 'o.auftragsnummer', 'o.leasyback_partner',
-                'o.order_status', 'o.sent_at', 'o.created_at', 'o.response_status', 'o.response_body',
+                'o.order_status', 'o.service_type', 'o.sent_at', 'o.created_at', 'o.response_status', 'o.response_body',
                 'c.confirmation_date',
             ]);
         // Whether "Dokumente abrufen" can do anything for this vehicle: it
@@ -1131,6 +1154,8 @@ class AdminQueryService
         $history = $rawHistory->groupBy('vehicle_id')->map(fn (Collection $items) => $items->map(function (object $item) use ($reportDocs) {
             $key = $item->auftragsnummer.'|'.$item->vehicle_id;
             unset($item->vehicle_id, $item->response_body);
+            // Old rows predate the column; they are all Leasingrückgaben.
+            $item->service_type = $item->service_type ?: self::DEFAULT_SERVICE_TYPE;
             $arr = PortalTimestamp::normalizeRow($item, ['created_at', 'sent_at']);
             $arr['report_documents'] = $reportDocs[$key] ?? [];
 
@@ -1225,12 +1250,6 @@ class AdminQueryService
     }
 
     /**
-     * @return array{status: string, amount_cents: int, currency: string, paid_at: ?string, blocks_pickup: bool}|null
-     */
-    /**
-     * @return array<string, mixed>|null
-     */
-    /**
      * The statuses an admin status menu may offer for one order — the single
      * definition every menu (order page, vehicle page, list row) shares, so
      * no menu offers a button the backend refuses.
@@ -1251,13 +1270,16 @@ class AdminQueryService
             $withheld[] = OrderStatus::Completed->value;
         }
 
-        $candidates = array_diff(TransitionOrderStatus::allowedNextStatuses($status, $isB2b), $withheld);
+        $order = LeasybackOrder::find($orderId);
+
+        // An Überführung follows its own, shorter B2B path.
+        $isRelocation = $order !== null && TransitionOrderStatus::isRelocationOrder($order);
+
+        $candidates = array_diff(TransitionOrderStatus::allowedNextStatuses($status, $isB2b, $isRelocation), $withheld);
 
         if ($candidates === []) {
             return [];
         }
-
-        $order = LeasybackOrder::find($orderId);
 
         return array_values(array_filter(
             $candidates,

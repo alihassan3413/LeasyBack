@@ -13,10 +13,9 @@ import MdiFileSearchOutline from '~icons/mdi/file-search-outline';
  * Firmenkunde only — a Privatkunde's dashboard is their vehicle list and
  * offers no catalogue, so every line here is written for a fleet customer.
  *
- * Exactly one is `bookable`: Leasingrückgabe is the only service the order API
- * covers end to end. The rest are announced so a company can see where the
- * account is going, and stay `soon` until their flow exists — never a card
- * that looks pressable and then refuses.
+ * `bookable` services have a working order flow: Leasingrückgabe (the
+ * dashboard's lead workflow) and Überführung. The rest stay `soon` until
+ * their flow exists — never a card that looks pressable and then refuses.
  *
  * Adding a service is an entry here and nothing else; promoting one is a
  * single field. No component holds its own list.
@@ -24,7 +23,7 @@ import MdiFileSearchOutline from '~icons/mdi/file-search-outline';
 export type ServiceAvailability = 'bookable' | 'soon';
 
 export interface ServiceDefinition {
-    /** Stable key — also the value an order will carry once more than one exists. */
+    /** Stable key — matches `service_type` on the order where one exists. */
     key: string;
     title: string;
     /**
@@ -49,7 +48,7 @@ export const SERVICES: ServiceDefinition[] = [
         title: 'Überführung',
         summary: 'Fahrzeugtransport zwischen zwei Standorten.',
         icon: MdiCarArrowRight,
-        availability: 'soon',
+        availability: 'bookable',
     },
     {
         key: 'gutachten',
@@ -86,8 +85,13 @@ export const AVAILABILITY_LABELS: Record<Exclude<ServiceAvailability, 'bookable'
 };
 
 /**
- * The one service that can be started today. Also the label every existing
- * order carries on the orders page — orders hold no service key yet, and this
- * is the only service any of them can be.
+ * The dashboard's lead workflow (the big "Starten" row). Also the fallback
+ * label for orders created before `service_type` existed — keep this
+ * Leasingrückgabe.
  */
-export const BOOKABLE_SERVICE = SERVICES[0];
+export const BOOKABLE_SERVICE = SERVICES.find((service) => service.key === 'leasingrueckgabe')!;
+
+/** Title for an order's service_type; old orders without one are Leasingrückgabe. */
+export function serviceTitle(key?: string | null): string {
+    return SERVICES.find((service) => service.key === key)?.title ?? BOOKABLE_SERVICE.title;
+}

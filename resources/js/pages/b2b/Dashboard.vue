@@ -3,13 +3,14 @@ import FleetOverview from '@/components/b2b/FleetOverview.vue';
 import OnboardingModal from '@/components/dashboard/OnboardingModal.vue';
 import { Badge } from '@/components/ui/badge';
 import OrderCreationModal from '@/components/vehicle/OrderCreationModal.vue';
+import RelocationOrderModal from '@/components/vehicle/RelocationOrderModal.vue';
 import SelectVehicleModal from '@/components/vehicle/SelectVehicleModal.vue';
 import { useB2bPermissions } from '@/composables/useB2bPermissions';
 import { useOnboarding } from '@/composables/useOnboarding';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { ONBOARDING_VIDEO_POSTER_URL, ONBOARDING_VIDEO_URL } from '@/lib/onboarding';
 import { formatPortalDate } from '@/lib/portalDate';
-import { AVAILABILITY_LABELS, BOOKABLE_SERVICE, SERVICES, type ServiceDefinition } from '@/lib/services';
+import { AVAILABILITY_LABELS, BOOKABLE_SERVICE, SERVICES, serviceTitle, type ServiceDefinition } from '@/lib/services';
 import { getVehicleStatusDisplay } from '@/lib/vehicleStatus';
 import { type SharedData } from '@/types';
 import type { B2bAnalytics, B2bStatistics } from '@/types/b2b';
@@ -47,6 +48,15 @@ const props = defineProps<{
     myOverview: { vehicles: number; active_orders: number; bookable_vehicles: number } | null;
     /** A few of the vehicles this member can reach, newest first. */
     myVehicles: VehicleData[];
+    /** Saved addresses and cost centres the Überführung form offers. */
+    relocationOptions?: {
+        address_profiles: {
+            id: string;
+            profile_name: string;
+            details: { street?: string | null; number?: string | null; zip_code?: string | null; city?: string | null; country?: string | null } | null;
+        }[];
+        cost_centres: string[];
+    };
 }>();
 
 const { can } = useB2bPermissions();
@@ -160,8 +170,15 @@ const canBook = computed(() => can('orders.create'));
 const activeService = ref<ServiceDefinition | null>(null);
 const selectVehicleOpen = ref(false);
 
+/** Leasingrückgabe: one vehicle, OrderCreationModal. */
 const orderModalOpen = ref(false);
 const orderVehicle = ref<BookableVehicleData | null>(null);
+
+/** Überführung: one or more vehicles, RelocationOrderModal. Kept apart from the return flow. */
+const relocationModalOpen = ref(false);
+const relocationVehicles = ref<BookableVehicleData[]>([]);
+
+const isRelocationService = computed(() => activeService.value?.key === 'ueberfuehrung');
 
 /** How many services the reader could actually start right now. */
 const bookableCount = computed(() => SERVICES.filter((service) => service.availability === 'bookable').length);
@@ -174,6 +191,15 @@ function isLaunchable(service: ServiceDefinition): boolean {
     return service.availability === 'bookable' && canBook.value;
 }
 
+/** Right-hand label for a row that can't be started by this reader. */
+function rowLabel(service: ServiceDefinition): string {
+    if (service.availability === 'bookable') {
+        return 'Keine Berechtigung';
+    }
+
+    return AVAILABILITY_LABELS[service.availability];
+}
+
 function startService(service: ServiceDefinition) {
     if (service.availability !== 'bookable' || !canBook.value) {
         return;
@@ -183,10 +209,22 @@ function startService(service: ServiceDefinition) {
     selectVehicleOpen.value = true;
 }
 
+/** Single-vehicle confirmation — the Leasingrückgabe flow. */
 function onVehicleChosen(vehicle: BookableVehicleData) {
     selectVehicleOpen.value = false;
+    relocationModalOpen.value = false;
+
     orderVehicle.value = vehicle;
     orderModalOpen.value = true;
+}
+
+/** Multi-vehicle confirmation — the Überführung flow. */
+function onVehiclesChosen(vehicles: BookableVehicleData[]) {
+    selectVehicleOpen.value = false;
+    orderModalOpen.value = false;
+
+    relocationVehicles.value = vehicles;
+    relocationModalOpen.value = true;
 }
 
 const page = usePage<SharedData>();
@@ -230,13 +268,6 @@ function onOnboardingOpenChange(value: boolean) {
                  the page for every role. Starting a return is what a company
                  account comes here to do; everything below is the record of
                  what is already running, not the reason to visit.
-
-                 Content sits directly on the page, not inside a panel: the
-                 one real workflow (Leasingrückgabe) is its own row, closed
-                 off by a hairline rule, and every announced-but-not-yet-
-                 bookable service follows as its own plain, headed list. A
-                 rule and a heading do the separating a card would otherwise
-                 be reached for — this is a workspace, not a widget.
             ═════════════════════════════════════════════════════════════ -->
             <section>
                 <div class="flex flex-wrap items-baseline justify-between gap-2">
@@ -244,9 +275,8 @@ function onOnboardingOpenChange(value: boolean) {
                     <span class="text-muted-foreground text-[12.5px]">{{ bookableCount }} von {{ SERVICES.length }} verfügbar</span>
                 </div>
 
-                <!-- The one real workflow. Weight comes from type scale, a
-                     real CTA and the accent border — not from a box or a
-                     tinted background. -->
+                <!-- The lead workflow. Weight comes from type scale, a real CTA
+                     and the accent border — not from a box or a tinted background. -->
                 <component
                     :is="isLaunchable(BOOKABLE_SERVICE) ? 'button' : 'div'"
                     :type="isLaunchable(BOOKABLE_SERVICE) ? 'button' : undefined"
@@ -268,31 +298,37 @@ function onOnboardingOpenChange(value: boolean) {
                     <span v-else class="text-muted-foreground shrink-0 text-[12px] whitespace-nowrap">Keine Berechtigung</span>
                 </component>
 
-                <!-- Everything else LeasyBack has announced, as a plain
-                     reference list under its own heading: no icons, no
-                     per-row box, availability as text. A catalogue entry, not
-                     a second action. -->
+                <!-- Every other service. A bookable one is a button; the rest
+                     are catalogue entries with their availability as text. -->
                 <div class="mt-6">
                     <h3 class="text-brand-teal text-[16px] font-semibold">Weitere Leistungen</h3>
 
                     <ul class="divide-border mt-2 divide-y">
-                        <li v-for="service in futureServices" :key="service.key" class="flex items-center justify-between gap-3 py-2">
-                            <span class="text-muted-foreground truncate text-[13px] font-medium">{{ service.title }}</span>
-                            <span class="text-muted-foreground shrink-0 text-[12px] whitespace-nowrap">{{
-                                AVAILABILITY_LABELS[service.availability]
-                            }}</span>
+                        <li v-for="service in futureServices" :key="service.key">
+                            <component
+                                :is="isLaunchable(service) ? 'button' : 'div'"
+                                :type="isLaunchable(service) ? 'button' : undefined"
+                                class="flex w-full items-center justify-between gap-3 py-2 text-left transition-colors"
+                                :class="isLaunchable(service) ? 'hover:bg-muted/30 cursor-pointer' : ''"
+                                @click="startService(service)"
+                            >
+                                <span
+                                    class="truncate text-[13px] font-medium"
+                                    :class="isLaunchable(service) ? 'text-brand-teal' : 'text-muted-foreground'"
+                                >
+                                    {{ service.title }}
+                                </span>
+                                <span v-if="isLaunchable(service)" class="text-brand-orange shrink-0 text-[12px] font-bold whitespace-nowrap">
+                                    Starten
+                                </span>
+                                <span v-else class="text-muted-foreground shrink-0 text-[12px] whitespace-nowrap">
+                                    {{ rowLabel(service) }}
+                                </span>
+                            </component>
                         </li>
                     </ul>
                 </div>
             </section>
-
-            <!-- ════════════════════════════════════════════════════════════
-                 Everything below is supporting information: the record of
-                 what is already running, scoped by the same `analytics.view`
-                 permission as before. Headings step down a size from
-                 "Leistungen" so the page reads as one workflow with a status
-                 record beneath it, not several equally-weighted sections.
-            ═════════════════════════════════════════════════════════════ -->
 
             <!-- ── Company overview — Company Administrator / Read-only ── -->
             <section v-if="showCompanyOverview" class="mt-8">
@@ -306,9 +342,6 @@ function onOnboardingOpenChange(value: boolean) {
                     <span v-if="!stats.scope.company_wide" class="text-muted-foreground text-[12px]"> Nur Ihre eigenen Fahrzeuge </span>
                 </div>
 
-                <!-- A plain figure row, not a tile grid: no fill, no border
-                     box, just hairline dividers between values — a status
-                     readout, not a set of stat cards asking for attention. -->
                 <dl class="divide-border mt-3 flex divide-x overflow-x-auto">
                     <div v-for="kpi in kpis" :key="kpi.key" class="min-w-[120px] flex-1 shrink-0 px-4 py-1 first:pl-0">
                         <dt class="text-muted-foreground truncate text-[11px] font-semibold tracking-[0.06em] uppercase">{{ kpi.label }}</dt>
@@ -350,7 +383,8 @@ function onOnboardingOpenChange(value: boolean) {
                                         </span>
                                     </span>
                                     <span class="text-muted-foreground block truncate text-[12px]">
-                                        Auftrag {{ order.auftragsnummer }} · {{ formatPortalDate(order.created_at) }}
+                                        {{ serviceTitle(order.service_type) }} · Auftrag {{ order.auftragsnummer }} ·
+                                        {{ formatPortalDate(order.created_at) }}
                                         <template v-if="order.appointment"> · Termin {{ formatPortalDate(order.appointment) }} </template>
                                     </span>
                                 </span>
@@ -364,10 +398,7 @@ function onOnboardingOpenChange(value: boolean) {
                 </div>
             </section>
 
-            <!-- ── Member view: Meine Übersicht — Standard User ──
-                Three counts, all scoped to what this reader may actually
-                reach — no savings, no processing time, nobody else's work.
-            -->
+            <!-- ── Member view: Meine Übersicht — Standard User ── -->
             <section v-if="myOverview" class="mt-8">
                 <h3 class="text-brand-teal text-[16px] font-semibold">Meine Übersicht</h3>
 
@@ -380,11 +411,7 @@ function onOnboardingOpenChange(value: boolean) {
                 </dl>
             </section>
 
-            <!-- ── Member view: Meine Fahrzeuge ──
-                A short preview, not the fleet page. Status comes from the
-                same helper the fleet rows use, so a vehicle reads the same
-                here as it does there.
-            -->
+            <!-- ── Member view: Meine Fahrzeuge ── -->
             <section v-if="myOverview" class="mt-8">
                 <div class="flex items-center justify-between gap-3">
                     <h3 class="text-brand-teal text-[16px] font-semibold">Meine Fahrzeuge</h3>
@@ -422,8 +449,15 @@ function onOnboardingOpenChange(value: boolean) {
             </section>
         </div>
 
-        <!-- Step 1: which vehicle. Step 2: the appointment itself. -->
-        <SelectVehicleModal v-model:open="selectVehicleOpen" :service="activeService" :vehicles="bookableVehicles" @confirm="onVehicleChosen" />
+        <!-- Step 1: which vehicle(s). Step 2: the booking form for that service. -->
+        <SelectVehicleModal
+            v-model:open="selectVehicleOpen"
+            :service="activeService"
+            :vehicles="bookableVehicles"
+            :multiple="isRelocationService"
+            @confirm="onVehicleChosen"
+            @confirm-many="onVehiclesChosen"
+        />
 
         <OrderCreationModal
             v-if="orderVehicle"
@@ -431,6 +465,14 @@ function onOnboardingOpenChange(value: boolean) {
             :vehicle-id="orderVehicle.vehicle_id"
             :stations="stations"
             :vehicle="orderVehicle"
+        />
+
+        <RelocationOrderModal
+            v-if="relocationVehicles.length"
+            v-model:open="relocationModalOpen"
+            :vehicles="relocationVehicles"
+            :address-profiles="relocationOptions?.address_profiles ?? []"
+            :cost-centres="relocationOptions?.cost_centres ?? []"
         />
 
         <OnboardingModal

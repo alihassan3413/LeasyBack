@@ -12,6 +12,8 @@ export interface OrderCollectionData {
     requested_collection_date: string | null;
     confirmed_collection_date: string | null;
     requested_collection_time_slot: string | null;
+    /** An Überführung's confirmed time window, e.g. "08:00-12:00". Null for other orders. */
+    confirmed_collection_time_slot?: string | null;
     /** Confirmed workshop repair appointment (§11). Customer-visible business date. */
     confirmed_repair_start_date: string | null;
     estimated_processing_days: number | null;
@@ -19,6 +21,18 @@ export interface OrderCollectionData {
     collection_note: string | null;
     /** Admin-only — absent from every customer payload (§16). */
     internal_note?: string | null;
+    /** Admin-only — an Überführung's saved Übergabeprotokoll, or null. */
+    transfer_protocol?: TransferProtocolData | null;
+}
+
+/** Matches OrderCollectionService::presentTransferProtocol(). */
+export interface TransferProtocolData {
+    format: 'link' | 'pdf';
+    url: string | null;
+    /** Short-lived signed download link for a PDF. */
+    file_url: string | null;
+    file_name: string | null;
+    saved_at: string | null;
 }
 
 export interface StationData {
@@ -114,6 +128,8 @@ export interface CustomerOrderRow {
     id: string;
     auftragsnummer: string;
     order_status: string;
+    /** Which service this order is for; absent/null on orders from before the column existed. */
+    service_type?: string | null;
     created_at: string;
     vehicle_id: string;
     license_plate: string;

@@ -11,8 +11,11 @@ use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Order\Models\LogisticsAddressProfile;
 use App\Modules\UserProfile\Order\Models\OrderLogistics;
 use App\Services\Mail\OrderMailer;
+use App\Support\PortalTimestamp;
 use DateTimeInterface;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -20,6 +23,9 @@ use Illuminate\Validation\ValidationException;
  * leasyback_order_logistics row: the customer's requested date, the address
  * (defaulted from the vehicle's logistics_address_profiles link rather than
  * copied) and the note, plus Admin's confirmed date and internal note.
+ *
+ * An Überführung uses the same row for its appointment — confirmed date plus
+ * a full time slot — and for its transfer protocol.
  *
  * B2C orders never get a row here — every write path is guarded on the
  * vehicle being B2B, and the customer-facing read path never returns
@@ -42,6 +48,9 @@ class OrderCollectionService
      * B2C second repair round.
      */
     public const REPAIR_APPOINTMENT_STATUSES = ['workshop_commissioned', 'workshop', 'reworkshop'];
+
+    /** An Überführung time window must span at least this long — the customer form's rule. */
+    public const RELOCATION_MIN_WINDOW_MINUTES = 120;
 
     public function __construct(
         private readonly TransitionOrderStatus $transitionOrderStatus,
@@ -85,11 +94,11 @@ class OrderCollectionService
             'remarks' => ['prohibited'],
             ...self::customerRules(true),
             'requested_collection_date' => ['required', 'date_format:Y-m-d', 'after_or_equal:today'],
-          'requested_collection_time_slot' => [
-    'required',
-    'string',
-    'in:08:00-10:00,10:00-12:00,12:00-14:00,14:00-16:00,16:00-18:00'
-],
+            'requested_collection_time_slot' => [
+                'required',
+                'string',
+                'in:08:00-10:00,10:00-12:00,12:00-14:00,14:00-16:00,16:00-18:00',
+            ],
             'collection_address' => ['required', 'array'],
             'collection_address.street' => ['required', 'string', 'max:255'],
             'collection_address.zip_code' => ['required', 'string', 'max:20'],
@@ -98,12 +107,17 @@ class OrderCollectionService
     }
 
     /**
+     * `confirmed_time_from`/`confirmed_time_to` are only read for an
+     * Überführung, which is scheduled by a date *and* a time window.
+     *
      * @return array<string, array<int, string>>
      */
     public static function adminRules(): array
     {
         return [
             'confirmed_collection_date' => ['nullable', 'date_format:Y-m-d'],
+            'confirmed_time_from' => ['nullable', 'date_format:H:i'],
+            'confirmed_time_to' => ['nullable', 'date_format:H:i'],
             'internal_note' => ['nullable', 'string', 'max:2000'],
             ...self::addressRules(),
         ];
@@ -249,9 +263,9 @@ class OrderCollectionService
         $address = $this->normalizeAddress($validated['collection_address'] ?? null);
         $note = $this->trimToNull($validated['collection_note'] ?? null);
         $requestedDate = $this->trimToNull($validated['requested_collection_date'] ?? null);
-$requestedTimeSlot = $this->trimToNull(
-    $validated['requested_collection_time_slot'] ?? null
-);
+        $requestedTimeSlot = $this->trimToNull(
+            $validated['requested_collection_time_slot'] ?? null
+        );
         if ($address === null && $note === null && $requestedDate === null && $vehicle->collection_address_profile_id === null) {
             return;
         }
@@ -288,6 +302,10 @@ $requestedTimeSlot = $this->trimToNull(
      * confirming LeasyBack's own collection *is* the review §6 asks for; both
      * transitions are recorded individually by TransitionOrderStatus.
      *
+     * An Überführung is scheduled only by a date *together with* a full time
+     * window (von/bis, at least two hours) — the traffic-light spec's
+     * condition for completing its first Admin task.
+     *
      * @param  array<string, mixed>  $validated
      */
     public function updateByAdmin(LeasybackOrder $order, Vehicle $vehicle, User $user, array $validated): void
@@ -297,6 +315,7 @@ $requestedTimeSlot = $this->trimToNull(
         }
 
         $order = $order->fresh() ?? $order;
+        $isRelocation = TransitionOrderStatus::isRelocationOrder($order);
 
         if (! in_array($order->order_status, self::COLLECTION_EDITABLE_STATUSES, true)) {
             throw ValidationException::withMessages([
@@ -315,6 +334,22 @@ $requestedTimeSlot = $this->trimToNull(
         if ($confirmedDate !== null && $confirmedDate !== $previousDate && $confirmedDate < now()->toDateString()) {
             throw ValidationException::withMessages([
                 'confirmed_collection_date' => 'Der Abholtermin darf nicht in der Vergangenheit liegen.',
+            ]);
+        }
+
+        // The Überführung's time window. Resolved before anything is written,
+        // so a refused save changes nothing.
+        $slotSent = $isRelocation
+            && (array_key_exists('confirmed_time_from', $validated) || array_key_exists('confirmed_time_to', $validated));
+        $confirmedSlot = $isRelocation
+            ? ($slotSent
+                ? $this->relocationTimeSlot($validated['confirmed_time_from'] ?? null, $validated['confirmed_time_to'] ?? null)
+                : $this->trimToNull($logistics?->confirmed_collection_time_slot ?? null))
+            : null;
+
+        if ($isRelocation && $confirmedDate !== null && $confirmedSlot === null) {
+            throw ValidationException::withMessages([
+                'confirmed_time_from' => 'Bitte geben Sie ein vollständiges Zeitfenster (von/bis) an.',
             ]);
         }
 
@@ -344,6 +379,15 @@ $requestedTimeSlot = $this->trimToNull(
 
         OrderLogistics::updateOrCreate(['auftragsnummer' => $order->auftragsnummer], $attributes);
 
+        // Written directly so the column does not depend on the model's
+        // fillable list. Before scheduling, because TransitionOrderStatus
+        // checks that date and slot exist before it schedules a relocation.
+        if ($slotSent) {
+            DB::table('leasyback_order_logistics')
+                ->where('auftragsnummer', $order->auftragsnummer)
+                ->update(['confirmed_collection_time_slot' => $confirmedSlot]);
+        }
+
         $this->announceCollectionChange($order, $vehicle, $previousDate, $confirmedDate);
 
         if ($confirmedDate === null) {
@@ -357,6 +401,36 @@ $requestedTimeSlot = $this->trimToNull(
         if ($previousDate !== null && $confirmedDate !== $previousDate) {
             $this->orderMailer->collectionRescheduled($order->fresh() ?? $order, $vehicle);
         }
+    }
+
+    /**
+     * "08:00-12:00" from a von/bis pair, or null when both are empty. One half
+     * without the other, or a window under two hours, is refused.
+     */
+    private function relocationTimeSlot(mixed $from, mixed $to): ?string
+    {
+        $from = $this->trimToNull($from);
+        $to = $this->trimToNull($to);
+
+        if ($from === null && $to === null) {
+            return null;
+        }
+
+        if ($from === null || $to === null) {
+            throw ValidationException::withMessages([
+                'confirmed_time_from' => 'Bitte geben Sie ein vollständiges Zeitfenster (von/bis) an.',
+            ]);
+        }
+
+        $minutes = fn (string $time): int => ((int) substr($time, 0, 2)) * 60 + (int) substr($time, 3, 2);
+
+        if ($minutes($to) - $minutes($from) < self::RELOCATION_MIN_WINDOW_MINUTES) {
+            throw ValidationException::withMessages([
+                'confirmed_time_to' => 'Das Zeitfenster muss mindestens 2 Stunden umfassen.',
+            ]);
+        }
+
+        return $from.'-'.$to;
     }
 
     /**
@@ -427,8 +501,9 @@ $requestedTimeSlot = $this->trimToNull(
     }
 
     /**
-     * The customer-facing shape. `internal_note` is deliberately absent —
-     * only forAdmin() returns it.
+     * The customer-facing shape. `internal_note` and the transfer protocol
+     * are deliberately absent — only the Admin read ($includeInternal) returns
+     * them.
      *
      * @param  array<int, string>  $auftragsnummern
      * @return array<string, array<string, mixed>>
@@ -452,6 +527,8 @@ $requestedTimeSlot = $this->trimToNull(
                 'requested_collection_date' => $row->requested_collection_date?->toDateString(),
                 'confirmed_collection_date' => $row->confirmed_collection_date?->toDateString(),
                 'requested_collection_time_slot' => $row->requested_collection_time_slot,
+                // The Überführung's confirmed window; null for every other order.
+                'confirmed_collection_time_slot' => $row->confirmed_collection_time_slot,
                 // Customer-visible business dates (§11/§15), unlike
                 // `internal_note` below which stays gated on $includeInternal.
                 'confirmed_repair_start_date' => $row->confirmed_repair_start_date?->toDateString(),
@@ -459,9 +536,44 @@ $requestedTimeSlot = $this->trimToNull(
                 'collection_address' => $row->pickup_details
                     ?? ($row->pickup_profile_id === null ? null : ($profiles[$row->pickup_profile_id] ?? null)),
                 'collection_note' => $row->pickup_notes,
-                ...($includeInternal ? ['internal_note' => $row->internal_note] : []),
+                ...($includeInternal ? [
+                    'internal_note' => $row->internal_note,
+                    'transfer_protocol' => self::presentTransferProtocol($row),
+                ] : []),
             ],
         ])->all();
+    }
+
+    /**
+     * The saved Übergabeprotokoll, or null. A PDF is handed out as a
+     * short-lived signed link; a disk that cannot sign links leaves it null.
+     *
+     * @return array{format: string, url: string|null, file_url: string|null, file_name: string|null, saved_at: string|null}|null
+     */
+    public static function presentTransferProtocol(object $row): ?array
+    {
+        if (($row->transfer_protocol_saved_at ?? null) === null) {
+            return null;
+        }
+
+        $path = $row->transfer_protocol_path ?? null;
+        $fileUrl = null;
+
+        if ($path !== null) {
+            try {
+                $fileUrl = Storage::disk(RelocationTransferProtocolService::DISK)->temporaryUrl($path, now()->addMinutes(30));
+            } catch (\Throwable) {
+                $fileUrl = null;
+            }
+        }
+
+        return [
+            'format' => $path !== null ? 'pdf' : 'link',
+            'url' => $row->transfer_protocol_url ?? null,
+            'file_url' => $fileUrl,
+            'file_name' => $row->transfer_protocol_original_name ?? null,
+            'saved_at' => PortalTimestamp::iso($row->transfer_protocol_saved_at),
+        ];
     }
 
     /**

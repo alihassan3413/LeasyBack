@@ -14,9 +14,11 @@ use App\Support\PartnerLifecyclePermissions;
 use Carbon\Carbon;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 class OrderController extends Controller
@@ -94,6 +96,185 @@ class OrderController extends Controller
             'order_id' => $order->id,
             'order_status' => $order->order_status,
         ]);
+    }
+
+    /**
+     * POST /order/b2b/relocation/{vehicleId} (API)
+     * POST /orders/b2b/relocation/{vehicleId} (portal)
+     *
+     * Überführung for one vehicle. Kept for the external SPA and for anything
+     * still posting to the per-vehicle URL.
+     */
+    public function createB2bRelocation(Request $request, string $vehicleId): JsonResponse|RedirectResponse
+    {
+        $user = $request->user();
+
+        Log::info('RELOCATION HIT', ['vehicle_ids' => [$vehicleId], 'user_id' => $user?->id]);
+
+        $vehicle = $this->scope->findVehicleWithAccess($vehicleId, $user);
+        abort_if($vehicle === null, 404);
+
+        $details = $this->validatedRelocationDetails($request);
+
+        $orders = $this->orderService->createB2bRelocationOrders([$vehicle], $user, $details);
+
+        return $this->relocationResponse($request, $orders);
+    }
+
+    /**
+     * POST /orders/b2b/relocation (portal)
+     *
+     * Überführung for several vehicles in one booking. One order is created
+     * per vehicle, all with the same addresses, time window, contacts,
+     * billing address and cost centre.
+     */
+    public function createB2bRelocationBatch(Request $request): JsonResponse|RedirectResponse
+    {
+        $user = $request->user();
+
+        $vehicleIds = $request->validate([
+            'vehicle_ids' => ['required', 'array', 'min:1', 'max:'.OrderService::MAX_RELOCATION_VEHICLES],
+            'vehicle_ids.*' => ['required', 'uuid', 'distinct'],
+        ])['vehicle_ids'];
+
+        Log::info('RELOCATION HIT', ['vehicle_ids' => $vehicleIds, 'user_id' => $user?->id]);
+
+        // Every vehicle must be one this user may reach — the same check the
+        // single-vehicle route applies, once per vehicle.
+        $vehicles = array_map(function (string $vehicleId) use ($user) {
+            $vehicle = $this->scope->findVehicleWithAccess($vehicleId, $user);
+            abort_if($vehicle === null, 404);
+
+            return $vehicle;
+        }, $vehicleIds);
+
+        $details = $this->validatedRelocationDetails($request);
+
+        $orders = $this->orderService->createB2bRelocationOrders($vehicles, $user, $details);
+
+        return $this->relocationResponse($request, $orders);
+    }
+
+    /**
+     * The booking details shared by both relocation routes. `vehicle_ids` is
+     * not part of these rules, so it never ends up in the stored payload.
+     *
+     * Accepts either the portal's `time_from`/`time_to` window or the older
+     * fixed `time_slot` (still sent by the external SPA).
+     *
+     * @return array<string, mixed>
+     */
+    private function validatedRelocationDetails(Request $request): array
+    {
+        $validated = $request->validate([
+            'pickup_address' => ['required', 'array'],
+            'pickup_address.street' => ['required', 'string', 'max:255'],
+            'pickup_address.number' => ['nullable', 'string', 'max:20'],
+            'pickup_address.zip_code' => ['required', 'string', 'max:10'],
+            'pickup_address.city' => ['required', 'string', 'max:255'],
+            'pickup_address.country' => ['nullable', 'string', 'max:100'],
+
+            'destination_address' => ['required', 'array'],
+            'destination_address.street' => ['required', 'string', 'max:255'],
+            'destination_address.number' => ['nullable', 'string', 'max:20'],
+            'destination_address.zip_code' => ['required', 'string', 'max:10'],
+            'destination_address.city' => ['required', 'string', 'max:255'],
+            'destination_address.country' => ['nullable', 'string', 'max:100'],
+
+            'preferred_date' => ['required', 'date', 'after_or_equal:today'],
+            'time_from' => ['nullable', 'date_format:H:i', 'required_without:time_slot'],
+            'time_to' => ['nullable', 'date_format:H:i', 'required_with:time_from'],
+            'time_slot' => ['nullable', 'string', 'max:20', 'required_without:time_from'],
+
+            'pickup_contact' => ['nullable', 'array'],
+            'pickup_contact.name' => ['nullable', 'string', 'max:255'],
+            'pickup_contact.phone' => ['nullable', 'string', 'max:50'],
+            'pickup_contact.email' => ['nullable', 'email', 'max:255'],
+
+            'destination_contact' => ['nullable', 'array'],
+            'destination_contact.name' => ['nullable', 'string', 'max:255'],
+            'destination_contact.phone' => ['nullable', 'string', 'max:50'],
+            'destination_contact.email' => ['nullable', 'email', 'max:255'],
+
+            'billing_address' => ['nullable', 'array'],
+            'billing_address.name' => ['nullable', 'string', 'max:255'],
+            'billing_address.street' => ['nullable', 'string', 'max:255'],
+            'billing_address.number' => ['nullable', 'string', 'max:20'],
+            'billing_address.zip_code' => ['nullable', 'string', 'max:10'],
+            'billing_address.city' => ['nullable', 'string', 'max:255'],
+            'billing_address.country' => ['nullable', 'string', 'max:100'],
+
+            'cost_centre' => ['nullable', 'array'],
+            'cost_centre.name' => ['nullable', 'string', 'max:255'],
+            'cost_centre.number' => ['nullable', 'string', 'max:100'],
+
+            'vehicle_ready' => ['nullable', 'boolean'],
+            'notes' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        $errors = [];
+
+        // "Mindestens 2 Stunden nach Startzeit"
+        if (! empty($validated['time_from']) && ! empty($validated['time_to'])) {
+            $toMinutes = fn (string $time): int => ((int) substr($time, 0, 2)) * 60 + (int) substr($time, 3, 2);
+
+            if ($toMinutes($validated['time_to']) - $toMinutes($validated['time_from']) < 120) {
+                $errors['time_to'] = 'Das Zeitfenster muss mindestens 2 Stunden umfassen.';
+            }
+        }
+
+        // The billing address is optional — but once started, it must be usable.
+        $billing = (array) ($validated['billing_address'] ?? []);
+        $billingStarted = collect($billing)->except('country')->filter(fn ($value) => filled($value))->isNotEmpty();
+
+        if ($billingStarted) {
+            foreach (['street' => 'Straße', 'zip_code' => 'PLZ', 'city' => 'Ort'] as $field => $label) {
+                if (blank($billing[$field] ?? null)) {
+                    $errors["billing_address.{$field}"] = "{$label} der Rechnungsadresse fehlt.";
+                }
+            }
+        }
+
+        if ($errors !== []) {
+            throw ValidationException::withMessages($errors);
+        }
+
+        return $validated;
+    }
+
+    /**
+     * Portal (Inertia): back to the page with a flash message.
+     * External SPA (Sanctum): JSON with the new order ids.
+     *
+     * The orders are not type-hinted: the service returns the canonical
+     * order model, while this controller's `LeasybackOrder` import is the
+     * App\Models subclass of it.
+     *
+     * @param  list<\App\Modules\UserProfile\Order\Models\LeasybackOrder>  $orders
+     */
+    private function relocationResponse(Request $request, array $orders): JsonResponse|RedirectResponse
+    {
+        $orderIds = array_map(fn ($order) => $order->id, $orders);
+        $count = count($orders);
+
+        Log::info('RELOCATION ORDER CREATED', ['order_ids' => $orderIds]);
+
+        $message = $count === 1
+            ? 'Die Überführung wurde erfolgreich beauftragt.'
+            : "{$count} Überführungen wurden erfolgreich beauftragt.";
+
+        if ($request->header('X-Inertia')) {
+            return back()->with('success', $message);
+        }
+
+        return response()->json([
+            'ok' => true,
+            'data' => [
+                'order_id' => $orderIds[0] ?? null,
+                'order_ids' => $orderIds,
+            ],
+            'message' => $message,
+        ], 201);
     }
 
     /**
@@ -226,6 +407,9 @@ class OrderController extends Controller
      * treats it as a no-op rather than an error precisely so a redelivered
      * callback does not fail for doing nothing, and that has to survive this
      * gate or a provider's retry would start 422-ing.
+     *
+     * Uses the same graph TransitionOrderStatus uses for this order — an
+     * Überführung has its own shorter path.
      */
     private function isReachable(LeasybackOrder $order, string $target): bool
     {
@@ -238,6 +422,7 @@ class OrderController extends Controller
             TransitionOrderStatus::allowedNextStatuses(
                 $order->order_status,
                 TransitionOrderStatus::isB2bOrder($order),
+                TransitionOrderStatus::isRelocationOrder($order),
             ),
             true,
         );
@@ -279,7 +464,13 @@ class OrderController extends Controller
             return response()->json(['error' => 'Order request not found'], 404);
         }
 
-        if (! in_array('order_placed', TransitionOrderStatus::allowedNextStatuses($order->order_status, TransitionOrderStatus::isB2bOrder($order)), true)) {
+        $allowed = TransitionOrderStatus::allowedNextStatuses(
+            $order->order_status,
+            TransitionOrderStatus::isB2bOrder($order),
+            TransitionOrderStatus::isRelocationOrder($order),
+        );
+
+        if (! in_array('order_placed', $allowed, true)) {
             return response()->json([
                 'error' => 'Only order_requested orders can be approved',
                 'current_status' => $order->order_status,
