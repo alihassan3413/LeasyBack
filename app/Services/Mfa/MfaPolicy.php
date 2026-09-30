@@ -6,6 +6,7 @@ use App\Enums\B2bRole;
 use App\Enums\UserType;
 use App\Models\User;
 use App\Modules\UserProfile\B2B\Services\B2bContext;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Who has to use a second factor.
@@ -42,8 +43,15 @@ class MfaPolicy
             return false;
         }
 
+        // An account that already has a factor keeps it, whatever the rollout
+        // or the exemption list says. Checked before the exemption so naming
+        // someone there cannot quietly downgrade them.
         if ($this->hasEnrolled($user)) {
             return true;
+        }
+
+        if ($this->isExempt($user)) {
+            return false;
         }
 
         return $this->inRolloutScope($user);
@@ -55,7 +63,34 @@ class MfaPolicy
      */
     public function mustEnroll(User $user): bool
     {
-        return $this->enabled() && ! $this->hasEnrolled($user) && $this->inRolloutScope($user);
+        return $this->enabled()
+            && ! $this->hasEnrolled($user)
+            && ! $this->isExempt($user)
+            && $this->inRolloutScope($user);
+    }
+
+    /**
+     * Is this account excused from having to enrol?
+     *
+     * Matched on the email address, case-insensitively, against
+     * `mfa.exempt_emails` — empty in production, so this is false for everyone
+     * unless an environment deliberately names someone.
+     *
+     * Logged at notice on every hit rather than silently: an account walking
+     * past a control the rest of the userbase is held to should be visible in
+     * the log, not only in a config file somebody has to think to read.
+     */
+    public function isExempt(User $user): bool
+    {
+        $exempt = array_map('mb_strtolower', (array) config('mfa.exempt_emails'));
+
+        if ($exempt === [] || ! in_array(mb_strtolower((string) $user->email), $exempt, true)) {
+            return false;
+        }
+
+        Log::notice('mfa.requirement_waived', ['user_id' => $user->id]);
+
+        return true;
     }
 
     /**
