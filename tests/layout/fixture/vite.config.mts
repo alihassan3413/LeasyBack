@@ -15,7 +15,14 @@ import { defineConfig } from 'vite';
 export default defineConfig({
     root: path.resolve(import.meta.dirname),
     plugins: [tailwindcss(), vue(), Icons({ compiler: 'vue3', autoInstall: true })],
-    resolve: { alias: { '@': path.resolve(import.meta.dirname, '../../../resources/js') } },
+    resolve: {
+        alias: {
+            '@': path.resolve(import.meta.dirname, '../../../resources/js'),
+            // Fixture only: the MFA pages import useForm/router/Head, which
+            // need a running Inertia app. The application build is untouched.
+            '@inertiajs/vue3': path.resolve(import.meta.dirname, 'inertia-stub.ts'),
+        },
+    },
     build: {
         outDir: path.resolve(import.meta.dirname, 'dist'),
         emptyOutDir: true,
@@ -27,6 +34,7 @@ export default defineConfig({
                 picker: path.resolve(import.meta.dirname, 'picker.html'),
                 positions: path.resolve(import.meta.dirname, 'positions.html'),
                 extraction: path.resolve(import.meta.dirname, 'extraction.html'),
+                mfa: path.resolve(import.meta.dirname, 'mfa.html'),
                 'additional-damage': path.resolve(import.meta.dirname, 'additional-damage.html'),
                 'document-actions': path.resolve(import.meta.dirname, 'document-actions.html'),
             },
