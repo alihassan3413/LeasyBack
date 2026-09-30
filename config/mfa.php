@@ -31,6 +31,33 @@ return [
         explode(',', (string) env('MFA_REQUIRED_FOR', 'admin,b2b_owner')),
     ))),
 
+    /*
+     * Accounts that are never *forced* to enrol, addressed by email.
+     *
+     * Deliberately a list of people rather than a role: this application has
+     * no super-admin tier, and inventing one in the schema to carry a single
+     * exemption would outlive the exemption. Today it holds the one LeasyBack
+     * company administrator, so that an environment can demand a second factor
+     * of everyone else without that person losing their own way in.
+     *
+     * Empty by default, so production behaves exactly as `required` and
+     * `required_for` describe and nobody is exempt unless an environment
+     * deliberately names them.
+     *
+     * An exemption from the *requirement*, not a licence to skip a factor that
+     * exists: someone on this list who has enrolled anyway is still asked for
+     * their code, so naming them here cannot silently downgrade an account
+     * that already had a second factor. That also means the list can simply be
+     * emptied later, when MFA is offered to everyone, without stranding anyone
+     * who opted in meanwhile.
+     *
+     * Every use is logged. Treat an entry here as a standing audit finding.
+     */
+    'exempt_emails' => array_values(array_filter(array_map(
+        'trim',
+        explode(',', (string) env('MFA_EXEMPT_EMAILS', '')),
+    ))),
+
     'challenge' => [
         /*
          * How long a login ticket stays usable. Long enough to fetch a code
