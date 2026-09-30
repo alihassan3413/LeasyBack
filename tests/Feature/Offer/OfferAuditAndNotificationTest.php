@@ -28,7 +28,7 @@ class OfferAuditAndNotificationTest extends TestCase
 
     private function bearer(User $user): array
     {
-        return ['Authorization' => 'Bearer '.$user->createToken('test')->plainTextToken];
+        return ['Authorization' => 'Bearer '.$this->mfaVerifiedToken($user)];
     }
 
     public function test_creating_an_offer_writes_a_created_audit_entry(): void

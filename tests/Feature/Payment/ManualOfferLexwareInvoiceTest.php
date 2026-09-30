@@ -138,11 +138,11 @@ class ManualOfferLexwareInvoiceTest extends TestCase
 
         $offer = $this->createManualOffer($order, $repairCostNet, $repairCostGross);
 
-        $this->actingAs($this->makeAdmin(), 'sanctum')
+        $this->actingAsApi($this->makeAdmin())
             ->postJson("/admin/offers/publish/{$offer->offer_id}")
             ->assertOk();
 
-        $this->actingAs($owner, 'sanctum')
+        $this->actingAsApi($owner)
             ->postJson("/vehicle/offers/customer/select/{$offer->offer_id}")
             ->assertOk();
 
@@ -157,7 +157,7 @@ class ManualOfferLexwareInvoiceTest extends TestCase
 
     private function createManualOffer(LeasybackOrder $order, string $repairCostNet, string $repairCostGross): LeasybackOffer
     {
-        $response = $this->actingAs($this->makeAdmin(), 'sanctum')
+        $response = $this->actingAsApi($this->makeAdmin())
             ->postJson("/admin/offers/create/{$order->auftragsnummer}", [
                 'repair_cost_net' => $repairCostNet,
                 'repair_cost_gross' => $repairCostGross,

@@ -7,7 +7,10 @@ use App\Http\Requests\Api\ChangePasswordRequest;
 use App\Http\Requests\Api\LoginRequest;
 use App\Http\Requests\Api\RegisterRequest;
 use App\Mail\RegistrationWelcome;
+use App\Models\MfaLoginChallenge;
 use App\Models\User;
+use App\Services\Mfa\MfaChallengeService;
+use App\Services\Mfa\MfaPolicy;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
@@ -156,6 +159,25 @@ class AuthController extends Controller
                 'data' => null,
                 'message' => 'Invalid credentials.',
             ], 401);
+        }
+
+        // The password is proved, but it is not yet an authentication. An
+        // account that owes a second factor gets a ticket and no token at
+        // all — issuing one here and hoping the client asks for MFA next
+        // would mean a password alone had produced usable credentials.
+        if (app(MfaPolicy::class)->requires($user)) {
+            return response()->json([
+                'ok' => true,
+                'data' => [
+                    'mfa_required' => true,
+                    'ticket' => app(MfaChallengeService::class)->issue($user, MfaLoginChallenge::PURPOSE_VERIFY),
+                    // Tells the client whether to prompt for a code or to send
+                    // the user through enrollment first.
+                    'mfa_method' => $user->mfa_method,
+                    'mfa_enrolled' => app(MfaPolicy::class)->hasEnrolled($user),
+                ],
+                'message' => 'Multi-factor authentication required.',
+            ]);
         }
 
         // Revoke old tokens if needed (single device login)

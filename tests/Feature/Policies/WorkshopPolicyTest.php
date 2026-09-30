@@ -15,7 +15,7 @@ class WorkshopPolicyTest extends TestCase
 
     private function bearer(User $user): array
     {
-        return ['Authorization' => 'Bearer '.$user->createToken('test')->plainTextToken];
+        return ['Authorization' => 'Bearer '.$this->mfaVerifiedToken($user)];
     }
 
     public function test_owner_can_update_own_workshop(): void

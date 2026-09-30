@@ -28,7 +28,7 @@ class TimControllerHardeningTest extends TestCase
 
     private function bearer(User $user): array
     {
-        return ['Authorization' => 'Bearer '.$user->createToken('test')->plainTextToken];
+        return ['Authorization' => 'Bearer '.$this->mfaVerifiedToken($user)];
     }
 
     public function test_login_refresh_returns_a_clean_error_when_tim_is_unreachable(): void

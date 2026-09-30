@@ -5,7 +5,7 @@ use App\Modules\UserProfile\Admin\Http\Controllers\VehicleReportController;
 use App\Modules\UserProfile\Tim\Http\Controllers\TimController;
 use Illuminate\Support\Facades\Route;
 
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware(['auth:sanctum', 'mfa'])->group(function () {
     Route::prefix('tim/appraisal')->name('tim.appraisal.')->group(function () {
         Route::post('login/refresh', [TimController::class, 'refreshLogin'])->name('login.refresh');
         Route::post('xml/sync/{bewertungId}', [TimController::class, 'sync'])->whereNumber('bewertungId')->name('xml.sync');

@@ -30,7 +30,7 @@ Route::prefix('order')->group(function () {
 // - which company and which of its vehicles a member reaches is decided by
 //   VehicleScopeService inside the controllers and policies, exactly as on
 //   the web.
-Route::middleware(['auth:sanctum', 'active'])->group(function () {
+Route::middleware(['auth:sanctum', 'active', 'mfa'])->group(function () {
 
     // Vehicle CRUD
     Route::prefix('vehicle')->group(function () {

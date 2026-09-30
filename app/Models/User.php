@@ -50,6 +50,15 @@ class User extends Authenticatable
     protected $hidden = [
         'password',
         'remember_token',
+
+        // Second-factor material. `mfa_secret` and the recovery codes grant
+        // access on their own, and `mfa_last_used_step` would tell an observer
+        // when the account last signed in. None of it has any business in a
+        // serialized user, and hiding it here means an accidental toArray()
+        // in a response or a log cannot leak it.
+        'mfa_secret',
+        'mfa_recovery_codes',
+        'mfa_last_used_step',
     ];
 
     /**
@@ -64,6 +73,16 @@ class User extends Authenticatable
             'password' => 'hashed',
             'user_type' => UserType::class,
             'is_active' => 'boolean',
+
+            // Encrypted rather than hashed: both have to be readable to be
+            // used — the secret to derive the expected code, the recovery
+            // list to match one entry — so they are protected at rest instead.
+            // The recovery codes are themselves hashes inside this payload.
+            'mfa_secret' => 'encrypted',
+            'mfa_recovery_codes' => 'encrypted:array',
+            'mfa_confirmed_at' => 'datetime',
+            'mfa_last_used_step' => 'integer',
+            'mfa_email_confirmed_at' => 'datetime',
         ];
     }
 
@@ -87,21 +106,21 @@ class User extends Authenticatable
      * The landing route for this user after authentication. Admins live in
      * their own area and never see the customer dashboard.
      */
-   public function homeRouteName(): string
-{
-    if ($this->isAdmin()) {
-        return 'admin.dashboard';
-    }
+    public function homeRouteName(): string
+    {
+        if ($this->isAdmin()) {
+            return 'admin.dashboard';
+        }
 
-    if (
-        $this->user_type === UserType::Firmenkunde &&
-        $this->active_b2b_id !== null
-    ) {
+        if (
+            $this->user_type === UserType::Firmenkunde &&
+            $this->active_b2b_id !== null
+        ) {
+            return 'dashboard';
+        }
+
         return 'dashboard';
     }
-
-    return 'dashboard';
-}
 
     /**
      * The B2B companies this user belongs to.

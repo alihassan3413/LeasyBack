@@ -96,7 +96,7 @@ class TuvsudBookingTest extends TestCase
         Http::fake([self::URL => Http::response(['ok' => true], 200)]);
         $order = $this->requestedOrder();
 
-        $this->withHeaders(['Authorization' => 'Bearer '.$this->admin->createToken('t')->plainTextToken])
+        $this->withHeaders(['Authorization' => 'Bearer '.$this->mfaVerifiedToken($this->admin)])
             ->postJson("/api/order/tuvsud/order/approve/{$order->id}")
             ->assertOk()
             ->assertJsonPath('order_status', 'order_placed')
@@ -123,7 +123,7 @@ class TuvsudBookingTest extends TestCase
         Http::fake([self::URL => Http::response(['fehler' => 'Termin nicht verfügbar'], 422)]);
         $order = $this->requestedOrder();
 
-        $this->withHeaders(['Authorization' => 'Bearer '.$this->admin->createToken('t')->plainTextToken])
+        $this->withHeaders(['Authorization' => 'Bearer '.$this->mfaVerifiedToken($this->admin)])
             ->postJson("/api/order/tuvsud/order/approve/{$order->id}")
             ->assertStatus(502)
             ->assertJsonPath('error', 'TÜV SÜD hat die Buchung nicht angenommen (HTTP 422). Der Auftrag wurde nicht gebucht und bleibt angefragt.');
@@ -204,7 +204,7 @@ class TuvsudBookingTest extends TestCase
         $webProps = json_encode($webPage->viewData('page')['props']);
 
         $this->app['auth']->forgetGuards();
-        $api = $this->withHeaders(['Authorization' => 'Bearer '.$this->owner->createToken('t')->plainTextToken])
+        $api = $this->withHeaders(['Authorization' => 'Bearer '.$this->mfaVerifiedToken($this->owner)])
             ->getJson('/api/vehicle/list/report/status')
             ->assertOk();
 

@@ -111,12 +111,12 @@ class SingleSelectedOfferTest extends TestCase
         [$owner, $order] = $this->b2cOrder();
         $offer = $this->publishedOffer($order, 1);
 
-        $this->actingAs($owner, 'sanctum')
+        $this->actingAsApi($owner)
             ->postJson('/api/vehicle/offers/customer/select/'.$offer->offer_id)
             ->assertOk()
             ->assertJson(['already_selected' => false, 'message' => 'Offer selected successfully']);
 
-        $this->actingAs($owner, 'sanctum')
+        $this->actingAsApi($owner)
             ->postJson('/api/vehicle/offers/customer/select/'.$offer->offer_id)
             ->assertOk()
             ->assertJson(['already_selected' => true, 'message' => 'Offer was already selected']);

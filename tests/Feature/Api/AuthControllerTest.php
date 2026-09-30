@@ -253,7 +253,7 @@ class AuthControllerTest extends TestCase
     public function test_changepassword_with_wrong_current_password_fails(): void
     {
         $user = User::factory()->create(['password' => Hash::make('correct-password')]);
-        $token = $user->createToken('test')->plainTextToken;
+        $token = $this->mfaVerifiedToken($user);
 
         $response = $this->withHeader('Authorization', "Bearer {$token}")
             ->postJson('/auth/changepassword', [
@@ -268,7 +268,7 @@ class AuthControllerTest extends TestCase
     public function test_changepassword_rejects_new_password_same_as_current(): void
     {
         $user = User::factory()->create(['password' => Hash::make('correct-password')]);
-        $token = $user->createToken('test')->plainTextToken;
+        $token = $this->mfaVerifiedToken($user);
 
         $response = $this->withHeader('Authorization', "Bearer {$token}")
             ->postJson('/auth/changepassword', [
@@ -282,7 +282,7 @@ class AuthControllerTest extends TestCase
     public function test_changepassword_rejects_weak_new_password(): void
     {
         $user = User::factory()->create(['password' => Hash::make('correct-password')]);
-        $token = $user->createToken('test')->plainTextToken;
+        $token = $this->mfaVerifiedToken($user);
 
         $response = $this->withHeader('Authorization', "Bearer {$token}")
             ->postJson('/auth/changepassword', [
@@ -296,7 +296,7 @@ class AuthControllerTest extends TestCase
     public function test_changepassword_succeeds_and_updates_hash(): void
     {
         $user = User::factory()->create(['password' => Hash::make('correct-password')]);
-        $token = $user->createToken('test')->plainTextToken;
+        $token = $this->mfaVerifiedToken($user);
 
         $response = $this->withHeader('Authorization', "Bearer {$token}")
             ->postJson('/auth/changepassword', [
@@ -313,7 +313,7 @@ class AuthControllerTest extends TestCase
     public function test_logout_revokes_current_token(): void
     {
         $user = User::factory()->create();
-        $token = $user->createToken('test')->plainTextToken;
+        $token = $this->mfaVerifiedToken($user);
 
         $this->withHeader('Authorization', "Bearer {$token}")
             ->postJson('/auth/logout')
@@ -326,7 +326,7 @@ class AuthControllerTest extends TestCase
     public function test_me_returns_current_user(): void
     {
         $user = User::factory()->create(['user_type' => 'Firmenkunde']);
-        $token = $user->createToken('test')->plainTextToken;
+        $token = $this->mfaVerifiedToken($user);
 
         $response = $this->withHeader('Authorization', "Bearer {$token}")
             ->getJson('/auth/me');
@@ -365,7 +365,7 @@ class AuthControllerTest extends TestCase
         // Checkpoint 4: a token issued before deactivation must stop working
         // immediately, not just block new logins.
         $user = User::factory()->create(['is_active' => true]);
-        $token = $user->createToken('test')->plainTextToken;
+        $token = $this->mfaVerifiedToken($user);
 
         // is_active is intentionally not mass-assignable (Checkpoint 2) —
         // explicit attribute assignment, same as trusted code elsewhere.
@@ -459,7 +459,7 @@ class AuthControllerTest extends TestCase
     public function test_changepassword_endpoint_is_rate_limited(): void
     {
         $user = User::factory()->create(['password' => Hash::make('correct-password')]);
-        $token = $user->createToken('test')->plainTextToken;
+        $token = $this->mfaVerifiedToken($user);
 
         // routes/api.php: throttle:5,1 — 5 requests/minute.
         for ($i = 0; $i < 5; $i++) {

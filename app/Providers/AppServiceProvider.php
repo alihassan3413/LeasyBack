@@ -76,6 +76,7 @@ class AppServiceProvider extends ServiceProvider
         }
 
         $this->registerWorkshopRateLimiters();
+        $this->registerMfaRateLimiters();
     }
 
     /**
@@ -97,6 +98,21 @@ class AppServiceProvider extends ServiceProvider
      * The ceilings are the ones these routes already carried; only the buckets
      * are new.
      */
+    /**
+     * Guessing a six-digit code has to be expensive from outside as well as
+     * inside. The challenge itself already dies after five wrong codes, but
+     * that counter lives on one challenge — without a limiter, an attacker
+     * could keep minting fresh challenges and spend five guesses on each.
+     *
+     * Keyed on the caller, because the ticket is attacker-chosen and keying on
+     * it would hand out a fresh budget per guess.
+     */
+    private function registerMfaRateLimiters(): void
+    {
+        RateLimiter::for('mfa-verify', fn (Request $request) => Limit::perMinute(10)->by((string) $request->ip()));
+        RateLimiter::for('mfa-send', fn (Request $request) => Limit::perMinute(6)->by((string) $request->ip()));
+    }
+
     private function registerWorkshopRateLimiters(): void
     {
         RateLimiter::for('workshop-page', fn (Request $request) => Limit::perMinute(30)->by((string) $request->ip()));

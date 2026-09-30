@@ -418,7 +418,7 @@ class B2bApiAuthorizationTest extends TestCase
         }
 
         $headers = [
-            'Authorization' => 'Bearer '.$user->createToken('api-test')->plainTextToken,
+            'Authorization' => 'Bearer '.$this->mfaVerifiedToken($user),
             'Accept' => 'application/json',
         ];
 

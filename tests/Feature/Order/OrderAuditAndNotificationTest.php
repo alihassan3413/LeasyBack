@@ -36,7 +36,7 @@ class OrderAuditAndNotificationTest extends TestCase
 
     private function bearer(User $user): array
     {
-        return ['Authorization' => 'Bearer '.$user->createToken('test')->plainTextToken];
+        return ['Authorization' => 'Bearer '.$this->mfaVerifiedToken($user)];
     }
 
     public function test_creating_a_privatkunde_order_writes_a_create_order_audit_entry_and_notifies_the_owner(): void

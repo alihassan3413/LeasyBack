@@ -17,7 +17,7 @@ class B2BControllerTest extends TestCase
 
     private function bearer(User $user): array
     {
-        return ['Authorization' => 'Bearer '.$user->createToken('test')->plainTextToken];
+        return ['Authorization' => 'Bearer '.$this->mfaVerifiedToken($user)];
     }
 
     private function companyWithMember(User $user, string $role = 'owner'): B2B
