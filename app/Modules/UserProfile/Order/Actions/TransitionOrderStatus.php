@@ -52,6 +52,9 @@ use Illuminate\Validation\ValidationException;
  */
 class TransitionOrderStatus
 {
+    /** `leasyback_orders.service_type` of an Überführung. */
+    public const SERVICE_RELOCATION = 'ueberfuehrung';
+
     public function __construct(
         private readonly VehicleScopeService $vehicleScope,
         private readonly Notifier $notifier,
@@ -152,6 +155,54 @@ class TransitionOrderStatus
     ];
 
     /**
+     * The B2B Überführung (vehicle relocation): REQUESTED → SCHEDULED →
+     * COMPLETED (traffic-light spec, 30 September 2026).
+     *
+     * - `confirmed` (SCHEDULED) needs a saved appointment date and time slot;
+     *   saving them in the Abholung card is what moves the order here.
+     * - `completed` needs the saved Übergabeprotokoll; saving it is what
+     *   completes the order. No billing step stands in between.
+     *
+     * The three middle statuses are only kept so a relocation created by the
+     * first version, and already past `confirmed`, can still be completed.
+     *
+     * Chosen by the order's own `service_type`, read from the locked row, so
+     * no request can move a Leasingrückgabe onto this path.
+     *
+     * @var array<string, list<string>>
+     */
+    private const RELOCATION_ALLOWED_TRANSITIONS = [
+        'order_requested' => ['order_placed', 'discarded', 'cancelled'],
+        'order_placed' => ['confirmed', 'cancelled'],
+        'confirmed' => ['completed', 'cancelled'],
+        'vehicle_collected' => ['completed', 'cancelled'],
+        'vehicle_returned' => ['completed', 'cancelled'],
+        'invoice_processed' => ['completed'],
+        'completed' => [],
+        'cancelled' => [],
+        'discarded' => [],
+    ];
+
+    /**
+     * What the customer is told a relocation now stands at. The shared status
+     * labels describe a leasing return ("Fahrzeug zurückgegeben"), which
+     * would be wrong wording for a car delivered to another site.
+     *
+     * @var array<string, string>
+     */
+    private const RELOCATION_STATUS_LABELS = [
+        'order_requested' => 'Überführung angefragt',
+        'order_placed' => 'Überführung angenommen',
+        'confirmed' => 'Überführung terminiert',
+        'vehicle_collected' => 'Fahrzeug abgeholt – unterwegs',
+        'vehicle_returned' => 'Fahrzeug zugestellt',
+        'invoice_processed' => 'Abrechnung abgeschlossen',
+        'completed' => 'Überführung abgeschlossen',
+        'cancelled' => 'Überführung storniert',
+        'discarded' => 'Überführung abgelehnt',
+    ];
+
+    /**
      * @param  array<string, mixed>  $additionalAttributes  Extra columns to persist on the order in the same update (e.g. sent_at, response_status).
      */
     public function __invoke(
@@ -171,6 +222,7 @@ class TransitionOrderStatus
             $locked = LeasybackOrder::whereKey($order->getKey())->lockForUpdate()->firstOrFail();
             $fromStatus = $locked->order_status;
             $isB2b = self::isB2bOrder($locked);
+            $isRelocation = self::isRelocationOrder($locked);
 
             $this->guardChannel($toStatus, $isB2b);
             $this->guardBillingBeforeCompletion($locked, $toStatus, $isB2b);
@@ -184,7 +236,7 @@ class TransitionOrderStatus
                 return $locked->fresh();
             }
 
-            $allowed = self::transitionsFor($isB2b)[$fromStatus] ?? [];
+            $allowed = self::transitionsFor($isB2b, $isRelocation)[$fromStatus] ?? [];
             if (! in_array($toStatus, $allowed, true)) {
                 throw ValidationException::withMessages([
                     'order_status' => "Cannot transition order from '{$fromStatus}' to '{$toStatus}'.",
@@ -269,10 +321,13 @@ class TransitionOrderStatus
         // "Abholbereit" while the portal shows them a pay-now banner is the
         // contradiction RepairPaymentPresentation exists to prevent. The
         // charge is opened before this runs, so the stage is already knowable.
-        $label = OrderStatusLabel::presented(
-            $order->order_status,
-            $this->repairPayments->presentedStage($order, self::isB2bOrder($order)),
-        );
+        // An Überführung has its own wording (see RELOCATION_STATUS_LABELS).
+        $label = self::isRelocationOrder($order)
+            ? (self::RELOCATION_STATUS_LABELS[$order->order_status] ?? OrderStatusLabel::presented($order->order_status, null))
+            : OrderStatusLabel::presented(
+                $order->order_status,
+                $this->repairPayments->presentedStage($order, self::isB2bOrder($order)),
+            );
 
         $this->notifier->send(
             $this->vehicleScope->resolveOwnerUsers($vehicle),
@@ -308,6 +363,15 @@ class TransitionOrderStatus
     }
 
     /**
+     * Whether this order is an Überführung, read from the persisted row's own
+     * `service_type` — the same way isB2bOrder() reads the channel.
+     */
+    public static function isRelocationOrder(LeasybackOrder $order): bool
+    {
+        return $order->service_type === self::SERVICE_RELOCATION;
+    }
+
+    /**
      * b2b.txt §21: an order must not be marked complete before its mandatory
      * billing step has been processed. Enforced here, inside the locked
      * transaction, because this action is the only writer of order_status —
@@ -318,10 +382,18 @@ class TransitionOrderStatus
      *
      * B2C is untouched: `completed` is a B2B-only status, so guardChannel()
      * has already rejected it for a B2C order before this runs.
+     *
+     * Applies to an Überführung as well — it is a B2B order and is billed.
      */
     private function guardBillingBeforeCompletion(LeasybackOrder $order, string $toStatus, bool $isB2b): void
     {
         if (! $isB2b || $toStatus !== OrderStatus::Completed->value) {
+            return;
+        }
+
+        // An Überführung is completed by its Übergabeprotokoll, not by billing
+        // (traffic-light spec) — see unmetB2bPrerequisite().
+        if (self::isRelocationOrder($order)) {
             return;
         }
 
@@ -406,9 +478,16 @@ class TransitionOrderStatus
      * behind that status exists. Public so the admin status menu can leave out
      * transitions the guard would refuse, instead of offering a button that
      * only ever produces an error.
+     *
+     * The relocation path only ever reaches `vehicle_collected` and
+     * `invoice_processed` of these, and needs the same facts for them.
      */
     public static function unmetB2bPrerequisite(LeasybackOrder $order, string $toStatus): ?string
     {
+        if (self::isRelocationOrder($order)) {
+            return self::unmetRelocationPrerequisite($order, $toStatus);
+        }
+
         return match ($toStatus) {
             OrderStatus::VehicleCollected->value => OrderLogistics::where('auftragsnummer', $order->auftragsnummer)
                 ->whereNotNull('confirmed_collection_date')->exists()
@@ -431,6 +510,30 @@ class TransitionOrderStatus
             OrderStatus::InvoiceProcessed->value => OrderBilling::where('order_id', $order->id)->first()?->isProcessed() === true
                 ? null
                 : 'Der Status „Rechnung verarbeitet" kann erst gesetzt werden, wenn die Abrechnung als verarbeitet markiert ist.',
+            default => null,
+        };
+    }
+
+    /**
+     * The facts behind an Überführung's two steps: SCHEDULED needs the saved
+     * date and time slot, COMPLETED needs the saved Übergabeprotokoll.
+     */
+    private static function unmetRelocationPrerequisite(LeasybackOrder $order, string $toStatus): ?string
+    {
+        return match ($toStatus) {
+            OrderStatus::Confirmed->value => DB::table('leasyback_order_logistics')
+                ->where('auftragsnummer', $order->auftragsnummer)
+                ->whereNotNull('confirmed_collection_date')
+                ->whereNotNull('confirmed_collection_time_slot')
+                ->exists()
+                ? null
+                : 'Die Überführung ist erst terminiert, wenn Datum und Zeitfenster gespeichert sind.',
+            OrderStatus::Completed->value => DB::table('leasyback_order_logistics')
+                ->where('auftragsnummer', $order->auftragsnummer)
+                ->whereNotNull('transfer_protocol_saved_at')
+                ->exists()
+                ? null
+                : 'Die Überführung wird mit dem Übergabeprotokoll abgeschlossen. Bitte speichern Sie es als Link oder PDF.',
             default => null,
         };
     }
@@ -497,16 +600,23 @@ class TransitionOrderStatus
     /**
      * @return array<string, list<string>>
      */
-    private static function transitionsFor(bool $isB2b): array
+    private static function transitionsFor(bool $isB2b, bool $isRelocation = false): array
     {
+        if ($isB2b && $isRelocation) {
+            return self::RELOCATION_ALLOWED_TRANSITIONS;
+        }
+
         return $isB2b ? self::B2B_ALLOWED_TRANSITIONS : self::ALLOWED_TRANSITIONS;
     }
 
     /**
+     * `$isRelocation` is optional so every existing caller keeps getting
+     * exactly the graph it got before.
+     *
      * @return list<string>
      */
-    public static function allowedNextStatuses(string $fromStatus, bool $isB2b = false): array
+    public static function allowedNextStatuses(string $fromStatus, bool $isB2b = false, bool $isRelocation = false): array
     {
-        return self::transitionsFor($isB2b)[$fromStatus] ?? [];
+        return self::transitionsFor($isB2b, $isRelocation)[$fromStatus] ?? [];
     }
 }

@@ -39,6 +39,10 @@ use Illuminate\Support\Facades\DB;
  * tasks this produces are identical to orderDetail()'s across a matrix of
  * order states — that equivalence, not the key list, is what keeps the two
  * paths honest.
+ *
+ * `service_type` is selected so an Überführung resolves its own two timed
+ * tasks here exactly as on the order page; the appointment and transfer
+ * protocol it needs arrive with `collection` below.
  */
 class OrderTaskHydrator
 {
@@ -68,7 +72,7 @@ class OrderTaskHydrator
             ->orderBy('o.created_at')
             ->select([
                 'o.id', 'o.vehicle_id', 'o.auftragsnummer', 'o.leasyback_partner',
-                'o.order_status', 'o.sent_at', 'o.created_at', 'o.response_status', 'o.response_body',
+                'o.order_status', 'o.service_type', 'o.sent_at', 'o.created_at', 'o.response_status', 'o.response_body',
                 'v.license_plate', 'v.vin', 'v.make', 'v.model',
                 'v.b2c_user_id', 'v.b2b_id', 'v.vehicle_belongs',
             ])
@@ -87,7 +91,8 @@ class OrderTaskHydrator
             return [];
         }
 
-        // Base shape, batched already: customer, confirmation date, documents.
+        // Base shape, batched already: customer, confirmation date, documents,
+        // and the order's service_type.
         $orders = collect($this->admin->enrichOrders($rows))->keyBy('id');
 
         $orderIds = $rows->pluck('id')->all();

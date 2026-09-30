@@ -10,7 +10,14 @@ import UploadDocumentModal from '@/components/vehicle/UploadDocumentModal.vue';
 import { useB2bPermissions } from '@/composables/useB2bPermissions';
 import { useLiveUpdates } from '@/composables/useLiveUpdates';
 import AppLayout from '@/layouts/AppLayout.vue';
-import { NEW_ORDER_ACTION_LABEL, getCustomerOrderFlowSteps, newOrderAction } from '@/lib/customerOrderFlow';
+import {
+    NEW_ORDER_ACTION_LABEL,
+    formatRelocationAddress,
+    getCustomerOrderFlowSteps,
+    newOrderAction,
+    type RelocationContact,
+    type RelocationDetails,
+} from '@/lib/customerOrderFlow';
 import { formatPortalDate, formatPortalDateTime } from '@/lib/portalDate';
 import { getVehicleStatusDisplay } from '@/lib/vehicleStatus';
 import type { StationData } from '@/types/order';
@@ -67,6 +74,38 @@ const orderActionLabel = computed(() => (orderAction.value ? NEW_ORDER_ACTION_LA
 // "Abholbereit" over a timeline saying "Zahlung erforderlich" on the same order.
 const status = computed(() => getVehicleStatusDisplay(currentOrder.value?.order_status, currentOrder.value?.payment?.repair_stage));
 
+/** Überführung orders get their own timeline and a pickup/destination card. */
+const isRelocation = computed(() => currentOrder.value?.service_type === 'ueberfuehrung');
+
+const relocation = computed<RelocationDetails | null>(() =>
+    isRelocation.value ? (currentOrder.value?.request_payload as unknown as RelocationDetails | null) : null,
+);
+
+function contactText(contact?: RelocationContact | null): string {
+    return [contact?.name, contact?.phone, contact?.email].filter(Boolean).join(' · ');
+}
+
+const relocationRows = computed(() => {
+    const r = relocation.value;
+
+    if (!r) {
+        return [];
+    }
+
+    return [
+        { label: 'Abholadresse', value: formatRelocationAddress(r.pickup_address) },
+        { label: 'Zieladresse', value: formatRelocationAddress(r.destination_address) },
+        { label: 'Wunschtermin', value: r.preferred_date ? formatDate(r.preferred_date) : '' },
+        { label: 'Zeitfenster', value: r.time_slot ?? '' },
+        { label: 'Fahrbereit', value: r.vehicle_ready == null ? '' : r.vehicle_ready ? 'Ja' : 'Nein' },
+        { label: 'Kontakt Abholung', value: contactText(r.pickup_contact) },
+        { label: 'Kontakt Ziel', value: contactText(r.destination_contact) },
+        { label: 'Rechnungsadresse', value: [r.billing_address?.name, formatRelocationAddress(r.billing_address)].filter(Boolean).join(', ') },
+        { label: 'Kostenstelle', value: [r.cost_centre?.name, r.cost_centre?.number].filter(Boolean).join(' · ') },
+        { label: 'Hinweis', value: r.notes ?? '' },
+    ].filter((row) => !!row.value);
+});
+
 /**
  * The current order's offers only. Flattening every order's offers into one
  * comparison put a previous case's quotes next to this one's — they price
@@ -115,6 +154,8 @@ const steps = computed(() => {
               }
             : null,
         audience: 'customer',
+        serviceType: order.service_type ?? null,
+        relocation: relocation.value,
     });
 });
 
@@ -375,6 +416,20 @@ function formatDateTime(value: string | undefined): string {
                             <div v-for="spec in specs" :key="spec.label" class="flex items-baseline justify-between gap-4 px-5 py-2.5">
                                 <dt class="text-[12.5px] text-[#00000080]">{{ spec.label }}</dt>
                                 <dd class="truncate text-right text-[13px] font-semibold text-[#10393b]">{{ spec.value }}</dd>
+                            </div>
+                        </dl>
+                    </section>
+
+                    <!-- Überführung: both addresses, the requested slot and the contacts from the booking form. -->
+                    <section v-if="relocationRows.length" class="overflow-hidden rounded-[16px] border border-[#e6eded] bg-white">
+                        <header class="border-b border-[#f1f5f5] px-5 py-4">
+                            <h2 class="text-[15px] font-bold text-[#10393b]">Überführung</h2>
+                        </header>
+
+                        <dl class="divide-y divide-[#f1f5f5]">
+                            <div v-for="row in relocationRows" :key="row.label" class="flex items-baseline justify-between gap-4 px-5 py-2.5">
+                                <dt class="shrink-0 text-[12.5px] text-[#00000080]">{{ row.label }}</dt>
+                                <dd class="text-right text-[13px] font-semibold text-[#10393b]">{{ row.value }}</dd>
                             </div>
                         </dl>
                     </section>

@@ -27,6 +27,9 @@ use Illuminate\Support\Collection;
  * context building, the walk, the result shape, the action helpers — is one
  * implementation, because "what does Admin do next" is one question.
  *
+ * An Überführung (B2B vehicle relocation) has its own two-step list — see
+ * relocationDefinitions().
+ *
  * The result is Admin-only and is never attached to a customer payload.
  */
 class OrderTaskResolver
@@ -46,6 +49,12 @@ class OrderTaskResolver
     public const SECTION_POSITIONS = 'positionen';
 
     public const SECTION_COMMISSION = 'beauftragung';
+
+    /** The Überführung's transfer protocol card on the Admin order page. */
+    public const SECTION_TRANSFER_PROTOCOL = 'uebergabeprotokoll';
+
+    /** `leasyback_orders.service_type` of an Überführung. */
+    private const SERVICE_RELOCATION = 'ueberfuehrung';
 
     /**
      * How the card should carry out a task's primary action.
@@ -233,6 +242,8 @@ class OrderTaskResolver
         return [
             'order_id' => (string) ($order['id'] ?? ''),
             'is_b2b' => $isB2b,
+            // An Überführung walks its own two-step list (relocationDefinitions()).
+            'is_relocation' => $isB2b && ($order['service_type'] ?? null) === self::SERVICE_RELOCATION,
             'status' => $status,
             'is_closed' => $isCancelled || $status === 'completed',
             'rank' => $ranks[$effectiveStatus] ?? 0,
@@ -240,6 +251,8 @@ class OrderTaskResolver
             'created_at' => $order['created_at'] ?? null,
             'requested_date' => $order['collection']['requested_collection_date'] ?? null,
             'confirmed_date' => $order['collection']['confirmed_collection_date'] ?? null,
+            'confirmed_time_slot' => $order['collection']['confirmed_collection_time_slot'] ?? null,
+            'transfer_protocol_saved_at' => $order['collection']['transfer_protocol']['saved_at'] ?? null,
             'repair_start_date' => $order['collection']['confirmed_repair_start_date'] ?? null,
             'processing_days' => $order['collection']['estimated_processing_days'] ?? null,
             'billing_processed' => (bool) ($order['billing']['is_processed'] ?? false),
@@ -293,7 +306,65 @@ class OrderTaskResolver
      */
     private function definitions(array $context): array
     {
+        if ($context['is_relocation']) {
+            return $this->relocationDefinitions($context);
+        }
+
         return $context['is_b2b'] ? $this->b2bDefinitions($context) : $this->b2cDefinitions($context);
+    }
+
+    /**
+     * The Überführung: exactly two timed Admin tasks (traffic-light spec,
+     * 30 September 2026). OrderTaskPriorityResolver times them by key.
+     *
+     * 1. Enter the appointment — open from order receipt; its clock runs from
+     *    the original order timestamp. Done once date and full time slot are
+     *    saved, which is what moves the order to `confirmed` (SCHEDULED).
+     * 2. Add the transfer protocol — eligible once scheduled; its clock runs
+     *    from 00:00 on the appointment date. Saving the protocol as a link or
+     *    PDF completes the order, so no further task follows.
+     *
+     * Both clocks read persisted business data only (the order's created_at
+     * and the saved appointment date), so opening or refreshing the page
+     * never restarts them.
+     *
+     * @param  array<string, mixed>  $context
+     * @return array<int, array<string, mixed>>
+     */
+    private function relocationDefinitions(array $context): array
+    {
+        $rank = $context['rank'];
+        $scheduled = $rank >= 2;
+        $appointment = $context['confirmed_date'] === null
+            ? null
+            : trim($context['confirmed_date'].' '.($context['confirmed_time_slot'] ?? ''));
+
+        return [
+            $this->definition(
+                key: OrderTaskPriorityResolver::RELOCATION_APPOINTMENT_TASK,
+                title: 'Überführungstermin eintragen',
+                description: 'Die Überführung ist eingegangen. Tragen Sie den Abholtermin mit vollständigem Zeitfenster ein — damit ist die Überführung terminiert.',
+                section: self::SECTION_COLLECTION,
+                done: $scheduled,
+                open: ! $scheduled,
+                date: $context['created_at'],
+                dateLabel: 'Auftrag eingegangen',
+                action: $this->inlineAction(self::SECTION_COLLECTION, 'Termin eintragen'),
+                priorityDate: $context['created_at'],
+            ),
+            $this->definition(
+                key: OrderTaskPriorityResolver::RELOCATION_PROTOCOL_TASK,
+                title: 'Übergabeprotokoll hinzufügen',
+                description: 'Die Überführung ist terminiert. Speichern Sie das Übergabeprotokoll als Link oder laden Sie es als PDF hoch — damit ist der Auftrag abgeschlossen.',
+                section: self::SECTION_TRANSFER_PROTOCOL,
+                done: $context['transfer_protocol_saved_at'] !== null || $rank >= 11,
+                open: $scheduled && $rank < 11,
+                date: $context['transfer_protocol_saved_at'] ?? $context['confirmed_date'],
+                dateLabel: $context['transfer_protocol_saved_at'] !== null ? 'Gespeichert am' : 'Überführungstermin',
+                action: $this->inlineAction(self::SECTION_TRANSFER_PROTOCOL, 'Protokoll hinzufügen'),
+                priorityDate: $context['confirmed_date'],
+            ),
+        ];
     }
 
     /**
@@ -362,7 +433,7 @@ class OrderTaskResolver
                 description: 'Das Fahrzeug ist abgeholt. Laden Sie das Erstgutachten hoch und veröffentlichen Sie es für den Kunden.',
                 section: self::SECTION_DOCUMENTS,
                 done: $context['gutachten'] !== null,
-open: $rank === 3 && $context['gutachten'] === null,
+                open: $rank === 3 && $context['gutachten'] === null,
                 date: $context['gutachten']['created_at'] ?? $dates['vehicle_collected'] ?? null,
                 dateLabel: 'Abgeholt am',
                 action: $this->modalAction(self::UI_UPLOAD_REPORT, 'Erstgutachten hochladen', ['document_type' => DocumentType::Gutachten->value, 'title' => 'Erstgutachten hochladen']),
@@ -372,8 +443,8 @@ open: $rank === 3 && $context['gutachten'] === null,
                 title: 'Erstbegutachtung abschließen',
                 description: 'Das Erstgutachten liegt vor. Schließen Sie die Begutachtung ab, um die Angebotsphase zu starten.',
                 section: self::SECTION_STATUS,
-             done: $context['gutachten'] !== null && $rank >= 4,
-open: $context['gutachten'] !== null && $rank === 3,
+                done: $context['gutachten'] !== null && $rank >= 4,
+                open: $context['gutachten'] !== null && $rank === 3,
                 date: $dates['inspected'] ?? $context['gutachten']['created_at'] ?? null,
                 dateLabel: 'Gutachten vom',
                 action: $this->statusAction($orderId, 'inspected', 'Begutachtung abschließen'),
@@ -635,8 +706,8 @@ open: $context['gutachten'] !== null && $rank === 3,
                 title: 'Erstgutachten hochladen',
                 description: 'Der Termin ist bestätigt. Laden Sie das Erstgutachten hoch und veröffentlichen Sie es für den Kunden.',
                 section: self::SECTION_DOCUMENTS,
-               done: $context['gutachten'] !== null,
-open: $rank >= 2 && $context['gutachten'] === null,
+                done: $context['gutachten'] !== null,
+                open: $rank >= 2 && $context['gutachten'] === null,
                 date: $context['gutachten']['created_at'] ?? $dates['confirmed'] ?? null,
                 dateLabel: 'Termin bestätigt am',
                 action: $this->modalAction(self::UI_UPLOAD_REPORT, 'Erstgutachten hochladen', ['document_type' => DocumentType::Gutachten->value, 'title' => 'Erstgutachten hochladen']),

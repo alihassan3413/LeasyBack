@@ -70,6 +70,8 @@ Route::middleware(['auth:sanctum', 'active', 'mfa'])->group(function () {
             ->middleware('b2b.can:orders.create');
         Route::post('b2b/create/{vehicleId}', [OrderController::class, 'createB2bCollection'])->whereUuid('vehicleId')
             ->middleware('b2b.can:orders.create');
+       Route::post('b2b/relocation/{vehicleId}',[OrderController::class, 'createB2bRelocation'])->whereUuid('vehicleId'); // ->middleware('b2b.can:orders.create');
+
         Route::get('stations/{provider}', [OrderController::class, 'stationsByProvider']);
         Route::get('stations', [OrderController::class, 'allStations']);
         Route::post('stations/create', [OrderController::class, 'createStation']);

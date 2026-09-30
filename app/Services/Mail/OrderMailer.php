@@ -18,6 +18,11 @@ use App\Mail\Orders\OrderCreatedAdminMail;
 use App\Mail\Orders\OrderCreatedCustomerMail;
 use App\Mail\Orders\OrderEventMail;
 use App\Mail\Orders\OrderStatusUpdatedMail;
+use App\Mail\Orders\RelocationCompletedMail;
+use App\Mail\Orders\RelocationDeliveredMail;
+use App\Mail\Orders\RelocationRequestedMail;
+use App\Mail\Orders\RelocationScheduledMail;
+use App\Mail\Orders\RelocationVehicleCollectedMail;
 use App\Mail\Orders\RepairApprovalConfirmedMail;
 use App\Mail\Orders\RepairInvoiceAvailableMail;
 use App\Mail\Orders\RepairPaymentReceivedMail;
@@ -32,6 +37,9 @@ use Illuminate\Support\Facades\Mail;
 
 class OrderMailer
 {
+    /** `leasyback_orders.service_type` of an Überführung. */
+    private const SERVICE_RELOCATION = 'ueberfuehrung';
+
     /**
      * @var array<string, class-string<OrderEventMail>>
      */
@@ -68,6 +76,23 @@ class OrderMailer
         'completed' => OrderCompletedMail::class,
     ];
 
+    /**
+     * The Überführung (B2B vehicle relocation). Its own wording throughout:
+     * a relocated car is delivered to another site, not returned to a
+     * leasing company, and there is no inspection or repair to mention.
+     * Statuses without an entry fall back to the generic status update, as
+     * in the other two maps.
+     *
+     * @var array<string, class-string<OrderEventMail>>
+     */
+    private const RELOCATION_STATUS_MAILABLES = [
+        'order_requested' => RelocationRequestedMail::class,
+        'confirmed' => RelocationScheduledMail::class,
+        'vehicle_collected' => RelocationVehicleCollectedMail::class,
+        'vehicle_returned' => RelocationDeliveredMail::class,
+        'completed' => RelocationCompletedMail::class,
+    ];
+
     public function __construct(
         private readonly OrderEmailDataFactory $dataFactory,
         private readonly MailRecipientResolver $recipients,
@@ -84,6 +109,7 @@ class OrderMailer
         );
 
         $customerMailable = match (true) {
+            self::isRelocation($order) => RelocationRequestedMail::class,
             $vehicle?->vehicle_belongs === 'B2B' => B2bCollectionRequestedMail::class,
             $order->order_status === 'order_requested' => AppointmentRequestedMail::class,
             default => OrderCreatedCustomerMail::class,
@@ -96,7 +122,11 @@ class OrderMailer
     {
         $vehicle ??= $order->vehicle;
 
-        $mailables = $vehicle?->vehicle_belongs === 'B2B' ? self::B2B_STATUS_MAILABLES : self::STATUS_MAILABLES;
+        $mailables = match (true) {
+            self::isRelocation($order) => self::RELOCATION_STATUS_MAILABLES,
+            $vehicle?->vehicle_belongs === 'B2B' => self::B2B_STATUS_MAILABLES,
+            default => self::STATUS_MAILABLES,
+        };
         $mailable = $mailables[(string) $order->order_status] ?? OrderStatusUpdatedMail::class;
 
         $this->sendToCustomer($order, $vehicle, $mailable);
@@ -106,6 +136,8 @@ class OrderMailer
      * §18 "Appointment confirmed": a confirmed collection date that moves
      * afterwards is news the customer has to act on. The first confirmation
      * is announced by the `confirmed` status mail itself.
+     *
+     * Also used for an Überführung — its pickup date is a collection date.
      */
     public function collectionRescheduled(LeasybackOrder $order, ?Vehicle $vehicle = null): void
     {
@@ -204,6 +236,14 @@ class OrderMailer
     public function offerApprovalReminder(LeasybackOffer $offer): void
     {
         $this->sendOfferMail($offer, OfferApprovalReminderMail::class);
+    }
+
+    /**
+     * Read from the order's own `service_type`, never from the caller.
+     */
+    private static function isRelocation(LeasybackOrder $order): bool
+    {
+        return $order->service_type === self::SERVICE_RELOCATION;
     }
 
     /**

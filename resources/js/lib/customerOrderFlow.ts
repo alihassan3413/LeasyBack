@@ -118,7 +118,7 @@ export const B2B_ORDER_STAGE_SEQUENCE: readonly B2bOrderStage[] = [
 ];
 
 export interface CustomerOrderFlowStep {
-    stage: CustomerOrderStage | B2bOrderStage;
+    stage: CustomerOrderStage | B2bOrderStage | RelocationStage;
     label: string;
     shortLabel: string;
     subtitle: string;
@@ -194,11 +194,17 @@ export interface CustomerOrderFlowInput {
      * addressed to different people.
      */
     audience?: 'customer' | 'admin';
+    /** `ueberfuehrung` switches to the relocation timeline. Absent means Leasingrückgabe. */
+    serviceType?: string | null;
+    /** The relocation form data (the order's request_payload). */
+    relocation?: RelocationDetails | null;
 }
 
 export interface CustomerOrderCollection {
     requested_collection_date?: string | null;
     confirmed_collection_date?: string | null;
+    /** An Überführung's confirmed time window, e.g. "08:00-12:00". */
+    confirmed_collection_time_slot?: string | null;
     /** Confirmed workshop repair appointment (§11) — customer-visible. */
     confirmed_repair_start_date?: string | null;
     estimated_processing_days?: number | null;
@@ -1155,9 +1161,209 @@ function getB2bOrderFlowSteps(ctx: CustomerOrderFlowInput): CustomerOrderFlowSte
     });
 }
 
+/* ─────────────────────────── Überführung (relocation) ─────────────────────────── */
+
+export type RelocationStage = 'relocation_requested' | 'relocation_scheduled' | 'relocation_completed';
+
+/** REQUESTED → SCHEDULED → COMPLETED (traffic-light spec, 30 September 2026). */
+export const RELOCATION_STAGE_SEQUENCE: readonly RelocationStage[] = ['relocation_requested', 'relocation_scheduled', 'relocation_completed'];
+
+export interface RelocationAddress {
+    street?: string | null;
+    number?: string | null;
+    zip_code?: string | null;
+    city?: string | null;
+    country?: string | null;
+}
+
+export interface RelocationContact {
+    name?: string | null;
+    phone?: string | null;
+    email?: string | null;
+}
+
+/** Shape of a relocation order's request_payload. */
+export interface RelocationDetails {
+    pickup_address?: RelocationAddress | null;
+    destination_address?: RelocationAddress | null;
+    preferred_date?: string | null;
+    /** "08:00-12:00" — always present; written from time_from/time_to when those were sent. */
+    time_slot?: string | null;
+    time_from?: string | null;
+    time_to?: string | null;
+    pickup_contact?: RelocationContact | null;
+    destination_contact?: RelocationContact | null;
+    vehicle_ready?: boolean | null;
+    notes?: string | null;
+    billing_address?: (RelocationAddress & { name?: string | null }) | null;
+    cost_centre?: { name?: string | null; number?: string | null } | null;
+}
+
+/**
+ * Scheduled once Admin saved date and time slot (`confirmed`), completed once
+ * the Übergabeprotokoll is saved. The middle statuses of the first relocation
+ * version count as scheduled.
+ */
+const RELOCATION_STATUS_INDEX: Record<string, number> = {
+    order_requested: 0,
+    order_placed: 0,
+    confirmed: 1,
+    vehicle_collected: 1,
+    vehicle_returned: 1,
+    invoice_processed: 1,
+    completed: 2,
+};
+
+const RELOCATION_STAGE_LABEL: Record<RelocationStage, string> = {
+    relocation_requested: 'Überführung angefragt',
+    relocation_scheduled: 'Überführung terminiert',
+    relocation_completed: 'Überführung abgeschlossen',
+};
+
+const RELOCATION_STAGE_TOOLTIP: Record<RelocationStage, string> = {
+    relocation_requested: 'Ihre Überführungsanfrage ist bei Leasyback eingegangen.',
+    relocation_scheduled: 'Leasyback hat Termin und Zeitfenster für die Überführung festgelegt.',
+    relocation_completed: 'Das Fahrzeug wurde übergeben, das Übergabeprotokoll liegt vor.',
+};
+
+export function formatRelocationAddress(address?: RelocationAddress | null): string {
+    if (!address) {
+        return '';
+    }
+
+    return [[address.street, address.number].filter(Boolean).join(' '), [address.zip_code, address.city].filter(Boolean).join(' ')]
+        .filter(Boolean)
+        .join(', ');
+}
+
+function relocationStageDate(stage: RelocationStage, ctx: CustomerOrderFlowInput): string {
+    const history = ctx.statusHistory;
+
+    switch (stage) {
+        case 'relocation_requested':
+            return ctx.orderCreatedAt ?? '';
+        case 'relocation_scheduled':
+            return findHistoryDate(history, new Set(['confirmed']));
+        case 'relocation_completed':
+            return findHistoryDate(history, new Set(['completed']));
+    }
+}
+
+function relocationStageSubtitle(stage: RelocationStage, details: RelocationDetails, collection: CustomerOrderCollection | null | undefined): string {
+    const pickup = formatRelocationAddress(details.pickup_address);
+    const destination = formatRelocationAddress(details.destination_address);
+
+    switch (stage) {
+        case 'relocation_requested': {
+            const date = details.preferred_date ? formatPortalDate(details.preferred_date) : '';
+            const when = [date, details.time_slot].filter(Boolean).join(', ');
+            const note = details.notes?.trim();
+
+            return [when ? `Wunschtermin: ${when}` : '', note ? `Hinweis: ${note}` : ''].filter(Boolean).join('\n');
+        }
+        case 'relocation_scheduled': {
+            const date = collection?.confirmed_collection_date ? formatPortalDate(collection.confirmed_collection_date) : '';
+            const when = [date, collection?.confirmed_collection_time_slot].filter(Boolean).join(', ');
+
+            return [when ? `Termin: ${when}` : '', pickup ? `Abholung: ${pickup}` : '', destination ? `Ziel: ${destination}` : '']
+                .filter(Boolean)
+                .join('\n');
+        }
+        case 'relocation_completed':
+            return destination ? `Übergeben an: ${destination}` : '';
+    }
+}
+
+function buildRelocationStep(
+    stage: RelocationStage,
+    details: RelocationDetails,
+    collection: CustomerOrderCollection | null | undefined,
+    state: { datetime: string; completed: boolean; isCurrent: boolean; isNext: boolean; isCancelled: boolean; isRejected: boolean },
+): CustomerOrderFlowStep {
+    let label = RELOCATION_STAGE_LABEL[stage];
+    let subtitle = relocationStageSubtitle(stage, details, collection);
+    let tooltipDescription = RELOCATION_STAGE_TOOLTIP[stage];
+
+    if (state.isRejected) {
+        label = 'Anfrage abgelehnt';
+        subtitle = 'Leasyback hat diese Überführungsanfrage abgelehnt. Bei Fragen wenden Sie sich bitte an Ihren Ansprechpartner.';
+        tooltipDescription = 'Diese Anfrage wurde abgelehnt und wird nicht weiter bearbeitet.';
+    } else if (state.isCancelled) {
+        label = 'Auftrag storniert';
+        subtitle = `Der Auftrag wurde bei „${RELOCATION_STAGE_LABEL[stage]}" beendet.`;
+        tooltipDescription = 'Dieser Auftrag wurde storniert und wird nicht weiter bearbeitet.';
+    }
+
+    return {
+        stage,
+        label,
+        shortLabel: label,
+        subtitle,
+        tooltipDescription,
+        datetime: state.datetime,
+        completed: state.completed,
+        isCurrent: state.isCurrent,
+        isNext: state.isNext,
+        isCancelled: state.isCancelled && !state.isRejected,
+        isRejected: state.isRejected,
+    };
+}
+
+function getRelocationOrderFlowSteps(ctx: CustomerOrderFlowInput): CustomerOrderFlowStep[] {
+    const status = (ctx.orderStatus ?? '').trim();
+    const details = ctx.relocation ?? {};
+    const collection = ctx.collection ?? null;
+
+    if (status === 'cancelled' || status === 'discarded') {
+        const terminalEntry = ctx.statusHistory.find((entry) => entry.new_status === status);
+        const priorIndex = RELOCATION_STATUS_INDEX[(terminalEntry?.old_status ?? '').trim()] ?? 0;
+        const isRejected = status === 'discarded';
+
+        return RELOCATION_STAGE_SEQUENCE.map((stage, index) => {
+            const completed = index < priorIndex;
+            const here = index === priorIndex;
+
+            return buildRelocationStep(stage, details, collection, {
+                datetime: completed ? relocationStageDate(stage, ctx) : here ? (terminalEntry?.created_at ?? '') : '',
+                completed,
+                isCurrent: false,
+                isNext: false,
+                isCancelled: here,
+                isRejected: here && isRejected,
+            });
+        });
+    }
+
+    const progressIndex = RELOCATION_STATUS_INDEX[status] ?? 0;
+    let nextAssigned = false;
+
+    return RELOCATION_STAGE_SEQUENCE.map((stage, index) => {
+        const isCurrent = index === progressIndex;
+        const completed = index < progressIndex || (isCurrent && status === CLOSED_SUCCESSFULLY);
+        const isNext = index > progressIndex && !nextAssigned;
+
+        if (isNext) {
+            nextAssigned = true;
+        }
+
+        return buildRelocationStep(stage, details, collection, {
+            datetime: completed || isCurrent ? relocationStageDate(stage, ctx) : '',
+            completed,
+            isCurrent,
+            isNext,
+            isCancelled: false,
+            isRejected: false,
+        });
+    });
+}
+
 export function getCustomerOrderFlowSteps(ctx: CustomerOrderFlowInput): CustomerOrderFlowStep[] | null {
     if (!ctx.orderCreatedAt) {
         return null;
+    }
+
+    if (ctx.serviceType === 'ueberfuehrung') {
+        return getRelocationOrderFlowSteps(ctx);
     }
 
     if (ctx.channel === 'B2B') {
