@@ -30,17 +30,17 @@ class PdftotextExtractor implements PdfTextExtractor
         $binary = $this->binaryPath();
 
         if ($binary === null) {
-            throw AppraisalExtractionException::unsupportedDocument('pdftotext is not available on this host.');
+            throw AppraisalExtractionException::unsupportedDocument('pdftotext is not available on this host.', AppraisalExtractionException::NO_EXTRACTOR_AVAILABLE);
         }
 
         if (! str_starts_with($input->contents, self::PDF_MAGIC)) {
-            throw AppraisalExtractionException::unsupportedDocument('The document is not a PDF file.');
+            throw AppraisalExtractionException::unsupportedDocument('The document is not a PDF file.', AppraisalExtractionException::NOT_A_PDF);
         }
 
         $maxBytes = (int) config('gutachten.pdftotext.max_bytes');
 
         if ($input->byteSize() > $maxBytes) {
-            throw AppraisalExtractionException::unsupportedDocument("The PDF exceeds the extraction limit of {$maxBytes} bytes.");
+            throw AppraisalExtractionException::unsupportedDocument("The PDF exceeds the extraction limit of {$maxBytes} bytes.", AppraisalExtractionException::PDF_TOO_LARGE);
         }
 
         $file = $this->writeTemporaryFile($input->contents);
@@ -54,7 +54,7 @@ class PdftotextExtractor implements PdfTextExtractor
         $pages = $this->pages($output);
 
         if ($this->characterCount($pages) < (int) config('gutachten.pdftotext.min_characters')) {
-            throw AppraisalExtractionException::unsupportedDocument('The PDF carries no usable text layer.');
+            throw AppraisalExtractionException::unsupportedDocument('The PDF carries no usable text layer.', AppraisalExtractionException::NO_TEXT_LAYER);
         }
 
         return $pages;
@@ -85,7 +85,7 @@ class PdftotextExtractor implements PdfTextExtractor
         }
 
         if (! $process->isSuccessful()) {
-            throw AppraisalExtractionException::unsupportedDocument('pdftotext could not read this PDF.');
+            throw AppraisalExtractionException::unsupportedDocument('pdftotext could not read this PDF.', AppraisalExtractionException::PDF_UNREADABLE);
         }
 
         return $process->getOutput();

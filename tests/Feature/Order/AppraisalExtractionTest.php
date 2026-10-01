@@ -304,12 +304,17 @@ class AppraisalExtractionTest extends TestCase
         $this->assertDatabaseHas('leasyback_order_audit_log', ['order_id' => $order->id, 'action' => 'APPRAISAL_EXTRACTION_FAILED']);
     }
 
+    /**
+     * The AI used to signal failure here by returning an empty proposal. An
+     * empty proposal now means "nothing chargeable in this Gutachten", a valid
+     * result, so this fails the way a real extractor does -- by throwing.
+     */
     public function test_when_every_extractor_fails_the_last_error_is_kept_with_both_notes(): void
     {
         [$order, $document] = $this->orderWithGutachten();
         $this->parser->failure = AppraisalExtractionException::extractorFailed('Layout not recognised.');
         $this->ai->enabled = true;
-        $this->ai->proposal = new AppraisalExtractionProposal([]);
+        $this->ai->failure = AppraisalExtractionException::invalidProposal();
 
         $result = $this->service()->run($this->pendingExtraction($order, $document)->id);
 
@@ -340,6 +345,49 @@ class AppraisalExtractionTest extends TestCase
 
         $this->assertSame(AppraisalExtractionStatus::Failed, $result->status);
         $this->assertSame(AppraisalExtractionException::DOCUMENT_UNREADABLE, $result->error_code);
+    }
+
+    /**
+     * error_message is rendered in the admin card, so the storage path that
+     * used to be interpolated into it must stay in the log instead.
+     */
+    public function test_a_missing_file_keeps_its_storage_path_out_of_the_stored_error(): void
+    {
+        [$order, $document] = $this->orderWithGutachten();
+        Storage::disk('documents')->delete($document->path);
+
+        $result = $this->service()->run($this->pendingExtraction($order, $document)->id);
+
+        $this->assertStringNotContainsString($document->path, (string) $result->error_message);
+        $this->assertStringNotContainsString('vehicle-reports', (string) $result->error_message);
+    }
+
+    /**
+     * The QA report (TUV SUD Minderwertgutachten 46000055): the PDF reads fine
+     * but lists only Gebrauchsspuren at 0,00 EUR, so the parser legitimately
+     * returns nothing. That is a finished run, not a failed one.
+     */
+    public function test_a_gutachten_with_no_chargeable_positions_is_ready_not_failed(): void
+    {
+        [$order, $document] = $this->orderWithGutachten();
+        $this->parser->proposal = new AppraisalExtractionProposal([]);
+
+        $result = $this->service()->run($this->pendingExtraction($order, $document)->id);
+
+        $this->assertSame(AppraisalExtractionStatus::Ready, $result->status);
+        $this->assertNull($result->error_code);
+        $this->assertNull($result->error_message);
+        $this->assertSame([], $result->proposal['lines']);
+    }
+
+    public function test_an_empty_proposal_creates_no_appraisal_positions(): void
+    {
+        [$order, $document] = $this->orderWithGutachten();
+        $this->parser->proposal = new AppraisalExtractionProposal([]);
+
+        $this->service()->run($this->pendingExtraction($order, $document)->id);
+
+        $this->assertSame(0, AppraisalPosition::where('order_id', $order->id)->count());
     }
 
     public function test_an_unexpected_error_releases_the_run_for_a_retry(): void

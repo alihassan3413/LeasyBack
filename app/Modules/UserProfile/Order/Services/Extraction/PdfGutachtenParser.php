@@ -43,12 +43,11 @@ class PdfGutachtenParser implements AppraisalDocumentParser
     {
         $pages = $this->textExtractor->extract($input);
         $lines = $this->lines($pages);
-
-        if ($lines === []) {
-            throw AppraisalExtractionException::unsupportedDocument('No damage positions were found in this Gutachten.');
-        }
-
         $total = $this->totals->detect($pages);
+
+        if ($lines === [] && ! $this->statesNoChargeableDamage($pages, $total)) {
+            throw AppraisalExtractionException::unsupportedDocument('No damage positions were found in this Gutachten.', AppraisalExtractionException::NO_POSITIONS_FOUND);
+        }
 
         return new AppraisalExtractionResult(
             source: AppraisalExtractionSource::Parser,
@@ -63,6 +62,42 @@ class PdfGutachtenParser implements AppraisalDocumentParser
             ),
             warnings: $this->totals->warnings($total, $this->totals->sum($lines)),
         );
+    }
+
+    /**
+     * Whether an empty proposal is the complete reading of this Gutachten.
+     *
+     * A Minderwertgutachten may list only Gebrauchsspuren at 0,00 EUR -- wear
+     * the appraiser marked "kein Abzug". The scanner stops at that heading and
+     * the splitter drops rows without a positive amount, both on purpose, so
+     * the result is legitimately empty. It is only legitimate when the damage
+     * section was actually found and the Gutachten states no total to account
+     * for: a document without the section, or one stating a total that no line
+     * explains, was not understood and still fails.
+     *
+     * @param  array<int, PdfPageText>  $pages
+     */
+    private function statesNoChargeableDamage(array $pages, ?string $total): bool
+    {
+        if ($total !== null) {
+            return false;
+        }
+
+        foreach ($pages as $page) {
+            if (! $page instanceof PdfPageText) {
+                continue;
+            }
+
+            foreach ($page->lines as $line) {
+                foreach ((array) config('gutachten.sections.damage') as $pattern) {
+                    if (preg_match((string) $pattern, $line) === 1) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 
     private function lines(array $pages): array

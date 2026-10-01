@@ -390,7 +390,13 @@ class AppraisalExtractionService
         $contents = $disk->exists($document->path) ? $disk->get($document->path) : null;
 
         if ($contents === null || $contents === '') {
-            throw AppraisalExtractionException::documentUnreadable($document->path);
+            Log::warning('Gutachten file missing from the documents disk', [
+                'extraction_id' => $extraction->id,
+                'document_id' => $document->id,
+                'path' => $document->path,
+            ]);
+
+            throw AppraisalExtractionException::documentUnreadable();
         }
 
         return new AppraisalExtractionInput(

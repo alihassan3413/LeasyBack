@@ -187,16 +187,113 @@ class PdfGutachtenParserTest extends TestCase
 
     public function test_an_extractor_failure_is_passed_through(): void
     {
-        $this->textExtractor->failure = AppraisalExtractionException::unsupportedDocument('The PDF carries no usable text layer.');
+        $this->textExtractor->failure = AppraisalExtractionException::unsupportedDocument(
+            'The PDF carries no usable text layer.',
+            AppraisalExtractionException::NO_TEXT_LAYER,
+        );
 
-        $this->assertFailure(AppraisalExtractionException::UNSUPPORTED_DOCUMENT);
+        $this->assertFailure(AppraisalExtractionException::NO_TEXT_LAYER);
     }
 
-    public function test_a_gutachten_without_damage_positions_is_unsupported(): void
+    public function test_a_gutachten_without_damage_positions_reports_the_layout_as_the_reason(): void
     {
         $this->textExtractor->withText("Besichtigungsbedingungen\nDas Fahrzeug wurde im Freien besichtigt.");
 
-        $this->assertFailure(AppraisalExtractionException::UNSUPPORTED_DOCUMENT);
+        $this->assertFailure(AppraisalExtractionException::NO_POSITIONS_FOUND);
+    }
+
+    /**
+     * A Gutachten with a readable text layer whose damage table sits under a
+     * heading the rules do not know. It used to be indistinguishable from a
+     * scan: both reported `unsupported_document`, so an admin could not tell
+     * whether to re-upload the file or to ask for the layout to be added.
+     */
+    public function test_an_unknown_damage_heading_is_told_apart_from_a_scan(): void
+    {
+        $this->textExtractor->withText(self::COVER)->withText(
+            "Wertbeeintraechtigende Merkmale\n1 Sitzbezug hinten rechts Riss Ersetzen EUR 699,38 EUR 699,38",
+            2,
+        );
+
+        $this->assertFailure(AppraisalExtractionException::NO_POSITIONS_FOUND);
+    }
+
+    /**
+     * Verbatim page 3 of the QA Gutachten (TUV SUD Minderwertgutachten
+     * 46000055, FIN WBA11EV0709213530), reduced to the damage section. The PDF
+     * itself is customer data and is not committed; this is the text the
+     * application's own pdftotext command produces for it.
+     */
+    private const WEAR_ONLY_TABLE = <<<'TEXT'
+    Der Verschleißzustand sowie evtl. Schäden an der Bereifung sind wertmäßig berücksichtigt.
+    Wertmindernde Faktoren
+    Gebrauchsspuren
+    Nr. Bauteilgruppe Beschreibung Rep.Kosten Minderwert
+    1 Stossfänger vorn Stossfänger vorn - Steinschlag - kein Abzug 0,00 € 0,00 €
+    2 2.Radsatz 2.Radsatz - fehlt - kein Abzug 0,00 € 0,00 €
+    3 Ausrüstung Fahrzeugschlüssel - fehlt - kein Abzug 0,00 € 0,00 €
+    4 Ausrüstung Tirefit komplett - fehlt - kein Abzug 0,00 € 0,00 €
+    Summe (netto): 0,00 € 0,00 €
+    TEXT;
+
+    /**
+     * The QA report: a Minderwertgutachten listing only Gebrauchsspuren at
+     * 0,00 EUR. Both parser gates drop every row on purpose, so the proposal is
+     * legitimately empty -- that is a complete reading, not an unreadable file.
+     */
+    public function test_a_gutachten_with_only_wear_rows_reads_successfully_with_no_positions(): void
+    {
+        $this->textExtractor->withText(self::COVER)->withText(self::WEAR_ONLY_TABLE, 2);
+
+        $result = $this->parser()->parse($this->input());
+
+        $this->assertSame([], $result->proposal->lines);
+        $this->assertNull($result->proposal->totalNet);
+        $this->assertSame(AppraisalExtractionSource::Parser, $result->source);
+    }
+
+    public function test_wear_rows_never_become_positions(): void
+    {
+        $this->textExtractor->withText(self::COVER)->withText(self::WEAR_ONLY_TABLE, 2);
+
+        $lines = $this->parser()->parse($this->input())->proposal->lines;
+
+        $this->assertCount(0, $lines, 'a 0,00 EUR "kein Abzug" row is not a chargeable position');
+    }
+
+    public function test_a_wear_only_gutachten_still_reports_its_metadata(): void
+    {
+        $this->textExtractor->withText(self::COVER)->withText(self::WEAR_ONLY_TABLE, 2);
+
+        $proposal = $this->parser()->parse($this->input())->proposal;
+
+        $this->assertSame('GA-2026-0042', $proposal->appraisalNumber);
+        $this->assertSame('2026-09-01', $proposal->appraisalDate);
+    }
+
+    /**
+     * The empty proposal is only accepted because the damage section was found.
+     * A document that never shows one was not understood and must still fail,
+     * otherwise an unknown layout would silently look like a clean Gutachten.
+     */
+    public function test_a_document_without_a_damage_section_still_fails(): void
+    {
+        $this->textExtractor->withText("Besichtigungsbedingungen\nDas Fahrzeug wurde im Freien besichtigt.");
+
+        $this->assertFailure(AppraisalExtractionException::NO_POSITIONS_FOUND);
+    }
+
+    /**
+     * A Gutachten stating a total that no line explains was mis-read, not empty.
+     */
+    public function test_a_stated_total_without_any_parsed_line_still_fails(): void
+    {
+        $this->textExtractor->withText(self::COVER)->withText(
+            "Wertmindernde Faktoren\nGebrauchsspuren\nSumme Minderwerte € 1.474,56\n",
+            2,
+        );
+
+        $this->assertFailure(AppraisalExtractionException::NO_POSITIONS_FOUND);
     }
 
     public function test_the_parser_is_the_bound_document_parser(): void

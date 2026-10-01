@@ -138,15 +138,44 @@ const READY = extraction('ready', {
     ],
 });
 
+// The QA Gutachten: read successfully, but it lists only Gebrauchsspuren at
+// 0,00 EUR, so there is nothing chargeable to review.
+const NO_POSITIONS = extraction('ready', {
+    lines: [],
+    line_count: 0,
+    total_net: null,
+    appraisal_number: '46000055',
+    appraisal_date: '2026-06-17',
+    completed_at: '2026-09-22T10:02:00+02:00',
+    warnings: [],
+});
+
 const STATES: Record<string, AdminAppraisalExtraction[]> = {
     idle: [],
     pending: [extraction('pending')],
     processing: [extraction('processing', { started_at: '2026-09-22T10:01:00+02:00' })],
     ready: [READY],
+    'ready-no-positions': [NO_POSITIONS],
     failed: [
         extraction('failed', {
-            error_code: 'unsupported_document',
+            error_code: 'no_text_layer',
             error_message: 'The PDF carries no usable text layer.',
+            failed_at: '2026-09-22T10:01:30+02:00',
+            attempts: 1,
+        }),
+    ],
+    'failed-layout': [
+        extraction('failed', {
+            error_code: 'no_positions_found',
+            error_message: 'No damage positions were found in this Gutachten.',
+            failed_at: '2026-09-22T10:01:30+02:00',
+            attempts: 1,
+        }),
+    ],
+    'failed-unknown-code': [
+        extraction('failed', {
+            error_code: 'something_new_from_the_backend',
+            error_message: 'Raw backend prose that no one vetted: /var/www/storage/x.pdf',
             failed_at: '2026-09-22T10:01:30+02:00',
             attempts: 1,
         }),
@@ -163,7 +192,7 @@ const STATES: Record<string, AdminAppraisalExtraction[]> = {
     ],
     history: [
         READY,
-        extraction('failed', { id: 'extraction-old-1', error_code: 'unsupported_document', created_at: '2026-09-21T08:00:00+02:00' }),
+        extraction('failed', { id: 'extraction-old-1', error_code: 'no_text_layer', created_at: '2026-09-21T08:00:00+02:00' }),
         extraction('discarded', { id: 'extraction-old-2', created_at: '2026-09-20T08:00:00+02:00' }),
     ],
 };

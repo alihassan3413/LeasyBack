@@ -231,6 +231,30 @@ class AppraisalExtractionAdminTest extends TestCase
         $this->assertSame(1, $row['attempts']);
     }
 
+    /**
+     * The admin payload must carry the zero-position run as a finished one, so
+     * the card can say "nothing to charge" instead of "Analyse fehlgeschlagen".
+     */
+    public function test_a_run_without_chargeable_positions_reaches_the_admin_as_ready(): void
+    {
+        [$order, $document] = $this->orderWithGutachten();
+        AppraisalExtraction::factory()->create([
+            'order_id' => $order->id,
+            'auftragsnummer' => $order->auftragsnummer,
+            'source_document_id' => $document->id,
+            'status' => AppraisalExtractionStatus::Ready,
+            'proposal' => ['lines' => [], 'total_net' => null],
+            'completed_at' => now(),
+        ]);
+
+        $row = $this->orderPayload($order)['appraisal_extractions'][0];
+
+        $this->assertSame('ready', $row['status']);
+        $this->assertSame(0, $row['line_count']);
+        $this->assertSame([], $row['lines']);
+        $this->assertNull($row['error_code']);
+    }
+
     public function test_runs_are_listed_newest_first(): void
     {
         [$order, $document] = $this->orderWithGutachten();

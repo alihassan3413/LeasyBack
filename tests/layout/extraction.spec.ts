@@ -141,16 +141,57 @@ test.describe('run states', () => {
         await expect(page.getByText('+1 weitere Hinweise')).toBeVisible();
     });
 
+    // QA: a Gutachten listing only 0,00 EUR Gebrauchsspuren used to surface as
+    // "Analyse fehlgeschlagen". It is a finished run with nothing to apply.
+    test('a run with no chargeable positions reads as finished, not failed', async ({ page }) => {
+        await open(page, { state: 'ready-no-positions' });
+
+        await expect(statusPill(page)).toHaveText('Vorschlag liegt vor');
+        await expect(page.getByText('Analyse abgeschlossen')).toBeVisible();
+        await expect(page.getByTestId('extraction-no-positions')).toContainText('keine abrechnungsrelevanten Schadenpositionen');
+        await expect(page.getByTestId('extraction-failed')).toHaveCount(0);
+        await expect(page.getByText('Analyse fehlgeschlagen')).toHaveCount(0);
+    });
+
+    test('a run with no chargeable positions offers nothing to apply', async ({ page }) => {
+        await open(page, { state: 'ready-no-positions' });
+
+        await expect(page.getByTestId('open-review')).toHaveCount(0);
+        await expect(page.getByText('Die Gutachtenpositionen bleiben unverändert', { exact: false })).toHaveCount(0);
+    });
+
     test('a failed run explains the reason, the manual fallback and the retry', async ({ page }) => {
         await open(page, { state: 'failed' });
 
         await expect(statusPill(page)).toHaveText('Fehlgeschlagen');
         await expect(page.getByText('Analyse fehlgeschlagen')).toBeVisible();
-        await expect(page.getByText('vermutlich ein Scan ohne Textebene', { exact: false })).toBeVisible();
+        await expect(page.getByTestId('extraction-failed-reason')).toHaveText(/keine Textebene/);
         await expect(page.getByText('Die Gutachtenpositionen können weiterhin manuell erfasst werden.')).toBeVisible();
         await expect(page.getByText('Sie können die Analyse mit „Erneut auslesen“ wiederholen.')).toBeVisible();
-        await expect(page.getByText('unsupported_document', { exact: false })).toBeVisible();
+        await expect(page.getByText('no_text_layer', { exact: false })).toBeVisible();
         await expect(startButton(page)).toBeEnabled();
+    });
+
+    // A scan and an unknown layout used to share `unsupported_document`, so the
+    // card showed one sentence for both and the admin could not tell whether to
+    // re-upload the file or to report the layout.
+    test('a scan and an unknown layout are told apart', async ({ page }) => {
+        await open(page, { state: 'failed' });
+        const scan = await page.getByTestId('extraction-failed-reason').textContent();
+
+        await open(page, { state: 'failed-layout' });
+        const layout = await page.getByTestId('extraction-failed-reason').textContent();
+
+        expect(scan).toMatch(/keine Textebene/);
+        expect(layout).toMatch(/keine Schadenpositionen/);
+        expect(layout).not.toBe(scan);
+    });
+
+    test('an unmapped error code never leaks raw backend prose', async ({ page }) => {
+        await open(page, { state: 'failed-unknown-code' });
+
+        await expect(page.getByTestId('extraction-failed-reason')).toHaveText('Die Auslese ist fehlgeschlagen.');
+        await expect(page.getByText('/var/www/storage', { exact: false })).toHaveCount(0);
     });
 });
 

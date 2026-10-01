@@ -46,6 +46,12 @@ const STATUS_STYLES: Record<AdminAppraisalExtractionStatus, string> = {
 };
 
 const ERROR_MESSAGES: Record<string, string> = {
+    not_a_pdf: 'Die hinterlegte Datei ist kein PDF. Bitte das Gutachten erneut als PDF hochladen.',
+    pdf_too_large: 'Das PDF ist zu groß für die automatische Auslese. Bitte eine kleinere Fassung hochladen.',
+    no_text_layer:
+        'Das PDF enthält keine Textebene — vermutlich ein eingescanntes Gutachten. Gescannte Gutachten können derzeit nicht automatisch ausgelesen werden.',
+    pdf_unreadable: 'Das PDF konnte nicht gelesen werden. Es ist möglicherweise beschädigt oder kennwortgeschützt.',
+    no_positions_found: 'Im Gutachten wurden keine Schadenpositionen gefunden. Das Layout dieses Gutachters wird noch nicht unterstützt.',
     unsupported_document: 'Dieses Gutachten konnte nicht gelesen werden — vermutlich ein Scan ohne Textebene oder ein unbekanntes Layout.',
     document_missing: 'Das Gutachten wurde zwischenzeitlich gelöscht.',
     document_unreadable: 'Die Datei konnte nicht aus dem Speicher gelesen werden.',
@@ -64,6 +70,9 @@ const history = computed(() => props.extractions.slice(1));
 const isRunning = computed(() => latest.value !== null && ['pending', 'processing'].includes(latest.value.status));
 const isReady = computed(() => latest.value?.status === 'ready');
 const isApplied = computed(() => latest.value?.status === 'applied');
+// A Gutachten that lists only Gebrauchsspuren at 0,00 EUR reads successfully and
+// yields nothing to review -- a completed run, not a failed one.
+const hasNoPositions = computed(() => isReady.value && latest.value?.line_count === 0);
 const hasFailed = computed(() => latest.value?.status === 'failed');
 const canStart = computed(() => props.editable && candidates.value.length > 0 && !isRunning.value);
 
@@ -123,7 +132,7 @@ function formatEuro(value: string | null): string {
 }
 
 function errorText(extraction: AdminAppraisalExtraction): string {
-    return ERROR_MESSAGES[extraction.error_code ?? ''] ?? extraction.error_message ?? 'Die Auslese ist fehlgeschlagen.';
+    return ERROR_MESSAGES[extraction.error_code ?? ''] ?? 'Die Auslese ist fehlgeschlagen.';
 }
 
 function submit() {
@@ -209,11 +218,21 @@ function submit() {
                         <div class="min-w-0 flex-1">
                             <p class="text-[13px] font-bold text-[#10393b]">Analyse abgeschlossen</p>
                             <p class="mt-0.5 text-[12px] text-[#6f8585]">
-                                Vorschlag aus {{ documentLabel(documentFor(latest.source_document_id) ?? candidates[0]) }} ·
+                                {{ hasNoPositions ? 'Ausgelesen aus' : 'Vorschlag aus' }}
+                                {{ documentLabel(documentFor(latest.source_document_id) ?? candidates[0]) }} ·
                                 {{ formatPortalDateTimeShort(latest.completed_at) }}
                             </p>
                         </div>
                     </div>
+
+                    <p
+                        v-if="hasNoPositions"
+                        class="mt-2.5 rounded-[11px] bg-white px-3 py-2 text-[12px] text-[#10393b]"
+                        data-testid="extraction-no-positions"
+                    >
+                        Das Gutachten wurde vollständig ausgelesen. Es weist keine abrechnungsrelevanten Schadenpositionen aus — es gibt nichts zu
+                        übernehmen.
+                    </p>
 
                     <dl class="mt-3 grid grid-cols-3 gap-2 max-[560px]:grid-cols-1">
                         <div class="rounded-[11px] bg-white px-3 py-2">
@@ -252,7 +271,7 @@ function submit() {
                         <span v-if="latest.appraisal_date">vom {{ formatPortalDate(latest.appraisal_date) }}</span>
                     </p>
 
-                    <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
+                    <div v-if="!hasNoPositions" class="mt-3 flex flex-wrap items-center justify-between gap-2">
                         <p class="text-[12px] text-[#6f8585]">Die Gutachtenpositionen bleiben unverändert, bis Sie den Vorschlag übernehmen.</p>
                         <button
                             v-if="editable && !reviewOpen"
@@ -302,7 +321,7 @@ function submit() {
                     <MdiAlertCircleOutline class="mt-0.5 size-[18px] shrink-0 text-[#c0392b]" aria-hidden="true" />
                     <div class="min-w-0 flex-1">
                         <p class="text-[13px] font-bold text-[#10393b]">Analyse fehlgeschlagen</p>
-                        <p class="mt-0.5 text-[12px] text-[#6f8585]">{{ errorText(latest) }}</p>
+                        <p class="mt-0.5 text-[12px] text-[#6f8585]" data-testid="extraction-failed-reason">{{ errorText(latest) }}</p>
 
                         <ul class="mt-2.5 flex flex-col gap-1.5">
                             <li class="flex items-start gap-2 rounded-[11px] bg-white px-3 py-2 text-[12px] text-[#10393b]">

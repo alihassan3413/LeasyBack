@@ -62,7 +62,7 @@ class PdftotextExtractorTest extends TestCase
 
         $this->assertFailure(
             fn () => (new PdftotextExtractor)->extract($this->input('not a pdf at all')),
-            AppraisalExtractionException::UNSUPPORTED_DOCUMENT,
+            AppraisalExtractionException::NOT_A_PDF,
         );
 
         $this->assertFileDoesNotExist($marker);
@@ -75,17 +75,17 @@ class PdftotextExtractorTest extends TestCase
 
         $this->assertFailure(
             fn () => (new PdftotextExtractor)->extract($this->input()),
-            AppraisalExtractionException::UNSUPPORTED_DOCUMENT,
+            AppraisalExtractionException::PDF_TOO_LARGE,
         );
     }
 
-    public function test_a_failing_binary_is_reported_as_an_unsupported_document(): void
+    public function test_a_failing_binary_is_reported_as_an_unreadable_pdf(): void
     {
         $this->stub('echo "broken pdf" >&2; exit 1');
 
         $this->assertFailure(
             fn () => (new PdftotextExtractor)->extract($this->input()),
-            AppraisalExtractionException::UNSUPPORTED_DOCUMENT,
+            AppraisalExtractionException::PDF_UNREADABLE,
         );
     }
 
@@ -107,7 +107,7 @@ class PdftotextExtractorTest extends TestCase
 
         $this->assertFailure(
             fn () => (new PdftotextExtractor)->extract($this->input()),
-            AppraisalExtractionException::UNSUPPORTED_DOCUMENT,
+            AppraisalExtractionException::NO_TEXT_LAYER,
         );
     }
 
@@ -118,7 +118,7 @@ class PdftotextExtractorTest extends TestCase
         $extractor = new PdftotextExtractor;
 
         $this->assertFalse($extractor->isAvailable());
-        $this->assertFailure(fn () => $extractor->extract($this->input()), AppraisalExtractionException::UNSUPPORTED_DOCUMENT);
+        $this->assertFailure(fn () => $extractor->extract($this->input()), AppraisalExtractionException::NO_EXTRACTOR_AVAILABLE);
     }
 
     public function test_the_buffered_file_is_always_removed(): void
@@ -129,7 +129,7 @@ class PdftotextExtractorTest extends TestCase
 
         $this->assertFailure(
             fn () => (new PdftotextExtractor)->extract($this->input()),
-            AppraisalExtractionException::UNSUPPORTED_DOCUMENT,
+            AppraisalExtractionException::PDF_UNREADABLE,
         );
 
         $this->assertSame($before, $this->temporaryFileCount());

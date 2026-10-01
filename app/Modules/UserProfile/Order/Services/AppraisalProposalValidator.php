@@ -15,10 +15,6 @@ final class AppraisalProposalValidator
 
     public function validate(AppraisalExtractionProposal $proposal, ?string $vehicleVin = null): array
     {
-        if ($proposal->lines === []) {
-            throw AppraisalExtractionException::invalidProposal(['lines' => ['The proposal contains no positions.']]);
-        }
-
         $validator = Validator::make(
             ['positions' => array_map(fn (AppraisalProposalLine $line) => $this->asPosition($line), $proposal->lines)],
             AppraisalPositionService::rules([]),
@@ -41,7 +37,7 @@ final class AppraisalProposalValidator
         }
 
         if ($errors !== []) {
-            throw AppraisalExtractionException::invalidProposal($errors);
+            throw AppraisalExtractionException::invalidProposal();
         }
 
         return $this->warnings($proposal, $vehicleVin);
