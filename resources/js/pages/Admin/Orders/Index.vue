@@ -9,16 +9,21 @@ import { computed, ref, watch } from 'vue';
 
 const props = defineProps<{
     orders: AdminOrderList;
-    filters: { search: string; status: string };
+    filters: { search: string; status: string; service: string; start_date: string; end_date: string };
 }>();
 
 const search = ref(props.filters.search);
 const statusFilter = ref(props.filters.status);
+const serviceFilter = ref(props.filters.service);
+const startDate = ref(props.filters.start_date);
+const endDate = ref(props.filters.end_date);
 const loading = ref(false);
 
 const page = computed(() => props.orders.page);
 const totalPages = computed(() => Math.max(1, Math.ceil(props.orders.total / props.orders.limit)));
-const hasQuery = computed(() => search.value !== '' || statusFilter.value !== '');
+const hasQuery = computed(
+    () => search.value !== '' || statusFilter.value !== '' || serviceFilter.value !== '' || startDate.value !== '' || endDate.value !== '',
+);
 
 /**
  * The list's primary view: everything, or one of AdminQueryService's three
@@ -34,6 +39,40 @@ const STATUS_TABS: { value: string; label: string }[] = [
     { value: 'closed', label: 'Abgeschlossen' },
 ];
 
+/**
+ * Which service the order belongs to. `service_type` defaults to
+ * leasingrueckgabe, so an order placed before the Überführung existed still
+ * answers this filter rather than disappearing from both tabs.
+ */
+const SERVICE_TABS: { value: string; label: string }[] = [
+    { value: '', label: 'Alle Services' },
+    { value: 'leasingrueckgabe', label: 'Leasingrückgabe' },
+    { value: 'ueberfuehrung', label: 'Überführung' },
+];
+
+/** Ranges an admin actually asks for, as days back from today. */
+const DATE_PRESETS: { days: number; label: string }[] = [
+    { days: 0, label: 'Heute' },
+    { days: 7, label: '7 Tage' },
+    { days: 30, label: '30 Tage' },
+];
+
+/** Local date, not UTC, so "today" is still today late in the evening. */
+function isoDate(daysBack: number): string {
+    const date = new Date();
+    date.setDate(date.getDate() - daysBack);
+
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+const activePreset = computed(() => {
+    if (endDate.value !== isoDate(0)) {
+        return null;
+    }
+
+    return DATE_PRESETS.find((preset) => startDate.value === isoDate(preset.days))?.days ?? null;
+});
+
 /** The 16 exact statuses — the tabs above already cover "Alle". */
 const detailedStatusOptions = computed(() => ADMIN_ORDER_STATUS_FILTERS.slice(1));
 
@@ -45,6 +84,9 @@ function reload(overrides: Record<string, string | undefined> = {}) {
         {
             search: search.value || undefined,
             status: statusFilter.value || undefined,
+            service: serviceFilter.value || undefined,
+            start_date: startDate.value || undefined,
+            end_date: endDate.value || undefined,
             ...overrides,
         },
         {
@@ -75,6 +117,40 @@ function setStatusFilter(value: string) {
 
     statusFilter.value = value;
     reload();
+}
+
+function setServiceFilter(value: string) {
+    if (serviceFilter.value === value) {
+        return;
+    }
+
+    serviceFilter.value = value;
+    reload({ page: undefined });
+}
+
+function applyPreset(days: number) {
+    // Clicking the active preset clears it, so the row doubles as its own off switch.
+    const clearing = activePreset.value === days;
+
+    startDate.value = clearing ? '' : isoDate(days);
+    endDate.value = clearing ? '' : isoDate(0);
+    reload({ page: undefined });
+}
+
+function setDate(which: 'start' | 'end', value: string) {
+    if (which === 'start') {
+        startDate.value = value;
+    } else {
+        endDate.value = value;
+    }
+
+    reload({ page: undefined });
+}
+
+function clearDates() {
+    startDate.value = '';
+    endDate.value = '';
+    reload({ page: undefined });
 }
 
 function goToPage(target: number) {
@@ -187,6 +263,81 @@ function openDetail(order: AdminOrderListRow) {
                             {{ option.label }}
                         </option>
                     </select>
+                </div>
+
+                <!-- ── Service + Zeitraum: the two questions the status tabs cannot answer ── -->
+                <div class="mb-4 flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2">
+                    <div class="flex items-center gap-1" role="group" aria-label="Service">
+                        <button
+                            v-for="tab in SERVICE_TABS"
+                            :key="tab.value"
+                            type="button"
+                            class="cursor-pointer rounded-full px-3 py-1.5 text-[12px] font-bold whitespace-nowrap transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#01b990] motion-reduce:transition-none"
+                            :class="
+                                serviceFilter === tab.value
+                                    ? 'bg-[#10393b] text-white'
+                                    : 'bg-[#f4f8f7] text-[#5a6e6c] hover:bg-[#e7efee] hover:text-[#10393b]'
+                            "
+                            :aria-pressed="serviceFilter === tab.value"
+                            :data-testid="`service-tab-${tab.value || 'all'}`"
+                            @click="setServiceFilter(tab.value)"
+                        >
+                            {{ tab.label }}
+                        </button>
+                    </div>
+
+                    <div class="ml-auto flex flex-wrap items-center gap-1.5">
+                        <button
+                            v-for="preset in DATE_PRESETS"
+                            :key="preset.days"
+                            type="button"
+                            class="cursor-pointer rounded-full border px-3 py-1.5 text-[12px] font-bold whitespace-nowrap transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#01b990] motion-reduce:transition-none"
+                            :class="
+                                activePreset === preset.days
+                                    ? 'border-[#10393b] bg-[#10393b] text-white'
+                                    : 'border-[#eef3f2] bg-white text-[#5a6e6c] hover:border-[#10393b] hover:text-[#10393b]'
+                            "
+                            :aria-pressed="activePreset === preset.days"
+                            :data-testid="`date-preset-${preset.days}`"
+                            @click="applyPreset(preset.days)"
+                        >
+                            {{ preset.label }}
+                        </button>
+
+                        <label class="flex items-center gap-1 text-[12px] font-semibold text-[#9bb0af]">
+                            <span class="sr-only">Von</span>
+                            <input
+                                type="date"
+                                class="rounded-[6px] border border-[#eef3f2] bg-white px-2 py-1.5 text-[12px] font-semibold text-[#5a6e6c]"
+                                :value="startDate"
+                                :max="endDate || undefined"
+                                data-testid="date-start"
+                                @change="setDate('start', ($event.target as HTMLInputElement).value)"
+                            />
+                        </label>
+                        <span class="text-[12px] text-[#9bb0af]">–</span>
+                        <label class="flex items-center gap-1 text-[12px] font-semibold text-[#9bb0af]">
+                            <span class="sr-only">Bis</span>
+                            <input
+                                type="date"
+                                class="rounded-[6px] border border-[#eef3f2] bg-white px-2 py-1.5 text-[12px] font-semibold text-[#5a6e6c]"
+                                :value="endDate"
+                                :min="startDate || undefined"
+                                data-testid="date-end"
+                                @change="setDate('end', ($event.target as HTMLInputElement).value)"
+                            />
+                        </label>
+
+                        <button
+                            v-if="startDate || endDate"
+                            type="button"
+                            class="cursor-pointer rounded-full px-2 py-1.5 text-[12px] font-bold text-[#c0392b] transition-colors hover:bg-[#c0392b]/10 motion-reduce:transition-none"
+                            data-testid="date-clear"
+                            @click="clearDates"
+                        >
+                            Zurücksetzen
+                        </button>
+                    </div>
                 </div>
 
                 <!--

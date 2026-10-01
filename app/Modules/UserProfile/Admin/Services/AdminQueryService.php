@@ -15,6 +15,7 @@ use App\Modules\UserProfile\Order\Services\B2bLexwareDraftService;
 use App\Modules\UserProfile\Order\Services\B2bOrderNoteService;
 use App\Modules\UserProfile\Order\Services\DetachedOrderTaskResolver;
 use App\Modules\UserProfile\Order\Services\OrderCollectionService;
+use App\Modules\UserProfile\Order\Services\OrderService;
 use App\Modules\UserProfile\Order\Services\OrderTaskPriorityResolver;
 use App\Modules\UserProfile\Order\Services\OrderTaskResolver;
 use App\Modules\UserProfile\Order\Services\RepairOfferService;
@@ -355,6 +356,9 @@ class AdminQueryService
     private const STATUS_GROUPS = ['open', 'in_progress', 'closed'];
 
     /** @return array{page:int,limit:int,start:?CarbonImmutable,end:?CarbonImmutable,status:?string} */
+    /** The two services an order can belong to, as OrderService writes them. */
+    private const SERVICE_TYPES = [OrderService::SERVICE_LEASING_RETURN, OrderService::SERVICE_RELOCATION];
+
     private function filters(Request $request): array
     {
         $validated = $request->validate([
@@ -364,7 +368,13 @@ class AdminQueryService
             'end_date' => ['sometimes', 'nullable', 'date_format:Y-m-d'],
             'status' => ['sometimes', 'nullable', 'string'],
             'order_status' => ['sometimes', 'nullable', 'string'],
+            'service' => ['sometimes', 'nullable', 'string'],
         ]);
+
+        $service = strtolower(trim((string) ($validated['service'] ?? ''))) ?: null;
+        if ($service !== null && ! in_array($service, self::SERVICE_TYPES, true)) {
+            throw ValidationException::withMessages(['service' => 'Invalid service type']);
+        }
 
         $status = strtolower(trim((string) ($validated['order_status'] ?? $validated['status'] ?? ''))) ?: null;
         if ($status !== null && ! in_array($status, OrderStatus::values(), true) && ! in_array($status, self::STATUS_GROUPS, true)) {
@@ -387,6 +397,7 @@ class AdminQueryService
             'start' => $start,
             'end' => $end,
             'status' => $status,
+            'service' => $service,
         ];
     }
 
@@ -480,6 +491,10 @@ class AdminQueryService
         $base = DB::table('leasyback_orders as o')
             ->join('vehicles as v', 'v.vehicle_id', '=', 'o.vehicle_id');
         $this->applyDatesAndStatus($base, $filters, 'o.created_at');
+        // `service_type` is indexed and backfilled to leasingrueckgabe, so
+        // every row answers this filter — including the ones that predate the
+        // Überführung.
+        $base->when($filters['service'], fn (Builder $q, string $service) => $q->where('o.service_type', $service));
         $this->applyOwnerFilter($base, $userType, $userId, $b2bId);
         $this->applyListSearch($base, $request, ['o.auftragsnummer', 'v.license_plate', 'v.vin', 'v.make', 'v.model']);
 

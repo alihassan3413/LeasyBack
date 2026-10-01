@@ -63,6 +63,9 @@ class OrderController extends Controller
             'filters' => [
                 'search' => trim((string) $request->query('search', '')),
                 'status' => (string) $request->query('status', ''),
+                'service' => (string) $request->query('service', ''),
+                'start_date' => (string) $request->query('start_date', ''),
+                'end_date' => (string) $request->query('end_date', ''),
             ],
         ]);
     }
@@ -88,7 +91,7 @@ class OrderController extends Controller
         $order = LeasybackOrder::find($orderId);
         abort_unless($order !== null, 404);
 
-               if (! in_array('order_placed', TransitionOrderStatus::allowedNextStatuses($order->order_status, TransitionOrderStatus::isB2bOrder($order), TransitionOrderStatus::isRelocationOrder($order)), true)) {
+        if (! in_array('order_placed', TransitionOrderStatus::allowedNextStatuses($order->order_status, TransitionOrderStatus::isB2bOrder($order), TransitionOrderStatus::isRelocationOrder($order)), true)) {
             return back()->withErrors(['status' => 'Nur angefragte Aufträge können freigegeben werden.'])
                 ->with('error', 'Nur angefragte Aufträge können freigegeben werden.');
         }
@@ -125,7 +128,7 @@ class OrderController extends Controller
         // `discarded` is how a B2B request LeasyBack will not take on is
         // declined (§6's review step); B2C keeps it withheld as before.
         $allowed = array_values(array_diff(
-                      TransitionOrderStatus::allowedNextStatuses($order->order_status, $isB2b, TransitionOrderStatus::isRelocationOrder($order)),
+            TransitionOrderStatus::allowedNextStatuses($order->order_status, $isB2b, TransitionOrderStatus::isRelocationOrder($order)),
             $isB2b ? ['order_placed'] : ['order_placed', 'discarded'],
         ));
 
