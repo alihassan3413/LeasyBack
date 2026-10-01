@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import CalendarDateField from '@/components/form/CalendarDateField.vue';
+import SelectField, { type SelectFieldOption } from '@/components/form/SelectField.vue';
 import { Input } from '@/components/ui/input';
 import { AppModal, AppModalButton } from '@/components/ui/modal';
 import type { BookableVehicleData } from '@/types/vehicle';
 import { useForm } from '@inertiajs/vue3';
-import { computed, watch } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 
 /**
  * The Überführung booking form. One submission books every selected vehicle
@@ -51,13 +53,6 @@ function toMinutes(time: string): number {
 
 const lastTime = toMinutes(TIMES[TIMES.length - 1]);
 const startTimes = TIMES.filter((time) => toMinutes(time) + MIN_WINDOW_MINUTES <= lastTime);
-
-// Local date, not UTC, so "today" is right late in the evening.
-const today = (() => {
-    const date = new Date();
-
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-})();
 
 const emptyAddress = () => ({ street: '', number: '', zip_code: '', city: '', country: 'Deutschland' });
 const emptyContact = () => ({ name: '', phone: '', email: '' });
@@ -111,7 +106,8 @@ const billingStarted = computed(() =>
 );
 
 const billingComplete = computed(
-    () => !billingStarted.value || (filled(form.billing_address.street) && filled(form.billing_address.zip_code) && filled(form.billing_address.city)),
+    () =>
+        !billingStarted.value || (filled(form.billing_address.street) && filled(form.billing_address.zip_code) && filled(form.billing_address.city)),
 );
 
 /** What still blocks the submit button, in the order the form asks for it. */
@@ -161,13 +157,34 @@ function applyProfile(target: AddressTarget, profileId: string) {
     }
 }
 
-function onProfileSelected(target: AddressTarget, event: Event) {
-    applyProfile(target, (event.target as HTMLSelectElement).value);
+/**
+ * The chosen profile per address block. Kept separate from the form: picking
+ * one copies its fields in, after which the address is edited freely and the
+ * dropdown is only a record of where it came from.
+ */
+const chosenProfile = reactive<Record<AddressTarget, string>>({
+    pickup_address: '',
+    destination_address: '',
+    billing_address: '',
+});
+
+const profileOptions = computed<SelectFieldOption[]>(() =>
+    props.addressProfiles.map((profile) => ({ label: profile.profile_name, value: profile.id })),
+);
+
+const costCentreOptions = computed<SelectFieldOption[]>(() => props.costCentres.map((name) => ({ label: name, value: name })));
+
+const startTimeOptions = computed<SelectFieldOption[]>(() => startTimes.map((time) => ({ label: time, value: time })));
+
+const endTimeOptions = computed<SelectFieldOption[]>(() => endTimes.value.map((time) => ({ label: time, value: time })));
+
+function onProfileSelected(target: AddressTarget, profileId: string) {
+    applyProfile(target, profileId);
 }
 
-function onCostCentreSelected(event: Event) {
-    const value = (event.target as HTMLSelectElement).value;
+const chosenCostCentre = ref('');
 
+function onCostCentreSelected(value: string) {
     if (value) {
         form.cost_centre.name = value;
     }
@@ -190,22 +207,19 @@ function submit() {
         return;
     }
 
-    form
-        .transform((data) => ({
-            ...data,
-            // Always the vehicles picked in the step before.
-            vehicle_ids: props.vehicles.map((vehicle) => vehicle.vehicle_id),
-            // Optional blocks travel as null when left empty.
-            billing_address: billingStarted.value ? data.billing_address : null,
-            cost_centre: filled(data.cost_centre.name) || filled(data.cost_centre.number) ? data.cost_centre : null,
-        }))
-        .post('/orders/b2b/relocation', {
-            preserveScroll: true,
-            onSuccess: () => close(),
-        });
+    form.transform((data) => ({
+        ...data,
+        // Always the vehicles picked in the step before.
+        vehicle_ids: props.vehicles.map((vehicle) => vehicle.vehicle_id),
+        // Optional blocks travel as null when left empty.
+        billing_address: billingStarted.value ? data.billing_address : null,
+        cost_centre: filled(data.cost_centre.name) || filled(data.cost_centre.number) ? data.cost_centre : null,
+    })).post('/orders/b2b/relocation', {
+        preserveScroll: true,
+        onSuccess: () => close(),
+    });
 }
 
-const inputClass = 'border-input h-9 w-full rounded-md border bg-transparent px-3 text-sm';
 const sectionTitle = 'text-[15px] font-semibold text-black';
 const hint = 'text-muted-foreground text-xs';
 const errorClass = 'mt-1 text-xs text-red-600';
@@ -224,11 +238,7 @@ const errorClass = 'mt-1 text-xs text-red-600';
             <section class="space-y-2">
                 <h3 :class="sectionTitle">{{ vehicles.length > 1 ? `Fahrzeuge (${vehicles.length})` : 'Fahrzeug' }}</h3>
                 <ul class="flex flex-wrap gap-2">
-                    <li
-                        v-for="vehicle in vehicles"
-                        :key="vehicle.vehicle_id"
-                        class="border-border rounded-full border px-3 py-1 text-xs"
-                    >
+                    <li v-for="vehicle in vehicles" :key="vehicle.vehicle_id" class="border-border rounded-full border px-3 py-1 text-xs">
                         <span class="text-brand-teal font-semibold">{{ vehicle.license_plate }}</span>
                         <span class="text-muted-foreground"> · {{ [vehicle.make, vehicle.model].filter(Boolean).join(' ') || '—' }}</span>
                     </li>
@@ -240,10 +250,13 @@ const errorClass = 'mt-1 text-xs text-red-600';
             <section class="space-y-2">
                 <h3 :class="sectionTitle">Abholadresse</h3>
                 <p :class="hint">Wo soll das Fahrzeug abgeholt werden?</p>
-                <select v-if="addressProfiles.length" :class="inputClass" @change="onProfileSelected('pickup_address', $event)">
-                    <option value="">Gespeicherte Adresse wählen …</option>
-                    <option v-for="profile in addressProfiles" :key="profile.id" :value="profile.id">{{ profile.profile_name }}</option>
-                </select>
+                <SelectField
+                    v-if="addressProfiles.length"
+                    v-model="chosenProfile.pickup_address"
+                    :options="profileOptions"
+                    placeholder="Gespeicherte Adresse wählen …"
+                    @update:model-value="(id) => onProfileSelected('pickup_address', id)"
+                />
                 <div class="grid grid-cols-2 gap-3">
                     <div>
                         <Input v-model="form.pickup_address.street" placeholder="Straße *" />
@@ -266,10 +279,13 @@ const errorClass = 'mt-1 text-xs text-red-600';
             <section class="space-y-2">
                 <h3 :class="sectionTitle">Zieladresse</h3>
                 <p :class="hint">Wohin soll das Fahrzeug gebracht werden?</p>
-                <select v-if="addressProfiles.length" :class="inputClass" @change="onProfileSelected('destination_address', $event)">
-                    <option value="">Gespeicherte Adresse wählen …</option>
-                    <option v-for="profile in addressProfiles" :key="profile.id" :value="profile.id">{{ profile.profile_name }}</option>
-                </select>
+                <SelectField
+                    v-if="addressProfiles.length"
+                    v-model="chosenProfile.destination_address"
+                    :options="profileOptions"
+                    placeholder="Gespeicherte Adresse wählen …"
+                    @update:model-value="(id) => onProfileSelected('destination_address', id)"
+                />
                 <div class="grid grid-cols-2 gap-3">
                     <div>
                         <Input v-model="form.destination_address.street" placeholder="Straße *" />
@@ -294,27 +310,23 @@ const errorClass = 'mt-1 text-xs text-red-600';
                 <div class="grid grid-cols-3 gap-3">
                     <div>
                         <label class="mb-1 block text-xs font-medium">Datum *</label>
-                        <Input v-model="form.preferred_date" type="date" :min="today" />
+                        <CalendarDateField v-model="form.preferred_date" />
                         <p v-if="error('preferred_date')" :class="errorClass">{{ error('preferred_date') }}</p>
                     </div>
                     <div>
                         <label class="mb-1 block text-xs font-medium">Zeitfenster von *</label>
-                        <select v-model="form.time_from" :class="inputClass">
-                            <option value="">Startzeit wählen</option>
-                            <option v-for="time in startTimes" :key="time" :value="time">{{ time }}</option>
-                        </select>
+                        <SelectField v-model="form.time_from" :options="startTimeOptions" placeholder="Startzeit wählen" />
                         <p v-if="error('time_from')" :class="errorClass">{{ error('time_from') }}</p>
                     </div>
                     <div>
                         <label class="mb-1 block text-xs font-medium">Zeitfenster bis *</label>
-                        <select v-model="form.time_to" :class="inputClass" :disabled="!form.time_from">
-                            <option value="">Endzeit wählen</option>
-                            <option v-for="time in endTimes" :key="time" :value="time">{{ time }}</option>
-                        </select>
+                        <SelectField v-model="form.time_to" :options="endTimeOptions" placeholder="Endzeit wählen" :disabled="!form.time_from" />
                         <p v-if="error('time_to')" :class="errorClass">{{ error('time_to') }}</p>
                     </div>
                 </div>
-                <p :class="hint">Mindestens 2 Stunden nach Startzeit. Wir bestätigen die Verfügbarkeit schnellstmöglich oder schlagen Alternativen vor.</p>
+                <p :class="hint">
+                    Mindestens 2 Stunden nach Startzeit. Wir bestätigen die Verfügbarkeit schnellstmöglich oder schlagen Alternativen vor.
+                </p>
             </section>
 
             <!-- Ansprechpartner -->
@@ -347,10 +359,13 @@ const errorClass = 'mt-1 text-xs text-red-600';
             <!-- Rechnungsadresse -->
             <section class="space-y-2">
                 <h3 :class="sectionTitle">Rechnungsadresse <span class="text-muted-foreground font-normal">(optional)</span></h3>
-                <select v-if="addressProfiles.length" :class="inputClass" @change="onProfileSelected('billing_address', $event)">
-                    <option value="">Gespeicherte Adresse wählen …</option>
-                    <option v-for="profile in addressProfiles" :key="profile.id" :value="profile.id">{{ profile.profile_name }}</option>
-                </select>
+                <SelectField
+                    v-if="addressProfiles.length"
+                    v-model="chosenProfile.billing_address"
+                    :options="profileOptions"
+                    placeholder="Gespeicherte Adresse wählen …"
+                    @update:model-value="(id) => onProfileSelected('billing_address', id)"
+                />
                 <div class="grid grid-cols-2 gap-3">
                     <Input v-model="form.billing_address.name" placeholder="Name der Rechnungsadresse, z. B. Hauptverwaltung" class="col-span-2" />
                     <div>
@@ -367,16 +382,21 @@ const errorClass = 'mt-1 text-xs text-red-600';
                         <p v-if="error('billing_address.city')" :class="errorClass">{{ error('billing_address.city') }}</p>
                     </div>
                 </div>
-                <p v-if="!billingComplete" :class="errorClass">Bitte Straße, PLZ und Ort der Rechnungsadresse vervollständigen oder alle Felder leeren.</p>
+                <p v-if="!billingComplete" :class="errorClass">
+                    Bitte Straße, PLZ und Ort der Rechnungsadresse vervollständigen oder alle Felder leeren.
+                </p>
             </section>
 
             <!-- Kostenstelle -->
             <section class="space-y-2">
                 <h3 :class="sectionTitle">Kostenstelle <span class="text-muted-foreground font-normal">(optional)</span></h3>
-                <select v-if="costCentres.length" :class="inputClass" @change="onCostCentreSelected">
-                    <option value="">Gespeicherte Kostenstelle wählen …</option>
-                    <option v-for="costCentre in costCentres" :key="costCentre" :value="costCentre">{{ costCentre }}</option>
-                </select>
+                <SelectField
+                    v-if="costCentres.length"
+                    v-model="chosenCostCentre"
+                    :options="costCentreOptions"
+                    placeholder="Gespeicherte Kostenstelle wählen …"
+                    @update:model-value="onCostCentreSelected"
+                />
                 <div class="grid grid-cols-2 gap-3">
                     <Input v-model="form.cost_centre.name" placeholder="Kostenstelle Name, z. B. Vertrieb" />
                     <Input v-model="form.cost_centre.number" placeholder="Kostenstelle Nummer, z. B. 12345" />

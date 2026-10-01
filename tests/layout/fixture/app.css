@@ -23,6 +23,11 @@
 @source './positions.ts';
 @source './extraction.ts';
 @source './mfa.ts';
+@source './relocation.ts';
+@source '../../../resources/js/components/vehicle/RelocationOrderModal.vue';
+@source '../../../resources/js/components/form';
+@source '../../../resources/js/components/ui/modal';
+@source '../../../resources/js/components/ui/select';
 @source './additional-damage.ts';
 @source './document-actions.ts';
 
