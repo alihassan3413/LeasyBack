@@ -4,6 +4,7 @@ namespace Tests\Feature\Auth;
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
 
 class RegistrationTest extends TestCase
@@ -15,6 +16,28 @@ class RegistrationTest extends TestCase
         $response = $this->get('/register');
 
         $response->assertStatus(200);
+    }
+
+    public function test_registration_screen_preselects_a_registrable_user_type_from_the_query(): void
+    {
+        // Landing cards link here: Flotte → Firmenkunde, Partner → Werksatatt,
+        // kostenlos → Privatkunde. The dropdown starts on the requested type.
+        $this->get('/register?user_type=Firmenkunde')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('auth/Register')
+                ->where('user_type', 'Firmenkunde'));
+    }
+
+    public function test_registration_screen_ignores_a_non_registrable_user_type_from_the_query(): void
+    {
+        // Admin is not registrable; the dropdown stays unselected instead of
+        // smuggling a preselected value past validation.
+        $this->get('/register?user_type=Admin')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('auth/Register')
+                ->where('user_type', null));
     }
 
     public function test_new_users_can_register()

@@ -41,7 +41,10 @@ class RegisteredUserController extends Controller
         $token = (string) $request->query('invitation', '');
 
         if ($token === '') {
-            return Inertia::render('auth/Register', ['invitation' => null]);
+            return Inertia::render('auth/Register', [
+                'invitation' => null,
+                'user_type' => $this->registrableUserTypeFromQuery($request),
+            ]);
         }
 
         $invitation = $this->invitations->findAnyByToken($token);
@@ -60,6 +63,7 @@ class RegisteredUserController extends Controller
                 'company_name' => $invitation->company?->company_name ?? '',
                 'role_label' => $this->roleLabel($invitation),
             ],
+            'user_type' => null,
         ]);
     }
 
@@ -125,5 +129,17 @@ class RegisteredUserController extends Controller
             B2bRole::tryFrom($invitation->role) ?? B2bRole::Member,
             B2bPermissionSet::fromRaw($invitation->permissions),
         );
+    }
+
+    /**
+     * The user type a landing-page card asked for, or null when the query
+     * param is absent or not registrable. Admin is never preselected; anything
+     * that isn't on the allow-list simply leaves the dropdown unselected.
+     */
+    private function registrableUserTypeFromQuery(Request $request): ?string
+    {
+        $requested = (string) $request->query('user_type', '');
+
+        return in_array($requested, UserType::registrableValues(), true) ? $requested : null;
     }
 }
