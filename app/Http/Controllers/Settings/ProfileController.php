@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Modules\UserProfile\B2B\Services\B2bContext;
 use App\Modules\UserProfile\B2B\Services\B2BService;
 use App\Modules\UserProfile\Profile\Services\ProfileService;
+use App\Providers\AppServiceProvider;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -89,12 +90,17 @@ class ProfileController extends Controller
      * one, with no confirmation field (see settings/Profile.vue's
      * "Passwort & Anmeldung" card). The separate settings/password screen
      * keeps its own confirmed-password flow.
+     *
+     * Uses the same Password::defaults() rule as registration and reset (see
+     * AppServiceProvider::PASSWORD_MIN_LENGTH), so all screens agree.
      */
     public function updatePassword(Request $request): RedirectResponse
     {
         $validated = $request->validate([
             'current_password' => ['required', 'current_password'],
-            'password' => ['required', Password::min(8)->mixedCase()->numbers()],
+            'password' => ['required', Password::defaults()],
+        ], [
+            'password.min' => 'Das Passwort muss mindestens '.AppServiceProvider::PASSWORD_MIN_LENGTH.' Zeichen lang sein.',
         ]);
 
         $request->user()->update([

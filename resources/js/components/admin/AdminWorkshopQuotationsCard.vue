@@ -101,6 +101,18 @@ watch(issuedLink, (link) => (inviteOpen.value = inviteOpen.value || !!link), { i
 
 const submittedCount = computed(() => props.quotations.filter((quotation) => quotation.status === 'submitted').length);
 
+/**
+ * Additional damage a workshop reported that nobody has accepted or rejected
+ * yet — shown on the row so the admin does not have to open every comparison
+ * to find it.
+ */
+function pendingAdditionalCount(quotation: AdminWorkshopQuotation): number {
+    return quotation.additional_positions.filter((position) => {
+        const status = (position as { review_status?: string }).review_status;
+
+        return status === undefined || status === 'pending';
+    }).length;
+}
 const statusStyles: Record<string, { label: string; class: string }> = {
     invited: { label: 'Offen', class: 'bg-[#f4f7f6] text-[#6f8585]' },
     submitted: { label: 'Angebot eingegangen', class: 'bg-[#01B990]/10 text-[#00856a]' },
@@ -316,13 +328,24 @@ async function copyLink(link: string) {
                         Übernommen als {{ offerLabel(quotation.customer_offer.offer_sequence) }}
                     </span>
 
-                    <span v-if="quotation.cannot_repair_for_amount" class="ml-auto text-[11px] font-bold text-[#c0392b]">
+                                     <span v-if="quotation.cannot_repair_for_amount" class="ml-auto text-[11px] font-bold text-[#c0392b]">
                         Nicht zum angefragten Betrag durchführbar
                     </span>
                 </div>
 
+                <button
+                    v-if="pendingAdditionalCount(quotation) > 0 && expanded !== quotation.id"
+                    type="button"
+                    class="flex w-full items-center gap-1.5 border-t border-[#f2f6f5] bg-[#fffaf0] px-3 py-2 text-left text-[11.5px] font-bold text-[#a9741b] hover:bg-[#fff4dc]"
+                    data-testid="additional-positions-pending"
+                    @click="toggle(quotation.id)"
+                >
+                    {{ pendingAdditionalCount(quotation) === 1 ? '1 zusätzlicher Schaden zu prüfen' : `${pendingAdditionalCount(quotation)} zusätzliche Schäden zu prüfen` }}
+                    →
+                </button>
+
                 <div v-if="expanded === quotation.id" class="border-t border-[#f2f6f5] p-3">
-                    <WorkshopQuotationComparison :quotation="quotation" />
+                    <WorkshopQuotationComparison :quotation="quotation" :reviewable="editable" />
                 </div>
             </div>
         </div>

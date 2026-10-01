@@ -131,7 +131,8 @@ const labelClass = 'text-sm font-bold text-black';
                     <p v-if="form.errors.password" class="text-brand-orange mt-1 text-xs">{{ form.errors.password }}</p>
                 </div>
 
-                <p class="text-[12px] text-[#7A9699] sm:text-[13px]">Mindestens 8 Zeichen, mit Groß- und Kleinbuchstaben sowie einer Zahl.</p>
+                <!-- Must match AppServiceProvider::PASSWORD_MIN_LENGTH. -->
+                <p class="text-[12px] text-[#7A9699] sm:text-[13px]">Mindestens 12 Zeichen.</p>
             </div>
 
             <div

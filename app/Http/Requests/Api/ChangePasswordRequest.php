@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Api;
 
+use App\Providers\AppServiceProvider;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -31,7 +32,7 @@ class ChangePasswordRequest extends FormRequest
             'new_password' => [
                 'required',
                 'string',
-                'min:8',
+                'min:'.AppServiceProvider::PASSWORD_MIN_LENGTH,
                 'max:128',
                 'different:current_password',
             ],
@@ -52,7 +53,7 @@ class ChangePasswordRequest extends FormRequest
                 'example' => 'correct-horse-battery-staple',
             ],
             'new_password' => [
-                'description' => 'The new password, 8–128 characters, must differ from the current password.',
+                'description' => 'The new password, 12–128 characters, must differ from the current password.',
                 'example' => 'another-horse-battery-staple',
             ],
         ];
@@ -66,7 +67,7 @@ class ChangePasswordRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'new_password.min' => 'New password must be at least 8 characters.',
+            'new_password.min' => 'New password must be at least '.AppServiceProvider::PASSWORD_MIN_LENGTH.' characters.',
             'new_password.different' => 'New password must be different from current password.',
         ];
     }

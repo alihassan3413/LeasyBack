@@ -13,6 +13,7 @@ use App\Http\Controllers\Admin\VehicleController;
 use App\Http\Controllers\Admin\VehicleReportController;
 use App\Http\Controllers\Admin\WorkshopQuotationController;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Admin\WorkshopAdditionalPositionController;
 
 Route::middleware(['auth', 'active', 'verified', 'admin'])->prefix('admin')->name('admin.')->group(function () {
     Route::get('dashboard', [DashboardController::class, 'index'])->name('dashboard');
@@ -100,6 +101,15 @@ Route::middleware(['auth', 'active', 'verified', 'admin'])->prefix('admin')->nam
             ->whereUuid('quotationId')->name('workshop-quotations.revoke');
         Route::post('{orderId}/b2b-offer', [WorkshopQuotationController::class, 'createOffer'])
             ->whereUuid('orderId')->name('b2b-offer.store');
+
+                // Admin review of damage a workshop reported in addition to the
+        // Gutachten: accept creates an appraisal position from it.
+        Route::post('workshop-additional-positions/{positionId}/accept', [WorkshopAdditionalPositionController::class, 'accept'])
+            ->whereUuid('positionId')
+            ->name('workshop-additional-positions.accept');
+        Route::post('workshop-additional-positions/{positionId}/reject', [WorkshopAdditionalPositionController::class, 'reject'])
+            ->whereUuid('positionId')
+            ->name('workshop-additional-positions.reject');    
 
         Route::post('{orderId}/offers', [OfferController::class, 'store'])->whereUuid('orderId')->name('offers.store');
         Route::patch('offers/{offerId}/publish', [OfferController::class, 'publish'])->whereUuid('offerId')->name('offers.publish');

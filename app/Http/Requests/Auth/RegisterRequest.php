@@ -5,6 +5,7 @@ namespace App\Http\Requests\Auth;
 use App\Enums\UserType;
 use App\Modules\UserProfile\B2B\Models\B2bInvitation;
 use App\Modules\UserProfile\B2B\Services\B2bInvitationService;
+use App\Providers\AppServiceProvider;
 use App\Rules\CaseInsensitiveUniqueEmail;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Contracts\Validation\Validator;
@@ -45,6 +46,7 @@ class RegisterRequest extends FormRequest
                 'max:255',
                 new CaseInsensitiveUniqueEmail,
             ],
+            // Length comes from AppServiceProvider::PASSWORD_MIN_LENGTH.
             'password' => ['required', Password::defaults()],
             // Admin is deliberately excluded from registrableValues() — it
             // can never be reached through this form no matter what a client
@@ -121,6 +123,7 @@ class RegisterRequest extends FormRequest
         return [
             'user_type.required' => 'Bitte wählen Sie eine Kontoart aus.',
             'user_type.in' => 'Bitte wählen Sie eine gültige Kontoart aus.',
+            'password.min' => 'Das Passwort muss mindestens '.AppServiceProvider::PASSWORD_MIN_LENGTH.' Zeichen lang sein.',
         ];
     }
 }

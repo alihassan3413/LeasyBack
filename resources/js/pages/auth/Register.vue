@@ -140,7 +140,8 @@ const fieldClass = 'h-auto rounded-full border-brand-green-gray bg-white px-4 py
                         />
                     </FormField>
 
-                    <p class="text-brand-green-gray mt-1.5 text-xs">Mindestens 8 Zeichen.</p>
+                    <!-- Must match AppServiceProvider::PASSWORD_MIN_LENGTH. -->
+                    <p class="text-brand-green-gray mt-1.5 text-xs">Mindestens 12 Zeichen.</p>
                 </div>
 
                 <div class="pt-6">

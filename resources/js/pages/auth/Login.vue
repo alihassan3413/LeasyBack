@@ -77,13 +77,17 @@ const fieldClass = 'h-auto rounded-full border-brand-green-gray bg-white px-4 py
                         />
                     </FormField>
 
-                    <p class="text-brand-green-gray mt-1.5 text-xs">Mindestens 8 Zeichen.</p>
+                    <!--
+                        No length hint here on purpose: login accepts any
+                        existing password, including older ones shorter than
+                        the current minimum for new passwords.
+                    -->
 
                     <Link
                         v-if="canResetPassword"
                         :href="route('password.request')"
                         tabindex="5"
-                        class="text-brand-green mt-1 block text-[14px] font-bold underline decoration-[1.12px] underline-offset-[2.8px]"
+                        class="text-brand-green mt-1.5 block text-[14px] font-bold underline decoration-[1.12px] underline-offset-[2.8px]"
                     >
                         Passwort vergessen?
                     </Link>

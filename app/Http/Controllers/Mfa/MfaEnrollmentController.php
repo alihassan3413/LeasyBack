@@ -75,7 +75,35 @@ class MfaEnrollmentController extends Controller
             'qrCode' => $uri === null ? null : $this->totp->qrSvg($uri),
             'recoveryCodes' => $request->session()->get('mfa.recovery_codes'),
             'status' => $request->session()->get('status'),
+            // Where "Weiter" goes once setup is finished. Always this route,
+            // never the dashboard directly: proceed() resolves the page the
+            // user was on the way to (e.g. the onboarding funnel).
+            'continueUrl' => route('mfa.setup.continue', absolute: false),
         ]);
+    }
+
+    /**
+     * Leave the setup screen for wherever the user was going.
+     *
+     * EnsureMfaSatisfied stores the page that was interrupted (for a fresh
+     * registration: /onboarding or /onboarding/b2b) as the intended URL before
+     * pinning the user to setup. Sending them there — and only falling back to
+     * their home page when nothing was interrupted — is what keeps the
+     * registration funnel from being skipped by the MFA detour.
+     *
+     * Someone who still owes a factor is sent back to setup instead: the
+     * middleware lets this route through while pinned, so it must not become
+     * a way out of setup.
+     */
+    public function proceed(Request $request): RedirectResponse
+    {
+        $user = $request->user();
+
+        if (app(MfaPolicy::class)->mustEnroll($user)) {
+            return redirect()->route('mfa.setup');
+        }
+
+        return redirect()->intended(route($user->homeRouteName(), absolute: false));
     }
 
     /** Browser enrollment: mail a code so email can be chosen as the factor. */

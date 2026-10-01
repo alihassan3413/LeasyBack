@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Api;
 
 use App\Enums\UserType;
+use App\Providers\AppServiceProvider;
 use App\Rules\CaseInsensitiveUniqueEmail;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
@@ -42,7 +43,7 @@ class RegisterRequest extends FormRequest
             'password' => [
                 'required',
                 'string',
-                'min:8',
+                'min:'.AppServiceProvider::PASSWORD_MIN_LENGTH,
                 'max:128',
             ],
             'name' => [
@@ -72,7 +73,7 @@ class RegisterRequest extends FormRequest
                 'example' => 'Privatkunde',
             ],
             'password' => [
-                'description' => 'Plaintext password, 8–128 characters. Hashed with Argon2id before storage.',
+                'description' => 'Plaintext password, 12–128 characters. Hashed with Argon2id before storage.',
                 'example' => 'correct-horse-battery-staple',
             ],
             'name' => [
@@ -92,7 +93,7 @@ class RegisterRequest extends FormRequest
         return [
             'user_type.in' => 'Invalid user type. Allowed: '.implode(', ', UserType::registrableValues()),
             'user_email.email' => 'Please provide a valid email address.',
-            'password.min' => 'Password must be at least 8 characters.',
+            'password.min' => 'Password must be at least '.AppServiceProvider::PASSWORD_MIN_LENGTH.' characters.',
         ];
     }
 

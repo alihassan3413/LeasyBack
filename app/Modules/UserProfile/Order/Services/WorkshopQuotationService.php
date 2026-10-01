@@ -1054,6 +1054,9 @@ class WorkshopQuotationService
                             'damage_description' => $position->damage_description,
                             'repair_method' => $position->repair_method,
                             'amount_net' => (string) $position->amount_net,
+                            'review_status' => $position->review_status ?? WorkshopAdditionalPosition::STATUS_PENDING,
+                            'reviewed_at' => $position->reviewed_at?->toISOString(),
+                            'appraisal_position_id' => $position->appraisal_position_id,
                             'images' => collect($position->damage_image_document_ids ?? [])
                                 ->map(fn (string $documentId) => [
                                     'id' => $documentId,
