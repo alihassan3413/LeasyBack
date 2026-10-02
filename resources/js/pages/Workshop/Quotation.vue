@@ -8,6 +8,7 @@
  * and the column simply is not rendered.
  */
 import CalendarDateField from '@/components/form/CalendarDateField.vue';
+import PhoneInput from '@/components/form/PhoneInput.vue';
 import RequiredMark from '@/components/form/RequiredMark.vue';
 import InputError from '@/components/InputError.vue';
 import DamageGallery from '@/components/shared/DamageGallery.vue';
@@ -227,7 +228,7 @@ function submit() {
                         </div>
                         <div class="flex flex-col gap-1">
                             <label class="text-[12px] font-bold text-[#10393b]">Telefon</label>
-                            <Input v-model="form.contact_phone" />
+                            <PhoneInput v-model="form.contact_phone" />
                             <InputError :message="form.errors.contact_phone" />
                         </div>
                         <div class="flex flex-col gap-1">

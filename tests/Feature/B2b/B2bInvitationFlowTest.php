@@ -390,7 +390,7 @@ class B2bInvitationFlowTest extends TestCase
 
         $this->post(route('register'), [
             'email' => 'neuling@example.com',
-            'password' => 'sicher-genug-123',
+            'password' => 'Sicher-Genug-123',
             'invitation' => $token,
         ])->assertRedirect(route('dashboard'));
 
@@ -422,7 +422,7 @@ class B2bInvitationFlowTest extends TestCase
 
         $this->post(route('register'), [
             'email' => 'leerfeld@example.com',
-            'password' => 'sicher-genug-123',
+            'password' => 'Sicher-Genug-123',
             'user_type' => '',
             'invitation' => $token,
         ])
@@ -459,12 +459,12 @@ class B2bInvitationFlowTest extends TestCase
 
         $this->post(route('register'), [
             'email' => 'privat@example.com',
-            'password' => 'sicher-genug-123',
+            'password' => 'Sicher-Genug-123',
         ])->assertSessionHasErrors('user_type');
 
         $this->post(route('register'), [
             'email' => 'privat@example.com',
-            'password' => 'sicher-genug-123',
+            'password' => 'Sicher-Genug-123',
             'user_type' => UserType::Privatkunde->value,
         ])->assertRedirect(route('onboarding.show'));
     }
@@ -482,7 +482,7 @@ class B2bInvitationFlowTest extends TestCase
 
         $this->post(route('register'), [
             'email' => 'jemand.anderes@example.com',
-            'password' => 'sicher-genug-123',
+            'password' => 'Sicher-Genug-123',
             'invitation' => $token,
         ])->assertSessionHasErrors('email');
 
@@ -499,7 +499,7 @@ class B2bInvitationFlowTest extends TestCase
 
         $this->post(route('register'), [
             'email' => 'werkstatt@example.com',
-            'password' => 'sicher-genug-123',
+            'password' => 'Sicher-Genug-123',
             'user_type' => UserType::Werkstatt->value,
             'invitation' => $token,
         ])->assertRedirect(route('dashboard'));

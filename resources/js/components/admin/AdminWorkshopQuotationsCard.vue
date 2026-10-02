@@ -314,21 +314,47 @@ async function copyLink(link: string) {
                         Link widerrufen
                     </button>
 
+                    <!--
+                        An unreviewed additional damage is not an appraisal
+                        position yet, so an offer built now would quote a set
+                        of positions that is about to change. The server
+                        refuses it either way; this says so before the click.
+                    -->
                     <button
                         v-if="quotation.status === 'submitted' && !quotation.customer_offer && editable"
                         type="button"
-                        :disabled="offerForm.processing"
-                        class="text-[11.5px] font-bold text-[#10393b] hover:opacity-70 disabled:opacity-50"
+                        :disabled="offerForm.processing || pendingAdditionalCount(quotation) > 0"
+                        :title="
+                            pendingAdditionalCount(quotation) > 0
+                                ? 'Bitte übernehmen oder lehnen Sie zuerst die zusätzlichen Schäden dieses Angebots ab.'
+                                : undefined
+                        "
+                        class="text-[11.5px] font-bold text-[#10393b] hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-50"
+                        data-testid="create-customer-offer"
                         @click="createOffer(quotation.id)"
                     >
                         Als Kundenangebot übernehmen
                     </button>
 
+                    <span
+                        v-if="quotation.status === 'submitted' && !quotation.customer_offer && editable && pendingAdditionalCount(quotation) > 0"
+                        class="text-[11px] font-bold text-[#a9741b]"
+                        data-testid="offer-blocked-by-review"
+                    >
+                        Zuerst
+                        {{
+                            pendingAdditionalCount(quotation) === 1
+                                ? 'einen zusätzlichen Schaden'
+                                : `${pendingAdditionalCount(quotation)} zusätzliche Schäden`
+                        }}
+                        prüfen
+                    </span>
+
                     <span v-else-if="quotation.customer_offer" class="text-[11.5px] font-bold text-[#6f8585]">
                         Übernommen als {{ offerLabel(quotation.customer_offer.offer_sequence) }}
                     </span>
 
-                                     <span v-if="quotation.cannot_repair_for_amount" class="ml-auto text-[11px] font-bold text-[#c0392b]">
+                    <span v-if="quotation.cannot_repair_for_amount" class="ml-auto text-[11px] font-bold text-[#c0392b]">
                         Nicht zum angefragten Betrag durchführbar
                     </span>
                 </div>
@@ -340,7 +366,11 @@ async function copyLink(link: string) {
                     data-testid="additional-positions-pending"
                     @click="toggle(quotation.id)"
                 >
-                    {{ pendingAdditionalCount(quotation) === 1 ? '1 zusätzlicher Schaden zu prüfen' : `${pendingAdditionalCount(quotation)} zusätzliche Schäden zu prüfen` }}
+                    {{
+                        pendingAdditionalCount(quotation) === 1
+                            ? '1 zusätzlicher Schaden zu prüfen'
+                            : `${pendingAdditionalCount(quotation)} zusätzliche Schäden zu prüfen`
+                    }}
                     →
                 </button>
 

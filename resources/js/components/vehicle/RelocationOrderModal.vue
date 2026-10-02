@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import CalendarDateField from '@/components/form/CalendarDateField.vue';
+import PhoneInput from '@/components/form/PhoneInput.vue';
 import SelectField, { type SelectFieldOption } from '@/components/form/SelectField.vue';
 import { Input } from '@/components/ui/input';
 import { AppModal, AppModalButton } from '@/components/ui/modal';
@@ -335,7 +336,7 @@ const errorClass = 'mt-1 text-xs text-red-600';
                 <p :class="hint">Wer ist vor Ort für Rückfragen erreichbar?</p>
                 <div class="grid grid-cols-3 gap-3">
                     <Input v-model="form.pickup_contact.name" placeholder="Name" />
-                    <Input v-model="form.pickup_contact.phone" placeholder="Telefon" />
+                    <PhoneInput v-model="form.pickup_contact.phone" />
                     <div>
                         <Input v-model="form.pickup_contact.email" type="email" placeholder="E-Mail" />
                         <p v-if="error('pickup_contact.email')" :class="errorClass">{{ error('pickup_contact.email') }}</p>
@@ -348,7 +349,7 @@ const errorClass = 'mt-1 text-xs text-red-600';
                 <p :class="hint">Wer nimmt das Fahrzeug am Zielort entgegen?</p>
                 <div class="grid grid-cols-3 gap-3">
                     <Input v-model="form.destination_contact.name" placeholder="Name" />
-                    <Input v-model="form.destination_contact.phone" placeholder="Telefon" />
+                    <PhoneInput v-model="form.destination_contact.phone" />
                     <div>
                         <Input v-model="form.destination_contact.email" type="email" placeholder="E-Mail" />
                         <p v-if="error('destination_contact.email')" :class="errorClass">{{ error('destination_contact.email') }}</p>

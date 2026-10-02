@@ -8,6 +8,7 @@ use App\Modules\UserProfile\Order\Models\AppraisalPosition;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Order\Models\WorkshopAdditionalPosition;
 use App\Modules\UserProfile\Order\Models\WorkshopQuotation;
+use App\Modules\UserProfile\Order\Models\WorkshopQuotationItem;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -69,6 +70,21 @@ class WorkshopAdditionalPositionReviewService
                 'created_by_user_id' => $user->id,
                 'updated_by_user_id' => $user->id,
             ]);
+
+            // The price is the workshop's, so it belongs in the workshop column
+            // of the comparison — and in the repair total the customer offer is
+            // built from. Without this item the position showed its amount only
+            // on the appraisal side, with a dash opposite it, which both read as
+            // "the workshop did not quote this" and inflated the saving by its
+            // own amount.
+            WorkshopQuotationItem::updateOrCreate(
+                ['quotation_id' => $quotation->id, 'appraisal_position_id' => $created->id],
+                [
+                    'amount_net' => (string) $locked->amount_net,
+                    'repair_method' => $locked->repair_method,
+                    'not_repairable' => false,
+                ],
+            );
 
             $locked->update([
                 'review_status' => WorkshopAdditionalPosition::STATUS_ACCEPTED,

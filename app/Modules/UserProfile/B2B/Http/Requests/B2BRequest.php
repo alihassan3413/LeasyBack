@@ -2,6 +2,7 @@
 
 namespace App\Modules\UserProfile\B2B\Http\Requests;
 
+use App\Rules\PhoneNumber;
 use Illuminate\Foundation\Http\FormRequest;
 
 class B2BRequest extends FormRequest
@@ -37,10 +38,10 @@ class B2BRequest extends FormRequest
             'contact.first_name' => ['required_with:contact', 'string', 'max:100'],
             'contact.last_name' => ['required_with:contact', 'string', 'max:100'],
             'contact.international_prefix' => ['required_with:contact', 'string', 'max:10'],
-            'contact.primary_phone_number' => ['required_with:contact', 'string', 'max:50'],
+            'contact.primary_phone_number' => ['required_with:contact', 'string', new PhoneNumber],
             'contact.phone_numbers' => ['sometimes', 'array', 'max:20'],
             'contact.phone_numbers.*.international_prefix' => ['required', 'string', 'max:10'],
-            'contact.phone_numbers.*.phone_number' => ['required', 'string', 'max:50'],
+            'contact.phone_numbers.*.phone_number' => ['required', 'string', new PhoneNumber('international_prefix')],
             'contact.address_id' => ['sometimes', 'nullable', 'uuid'],
         ];
     }

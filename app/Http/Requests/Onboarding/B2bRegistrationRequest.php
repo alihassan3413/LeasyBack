@@ -4,6 +4,7 @@ namespace App\Http\Requests\Onboarding;
 
 use App\Enums\UserType;
 use App\Modules\UserProfile\B2B\Services\B2bContext;
+use App\Rules\PhoneNumber;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -23,7 +24,8 @@ class B2bRegistrationRequest extends FormRequest
     private const COUNTRIES = ['Deutschland', 'Österreich', 'Schweiz'];
 
     /** Dialing prefixes offered by PhoneNumberFieldset. */
-    private const DIALING_PREFIXES = ['+49', '+43', '+41'];
+    /** The one list, shared with the rule that validates the number itself. */
+    private const DIALING_PREFIXES = PhoneNumber::PREFIXES;
 
     private const SALUTATIONS = ['Herr', 'Frau', 'Divers'];
 
@@ -85,7 +87,7 @@ class B2bRegistrationRequest extends FormRequest
 
             'phones' => ['required', 'array', 'min:1', 'max:20'],
             'phones.*.international_prefix' => ['required', 'string', Rule::in(self::DIALING_PREFIXES)],
-            'phones.*.phone_number' => ['required', 'string', 'regex:/^\d{4,14}$/'],
+            'phones.*.phone_number' => ['required', 'string', new PhoneNumber('international_prefix')],
 
             // The logo is optional; the client never supplies a path or URL —
             // B2bRegistrationController stores the file and derives both.
@@ -145,7 +147,6 @@ class B2bRegistrationRequest extends FormRequest
             'phones.required' => 'Bitte geben Sie mindestens eine Telefonnummer an.',
             'phones.*.international_prefix.in' => 'Bitte wählen Sie eine gültige Vorwahl aus.',
             'phones.*.phone_number.required' => 'Bitte geben Sie eine Telefonnummer an.',
-            'phones.*.phone_number.regex' => 'Bitte geben Sie eine gültige Telefonnummer an (4–14 Ziffern).',
             'logo.mimes' => 'Bitte laden Sie nur JPG- oder PNG-Dateien hoch.',
             'logo.max' => 'Die Datei darf maximal 8 MB groß sein.',
         ];

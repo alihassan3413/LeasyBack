@@ -35,6 +35,42 @@ class AppServiceProvider extends ServiceProvider
     public const PASSWORD_MIN_LENGTH = 12;
 
     /**
+     * Upper bound on what is hashed. Argon2id has no practical limit, but an
+     * unbounded field is a cheap way to make the server do expensive work.
+     */
+    public const PASSWORD_MAX_LENGTH = 128;
+
+    /**
+     * The rules every create/change path applies, spread into its own rule
+     * list. One definition, so registration, profile, reset and both API
+     * endpoints cannot drift apart again — which is exactly what happened when
+     * the profile screen quietly lost mixedCase() and numbers().
+     *
+     * @return array<int, mixed>
+     */
+    public static function passwordRules(): array
+    {
+        return [Password::defaults(), 'max:'.self::PASSWORD_MAX_LENGTH];
+    }
+
+    /**
+     * German wording for every rule above. The application runs with the `en`
+     * locale and ships no lang/ directory, so Laravel's own messages are
+     * English; the customer-facing screens pass these instead.
+     *
+     * @return array<string, string>
+     */
+    public static function passwordMessages(string $field = 'password'): array
+    {
+        return [
+            $field.'.min' => 'Das Passwort muss mindestens '.self::PASSWORD_MIN_LENGTH.' Zeichen lang sein.',
+            $field.'.mixed' => 'Das Passwort muss Groß- und Kleinbuchstaben enthalten.',
+            $field.'.numbers' => 'Das Passwort muss mindestens eine Zahl enthalten.',
+            $field.'.max' => 'Das Passwort darf höchstens '.self::PASSWORD_MAX_LENGTH.' Zeichen lang sein.',
+        ];
+    }
+
+    /**
      * Register any application services.
      */
     public function register(): void
@@ -94,12 +130,12 @@ class AppServiceProvider extends ServiceProvider
 
     /**
      * The one password rule every create/change screen uses through
-     * Password::defaults(). To require more (e.g. ->mixedCase()->numbers()),
-     * change it here and update resources/js/components/auth/PasswordRequirements.vue.
+     * Password::defaults(). Change it here and update
+     * resources/js/components/auth/PasswordRequirements.vue to match.
      */
     private function registerPasswordRules(): void
     {
-        Password::defaults(fn () => Password::min(self::PASSWORD_MIN_LENGTH));
+        Password::defaults(fn () => Password::min(self::PASSWORD_MIN_LENGTH)->mixedCase()->numbers());
     }
 
     /**

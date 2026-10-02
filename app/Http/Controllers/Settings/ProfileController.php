@@ -91,17 +91,16 @@ class ProfileController extends Controller
      * "Passwort & Anmeldung" card). The separate settings/password screen
      * keeps its own confirmed-password flow.
      *
-     * Uses the same Password::defaults() rule as registration and reset (see
-     * AppServiceProvider::PASSWORD_MIN_LENGTH), so all screens agree.
+     * Uses AppServiceProvider::passwordRules() — the same length and
+     * complexity as registration, reset and both API endpoints, so no screen
+     * can quietly accept a weaker password than the others.
      */
     public function updatePassword(Request $request): RedirectResponse
     {
         $validated = $request->validate([
             'current_password' => ['required', 'current_password'],
-            'password' => ['required', Password::defaults()],
-        ], [
-            'password.min' => 'Das Passwort muss mindestens '.AppServiceProvider::PASSWORD_MIN_LENGTH.' Zeichen lang sein.',
-        ]);
+            'password' => ['required', ...AppServiceProvider::passwordRules()],
+        ], AppServiceProvider::passwordMessages());
 
         $request->user()->update([
             'password' => Hash::make($validated['password']),

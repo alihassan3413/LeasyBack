@@ -127,12 +127,12 @@ const labelClass = 'text-sm font-bold text-black';
                         autocomplete="new-password"
                         placeholder="Neues Passwort"
                         class="mt-0.5 text-sm text-black"
+                        aria-describedby="new-password-requirements"
                     />
                     <p v-if="form.errors.password" class="text-brand-orange mt-1 text-xs">{{ form.errors.password }}</p>
                 </div>
 
-                <!-- Must match AppServiceProvider::PASSWORD_MIN_LENGTH. -->
-                <p class="text-[12px] text-[#7A9699] sm:text-[13px]">Mindestens 12 Zeichen.</p>
+                <PasswordRequirements id="new-password-requirements" class="text-[12px] text-[#7A9699] sm:text-[13px]" />
             </div>
 
             <div

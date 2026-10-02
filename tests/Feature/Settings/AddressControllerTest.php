@@ -31,7 +31,7 @@ class AddressControllerTest extends TestCase
                 'last_name' => 'Mustermann',
             ],
             'phones' => [
-                ['international_prefix' => '+49', 'phone_number' => '1234567'],
+                ['international_prefix' => '+49', 'phone_number' => '15112345678'],
             ],
         ];
     }
@@ -59,7 +59,7 @@ class AddressControllerTest extends TestCase
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->where('profile.contact.first_name', 'Max')
                 ->where('profile.address.street', 'Hauptstrasse')
-                ->where('profile.phones.0.phone_number', '1234567')
+                ->where('profile.phones.0.phone_number', '15112345678')
             );
 
         $address = Address::firstOrFail();

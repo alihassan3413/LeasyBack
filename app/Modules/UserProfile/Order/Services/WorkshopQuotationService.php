@@ -20,6 +20,7 @@ use App\Modules\UserProfile\Order\Models\WorkshopQuotationItem;
 use App\Modules\UserProfile\Vehicle\Models\VehicleReportDocument;
 use App\Modules\UserProfile\Vehicle\Support\ReportDocumentImage;
 use App\Notifications\NotificationPayload;
+use App\Rules\PhoneNumber;
 use App\Services\Notifier;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\UploadedFile;
@@ -129,7 +130,7 @@ class WorkshopQuotationService
             'company_name' => ['required', 'string', 'max:255'],
             'contact_person' => ['required', 'string', 'max:255'],
             'contact_email' => ['required', 'email', 'max:255'],
-            'contact_phone' => ['nullable', 'string', 'max:64'],
+            'contact_phone' => ['nullable', 'string', new PhoneNumber],
             'earliest_repair_start' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:today'],
             'processing_days' => ['nullable', 'integer', 'min:0', 'max:365'],
             'cannot_repair_for_amount' => ['nullable', 'boolean'],

@@ -7,6 +7,7 @@
 import SelectField, { type SelectFieldOption } from '@/components/form/SelectField.vue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { formatAsYouType, isValidPhone } from '@/lib/phone';
 import { Plus, Trash2 } from 'lucide-vue-next';
 
 export interface PhoneNumberValue {
@@ -44,8 +45,26 @@ function removeRow(index: number) {
 // (E.164 allows 15 digits total, minus the shortest prefix).
 const PHONE_NUMBER_MAX_LENGTH = 14;
 
+/**
+ * Digits are what is stored and what the server validates
+ * (`phones.*.phone_number` is `^\d{4,14}$`); the grouping below is display
+ * only, so the mask can change without touching the API contract.
+ */
 function sanitizePhoneNumber(value: string | number): string {
     return String(value).replace(/\D+/g, '').slice(0, PHONE_NUMBER_MAX_LENGTH);
+}
+
+/** The same digits, grouped the way that country writes them. */
+function displayValue(row: PhoneNumberValue): string {
+    return formatAsYouType(row.phone_number, row.international_prefix);
+}
+
+/**
+ * Only flagged once there is enough to judge — a half-typed number is not yet
+ * wrong, and marking it red while someone types is noise.
+ */
+function looksWrong(row: PhoneNumberValue): boolean {
+    return row.phone_number.length >= 4 && !isValidPhone(row.phone_number, row.international_prefix);
 }
 </script>
 
@@ -61,12 +80,11 @@ function sanitizePhoneNumber(value: string | number): string {
                 />
             </div>
             <Input
-                :model-value="row.phone_number"
+                :model-value="displayValue(row)"
                 type="tel"
-                inputmode="numeric"
-                pattern="[0-9]*"
-                :maxlength="PHONE_NUMBER_MAX_LENGTH"
-                placeholder="Telefonnummer"
+                inputmode="tel"
+                :aria-invalid="looksWrong(row) || undefined"
+                placeholder="z. B. 030 12345678"
                 class="flex-1"
                 @update:model-value="(value) => updateRow(index, { phone_number: sanitizePhoneNumber(value) })"
             />

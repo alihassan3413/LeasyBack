@@ -40,12 +40,9 @@ class RegisterRequest extends FormRequest
                 'string',
                 Rule::in(UserType::registrableValues()),
             ],
-            'password' => [
-                'required',
-                'string',
-                'min:'.AppServiceProvider::PASSWORD_MIN_LENGTH,
-                'max:128',
-            ],
+            // Same policy as the web screens, so an account created through
+            // the API cannot have a weaker password than one created in the portal.
+            'password' => ['required', 'string', ...AppServiceProvider::passwordRules()],
             'name' => [
                 'nullable',
                 'string',
@@ -94,6 +91,8 @@ class RegisterRequest extends FormRequest
             'user_type.in' => 'Invalid user type. Allowed: '.implode(', ', UserType::registrableValues()),
             'user_email.email' => 'Please provide a valid email address.',
             'password.min' => 'Password must be at least '.AppServiceProvider::PASSWORD_MIN_LENGTH.' characters.',
+            'password.mixed' => 'Password must contain upper and lower case letters.',
+            'password.numbers' => 'Password must contain at least one number.',
         ];
     }
 

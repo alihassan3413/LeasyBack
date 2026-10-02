@@ -29,13 +29,8 @@ class ChangePasswordRequest extends FormRequest
                 'required',
                 'string',
             ],
-            'new_password' => [
-                'required',
-                'string',
-                'min:'.AppServiceProvider::PASSWORD_MIN_LENGTH,
-                'max:128',
-                'different:current_password',
-            ],
+            // Same policy as the web screens (AppServiceProvider::passwordRules()).
+            'new_password' => ['required', 'string', ...AppServiceProvider::passwordRules(), 'different:current_password'],
         ];
     }
 
@@ -68,6 +63,8 @@ class ChangePasswordRequest extends FormRequest
     {
         return [
             'new_password.min' => 'New password must be at least '.AppServiceProvider::PASSWORD_MIN_LENGTH.' characters.',
+            'new_password.mixed' => 'New password must contain upper and lower case letters.',
+            'new_password.numbers' => 'New password must contain at least one number.',
             'new_password.different' => 'New password must be different from current password.',
         ];
     }
