@@ -31,6 +31,13 @@ class DamageImageThumbnailService
      */
     private const PDF_WIDTH = 320;
 
+    /**
+     * Print width for the full-size photo section at the end of the PDF, laid
+     * out up to about 166mm wide: 1100px keeps that near 170 dpi. Read from the
+     * original upload, because the stored thumbnail is only WIDTH pixels wide.
+     */
+    public const PDF_DETAIL_WIDTH = 1100;
+
     private const PDF_QUALITY = 78;
 
     /**
@@ -101,7 +108,7 @@ class DamageImageThumbnailService
      *
      * @return array{src: string, width: int, height: int}|null
      */
-    public function pdfJpegDataUri(string $path): ?array
+    public function pdfJpegDataUri(string $path, int $maxWidth = self::PDF_WIDTH): ?array
     {
         if (! $this->isSupported()) {
             return null;
@@ -110,13 +117,19 @@ class DamageImageThumbnailService
         try {
             $disk = Storage::disk('documents');
             $thumbnailPath = ReportDocumentImage::thumbnailPathFor($path);
-            $source = $thumbnailPath !== null && $disk->exists($thumbnailPath) ? $thumbnailPath : $path;
+            $hasThumbnail = $thumbnailPath !== null && $disk->exists($thumbnailPath);
+
+            // The thumbnail is enough for anything up to its own width; a
+            // larger print needs the original, with the thumbnail as fallback.
+            $source = $maxWidth <= self::WIDTH
+                ? ($hasThumbnail ? $thumbnailPath : $path)
+                : ($disk->exists($path) || ! $hasThumbnail ? $path : $thumbnailPath);
 
             if (! $disk->exists($source)) {
                 return null;
             }
 
-            $jpeg = $this->toJpeg((string) $disk->get($source));
+            $jpeg = $this->toJpeg((string) $disk->get($source), $maxWidth);
 
             if ($jpeg === null) {
                 return null;
@@ -156,7 +169,7 @@ class DamageImageThumbnailService
      * Flattened onto white, because JPEG has no alpha and a transparent PNG
      * would otherwise render with a black background in the PDF.
      */
-    private function toJpeg(string $contents): ?string
+    private function toJpeg(string $contents, int $maxWidth): ?string
     {
         $size = @getimagesizefromstring($contents);
 
@@ -173,7 +186,7 @@ class DamageImageThumbnailService
         try {
             // Never upscale — a 400px thumbnail stays 400px rather than being
             // blown up to the print width.
-            $width = min(self::PDF_WIDTH, imagesx($source));
+            $width = min($maxWidth, imagesx($source));
             $height = max((int) round($width * imagesy($source) / imagesx($source)), 1);
 
             $canvas = imagecreatetruecolor($width, $height);

@@ -116,12 +116,29 @@ const totalNet = computed(() =>
 const showsAmounts = computed(() => props.quotation.shows_appraisal_amounts);
 
 /**
- * One server-rendered document serves both actions: `?download=1` sends it as
- * an attachment, the bare URL opens it inline so the browser's own print dialog
- * can handle it. Deliberately plain links — no fetch, no blob, no second
- * print-only page, and nothing that touches the submission form's state.
+ * The PDF is printed from the form as it stands, unsent prices included, so it
+ * is posted to the draft endpoint. Photos picked for additional damage are not
+ * sent — they only exist on the server once the quotation is submitted.
  */
-const pdfUrl = computed(() => route('workshop.quotations.pdf', props.token));
+const pdfUrl = computed(() => route('workshop.quotations.pdf.draft', props.token));
+
+function pdfDraft(): Record<string, unknown> {
+    return {
+        company_name: form.company_name,
+        contact_person: form.contact_person,
+        earliest_repair_start: form.earliest_repair_start === '' ? null : form.earliest_repair_start,
+        processing_days: form.processing_days === '' ? null : form.processing_days,
+        cannot_repair_for_amount: form.cannot_repair_for_amount,
+        cannot_repair_note: form.cannot_repair_note,
+        items: form.items,
+        additional_positions: form.additional_positions.map((position) => ({
+            component: position.component,
+            damage_description: position.damage_description,
+            repair_method: position.repair_method,
+            amount_net: position.amount_net,
+        })),
+    };
+}
 
 function formatEuro(value: number | string | null): string {
     const amount = typeof value === 'string' ? Number.parseFloat(value) : value;
@@ -178,7 +195,7 @@ function submit() {
                     >.
                 </p>
 
-                <WorkshopDocumentActions class="mt-4" :pdf-url="pdfUrl" />
+                <WorkshopDocumentActions class="mt-4" :pdf-url="pdfUrl" :draft="pdfDraft" />
             </header>
 
             <section v-if="quotation.vehicle" class="rounded-3xl border border-[#ececec] bg-white p-6">

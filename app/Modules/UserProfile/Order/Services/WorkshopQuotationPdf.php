@@ -28,6 +28,17 @@ class WorkshopQuotationPdf
      */
     private const IMAGE_WIDTH_PX = 84;
 
+    /**
+     * The largest box one photo may take in the "Bildanhang" at the end, in CSS
+     * px: 166mm wide by 95mm high, which fits two landscape photos with their
+     * captions on every A4 page, the first one under the heading included
+     * (dompdf measures the rows a little generously, so there is headroom). A
+     * photo is scaled to fit inside, keeping its ratio.
+     */
+    private const DETAIL_MAX_WIDTH_PX = 627;
+
+    private const DETAIL_MAX_HEIGHT_PX = 359;
+
     public function __construct(
         private readonly WorkshopQuotationService $quotations,
         private readonly DamageImageThumbnailService $images,
@@ -43,9 +54,12 @@ class WorkshopQuotationPdf
      * Subsetting keeps the full Unicode coverage the workshop's own text may
      * need while embedding only the glyphs actually used.
      */
-    public function render(WorkshopQuotation $quotation): string
+    /**
+     * @param  array<string, mixed>|null  $draft  unsent form values, see WorkshopQuotationService::pdfDocument()
+     */
+    public function render(WorkshopQuotation $quotation, ?array $draft = null): string
     {
-        return Pdf::loadView('pdf.workshop-quotation', $this->viewData($quotation))
+        return Pdf::loadView('pdf.workshop-quotation', $this->viewData($quotation, $draft))
             ->setOption('isFontSubsettingEnabled', true)
             ->setPaper('a4')
             ->output();
@@ -68,11 +82,12 @@ class WorkshopQuotationPdf
      * embedded JPEG data URIs, and the company block from the branding config
      * the emails already use.
      *
+     * @param  array<string, mixed>|null  $draft
      * @return array<string, mixed>
      */
-    private function viewData(WorkshopQuotation $quotation): array
+    private function viewData(WorkshopQuotation $quotation, ?array $draft): array
     {
-        $document = $this->quotations->pdfDocument($quotation);
+        $document = $this->quotations->pdfDocument($quotation, $draft);
 
         return [
             ...$document,
@@ -101,6 +116,7 @@ class WorkshopQuotationPdf
                 'amount_net' => $this->euro($position['amount_net']),
                 'images' => $this->embed($position['image_paths']),
             ], $document['additional_positions']),
+            'image_appendix' => $this->imageAppendix($document),
             'appraisal_total_net' => $this->euro($document['appraisal_total_net']),
             'workshop_total_net' => $this->euro($document['workshop_total_net']),
             'additional_total_net' => $this->euro($document['additional_total_net']),
@@ -144,6 +160,69 @@ class WorkshopQuotationPdf
                 'src' => $image['src'],
                 'width' => self::IMAGE_WIDTH_PX,
                 'height' => (int) round(self::IMAGE_WIDTH_PX * $image['height'] / max($image['width'], 1)),
+            ];
+        }
+
+        return $images;
+    }
+
+    /**
+     * The photos again at the end of the document, large enough to judge the
+     * damage — one block per position that has any, Gutachten positions first,
+     * then the workshop's own additional damage. Built from the same
+     * authorised paths as the thumbnails, so it can never show more.
+     *
+     * @param  array<string, mixed>  $document
+     * @return array<int, array{label: string, component: string, images: array<int, array{src: string, width: int, height: int}>}>
+     */
+    private function imageAppendix(array $document): array
+    {
+        $sections = [];
+
+        foreach ([['positions', 'Position '], ['additional_positions', 'Zusätzlicher Schaden Z']] as [$key, $prefix]) {
+            foreach ($document[$key] as $position) {
+                $images = $this->embedDetail($position['image_paths']);
+
+                if ($images !== []) {
+                    $sections[] = [
+                        'label' => $prefix.$position['number'],
+                        'component' => (string) $position['component'],
+                        'images' => $images,
+                    ];
+                }
+            }
+        }
+
+        return $sections;
+    }
+
+    /**
+     * Like embed(), but from the original upload and scaled to fit the large
+     * appendix box, so a portrait photo does not run off the page.
+     *
+     * @param  array<int, string>  $paths
+     * @return array<int, array{src: string, width: int, height: int}>
+     */
+    private function embedDetail(array $paths): array
+    {
+        $images = [];
+
+        foreach ($paths as $path) {
+            $image = $this->images->pdfJpegDataUri($path, DamageImageThumbnailService::PDF_DETAIL_WIDTH);
+
+            if ($image === null) {
+                continue;
+            }
+
+            $scale = min(
+                self::DETAIL_MAX_WIDTH_PX / max($image['width'], 1),
+                self::DETAIL_MAX_HEIGHT_PX / max($image['height'], 1),
+            );
+
+            $images[] = [
+                'src' => $image['src'],
+                'width' => max((int) round($image['width'] * $scale), 1),
+                'height' => max((int) round($image['height'] * $scale), 1),
             ];
         }
 

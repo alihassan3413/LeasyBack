@@ -155,6 +155,15 @@
         }
         .notice-warn { border-left-color: #c0392b; background: #fdf5f4; color: #8c2f23; }
         .empty { color: #9bb0af; font-size: 8.5pt; font-style: italic; }
+
+        /* Bildanhang: always starts on a fresh page; every photo and its caption
+           stay together. */
+        .appendix { page-break-before: always; }
+        .appendix h2 { margin-top: 0; }
+        table.appendix-photo { border-collapse: collapse; margin: 5mm 0 0 0; }
+        table.appendix-photo td { padding: 0; border: 0; }
+        .appendix-caption { font-size: 8.5pt; margin-bottom: 1.5mm; color: #17384a; }
+        table.appendix-photo img { display: block; border: 0.5pt solid #d8e4e2; }
     </style>
 </head>
 <body>
@@ -331,7 +340,7 @@
                             @include('pdf._damage-images', ['images' => $position['images'], 'label' => $position['component']])
                         </td>
                         <td>{{ $position['repair_method'] ?: '—' }}</td>
-                        <td class="num">{{ $position['amount_net'] }}</td>
+                        <td class="num">{{ $position['amount_net'] ?? '—' }}</td>
                     </tr>
                 @endforeach
             </tbody>
@@ -359,12 +368,54 @@
     </p>
 @endif
 
-@if (! $is_submitted)
+@if ($is_draft)
+    <p class="notice">
+        <strong>Entwurf:</strong> Dieses Dokument zeigt die im Online-Formular eingetragenen Preise.
+        Sie sind noch nicht eingereicht — erst das Absenden dort gilt als Angebot.
+        @if (count($additional_positions))
+            Fotos zu zusätzlichen Schäden erscheinen erst nach dem Absenden.
+        @endif
+    </p>
+@elseif (! $is_submitted)
     <p class="notice">
         Dieses Dokument bildet den aktuellen Stand der Anfrage ab. Die Preise der Werkstatt sind
         noch nicht eingereicht — bitte tragen Sie sie im Online-Formular ein. Erst das Absenden
         dort gilt als Angebot.
     </p>
+@endif
+
+@if (count($image_appendix))
+    {{--
+        The photos again, large. Each photo and its caption share one table
+        cell: dompdf never splits a single row, so a caption cannot be left at
+        the bottom of a page without its photo. page-break-inside: avoid is
+        deliberately not used — dompdf pushed such blocks to the next page with
+        room to spare, leaving one photo per page. Both dimensions come from
+        the renderer, so a photo is scaled to fit its box without stretching.
+    --}}
+    <div class="appendix">
+        <h2>Bildanhang</h2>
+        <p class="subtitle">Schadenbilder in voller Größe, in der Reihenfolge der Positionen.</p>
+
+        @foreach ($image_appendix as $section)
+            @foreach ($section['images'] as $index => $image)
+                <table class="appendix-photo">
+                    <tr>
+                        <td>
+                            <div class="appendix-caption">
+                                <strong>{{ $section['label'] }} · {{ $section['component'] }}</strong>
+                                <span class="muted">· Bild {{ $index + 1 }} von {{ count($section['images']) }}</span>
+                            </div>
+                            <img src="{{ $image['src'] }}"
+                                 width="{{ $image['width'] }}"
+                                 height="{{ $image['height'] }}"
+                                 alt="Schadenbild {{ $index + 1 }} zu {{ $section['label'] }}: {{ $section['component'] }}">
+                        </td>
+                    </tr>
+                </table>
+            @endforeach
+        @endforeach
+    </div>
 @endif
 
 </body>

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Workshop;
 
 use App\Http\Controllers\Controller;
 use App\Modules\UserProfile\Order\Models\AppraisalPosition;
+use App\Modules\UserProfile\Order\Models\WorkshopQuotation;
 use App\Modules\UserProfile\Order\Services\WorkshopQuotationPdf;
 use App\Modules\UserProfile\Order\Services\WorkshopQuotationService;
 use Illuminate\Http\RedirectResponse;
@@ -92,10 +93,40 @@ class QuotationSubmissionController extends Controller
 
         abort_if($quotation === null, 404);
 
+        return $this->pdfResponse($request, $pdf, $quotation, null);
+    }
+
+    /**
+     * The same document, printed from what the form currently holds rather
+     * than from what has been submitted — so a workshop can print or save its
+     * prices before sending them. Nothing in the request is stored.
+     */
+    public function pdfDraft(Request $request, string $token, WorkshopQuotationPdf $pdf): HttpResponse
+    {
+        $quotation = $this->workshopQuotationService->findOpenByToken($token);
+
+        abort_if($quotation === null, 404);
+
+        $positionIds = AppraisalPosition::where('order_id', $quotation->order_id)->pluck('id')->all();
+
+        $draft = $request->validate(
+            WorkshopQuotationService::draftRules($positionIds),
+            WorkshopQuotationService::submissionMessages(),
+            WorkshopQuotationService::submissionAttributes(),
+        );
+
+        return $this->pdfResponse($request, $pdf, $quotation, $draft);
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $draft
+     */
+    private function pdfResponse(Request $request, WorkshopQuotationPdf $pdf, WorkshopQuotation $quotation, ?array $draft): HttpResponse
+    {
         $filename = $pdf->filename($quotation);
         $disposition = $request->boolean('download') ? 'attachment' : 'inline';
 
-        return response($pdf->render($quotation), 200, [
+        return response($pdf->render($quotation, $draft), 200, [
             'Content-Type' => 'application/pdf',
             'Content-Disposition' => $disposition.'; filename="'.$filename.'"',
             'Cache-Control' => 'private, no-store, max-age=0',
