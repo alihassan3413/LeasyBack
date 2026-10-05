@@ -57,7 +57,7 @@ const damageRows = [
 
                         <div class="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
                             <Link
-                                :href="route('register')"
+                                :href="route('register', { user_type: 'Privatkunde' })"
                                 class="group bg-brand-orange hover:bg-brand-orange/90 focus-visible:ring-brand-orange inline-flex w-full items-center justify-center gap-2 rounded-[5px] px-4 py-3 text-center text-[15px] leading-snug font-bold text-white transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none sm:w-auto sm:px-6 sm:text-base"
                             >
                                 Kostenloses Gutachten starten

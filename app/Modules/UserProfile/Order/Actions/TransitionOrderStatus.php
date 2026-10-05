@@ -31,9 +31,11 @@ use Illuminate\Validation\ValidationException;
  * Replaces the reference system's (and this app's own pre-Checkpoint-6)
  * pattern of an unconditional `UPDATE ... SET order_status = ?` with no
  * guard on the current value — see docs/B2C_ADMIN_STATUS_MATRIX.md §1 for
- * the transition table this enforces and the open product questions it
- * deliberately does not resolve (e.g. whether `reworkshop` loops back to
- * `reinspection` — not implemented here until that's confirmed).
+ * the transition table this enforces. The B2C repair cycle is closed:
+ * `workshop → reinspection` and, when the follow-up does not hold,
+ * `reinspection → reworkshop` loops back to `reinspection` again. The cycle
+ * is deliberately unbounded — how many times a repair has to be redone is a
+ * fact about the car, not a number for this table to cap.
  *
  * Every call writes exactly one row to `leasyback_order_status_updates`,
  * per §6 of the same doc. Requesting the order's current status again is a
