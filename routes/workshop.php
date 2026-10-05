@@ -27,6 +27,13 @@ Route::prefix('werkstatt/angebot')->name('workshop.quotations.')->group(function
         ->where('token', '[A-Za-z0-9]{64}')
         ->name('pdf');
 
+    // The same document built from the form's unsent values, posted because a
+    // half-filled form does not fit in a URL. Shares the PDF throttle bucket.
+    Route::post('{token}/pdf', [QuotationSubmissionController::class, 'pdfDraft'])
+        ->middleware('throttle:workshop-pdf')
+        ->where('token', '[A-Za-z0-9]{64}')
+        ->name('pdf.draft');
+
     Route::get('{token}/bilder/{documentId}', [QuotationSubmissionController::class, 'image'])
         ->middleware('throttle:workshop-images')
         ->where('token', '[A-Za-z0-9]{64}')

@@ -1,10 +1,39 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type Request } from '@playwright/test';
 
 const PDF_URL = '/werkstatt/angebot/tokentokentoken/pdf';
+
+/** The smallest body a browser accepts as a PDF; its content is never inspected. */
+const FAKE_PDF = '%PDF-1.4\n%%EOF\n';
 
 async function open(page: Page, query = '') {
     await page.goto(`/document-actions.html${query}`);
     await page.waitForSelector('#wrap');
+}
+
+/** Answers the PDF endpoint and records every request made to it. */
+async function stubPdf(page: Page, status = 200): Promise<Request[]> {
+    const requests: Request[] = [];
+
+    // Matched on the path: the fixture page's own query string names the PDF URL too.
+    await page.route(
+        (url) => url.pathname.endsWith('/pdf'),
+        async (route) => {
+            requests.push(route.request());
+
+            await route.fulfill(
+                status === 200
+                    ? {
+                          status,
+                          contentType: 'application/pdf',
+                          headers: { 'Content-Disposition': 'attachment; filename="LeasyBack-Werkstattangebot-AUF-1.pdf"' },
+                          body: FAKE_PDF,
+                      }
+                    : { status, contentType: 'application/json', body: JSON.stringify({ message: 'invalid' }) },
+            );
+        },
+    );
+
+    return requests;
 }
 
 const download = (page: Page) => page.getByTestId('quotation-pdf-download');
@@ -15,35 +44,57 @@ test.describe('the document actions', () => {
         await open(page);
 
         await expect(page.getByTestId('quotation-document-actions')).toBeVisible();
-        await expect(download(page)).toBeVisible();
-        await expect(print(page)).toBeVisible();
-    });
-
-    test('the download action asks the server for an attachment', async ({ page }) => {
-        await open(page);
-
-        await expect(download(page)).toHaveAttribute('href', `${PDF_URL}?download=1`);
         await expect(download(page)).toContainText('PDF herunterladen');
-    });
-
-    /**
-     * Printing deliberately opens the same server-rendered document in a new
-     * tab rather than rendering a second print-only page in the browser.
-     */
-    test('the print action opens the same document in a new tab', async ({ page }) => {
-        await open(page);
-
-        await expect(print(page)).toHaveAttribute('href', PDF_URL);
-        await expect(print(page)).toHaveAttribute('target', '_blank');
-        await expect(print(page)).toHaveAttribute('rel', 'noopener');
         await expect(print(page)).toContainText('Drucken');
     });
 
-    test('both actions point at the same document', async ({ page }) => {
+    /** The point of the change: prices typed but not sent still reach the PDF. */
+    test('the download posts the unsent form values and saves the returned file', async ({ page }) => {
+        const requests = await stubPdf(page);
+        await open(page);
+
+        const saved = page.waitForEvent('download');
+        await download(page).click();
+
+        expect((await saved).suggestedFilename()).toBe('LeasyBack-Werkstattangebot-AUF-1.pdf');
+        expect(requests).toHaveLength(1);
+        expect(requests[0].method()).toBe('POST');
+        expect(requests[0].url()).toContain(`${PDF_URL}?download=1`);
+        expect(requests[0].postDataJSON()).toMatchObject({ items: [{ appraisal_position_id: 'pos-1', amount_net: '924.00' }] });
+    });
+
+    test('print opens the same document, built from the same values, in a new tab', async ({ page, context }) => {
+        const requests = await stubPdf(page);
+        await open(page);
+
+        const tab = context.waitForEvent('page');
+        await print(page).click();
+        await tab;
+
+        expect(requests).toHaveLength(1);
+        expect(requests[0].method()).toBe('POST');
+        expect(new URL(requests[0].url()).search).toBe('');
+        expect(requests[0].postDataJSON()).toMatchObject({ items: [{ amount_net: '924.00' }] });
+    });
+
+    test('both actions use the configured document', async ({ page }) => {
+        const requests = await stubPdf(page);
         await open(page, '?pdfUrl=/werkstatt/angebot/andererToken/pdf');
 
-        await expect(download(page)).toHaveAttribute('href', '/werkstatt/angebot/andererToken/pdf?download=1');
-        await expect(print(page)).toHaveAttribute('href', '/werkstatt/angebot/andererToken/pdf');
+        const saved = page.waitForEvent('download');
+        await download(page).click();
+        await saved;
+
+        expect(requests[0].url()).toContain('/werkstatt/angebot/andererToken/pdf');
+    });
+
+    test('a refused draft is explained instead of failing silently', async ({ page }) => {
+        await stubPdf(page, 422);
+        await open(page);
+
+        await download(page).click();
+
+        await expect(page.getByRole('alert')).toContainText('Bitte prüfen Sie Ihre Eingaben');
     });
 });
 
@@ -51,8 +102,8 @@ test.describe('accessibility', () => {
     test('each action has an accessible name', async ({ page }) => {
         await open(page);
 
-        await expect(page.getByRole('link', { name: 'PDF herunterladen' })).toBeVisible();
-        await expect(page.getByRole('link', { name: /Drucken/ })).toBeVisible();
+        await expect(page.getByRole('button', { name: 'PDF herunterladen' })).toBeVisible();
+        await expect(page.getByRole('button', { name: /Drucken/ })).toBeVisible();
     });
 
     /** The icons are decorative; the text carries the meaning. */

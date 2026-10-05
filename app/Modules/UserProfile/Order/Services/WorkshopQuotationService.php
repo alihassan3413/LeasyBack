@@ -24,6 +24,7 @@ use App\Rules\PhoneNumber;
 use App\Services\Notifier;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -114,6 +115,37 @@ class WorkshopQuotationService
             'invited_email' => ['nullable', 'email', 'max:255'],
             'show_appraisal_amounts' => ['nullable', 'boolean'],
             'ttl_days' => ['nullable', 'integer', 'min:1', 'max:90'],
+        ];
+    }
+
+    /**
+     * What the form currently holds, sent only to print it. Nothing here is
+     * stored, so every field is optional: the workshop may print half-filled
+     * prices. Limits and the position whitelist match the submission, so a
+     * draft cannot carry anything a submission could not.
+     *
+     * @param  array<int, string>  $positionIds
+     * @return array<string, mixed>
+     */
+    public static function draftRules(array $positionIds): array
+    {
+        return [
+            'company_name' => ['nullable', 'string', 'max:255'],
+            'contact_person' => ['nullable', 'string', 'max:255'],
+            'earliest_repair_start' => ['nullable', 'date_format:Y-m-d'],
+            'processing_days' => ['nullable', 'integer', 'min:0', 'max:365'],
+            'cannot_repair_for_amount' => ['nullable', 'boolean'],
+            'cannot_repair_note' => ['nullable', 'string', 'max:2000'],
+            'items' => ['nullable', 'array', 'max:200'],
+            'items.*.appraisal_position_id' => ['required', 'uuid', 'distinct', 'in:'.implode(',', $positionIds)],
+            'items.*.amount_net' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
+            'items.*.repair_method' => ['nullable', 'string', 'max:255'],
+            'items.*.not_repairable' => ['nullable', 'boolean'],
+            'additional_positions' => ['nullable', 'array', 'max:'.self::MAX_ADDITIONAL_POSITIONS],
+            'additional_positions.*.component' => ['nullable', 'string', 'max:255'],
+            'additional_positions.*.damage_description' => ['nullable', 'string', 'max:2000'],
+            'additional_positions.*.repair_method' => ['nullable', 'string', 'max:255'],
+            'additional_positions.*.amount_net' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
         ];
     }
 
@@ -759,15 +791,25 @@ class WorkshopQuotationService
      * that is not shown Gutachten amounts on screen must not find them in the
      * PDF either.
      *
+     * `$draft` is what the workshop has typed but not sent (validated with
+     * draftRules()). It stands in for the stored answer only while there is
+     * none, so a submitted quotation always prints what was submitted. Draft
+     * rows are unsaved models and draft additional damage has no photos yet —
+     * those only exist once the submission uploads them.
+     *
+     * @param  array<string, mixed>|null  $draft
      * @return array<string, mixed>
      */
-    public function pdfDocument(WorkshopQuotation $quotation): array
+    public function pdfDocument(WorkshopQuotation $quotation, ?array $draft = null): array
     {
+        $draft = $quotation->isSubmitted() ? null : $draft;
         $order = LeasybackOrder::whereKey($quotation->order_id)->first();
         $vehicle = $order === null ? null : Vehicle::where('vehicle_id', $order->vehicle_id)->first();
         $showAmounts = (bool) $quotation->show_appraisal_amounts;
         $positions = $this->positionsFor($quotation->order_id);
-        $additional = $this->additionalPositionsByQuotation([$quotation->id])->get($quotation->id) ?? collect();
+        $additional = $draft === null
+            ? ($this->additionalPositionsByQuotation([$quotation->id])->get($quotation->id) ?? collect())
+            : $this->draftAdditionalPositions($draft);
 
         // Every image id on the order's appraisal positions and on this
         // quotation's own reported damage, authorised in one query against the
@@ -782,9 +824,9 @@ class WorkshopQuotationService
 
         $authorised = $order === null ? collect() : $this->damageImageDocuments($order, $documentIds);
 
-        $items = WorkshopQuotationItem::where('quotation_id', $quotation->id)
-            ->get()
-            ->keyBy('appraisal_position_id');
+        $items = $draft === null
+            ? WorkshopQuotationItem::where('quotation_id', $quotation->id)->get()->keyBy('appraisal_position_id')
+            : $this->draftItems($draft);
 
         $appraisalTotal = '0';
         $workshopTotal = '0';
@@ -821,14 +863,18 @@ class WorkshopQuotationService
         $additionalRows = $additional->values()->map(function (WorkshopAdditionalPosition $position, int $index) use (
             $authorised, &$additionalTotal
         ) {
-            $additionalTotal = bcadd($additionalTotal, (string) $position->amount_net, 2);
+            $amount = $this->amountOrNull($position->amount_net);
+
+            if ($amount !== null) {
+                $additionalTotal = bcadd($additionalTotal, $amount, 2);
+            }
 
             return [
                 'number' => $index + 1,
                 'component' => $position->component,
                 'damage_description' => $position->damage_description,
                 'repair_method' => $position->repair_method,
-                'amount_net' => (string) $position->amount_net,
+                'amount_net' => $amount,
                 'image_paths' => $this->authorisedPaths($position->damage_image_document_ids ?? [], $authorised),
             ];
         })->all();
@@ -836,15 +882,20 @@ class WorkshopQuotationService
         return [
             'reference' => $quotation->auftragsnummer,
             'workshop_label' => $quotation->workshop_label,
-            'company_name' => $quotation->company_name,
-            'contact_person' => $quotation->contact_person,
+            'company_name' => $draft === null ? $quotation->company_name : $this->trimToNull($draft['company_name'] ?? null),
+            'contact_person' => $draft === null ? $quotation->contact_person : $this->trimToNull($draft['contact_person'] ?? null),
             'submitted_at' => $quotation->submitted_at,
             'expires_at' => $quotation->expires_at,
-            'earliest_repair_start' => $quotation->earliest_repair_start,
-            'processing_days' => $quotation->processing_days,
-            'cannot_repair_for_amount' => (bool) $quotation->cannot_repair_for_amount,
-            'cannot_repair_note' => $quotation->cannot_repair_note,
+            'earliest_repair_start' => $draft === null
+                ? $quotation->earliest_repair_start
+                : $this->draftDate($draft['earliest_repair_start'] ?? null),
+            'processing_days' => $draft === null
+                ? $quotation->processing_days
+                : (isset($draft['processing_days']) ? (int) $draft['processing_days'] : null),
+            'cannot_repair_for_amount' => (bool) ($draft === null ? $quotation->cannot_repair_for_amount : ($draft['cannot_repair_for_amount'] ?? false)),
+            'cannot_repair_note' => $draft === null ? $quotation->cannot_repair_note : $this->trimToNull($draft['cannot_repair_note'] ?? null),
             'shows_appraisal_amounts' => $showAmounts,
+            'is_draft' => $draft !== null,
             'vehicle' => $vehicle === null ? null : [
                 'license_plate' => $vehicle->license_plate,
                 'make' => $vehicle->make,
@@ -860,6 +911,55 @@ class WorkshopQuotationService
             'additional_total_net' => $additionalTotal,
             'grand_total_net' => bcadd($workshopTotal, $additionalTotal, 2),
         ];
+    }
+
+    /**
+     * The draft's prices as unsaved items, keyed like the stored ones so the
+     * document is built by exactly the same code either way. Ids were already
+     * limited to this order's positions by draftRules().
+     *
+     * @param  array<string, mixed>  $draft
+     * @return Collection<string, WorkshopQuotationItem>
+     */
+    private function draftItems(array $draft): Collection
+    {
+        return collect($draft['items'] ?? [])
+            ->map(fn (array $item) => new WorkshopQuotationItem([
+                'appraisal_position_id' => $item['appraisal_position_id'],
+                'amount_net' => $this->amountOrNull($item['amount_net'] ?? null),
+                'repair_method' => $this->trimToNull($item['repair_method'] ?? null),
+                'not_repairable' => (bool) ($item['not_repairable'] ?? false),
+            ]))
+            ->keyBy('appraisal_position_id');
+    }
+
+    /**
+     * The draft's additional damage as unsaved rows, skipping cards the
+     * workshop opened but has not filled in yet.
+     *
+     * @param  array<string, mixed>  $draft
+     * @return Collection<int, WorkshopAdditionalPosition>
+     */
+    private function draftAdditionalPositions(array $draft): Collection
+    {
+        return collect($draft['additional_positions'] ?? [])
+            ->map(fn (array $position) => [
+                'component' => $this->trimToNull($position['component'] ?? null),
+                'damage_description' => $this->trimToNull($position['damage_description'] ?? null),
+                'repair_method' => $this->trimToNull($position['repair_method'] ?? null),
+                'amount_net' => $this->amountOrNull($position['amount_net'] ?? null),
+            ])
+            ->filter(fn (array $position) => $position['component'] !== null || $position['damage_description'] !== null || $position['amount_net'] !== null)
+            ->map(fn (array $position) => new WorkshopAdditionalPosition([...$position, 'damage_image_document_ids' => []]))
+            ->values();
+    }
+
+    private function draftDate(mixed $value): ?Carbon
+    {
+        $value = $this->trimToNull($value);
+
+        // Already checked against date_format:Y-m-d by draftRules().
+        return $value === null ? null : Carbon::createFromFormat('Y-m-d', $value)->startOfDay();
     }
 
     /**

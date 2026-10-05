@@ -18,6 +18,7 @@ use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Testing\TestResponse;
 use Tests\Feature\B2b\Concerns\BuildsB2bCompanies;
 use Tests\TestCase;
 
@@ -372,6 +373,192 @@ class WorkshopQuotationPdfTest extends TestCase
         $this->assertStringNotContainsString('/Image', $pdf);
     }
 
+    // ------------------------------------------------------ unsent form values
+
+    /**
+     * The reported bug: prices typed into the form but not sent printed as a
+     * 0,00 € workshop total, because the PDF only read submitted rows.
+     */
+    public function test_unsent_prices_from_the_form_are_printed_with_their_totals(): void
+    {
+        $order = $this->b2cOrder();
+        $second = $this->withPosition($order, 'Heckklappe');
+        $token = $this->tokenFor($order);
+        $first = AppraisalPosition::where('order_id', $order->id)->orderBy('sort_order')->firstOrFail();
+
+        $text = $this->draftText($token, [
+            'items' => [
+                ['appraisal_position_id' => $first->id, 'amount_net' => '410.50', 'repair_method' => 'Smart Repair'],
+                ['appraisal_position_id' => $second->id, 'amount_net' => '389', 'not_repairable' => false],
+            ],
+        ]);
+
+        $this->assertStringContainsString('410,50', $text);
+        $this->assertStringContainsString('389,00', $text);
+        $this->assertStringContainsString('Smart Repair', $text);
+        $this->assertMatchesRegularExpression('/Werkstatt netto \(Gutachtenpositionen\)\s+799,50/', $text);
+        $this->assertMatchesRegularExpression('/Werkstattangebot Gesamt netto\s+799,50/', $text);
+        $this->assertStringContainsString('Entwurf', $text);
+    }
+
+    public function test_printing_unsent_values_stores_nothing(): void
+    {
+        $order = $this->b2cOrder();
+        $token = $this->tokenFor($order);
+
+        $this->draftResponse($token, [
+            'company_name' => 'Karosserie Nord GmbH',
+            'items' => [['appraisal_position_id' => AppraisalPosition::firstOrFail()->id, 'amount_net' => '99.00']],
+            'additional_positions' => [['component' => 'Tür', 'damage_description' => 'Delle', 'amount_net' => '50.00']],
+        ])->assertOk();
+
+        $quotation = WorkshopQuotation::firstOrFail();
+        $this->assertNull($quotation->submitted_at);
+        $this->assertNull($quotation->company_name);
+        $this->assertSame(0, WorkshopQuotationItem::count());
+        $this->assertSame(0, WorkshopAdditionalPosition::count());
+    }
+
+    public function test_unsent_additional_damage_is_printed_and_empty_cards_are_skipped(): void
+    {
+        $order = $this->b2cOrder();
+        $token = $this->tokenFor($order);
+
+        $text = $this->draftText($token, [
+            'items' => [['appraisal_position_id' => AppraisalPosition::firstOrFail()->id, 'amount_net' => '100.00']],
+            'additional_positions' => [
+                ['component' => 'Radlauf hinten rechts', 'damage_description' => 'Durchrostung', 'amount_net' => '540.00'],
+                ['component' => '', 'damage_description' => '', 'amount_net' => ''],
+            ],
+        ]);
+
+        $this->assertStringContainsString('Radlauf hinten rechts', $text);
+        $this->assertStringContainsString('Z1', $text);
+        $this->assertStringNotContainsString('Z2', $text);
+        $this->assertMatchesRegularExpression('/Zusätzliche Schäden netto\s+540,00/', $text);
+        $this->assertMatchesRegularExpression('/Werkstattangebot Gesamt netto\s+640,00/', $text);
+    }
+
+    public function test_a_partly_filled_form_prints_the_prices_it_has(): void
+    {
+        $order = $this->b2cOrder();
+        $this->withPosition($order, 'Heckklappe');
+        $token = $this->tokenFor($order);
+        $first = AppraisalPosition::where('order_id', $order->id)->orderBy('sort_order')->firstOrFail();
+
+        $text = $this->draftText($token, [
+            'items' => [['appraisal_position_id' => $first->id, 'amount_net' => '120.00']],
+        ]);
+
+        $this->assertMatchesRegularExpression('/Werkstattangebot Gesamt netto\s+120,00/', $text);
+    }
+
+    public function test_a_position_of_another_order_cannot_be_priced_in_a_draft(): void
+    {
+        $order = $this->b2cOrder();
+        $token = $this->tokenFor($order);
+        $foreign = $this->withPosition($this->b2cOrder(), 'Fremde Position');
+
+        $this->draftResponse($token, [
+            'items' => [['appraisal_position_id' => $foreign->id, 'amount_net' => '10.00']],
+        ])->assertUnprocessable()->assertJsonValidationErrors('items.0.appraisal_position_id');
+    }
+
+    public function test_a_draft_amount_must_be_a_valid_number(): void
+    {
+        $token = $this->tokenFor($this->b2cOrder());
+
+        $this->draftResponse($token, [
+            'items' => [['appraisal_position_id' => AppraisalPosition::firstOrFail()->id, 'amount_net' => 'viel']],
+        ])->assertUnprocessable()->assertJsonValidationErrors('items.0.amount_net');
+    }
+
+    public function test_a_revoked_quotation_cannot_be_printed_from_a_draft(): void
+    {
+        $token = $this->tokenFor($this->b2cOrder());
+        WorkshopQuotation::firstOrFail()->update(['revoked_at' => now()]);
+
+        $this->draftResponse($token, ['items' => []])->assertNotFound();
+    }
+
+    /** A submitted answer is the record; a stale draft must never replace it. */
+    public function test_a_submitted_quotation_ignores_a_draft(): void
+    {
+        $order = $this->b2cOrder();
+        $this->tokenFor($order);
+        $quotation = WorkshopQuotation::firstOrFail();
+        $position = AppraisalPosition::firstOrFail();
+
+        WorkshopQuotationItem::create([
+            'quotation_id' => $quotation->id,
+            'appraisal_position_id' => $position->id,
+            'amount_net' => '444.44',
+        ]);
+        $quotation->update(['submitted_at' => now(), 'total_net' => '444.44']);
+
+        $document = app(WorkshopQuotationService::class)->pdfDocument($quotation->fresh(), [
+            'items' => [['appraisal_position_id' => $position->id, 'amount_net' => '1.00']],
+        ]);
+
+        $this->assertSame('444.44', $document['workshop_total_net']);
+        $this->assertFalse($document['is_draft']);
+    }
+
+    // ------------------------------------------------------------ image appendix
+
+    public function test_position_photos_are_repeated_large_in_an_appendix(): void
+    {
+        $order = $this->b2cOrder();
+        AppraisalPosition::firstOrFail()->update(['damage_image_document_ids' => [
+            $this->imageDocument($order)->id,
+            $this->imageDocument($order, 60)->id,
+        ]]);
+
+        $text = $this->pdfText($this->tokenFor($order));
+
+        $this->assertStringContainsString('Bildanhang', $text);
+        $this->assertStringContainsString('Position 1 · Stoßfänger hinten', $text);
+        $this->assertStringContainsString('Bild 2 von 2', $text);
+    }
+
+    public function test_additional_damage_photos_are_part_of_the_appendix(): void
+    {
+        $quotation = $this->quotationWithAdditionalDamage($this->b2cOrder(), withImage: true);
+
+        $text = $this->renderedText($quotation);
+
+        $this->assertStringContainsString('Zusätzlicher Schaden Z1 · Tür vorne links', $text);
+    }
+
+    public function test_a_quotation_without_photos_has_no_appendix(): void
+    {
+        $text = $this->pdfText($this->tokenFor($this->b2cOrder()));
+
+        $this->assertStringNotContainsString('Bildanhang', $text);
+    }
+
+    public function test_appendix_photos_are_printed_larger_than_the_thumbnails(): void
+    {
+        $order = $this->b2cOrder();
+        $document = $this->imageDocument($order);
+        AppraisalPosition::firstOrFail()->update(['damage_image_document_ids' => [$document->id]]);
+        $this->tokenFor($order);
+
+        $method = new \ReflectionMethod(WorkshopQuotationPdf::class, 'viewData');
+        $data = $method->invoke(app(WorkshopQuotationPdf::class), WorkshopQuotation::firstOrFail(), null);
+
+        $thumbnail = $data['positions'][0]['images'][0];
+        $large = $data['image_appendix'][0]['images'][0];
+
+        $this->assertGreaterThan($thumbnail['width'] * 5, $large['width']);
+        $this->assertEqualsWithDelta(
+            $thumbnail['width'] / $thumbnail['height'],
+            $large['width'] / $large['height'],
+            0.05,
+            'the large photo keeps its aspect ratio',
+        );
+    }
+
     // -------------------------------------------------------- both channels
 
     public function test_a_b2c_quotation_renders(): void
@@ -654,6 +841,26 @@ class WorkshopQuotationPdfTest extends TestCase
     }
 
     /** The finished PDF read back as text with poppler, as a workshop would see it. */
+    /**
+     * @param  array<string, mixed>  $draft
+     */
+    private function draftResponse(string $token, array $draft): TestResponse
+    {
+        return $this->postJson(route('workshop.quotations.pdf.draft', $token), $draft);
+    }
+
+    /**
+     * @param  array<string, mixed>  $draft
+     */
+    private function draftText(string $token, array $draft): string
+    {
+        $response = $this->draftResponse($token, $draft);
+        $response->assertOk();
+        $response->assertHeader('Content-Type', 'application/pdf');
+
+        return $this->toText((string) $response->getContent());
+    }
+
     private function pdfText(string $token): string
     {
         return $this->toText($this->pdfBytes($token));
