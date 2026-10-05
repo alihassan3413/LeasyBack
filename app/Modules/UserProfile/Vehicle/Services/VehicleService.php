@@ -12,6 +12,7 @@ use App\Models\VehicleDocument;
 use App\Modules\PartnerApi\Services\PartnerWebhookEvents;
 use App\Modules\UserProfile\B2B\Services\B2bContext;
 use App\Modules\UserProfile\Order\Models\LogisticsAddressProfile;
+use App\Modules\UserProfile\Order\Services\AccidentDamageAttachmentService;
 use App\Modules\UserProfile\Order\Services\B2bOrderNoteService;
 use App\Modules\UserProfile\Order\Services\OrderCollectionService;
 use App\Modules\UserProfile\Order\Services\RepairOfferService;
@@ -41,6 +42,10 @@ class VehicleService
     private const DEFAULT_SERVICE_TYPE = 'leasingrueckgabe';
 
     private const RELOCATION_SERVICE_TYPE = 'ueberfuehrung';
+
+    private const ACCIDENT_DAMAGE_SERVICE_TYPE = 'unfallschaden';
+
+    private const APPRAISAL_SERVICE_TYPE = 'gutachten';
 
     /**
      * Memoised per company, see companyAddressProfiles().
@@ -404,7 +409,14 @@ class VehicleService
         return DB::table('leasyback_orders')
             ->where('vehicle_id', $vehicleId)
             ->whereNotIn('order_status', OrderStatus::reorderableValues())
-            ->exists();
+            ->exists()
+            // A vehicle that is one of several in a multi-vehicle order
+            // (Vehicle Condition Appraisal) is held by that order just the same.
+            || DB::table('leasyback_order_vehicles as ov')
+                ->join('leasyback_orders as o', 'o.id', '=', 'ov.order_id')
+                ->where('ov.vehicle_id', $vehicleId)
+                ->whereNotIn('o.order_status', OrderStatus::reorderableValues())
+                ->exists();
     }
 
     /**
@@ -624,7 +636,15 @@ class VehicleService
                     ->orWhere('v.license_plate', 'like', $term)
                     ->orWhere('v.make', 'like', $term)
                     ->orWhere('v.model', 'like', $term)
-                    ->orWhere('v.vin', 'like', $term);
+                    ->orWhere('v.vin', 'like', $term)
+                    // A multi-vehicle order is also found by any of its other vehicles.
+                    ->orWhereExists(fn (Builder $linked) => $linked->selectRaw('1')
+                        ->from('leasyback_order_vehicles as lov')
+                        ->join('vehicles as lv', 'lv.vehicle_id', '=', 'lov.vehicle_id')
+                        ->whereColumn('lov.order_id', 'o.id')
+                        ->where(fn (Builder $match) => $match
+                            ->where('lv.license_plate', 'like', $term)
+                            ->orWhere('lv.vin', 'like', $term)));
             });
         }
 
@@ -697,7 +717,14 @@ class VehicleService
             $orders->where('vehicle_belongs', 'B2B')->pluck('auftragsnummer')->unique()->all(),
         );
 
-        return $orders->map(function (object $order) use ($collections) {
+        // How many vehicles each order covers — more than one only for a Gutachten.
+        $vehicleCounts = DB::table('leasyback_order_vehicles')
+            ->whereIn('order_id', $orders->pluck('id')->all())
+            ->selectRaw('order_id, COUNT(*) as total')
+            ->groupBy('order_id')
+            ->pluck('total', 'order_id');
+
+        return $orders->map(function (object $order) use ($collections, $vehicleCounts) {
             $payload = json_decode((string) $order->request_payload, true) ?: [];
             $besichtigungsort = $payload['besichtigungsort'] ?? [];
             $collection = $collections[$order->auftragsnummer] ?? null;
@@ -708,6 +735,17 @@ class VehicleService
             if ($serviceType === self::RELOCATION_SERVICE_TYPE) {
                 $appointment = $payload['preferred_date'] ?? null;
                 $location = self::relocationRoute($payload);
+            } elseif ($serviceType === self::APPRAISAL_SERVICE_TYPE) {
+                // The confirmed appointment once operations scheduled it, the
+                // requested date until then, and where the vehicles stand.
+                $appointment = $collection['confirmed_collection_date'] ?? ($payload['preferred_date'] ?? null);
+                $vehicleLocation = $payload['vehicle_location'] ?? null;
+                $location = trim((string) (is_array($vehicleLocation) ? ($vehicleLocation['city'] ?? '') : '')) ?: null;
+            } elseif ($serviceType === self::ACCIDENT_DAMAGE_SERVICE_TYPE) {
+                // The arranged step's date, once operations scheduled it, and
+                // where the damaged vehicle is.
+                $appointment = $collection['confirmed_collection_date'] ?? null;
+                $location = trim((string) ($payload['vehicle_location']['city'] ?? '')) ?: null;
             } else {
                 $appointment = $collection['confirmed_collection_date']
                     ?? $collection['requested_collection_date']
@@ -727,6 +765,7 @@ class VehicleService
                 'model' => $order->model,
                 'vehicle_belongs' => $order->vehicle_belongs,
                 'appointment' => $appointment,
+                'vehicle_count' => max(1, (int) ($vehicleCounts[$order->id] ?? 1)),
                 'location' => $location,
             ];
         })->all();
@@ -769,6 +808,13 @@ class VehicleService
                 ->from('leasyback_orders as o')
                 ->whereColumn('o.vehicle_id', 'v.vehicle_id')
                 ->whereNotIn('o.order_status', OrderStatus::reorderableValues()))
+            // …and not held as one of several vehicles of a multi-vehicle order.
+            ->whereNotExists(fn (Builder $query) => $query
+                ->select(DB::raw(1))
+                ->from('leasyback_order_vehicles as ov')
+                ->join('leasyback_orders as o', 'o.id', '=', 'ov.order_id')
+                ->whereColumn('ov.vehicle_id', 'v.vehicle_id')
+                ->whereNotIn('o.order_status', OrderStatus::reorderableValues()))
             ->orderBy('v.created_at', 'desc')
             ->get([
                 'v.vehicle_id',
@@ -777,6 +823,7 @@ class VehicleService
                 'v.model',
                 'v.vin',
                 'v.leasing_end_date',
+                'v.leasinggeber',
                 'v.vehicle_belongs',
                 'v.collection_address_profile_id',
             ]);
@@ -793,6 +840,8 @@ class VehicleService
             'model' => $vehicle->model,
             'vin' => $vehicle->vin,
             'leasing_end_date' => $vehicle->leasing_end_date,
+            // Prefills the appraisal form's mandatory leasing company.
+            'leasinggeber' => $vehicle->leasinggeber,
             'vehicle_belongs' => $vehicle->vehicle_belongs,
             'collection_address' => $addresses[$vehicle->collection_address_profile_id] ?? null,
         ])->all();
@@ -852,11 +901,22 @@ class VehicleService
         // getCustomerOrderFlowSteps() already renders a cancelled order as a
         // full timeline with the cancellation marked at the stage it stopped,
         // so the customer now sees the same history Admin does.
-        $ordersByVehicle = DB::table('leasyback_orders')
+        // A multi-vehicle order (Vehicle Condition Appraisal) belongs to every
+        // one of its vehicles, not only to the first one stored on the order
+        // row — so it is loaded for, and listed under, each of them.
+        $linkedVehicles = DB::table('leasyback_order_vehicles')
             ->whereIn('vehicle_id', $vehicleIds)
-            ->orderByDesc('created_at')
-            ->get()
-            ->groupBy('vehicle_id');
+            ->get(['order_id', 'vehicle_id']);
+
+        $ordersByVehicle = self::groupOrdersByVehicle(
+            DB::table('leasyback_orders')
+                ->where(fn (Builder $q) => $q->whereIn('vehicle_id', $vehicleIds)
+                    ->orWhereIn('id', $linkedVehicles->pluck('order_id')->unique()->all()))
+                ->orderByDesc('created_at')
+                ->get(),
+            $linkedVehicles,
+            $vehicleIds,
+        );
 
         $auftragsnummern = $ordersByVehicle->flatten(1)->pluck('auftragsnummer')->unique()->all();
         $orderIds = $ordersByVehicle->flatten(1)->pluck('id')->all();
@@ -944,6 +1004,23 @@ class VehicleService
             'id',
             $vehicles->where('vehicle_belongs', 'B2B')->pluck('collection_address_profile_id')->filter()->unique()->all(),
         )->get()->mapWithKeys(fn (LogisticsAddressProfile $profile) => [$profile->id => $profile->details]);
+
+        // Unfallschaden files: the customer's own uploads always, the final
+        // documentation once the order is completed (Accident Damage brief).
+        $allOrders = $ordersByVehicle->flatten(1);
+        $attachmentsByOrder = app(AccidentDamageAttachmentService::class)->forOrders(
+            $allOrders->whereIn('service_type', [self::ACCIDENT_DAMAGE_SERVICE_TYPE, self::APPRAISAL_SERVICE_TYPE])->pluck('id')->all(),
+            $allOrders->pluck('order_status', 'id')->all(),
+        );
+
+        // Every vehicle of a multi-vehicle order (Gutachten), in booking order, so
+        // each of its vehicles' pages can list the whole order.
+        $orderVehiclesByOrder = DB::table('leasyback_order_vehicles as ov')
+            ->join('vehicles as veh', 'veh.vehicle_id', '=', 'ov.vehicle_id')
+            ->whereIn('ov.order_id', $orderIds)
+            ->orderBy('ov.position')
+            ->get(['ov.order_id', 'veh.vehicle_id', 'veh.license_plate', 'veh.make', 'veh.model', 'veh.vin'])
+            ->groupBy('order_id');
 
         $result = [];
         foreach ($vehicles as $vehicle) {
@@ -1071,6 +1148,19 @@ class VehicleService
                     'order_confirmations' => $confirmations,
                     'report_documents' => $reportDocsArr,
                     'offers' => $offers,
+                    // Unfallschaden and Gutachten; an empty list for every other order.
+                    'attachments' => $attachmentsByOrder[$order->id] ?? [],
+                    // All vehicles of the order; empty unless it is a multi-vehicle order.
+                    'vehicles' => $orderVehiclesByOrder->get($order->id, collect())
+                        ->map(fn ($item) => [
+                            'vehicle_id' => $item->vehicle_id,
+                            'license_plate' => $item->license_plate,
+                            'make' => $item->make,
+                            'model' => $item->model,
+                            'vin' => $item->vin,
+                        ])
+                        ->values()
+                        ->all(),
                 ];
             }
 
@@ -1124,6 +1214,38 @@ class VehicleService
         }
 
         return $result;
+    }
+
+    /**
+     * Orders keyed by vehicle, where an order lands under its own vehicle and
+     * under every further vehicle it lists in leasyback_order_vehicles. The
+     * order objects are shared, so a multi-vehicle order is the same record
+     * on each of its vehicles' pages.
+     *
+     * @param  Collection<int, object>  $orders  newest first
+     * @param  Collection<int, object>  $linkedVehicles  rows of leasyback_order_vehicles (order_id, vehicle_id)
+     * @param  array<int, string>  $vehicleIds  the vehicles being hydrated
+     * @return Collection<string, Collection<int, object>>
+     */
+    private static function groupOrdersByVehicle(Collection $orders, Collection $linkedVehicles, array $vehicleIds): Collection
+    {
+        $wanted = array_flip($vehicleIds);
+        $extraByOrder = $linkedVehicles->groupBy('order_id');
+        $groups = [];
+
+        foreach ($orders as $order) {
+            $owners = collect([$order->vehicle_id])
+                ->merge($extraByOrder->get($order->id, collect())->pluck('vehicle_id'))
+                ->unique();
+
+            foreach ($owners as $vehicleId) {
+                if (isset($wanted[$vehicleId])) {
+                    $groups[$vehicleId][] = $order;
+                }
+            }
+        }
+
+        return collect($groups)->map(fn (array $list) => collect($list));
     }
 
     /**
@@ -1246,7 +1368,12 @@ class VehicleService
     {
         $latestStatus = DB::table('leasyback_orders as lo')
             ->select('lo.order_status')
-            ->whereColumn('lo.vehicle_id', 'v.vehicle_id')
+            ->where(fn (Builder $q) => $q->whereColumn('lo.vehicle_id', 'v.vehicle_id')
+                // …or an order that lists this vehicle among several.
+                ->orWhereExists(fn (Builder $linked) => $linked->selectRaw('1')
+                    ->from('leasyback_order_vehicles as lov')
+                    ->whereColumn('lov.order_id', 'lo.id')
+                    ->whereColumn('lov.vehicle_id', 'v.vehicle_id')))
             ->orderByDesc('lo.created_at')
             ->limit(1);
 

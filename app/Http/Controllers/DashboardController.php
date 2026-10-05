@@ -9,6 +9,8 @@ use App\Models\User;
 use App\Modules\UserProfile\B2B\Services\B2bAnalyticsService;
 use App\Modules\UserProfile\B2B\Services\B2bContext;
 use App\Modules\UserProfile\B2B\Services\B2bStatisticsService;
+use App\Modules\UserProfile\Order\Models\CompanyBillingAddress;
+use App\Modules\UserProfile\Order\Models\CompanyCostCentre;
 use App\Modules\UserProfile\Order\Models\LogisticsAddressProfile;
 use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
 use App\Modules\UserProfile\Vehicle\Services\VehicleService;
@@ -118,8 +120,9 @@ class DashboardController extends Controller
                 ->orderBy('provider')
                 ->orderBy('name')
                 ->get(['station_id', 'provider', 'name', 'strasse', 'plz', 'ort', 'bundesland', 'land']),
-            // What the Überführung form offers under "Gespeicherte Adresse /
-            // Kostenstelle wählen". The company's own data only.
+            // What the Überführung and Unfallschaden forms offer under
+            // "Gespeicherte Adresse / Kostenstelle wählen". The company's own
+            // data only. (Prop name kept from the Überführung.)
             'relocationOptions' => $this->relocationOptions($membership->b2bId),
             /*
              * The company overview — fleet states, key figures and the recent
@@ -142,11 +145,16 @@ class DashboardController extends Controller
     }
 
     /**
-     * Saved addresses (the same logistics address profiles the fleet uses as
-     * pickup addresses) and the cost centres already recorded on the
-     * company's vehicles.
+     * The company's saved data the service forms offer:
      *
-     * @return array{address_profiles: list<array{id: string, profile_name: string, details: array<string, mixed>|null}>, cost_centres: list<string>}
+     * - address_profiles: the logistics address profiles the fleet uses as
+     *   pickup addresses (vehicle and location addresses);
+     * - billing_addresses: the company's saved billing addresses, the
+     *   default first — the forms preselect it;
+     * - saved_cost_centres: the company's saved cost centres (name + number);
+     * - cost_centres: the cost centre names already recorded on vehicles.
+     *
+     * @return array<string, list<mixed>>
      */
     private function relocationOptions(string $b2bId): array
     {
@@ -159,6 +167,30 @@ class DashboardController extends Controller
                 'id' => $profile->id,
                 'profile_name' => $profile->profile_name,
                 'details' => $profile->details,
+            ])
+            ->values()
+            ->all();
+
+        $billingAddresses = CompanyBillingAddress::where('b2b_id', $b2bId)
+            ->orderByDesc('is_default')
+            ->orderBy('name')
+            ->get(['id', 'name', 'details', 'is_default'])
+            ->map(fn (CompanyBillingAddress $address) => [
+                'id' => $address->id,
+                'name' => $address->name,
+                'details' => $address->details,
+                'is_default' => $address->is_default,
+            ])
+            ->values()
+            ->all();
+
+        $savedCostCentres = CompanyCostCentre::where('b2b_id', $b2bId)
+            ->orderBy('name')
+            ->get(['id', 'name', 'number'])
+            ->map(fn (CompanyCostCentre $centre) => [
+                'id' => $centre->id,
+                'name' => $centre->name,
+                'number' => $centre->number,
             ])
             ->values()
             ->all();
@@ -176,6 +208,8 @@ class DashboardController extends Controller
 
         return [
             'address_profiles' => $addressProfiles,
+            'billing_addresses' => $billingAddresses,
+            'saved_cost_centres' => $savedCostCentres,
             'cost_centres' => $costCentres,
         ];
     }

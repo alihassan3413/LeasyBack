@@ -16,14 +16,25 @@ import { AppModal } from '@/components/ui/modal';
 import OfferComparison from '@/components/vehicle/OfferComparison.vue';
 import OrderHistoryList from '@/components/vehicle/OrderHistoryList.vue';
 import OrderProgress from '@/components/vehicle/OrderProgress.vue';
+import AppraisalOrderDetails from '@/components/vehicle/AppraisalOrderDetails.vue';
 import { useLiveUpdates } from '@/composables/useLiveUpdates';
 import AppLayout from '@/layouts/AppLayout.vue';
-import { formatRelocationAddress, getCustomerOrderFlowSteps, type RelocationContact, type RelocationDetails } from '@/lib/customerOrderFlow';
+import {
+    ACCIDENT_ARRANGEMENT_LABELS,
+    formatRelocationAddress,
+    getCustomerOrderFlowSteps,
+    type AccidentDamageDetails,
+    type AppraisalDetails,
+    type AppraisalVehicle,
+    type RelocationContact,
+    type RelocationDetails,
+} from '@/lib/customerOrderFlow';
 import { ORDER_OUTCOME_LABELS } from '@/lib/orderHistory';
 import { formatPortalDate, formatPortalDateTime } from '@/lib/portalDate';
 import { serviceTitle } from '@/lib/services';
 import { getOrderStatusLabel, getVehicleStatusDisplay } from '@/lib/vehicleStatus';
 import { formatCard, formatEuro } from '@/types/payment';
+import type { OrderAttachmentData } from '@/types/order';
 import type { OrderDetailVehicle, OrderHistoryEntry, VehicleOrderData } from '@/types/vehicle';
 import { Head, Link, router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
@@ -67,6 +78,70 @@ const relocationRows = computed(() => {
         { label: 'Kostenstelle', value: [r.cost_centre?.name, r.cost_centre?.number].filter(Boolean).join(' · ') },
         { label: 'Hinweis', value: r.notes ?? '' },
     ].filter((row) => !!row.value);
+});
+
+/** Unfallschaden: the report form data and the files stored with it. */
+const isAccident = computed(() => props.order.service_type === 'unfallschaden');
+
+const accident = computed<AccidentDamageDetails | null>(() =>
+    isAccident.value ? (props.order.request_payload as unknown as AccidentDamageDetails | null) : null,
+);
+
+const accidentRows = computed(() => {
+    const a = accident.value;
+
+    if (!a) {
+        return [];
+    }
+
+    const arrangement = props.order.collection?.confirmed_arrangement;
+    const scheduledDate = props.order.collection?.confirmed_collection_date;
+
+    return [
+        { label: 'Fahrzeugstandort', value: formatRelocationAddress(a.vehicle_location) },
+        { label: 'Kontakt Standort', value: contactText(a.location_contact) },
+        {
+            label: 'Rückführadresse',
+            value: a.return_differs ? formatRelocationAddress(a.return_address) : 'wie Fahrzeugstandort',
+        },
+        { label: 'Kontakt Rückführort', value: a.return_differs ? contactText(a.return_contact) : '' },
+        { label: 'Rechnungsadresse', value: [a.billing_address?.name, formatRelocationAddress(a.billing_address)].filter(Boolean).join(', ') },
+        { label: 'Kostenstelle', value: [a.cost_centre?.name, a.cost_centre?.number].filter(Boolean).join(' · ') },
+        {
+            label: 'Nächster Schritt',
+            value: [arrangement ? (ACCIDENT_ARRANGEMENT_LABELS[arrangement] ?? '') : '', scheduledDate ? formatPortalDate(scheduledDate) : '']
+                .filter(Boolean)
+                .join(' am '),
+        },
+        { label: 'Hinweis', value: a.notes ?? '' },
+    ].filter((row) => !!row.value);
+});
+
+const attachments = computed<OrderAttachmentData[]>(
+    () => ((props.order as VehicleOrderData & { attachments?: OrderAttachmentData[] }).attachments ?? []),
+);
+
+const customerFiles = computed(() => attachments.value.filter((file) => file.kind === 'customer_upload'));
+
+/** Present only once the order is completed — the server sends them then. */
+const finalDocuments = computed(() => attachments.value.filter((file) => file.kind === 'final_document'));
+
+/** Gutachten: one order for several vehicles; the booking form data is in request_payload. */
+const isAppraisal = computed(() => props.order.service_type === 'gutachten');
+
+const appraisal = computed<AppraisalDetails | null>(() =>
+    isAppraisal.value ? (props.order.request_payload as unknown as AppraisalDetails | null) : null,
+);
+
+/** Every vehicle of the order, from the server's own list; the booking snapshot is the fallback. */
+const appraisalVehicles = computed<AppraisalVehicle[]>(() => {
+    if (!isAppraisal.value) {
+        return [];
+    }
+
+    const listed = (props.order as VehicleOrderData & { vehicles?: AppraisalVehicle[] }).vehicles ?? [];
+
+    return listed.length ? listed : (appraisal.value?.vehicles ?? []);
 });
 
 const status = computed(() => getVehicleStatusDisplay(props.order.order_status, props.order.payment?.repair_stage));
@@ -139,6 +214,9 @@ const steps = computed(() =>
         audience: 'customer',
         serviceType: props.order.service_type ?? null,
         relocation: relocation.value,
+        accident: accident.value,
+        appraisal: appraisal.value,
+        appraisalReportUrl: isAppraisal.value ? (finalDocuments.value[0]?.url ?? null) : null,
     }),
 );
 
@@ -202,7 +280,7 @@ function onSettled() {
 const collectionRows = computed(() => {
     const collection = props.order.collection;
 
-    if (!isB2b.value || !collection) {
+    if (!isB2b.value || !collection || isAccident.value || isAppraisal.value) {
         return [];
     }
 
@@ -264,6 +342,7 @@ const siblingOrders = computed<OrderHistoryEntry[]>(() =>
                     {{ vehicle.license_plate }}
                 </Link>
                 · {{ [vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Ohne Marke/Modell' }}
+                <span v-if="appraisalVehicles.length > 1"> · eines von {{ appraisalVehicles.length }} Fahrzeugen dieses Auftrags</span>
             </p>
 
             <!-- How the case ended, said once and up front: a closed timeline shows where it stopped, not that it is over. -->
@@ -282,7 +361,7 @@ const siblingOrders = computed<OrderHistoryEntry[]>(() =>
 
             <div class="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_320px] lg:items-start">
                 <div class="flex flex-col gap-5">
-                    <OfferComparison :offers="order.offers" :vehicle-belongs="vehicle.vehicle_belongs" />
+                    <OfferComparison v-if="!isAppraisal" :offers="order.offers" :vehicle-belongs="vehicle.vehicle_belongs" />
 
                     <section class="overflow-hidden rounded-[16px] border border-[#e6eded] bg-white">
                         <header class="border-b border-[#f1f5f5] px-5 py-4">
@@ -365,6 +444,52 @@ const siblingOrders = computed<OrderHistoryEntry[]>(() =>
                         </ul>
                     </section>
 
+                    <!-- Unfallschaden: the final documentation (once completed) and the customer's own files. -->
+                    <section v-if="isAccident" class="overflow-hidden rounded-[16px] border border-[#e6eded] bg-white">
+                        <header class="border-b border-[#f1f5f5] px-5 py-4">
+                            <h2 class="text-[15px] font-bold text-[#10393b]">Dateien</h2>
+                            <p class="mt-0.5 text-[12.5px] text-[#00000080]">Ihre hochgeladenen Dateien und die Abschlussdokumentation.</p>
+                        </header>
+
+                        <div class="px-5 py-4">
+                            <h3 class="text-[13px] font-bold text-[#10393b]">Abschlussdokumentation</h3>
+                            <p v-if="!finalDocuments.length" class="mt-1 text-[12.5px] text-[#9aacac]">
+                                Steht bereit, sobald der Auftrag abgeschlossen ist.
+                            </p>
+                            <ul v-else class="mt-1">
+                                <li v-for="file in finalDocuments" :key="file.id" class="flex items-center justify-between gap-3 py-1.5">
+                                    <span class="truncate text-[13px] text-[#10393b]">{{ file.original_name }}</span>
+                                    <a
+                                        v-if="file.url"
+                                        :href="file.url"
+                                        target="_blank"
+                                        rel="noopener"
+                                        class="shrink-0 rounded-full border border-[#d8e4e3] px-3 py-1 text-[11.5px] font-semibold text-[#10393b] transition hover:border-[#01B990] hover:text-[#01B990]"
+                                    >
+                                        Öffnen
+                                    </a>
+                                </li>
+                            </ul>
+
+                            <h3 class="mt-4 text-[13px] font-bold text-[#10393b]">Ihre hochgeladenen Dateien</h3>
+                            <p v-if="!customerFiles.length" class="mt-1 text-[12.5px] text-[#9aacac]">Keine Dateien hochgeladen.</p>
+                            <ul v-else class="mt-1">
+                                <li v-for="file in customerFiles" :key="file.id" class="flex items-center justify-between gap-3 py-1.5">
+                                    <span class="truncate text-[13px] text-[#10393b]">{{ file.original_name }}</span>
+                                    <a
+                                        v-if="file.url"
+                                        :href="file.url"
+                                        target="_blank"
+                                        rel="noopener"
+                                        class="shrink-0 rounded-full border border-[#d8e4e3] px-3 py-1 text-[11.5px] font-semibold text-[#10393b] transition hover:border-[#01B990] hover:text-[#01B990]"
+                                    >
+                                        Öffnen
+                                    </a>
+                                </li>
+                            </ul>
+                        </div>
+                    </section>
+
                     <section v-if="statusTrail.length" class="overflow-hidden rounded-[16px] border border-[#e6eded] bg-white">
                         <header class="border-b border-[#f1f5f5] px-5 py-4">
                             <h2 class="text-[15px] font-bold text-[#10393b]">Statusverlauf</h2>
@@ -411,6 +536,30 @@ const siblingOrders = computed<OrderHistoryEntry[]>(() =>
 
                         <dl class="divide-y divide-[#f1f5f5]">
                             <div v-for="row in relocationRows" :key="row.label" class="flex items-baseline justify-between gap-4 px-5 py-2.5">
+                                <dt class="shrink-0 text-[12.5px] text-[#00000080]">{{ row.label }}</dt>
+                                <dd class="text-right text-[13px] font-semibold text-[#10393b]">{{ row.value }}</dd>
+                            </div>
+                        </dl>
+                    </section>
+
+                    <!-- Gutachten: every vehicle of the order, the booking details and the final report. -->
+                    <AppraisalOrderDetails
+                        v-if="isAppraisal"
+                        :details="appraisal"
+                        :collection="order.collection"
+                        :vehicles="appraisalVehicles"
+                        :reports="finalDocuments"
+                        :completed="order.order_status === 'completed'"
+                    />
+
+                    <!-- Unfallschaden: everything from the report form, plus the arranged step. -->
+                    <section v-if="accidentRows.length" class="overflow-hidden rounded-[16px] border border-[#e6eded] bg-white">
+                        <header class="border-b border-[#f1f5f5] px-5 py-4">
+                            <h2 class="text-[15px] font-bold text-[#10393b]">Unfallschaden</h2>
+                        </header>
+
+                        <dl class="divide-y divide-[#f1f5f5]">
+                            <div v-for="row in accidentRows" :key="row.label" class="flex items-baseline justify-between gap-4 px-5 py-2.5">
                                 <dt class="shrink-0 text-[12.5px] text-[#00000080]">{{ row.label }}</dt>
                                 <dd class="text-right text-[13px] font-semibold text-[#10393b]">{{ row.value }}</dd>
                             </div>

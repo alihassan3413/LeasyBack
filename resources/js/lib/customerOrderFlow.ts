@@ -118,7 +118,7 @@ export const B2B_ORDER_STAGE_SEQUENCE: readonly B2bOrderStage[] = [
 ];
 
 export interface CustomerOrderFlowStep {
-    stage: CustomerOrderStage | B2bOrderStage | RelocationStage;
+    stage: CustomerOrderStage | B2bOrderStage | RelocationStage | AccidentDamageStage | AppraisalStage;
     label: string;
     shortLabel: string;
     subtitle: string;
@@ -198,6 +198,12 @@ export interface CustomerOrderFlowInput {
     serviceType?: string | null;
     /** The relocation form data (the order's request_payload). */
     relocation?: RelocationDetails | null;
+    /** `unfallschaden`: the report form data (the order's request_payload). */
+    accident?: AccidentDamageDetails | null;
+    /** gutachten: the booking form data (the order's request_payload). */
+    appraisal?: AppraisalDetails | null;
+    /** gutachten: link to the final report. Only there once the order is completed. */
+    appraisalReportUrl?: string | null;
 }
 
 export interface CustomerOrderCollection {
@@ -205,6 +211,12 @@ export interface CustomerOrderCollection {
     confirmed_collection_date?: string | null;
     /** An Überführung's confirmed time window, e.g. "08:00-12:00". */
     confirmed_collection_time_slot?: string | null;
+    /** An Unfallschaden's arranged step: inspection, vehicle_access or collection. */
+    confirmed_arrangement?: string | null;
+    /** A Gutachten's inspection site and transport confirmation, entered by operations. */
+    inspection_site_name?: string | null;
+    inspection_site_address?: string | null;
+    transport_confirmed?: boolean | null;
     /** Confirmed workshop repair appointment (§11) — customer-visible. */
     confirmed_repair_start_date?: string | null;
     estimated_processing_days?: number | null;
@@ -1357,6 +1369,385 @@ function getRelocationOrderFlowSteps(ctx: CustomerOrderFlowInput): CustomerOrder
     });
 }
 
+/* ─────────────────────────── Unfallschaden (accident damage) ─────────────────────────── */
+
+export type AccidentDamageStage = 'accident_requested' | 'accident_scheduled' | 'accident_completed';
+
+/** REQUESTED → SCHEDULED → COMPLETED (Accident Damage brief). */
+export const ACCIDENT_DAMAGE_STAGE_SEQUENCE: readonly AccidentDamageStage[] = ['accident_requested', 'accident_scheduled', 'accident_completed'];
+
+/** Shape of an Unfallschaden order's request_payload. */
+export interface AccidentDamageDetails {
+    billing_address?: (RelocationAddress & { name?: string | null }) | null;
+    cost_centre?: { name?: string | null; number?: string | null } | null;
+    vehicle_location?: RelocationAddress | null;
+    location_contact?: RelocationContact | null;
+    return_differs?: boolean | null;
+    return_address?: RelocationAddress | null;
+    return_contact?: RelocationContact | null;
+    notes?: string | null;
+}
+
+/** What operations arranged — mirrors OrderCollectionService::ACCIDENT_ARRANGEMENTS. */
+export const ACCIDENT_ARRANGEMENT_LABELS: Record<string, string> = {
+    inspection: 'Begutachtung vor Ort',
+    vehicle_access: 'Fahrzeugzugang',
+    collection: 'Abholung',
+};
+
+const ACCIDENT_STATUS_INDEX: Record<string, number> = {
+    order_requested: 0,
+    order_placed: 0,
+    confirmed: 1,
+    completed: 2,
+};
+
+const ACCIDENT_STAGE_LABEL: Record<AccidentDamageStage, string> = {
+    accident_requested: 'Unfallschaden gemeldet',
+    accident_scheduled: 'Nächster Schritt terminiert',
+    accident_completed: 'Unfallschaden abgeschlossen',
+};
+
+const ACCIDENT_STAGE_TOOLTIP: Record<AccidentDamageStage, string> = {
+    accident_requested: 'Ihre Unfallschadenmeldung ist bei Leasyback eingegangen.',
+    accident_scheduled: 'Begutachtung, Fahrzeugzugang oder Abholung ist vereinbart und bestätigt.',
+    accident_completed: 'Die Bearbeitung ist abgeschlossen, die Abschlussdokumentation steht bereit.',
+};
+
+function accidentStageDate(stage: AccidentDamageStage, ctx: CustomerOrderFlowInput): string {
+    switch (stage) {
+        case 'accident_requested':
+            return ctx.orderCreatedAt ?? '';
+        case 'accident_scheduled':
+            return findHistoryDate(ctx.statusHistory, new Set(['confirmed']));
+        case 'accident_completed':
+            return findHistoryDate(ctx.statusHistory, new Set(['completed']));
+    }
+}
+
+function accidentStageSubtitle(stage: AccidentDamageStage, details: AccidentDamageDetails, collection: CustomerOrderCollection | null | undefined): string {
+    switch (stage) {
+        case 'accident_requested': {
+            const location = formatRelocationAddress(details.vehicle_location);
+            const note = details.notes?.trim();
+
+            return [location ? `Fahrzeugstandort: ${location}` : '', note ? `Hinweis: ${note}` : ''].filter(Boolean).join('\n');
+        }
+        case 'accident_scheduled': {
+            const kind = collection?.confirmed_arrangement ? (ACCIDENT_ARRANGEMENT_LABELS[collection.confirmed_arrangement] ?? '') : '';
+            const date = collection?.confirmed_collection_date ? formatPortalDate(collection.confirmed_collection_date) : '';
+
+            return [kind, date].filter(Boolean).join(' am ');
+        }
+        case 'accident_completed':
+            return 'Die Abschlussdokumentation finden Sie in diesem Auftrag.';
+    }
+}
+
+function getAccidentDamageOrderFlowSteps(ctx: CustomerOrderFlowInput): CustomerOrderFlowStep[] {
+    const status = (ctx.orderStatus ?? '').trim();
+    const details = ctx.accident ?? {};
+    const collection = ctx.collection ?? null;
+
+    const step = (
+        stage: AccidentDamageStage,
+        state: { datetime: string; completed: boolean; isCurrent: boolean; isNext: boolean; isCancelled: boolean; isRejected: boolean },
+    ): CustomerOrderFlowStep => {
+        let label = ACCIDENT_STAGE_LABEL[stage];
+        let subtitle = accidentStageSubtitle(stage, details, collection);
+        let tooltipDescription = ACCIDENT_STAGE_TOOLTIP[stage];
+
+        if (state.isRejected) {
+            label = 'Meldung abgelehnt';
+            subtitle = 'Leasyback hat diese Unfallschadenmeldung abgelehnt. Bei Fragen wenden Sie sich bitte an Ihren Ansprechpartner.';
+            tooltipDescription = 'Diese Meldung wurde abgelehnt und wird nicht weiter bearbeitet.';
+        } else if (state.isCancelled) {
+            label = 'Auftrag storniert';
+            subtitle = `Der Auftrag wurde bei „${ACCIDENT_STAGE_LABEL[stage]}" beendet.`;
+            tooltipDescription = 'Dieser Auftrag wurde storniert und wird nicht weiter bearbeitet.';
+        }
+
+        return {
+            stage,
+            label,
+            shortLabel: label,
+            subtitle,
+            tooltipDescription,
+            ...state,
+            isCancelled: state.isCancelled && !state.isRejected,
+        };
+    };
+
+    if (status === 'cancelled' || status === 'discarded') {
+        const terminalEntry = ctx.statusHistory.find((entry) => entry.new_status === status);
+        const priorIndex = ACCIDENT_STATUS_INDEX[(terminalEntry?.old_status ?? '').trim()] ?? 0;
+
+        return ACCIDENT_DAMAGE_STAGE_SEQUENCE.map((stage, index) => {
+            const completed = index < priorIndex;
+            const here = index === priorIndex;
+
+            return step(stage, {
+                datetime: completed ? accidentStageDate(stage, ctx) : here ? (terminalEntry?.created_at ?? '') : '',
+                completed,
+                isCurrent: false,
+                isNext: false,
+                isCancelled: here,
+                isRejected: here && status === 'discarded',
+            });
+        });
+    }
+
+    const progressIndex = ACCIDENT_STATUS_INDEX[status] ?? 0;
+    let nextAssigned = false;
+
+    return ACCIDENT_DAMAGE_STAGE_SEQUENCE.map((stage, index) => {
+        const isCurrent = index === progressIndex;
+        const completed = index < progressIndex || (isCurrent && status === CLOSED_SUCCESSFULLY);
+        const isNext = index > progressIndex && !nextAssigned;
+
+        if (isNext) {
+            nextAssigned = true;
+        }
+
+        return step(stage, {
+            datetime: completed || isCurrent ? accidentStageDate(stage, ctx) : '',
+            completed,
+            isCurrent,
+            isNext,
+            isCancelled: false,
+            isRejected: false,
+        });
+    });
+}
+
+/* ─────────────────────────── Gutachten (vehicle condition appraisal) ─────────────────────────── */
+
+export type AppraisalStage = 'appraisal_requested' | 'appraisal_scheduled' | 'appraisal_completed';
+
+/** REQUESTED → SCHEDULED → COMPLETED (Vehicle Condition Appraisal brief, 17 September 2026). */
+export const APPRAISAL_STAGE_SEQUENCE: readonly AppraisalStage[] = ['appraisal_requested', 'appraisal_scheduled', 'appraisal_completed'];
+
+/** One vehicle of a Gutachten order, as the server lists it under order.vehicles. */
+export interface AppraisalVehicle {
+    vehicle_id?: string | null;
+    license_plate?: string | null;
+    make?: string | null;
+    model?: string | null;
+    vin?: string | null;
+}
+
+/** Shape of a Gutachten order's request_payload. */
+export interface AppraisalDetails {
+    billing_address?: (RelocationAddress & { name?: string | null }) | null;
+    cost_centre?: { name?: string | null; number?: string | null } | null;
+    vehicle_location?: RelocationAddress | string | null;
+    /** Pickup to a DEKRA/TÜV site. */
+    pickup_requested?: boolean | null;
+    /** Only ever true together with pickup_requested. */
+    return_transport?: boolean | null;
+    leasing_company?: string | null;
+    preferred_date?: string | null;
+    /** "08:00-12:00" */
+    time_slot?: string | null;
+    time_from?: string | null;
+    time_to?: string | null;
+    location_contact?: RelocationContact | null;
+    notes?: string | null;
+    /** Snapshot taken at booking; order.vehicles is the live list. */
+    vehicles?: AppraisalVehicle[] | null;
+}
+
+const APPRAISAL_STATUS_INDEX: Record<string, number> = {
+    order_requested: 0,
+    order_placed: 0,
+    confirmed: 1,
+    completed: 2,
+};
+
+const APPRAISAL_STAGE_LABEL: Record<AppraisalStage, string> = {
+    appraisal_requested: 'Gutachten angefragt',
+    appraisal_scheduled: 'Gutachten terminiert',
+    appraisal_completed: 'Gutachten abgeschlossen',
+};
+
+const APPRAISAL_STAGE_TOOLTIP: Record<AppraisalStage, string> = {
+    appraisal_requested: 'Ihre Gutachtenanfrage ist bei Leasyback eingegangen.',
+    appraisal_scheduled: 'Leasyback hat Termin und Zeitfenster für die Begutachtung bestätigt.',
+    appraisal_completed: 'Die Begutachtung ist abgeschlossen, das Gutachten steht bereit.',
+};
+
+function appraisalLocation(details: AppraisalDetails): string {
+    const location = details.vehicle_location;
+
+    return typeof location === 'string' ? location.trim() : formatRelocationAddress(location);
+}
+
+function appraisalTimeWindow(details: AppraisalDetails): string {
+    if (details.time_slot) {
+        return details.time_slot;
+    }
+
+    return details.time_from && details.time_to ? details.time_from + '-' + details.time_to : '';
+}
+
+function appraisalConfirmedAppointment(collection: CustomerOrderCollection | null | undefined): string {
+    const date = collection?.confirmed_collection_date ? formatPortalDate(collection.confirmed_collection_date) : '';
+
+    return [date, collection?.confirmed_collection_time_slot].filter(Boolean).join(', ');
+}
+
+/**
+ * The rows of the customer's "Gutachten" card. One definition, because the
+ * order page, the vehicle page and the dashboard panel all show the same card.
+ */
+export function appraisalDetailRows(details: AppraisalDetails, collection?: CustomerOrderCollection | null): { label: string; value: string }[] {
+    const contact = details.location_contact;
+    const billing = details.billing_address;
+    const costCentre = details.cost_centre;
+
+    return [
+        { label: 'Fahrzeugstandort', value: appraisalLocation(details) },
+        { label: 'Kontakt Standort', value: [contact?.name, contact?.phone, contact?.email].filter(Boolean).join(' · ') },
+        { label: 'Leasinggeber', value: details.leasing_company ?? '' },
+        {
+            label: 'Abholung zur Prüfstelle',
+            value: details.pickup_requested == null ? '' : details.pickup_requested ? 'Ja (DEKRA/TÜV)' : 'Nein',
+        },
+        { label: 'Rücktransport', value: details.pickup_requested ? (details.return_transport ? 'Ja' : 'Nein') : '' },
+        { label: 'Wunschtermin', value: details.preferred_date ? formatPortalDate(details.preferred_date) : '' },
+        { label: 'Zeitfenster', value: appraisalTimeWindow(details) },
+        { label: 'Bestätigter Termin', value: appraisalConfirmedAppointment(collection) },
+        { label: 'Prüfstelle', value: [collection?.inspection_site_name, collection?.inspection_site_address].filter(Boolean).join(', ') },
+        { label: 'Transport', value: details.pickup_requested && collection?.transport_confirmed ? 'Bestätigt' : '' },
+        { label: 'Rechnungsadresse', value: [billing?.name, formatRelocationAddress(billing)].filter(Boolean).join(', ') },
+        { label: 'Kostenstelle', value: [costCentre?.name, costCentre?.number].filter(Boolean).join(' · ') },
+        { label: 'Hinweis', value: details.notes ?? '' },
+    ].filter((row) => !!row.value);
+}
+
+function appraisalStageDate(stage: AppraisalStage, ctx: CustomerOrderFlowInput): string {
+    switch (stage) {
+        case 'appraisal_requested':
+            return ctx.orderCreatedAt ?? '';
+        case 'appraisal_scheduled':
+            return findHistoryDate(ctx.statusHistory, new Set(['confirmed']));
+        case 'appraisal_completed':
+            return findHistoryDate(ctx.statusHistory, new Set(['completed']));
+    }
+}
+
+function appraisalStageSubtitle(
+    stage: AppraisalStage,
+    details: AppraisalDetails,
+    collection: CustomerOrderCollection | null | undefined,
+    reached: boolean,
+): string {
+    switch (stage) {
+        case 'appraisal_requested': {
+            const date = details.preferred_date ? formatPortalDate(details.preferred_date) : '';
+            const when = [date, appraisalTimeWindow(details)].filter(Boolean).join(', ');
+            const count = details.vehicles?.length ?? 0;
+            const note = details.notes?.trim();
+
+            return [when ? 'Wunschtermin: ' + when : '', count > 1 ? count + ' Fahrzeuge' : '', note ? 'Hinweis: ' + note : '']
+                .filter(Boolean)
+                .join('\n');
+        }
+        case 'appraisal_scheduled': {
+            const when = appraisalConfirmedAppointment(collection);
+            const location = appraisalLocation(details);
+
+            return [when ? 'Termin: ' + when : '', location ? 'Fahrzeugstandort: ' + location : ''].filter(Boolean).join('\n');
+        }
+        case 'appraisal_completed':
+            return reached ? 'Das Gutachten steht in diesem Auftrag für Sie bereit.' : 'Nach Abschluss finden Sie das Gutachten in diesem Auftrag.';
+    }
+}
+
+function getAppraisalOrderFlowSteps(ctx: CustomerOrderFlowInput): CustomerOrderFlowStep[] {
+    const status = (ctx.orderStatus ?? '').trim();
+    const details = ctx.appraisal ?? {};
+    const collection = ctx.collection ?? null;
+    const reportUrl = (ctx.appraisalReportUrl ?? '').trim();
+
+    const step = (
+        stage: AppraisalStage,
+        state: { datetime: string; completed: boolean; isCurrent: boolean; isNext: boolean; isCancelled: boolean; isRejected: boolean },
+    ): CustomerOrderFlowStep => {
+        let label = APPRAISAL_STAGE_LABEL[stage];
+        let subtitle = appraisalStageSubtitle(stage, details, collection, state.completed);
+        let tooltipDescription = APPRAISAL_STAGE_TOOLTIP[stage];
+
+        if (state.isRejected) {
+            label = 'Anfrage abgelehnt';
+            subtitle = 'Leasyback hat diese Gutachtenanfrage abgelehnt. Bei Fragen wenden Sie sich bitte an Ihren Ansprechpartner.';
+            tooltipDescription = 'Diese Anfrage wurde abgelehnt und wird nicht weiter bearbeitet.';
+        } else if (state.isCancelled) {
+            label = 'Auftrag storniert';
+            subtitle = 'Der Auftrag wurde bei „' + APPRAISAL_STAGE_LABEL[stage] + '" beendet.';
+            tooltipDescription = 'Dieser Auftrag wurde storniert und wird nicht weiter bearbeitet.';
+        }
+
+        const built: CustomerOrderFlowStep = {
+            stage,
+            label,
+            shortLabel: label,
+            subtitle,
+            tooltipDescription,
+            ...state,
+            isCancelled: state.isCancelled && !state.isRejected,
+        };
+
+        // The final report, linked from the last stage once it is there.
+        if (stage === 'appraisal_completed' && state.completed && reportUrl) {
+            built.reportDocUrl = reportUrl;
+        }
+
+        return built;
+    };
+
+    if (status === 'cancelled' || status === 'discarded') {
+        const terminalEntry = ctx.statusHistory.find((entry) => entry.new_status === status);
+        const priorIndex = APPRAISAL_STATUS_INDEX[(terminalEntry?.old_status ?? '').trim()] ?? 0;
+
+        return APPRAISAL_STAGE_SEQUENCE.map((stage, index) => {
+            const completed = index < priorIndex;
+            const here = index === priorIndex;
+
+            return step(stage, {
+                datetime: completed ? appraisalStageDate(stage, ctx) : here ? (terminalEntry?.created_at ?? '') : '',
+                completed,
+                isCurrent: false,
+                isNext: false,
+                isCancelled: here,
+                isRejected: here && status === 'discarded',
+            });
+        });
+    }
+
+    const progressIndex = APPRAISAL_STATUS_INDEX[status] ?? 0;
+    let nextAssigned = false;
+
+    return APPRAISAL_STAGE_SEQUENCE.map((stage, index) => {
+        const isCurrent = index === progressIndex;
+        const completed = index < progressIndex || (isCurrent && status === CLOSED_SUCCESSFULLY);
+        const isNext = index > progressIndex && !nextAssigned;
+
+        if (isNext) {
+            nextAssigned = true;
+        }
+
+        return step(stage, {
+            datetime: completed || isCurrent ? appraisalStageDate(stage, ctx) : '',
+            completed,
+            isCurrent,
+            isNext,
+            isCancelled: false,
+            isRejected: false,
+        });
+    });
+}
+
 export function getCustomerOrderFlowSteps(ctx: CustomerOrderFlowInput): CustomerOrderFlowStep[] | null {
     if (!ctx.orderCreatedAt) {
         return null;
@@ -1364,6 +1755,14 @@ export function getCustomerOrderFlowSteps(ctx: CustomerOrderFlowInput): Customer
 
     if (ctx.serviceType === 'ueberfuehrung') {
         return getRelocationOrderFlowSteps(ctx);
+    }
+
+    if (ctx.serviceType === 'unfallschaden') {
+        return getAccidentDamageOrderFlowSteps(ctx);
+    }
+
+    if (ctx.serviceType === 'gutachten') {
+        return getAppraisalOrderFlowSteps(ctx);
     }
 
     if (ctx.channel === 'B2B') {

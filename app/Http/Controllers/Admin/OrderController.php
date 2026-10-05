@@ -91,7 +91,8 @@ class OrderController extends Controller
         $order = LeasybackOrder::find($orderId);
         abort_unless($order !== null, 404);
 
-        if (! in_array('order_placed', TransitionOrderStatus::allowedNextStatuses($order->order_status, TransitionOrderStatus::isB2bOrder($order), TransitionOrderStatus::isRelocationOrder($order)), true)) {
+        // Überführung and Unfallschaden run their own short path.
+        if (! in_array('order_placed', TransitionOrderStatus::allowedNextStatuses($order->order_status, TransitionOrderStatus::isB2bOrder($order), TransitionOrderStatus::isShortPathOrder($order)), true)) {
             return back()->withErrors(['status' => 'Nur angefragte Aufträge können freigegeben werden.'])
                 ->with('error', 'Nur angefragte Aufträge können freigegeben werden.');
         }
@@ -127,8 +128,9 @@ class OrderController extends Controller
 
         // `discarded` is how a B2B request LeasyBack will not take on is
         // declined (§6's review step); B2C keeps it withheld as before.
+        // Überführung and Unfallschaden run their own short path.
         $allowed = array_values(array_diff(
-            TransitionOrderStatus::allowedNextStatuses($order->order_status, $isB2b, TransitionOrderStatus::isRelocationOrder($order)),
+            TransitionOrderStatus::allowedNextStatuses($order->order_status, $isB2b, TransitionOrderStatus::isShortPathOrder($order)),
             $isB2b ? ['order_placed'] : ['order_placed', 'discarded'],
         ));
 
@@ -169,6 +171,9 @@ class OrderController extends Controller
      * Confirms or overrides the customer's requested collection appointment.
      * B2B only — a B2C order has no collection workflow, so the route 404s
      * on the vehicle type rather than relying on the page not offering it.
+     *
+     * Also schedules an Überführung (date + time window) and an Unfallschaden
+     * (what was arranged + date) — see OrderCollectionService::updateByAdmin().
      */
     public function updateCollection(Request $request, string $orderId): RedirectResponse
     {

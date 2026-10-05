@@ -1,7 +1,11 @@
 <?php
 
+use App\Http\Controllers\Admin\AccidentDamageDocumentController;
+use App\Http\Controllers\Admin\AccidentDamageStatisticsController;
 use App\Http\Controllers\Admin\AppraisalExtractionController;
+use App\Http\Controllers\Admin\AppraisalOrderController;
 use App\Http\Controllers\Admin\AppraisalPositionController;
+use App\Http\Controllers\Admin\AppraisalStatisticsController;
 use App\Http\Controllers\Admin\CustomerController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\ImpersonationController;
@@ -18,6 +22,12 @@ use Illuminate\Support\Facades\Route;
 
 Route::middleware(['auth', 'active', 'verified', 'admin'])->prefix('admin')->name('admin.')->group(function () {
     Route::get('dashboard', [DashboardController::class, 'index'])->name('dashboard');
+
+    // Accident Damage brief, "Statistics view".
+    Route::get('statistics/unfallschaden', [AccidentDamageStatisticsController::class, 'index'])->name('statistics.accident-damage');
+
+    // Gutachten: the same statistics view for Vehicle Condition Appraisal orders.
+    Route::get('statistics/gutachten', [AppraisalStatisticsController::class, 'index'])->name('statistics.appraisal');
 
     Route::post('impersonate/{userId}', [ImpersonationController::class, 'store'])
         ->whereNumber('userId')
@@ -56,7 +66,32 @@ Route::middleware(['auth', 'active', 'verified', 'admin'])->prefix('admin')->nam
         Route::post('{orderId}/approve', [OrderController::class, 'approve'])->whereUuid('orderId')->name('approve');
         Route::patch('{orderId}/status', [OrderController::class, 'updateStatus'])->whereUuid('orderId')->name('status');
         Route::patch('{orderId}/collection', [OrderController::class, 'updateCollection'])->whereUuid('orderId')->name('collection');
-        Route::post('{orderId}/transfer-protocol', [RelocationTransferProtocolController::class, 'store'])->whereUuid('orderId')->name('transfer-protocol');
+        Route::post('{orderId}/transfer-protocol', [RelocationTransferProtocolController::class, 'store'])
+            ->whereUuid('orderId')
+            ->name('transfer-protocol');
+
+        // Unfallschaden: the final accident damage documentation.
+        Route::post('{orderId}/accident-documents', [AccidentDamageDocumentController::class, 'store'])
+            ->whereUuid('orderId')
+            ->name('accident-documents.store');
+
+        Route::delete('accident-documents/{attachmentId}', [AccidentDamageDocumentController::class, 'destroy'])
+            ->whereUuid('attachmentId')
+            ->name('accident-documents.destroy');
+
+        // Gutachten: appointment and inspection site, and the final report that completes the order.
+        Route::patch('{orderId}/appraisal/schedule', [AppraisalOrderController::class, 'schedule'])
+            ->whereUuid('orderId')
+            ->name('appraisal.schedule');
+
+        Route::post('{orderId}/appraisal/report', [AppraisalOrderController::class, 'storeReport'])
+            ->whereUuid('orderId')
+            ->name('appraisal.report.store');
+
+        Route::delete('appraisal/report/{attachmentId}', [AppraisalOrderController::class, 'destroyReport'])
+            ->whereUuid('attachmentId')
+            ->name('appraisal.report.destroy');
+
         Route::post('{orderId}/no-show', [OrderController::class, 'markNoShow'])->whereUuid('orderId')->name('no-show');
         Route::patch('{orderId}/repair-appointment', [OrderController::class, 'updateRepairAppointment'])
             ->whereUuid('orderId')->name('repair-appointment');

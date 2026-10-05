@@ -14,6 +14,8 @@ export interface OrderCollectionData {
     requested_collection_time_slot: string | null;
     /** An Überführung's confirmed time window, e.g. "08:00-12:00". Null for other orders. */
     confirmed_collection_time_slot?: string | null;
+    /** An Unfallschaden's arranged step: inspection, vehicle_access or collection. */
+    confirmed_arrangement?: string | null;
     /** Confirmed workshop repair appointment (§11). Customer-visible business date. */
     confirmed_repair_start_date: string | null;
     estimated_processing_days: number | null;
@@ -23,6 +25,18 @@ export interface OrderCollectionData {
     internal_note?: string | null;
     /** Admin-only — an Überführung's saved Übergabeprotokoll, or null. */
     transfer_protocol?: TransferProtocolData | null;
+}
+
+/** Matches AccidentDamageAttachmentService::present() — one file stored with an Unfallschaden. */
+export interface OrderAttachmentData {
+    id: string;
+    kind: 'customer_upload' | 'final_document';
+    original_name: string;
+    mime_type: string | null;
+    size: number;
+    /** Short-lived signed link; null when the disk cannot sign one. */
+    url: string | null;
+    created_at: string | null;
 }
 
 /** Matches OrderCollectionService::presentTransferProtocol(). */

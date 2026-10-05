@@ -4,7 +4,7 @@ import { ADMIN_ORDER_STATUS_FILTERS, getAdminDashboardStatus as getStatus } from
 import { taskPriorityStyle } from '@/lib/adminTaskPriority';
 import { formatPortalDate } from '@/lib/portalDate';
 import type { AdminOrderList, AdminOrderListRow } from '@/types/admin';
-import { Head, router } from '@inertiajs/vue3';
+import { Head,Link, router } from '@inertiajs/vue3';
 import { computed, ref, watch } from 'vue';
 
 const props = defineProps<{
@@ -48,6 +48,8 @@ const SERVICE_TABS: { value: string; label: string }[] = [
     { value: '', label: 'Alle Services' },
     { value: 'leasingrueckgabe', label: 'Leasingrückgabe' },
     { value: 'ueberfuehrung', label: 'Überführung' },
+        { value: 'unfallschaden', label: 'Unfallschaden' },
+    { value: 'gutachten', label: 'Gutachten' },
 ];
 
 /** Ranges an admin actually asks for, as days back from today. */
@@ -285,6 +287,14 @@ function openDetail(order: AdminOrderListRow) {
                             {{ tab.label }}
                         </button>
                     </div>
+
+                                        <Link
+                        v-if="serviceFilter === 'unfallschaden' || serviceFilter === 'gutachten'"
+                        :href="route(serviceFilter === 'gutachten' ? 'admin.statistics.appraisal' : 'admin.statistics.accident-damage')"
+                        class="text-[12px] font-bold text-[#00856a] hover:underline"
+                    >
+                        Statistik öffnen
+                    </Link>
 
                     <div class="ml-auto flex flex-wrap items-center gap-1.5">
                         <button

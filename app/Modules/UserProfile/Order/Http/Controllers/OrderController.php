@@ -21,6 +21,8 @@ use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
+use App\Modules\UserProfile\Order\Models\OrderAttachment;
+use Inertia\Inertia;
 
 class OrderController extends Controller
 {
@@ -279,6 +281,290 @@ class OrderController extends Controller
     }
 
     /**
+     * POST /orders/b2b/accident-damage (portal)
+     *
+     * Unfallschaden for exactly one vehicle, with optional supporting files
+     * (max. 20 MB each). Portal callers are sent to the confirmation page.
+     */
+    public function createAccidentDamage(Request $request): JsonResponse|RedirectResponse
+    {
+        $user = $request->user();
+
+        $vehicleId = $request->validate(['vehicle_id' => ['required', 'uuid']], [
+            'vehicle_id.required' => 'Bitte wählen Sie ein Fahrzeug.',
+        ])['vehicle_id'];
+
+        $vehicle = $this->scope->findVehicleWithAccess($vehicleId, $user);
+        abort_if($vehicle === null, 404);
+
+        $details = $this->validatedAccidentDamageDetails($request);
+        $files = array_values(array_filter((array) $request->file('files', [])));
+
+        try {
+            $order = $this->orderService->createAccidentDamageOrder($vehicle, $user, $details, $files);
+        } catch (HttpResponseException $e) {
+            // "Vehicle already has an order" and similar refusals arrive as a
+            // JSON 409/422; in the form they belong next to the vehicle.
+            throw ValidationException::withMessages([
+                'vehicle_id' => $e->getResponse()->getStatusCode() === 409
+                    ? "Für das Fahrzeug {$vehicle->license_plate} läuft bereits ein Auftrag."
+                    : 'Für dieses Fahrzeug kann keine Unfallschadenmeldung erstellt werden.',
+            ]);
+        }
+
+        if ($request->header('X-Inertia')) {
+            return redirect()->route('orders.confirmation', $order->id);
+        }
+
+        return response()->json([
+            'ok' => true,
+            'data' => ['order_id' => $order->id, 'auftragsnummer' => $order->auftragsnummer],
+            'message' => 'Accident damage order created.',
+        ], 201);
+    }
+
+    /**
+     * POST /orders/b2b/appraisal (portal)
+     *
+     * Vehicle Condition Appraisal: one order for one or more vehicles.
+     * Portal callers are sent to the confirmation page.
+     */
+    public function createVehicleAppraisal(Request $request): JsonResponse|RedirectResponse
+    {
+        $user = $request->user();
+
+        $vehicleIds = $request->validate([
+            'vehicle_ids' => ['required', 'array', 'min:1', 'max:'.OrderService::MAX_APPRAISAL_VEHICLES],
+            'vehicle_ids.*' => ['required', 'uuid', 'distinct'],
+        ], [
+            'vehicle_ids.required' => 'Bitte wählen Sie mindestens ein Fahrzeug.',
+        ])['vehicle_ids'];
+
+        // Every vehicle must be one this user may reach.
+        $vehicles = array_map(function (string $vehicleId) use ($user) {
+            $vehicle = $this->scope->findVehicleWithAccess($vehicleId, $user);
+            abort_if($vehicle === null, 404);
+
+            return $vehicle;
+        }, $vehicleIds);
+
+        $details = $this->validatedAppraisalDetails($request);
+
+        $order = $this->orderService->createVehicleAppraisalOrder($vehicles, $user, $details);
+
+        if ($request->header('X-Inertia')) {
+            return redirect()->route('orders.confirmation', $order->id);
+        }
+
+        return response()->json([
+            'ok' => true,
+            'data' => ['order_id' => $order->id, 'auftragsnummer' => $order->auftragsnummer],
+            'message' => 'Vehicle appraisal order created.',
+        ], 201);
+    }
+
+    /**
+     * The Vehicle Condition Appraisal Order Form (brief): billing, vehicle
+     * location, leasing company and appointment are mandatory; the date is not
+     * in the past and the window spans at least two hours; return transport
+     * only with pickup; contact details must be valid when entered.
+     *
+     * @return array<string, mixed>
+     */
+    private function validatedAppraisalDetails(Request $request): array
+    {
+        $phone = ['nullable', 'string', 'max:30', 'regex:/^\+?[0-9 ()\/.\-]{5,30}$/'];
+
+        $validated = $request->validate([
+            'billing_address' => ['required', 'array'],
+            'billing_address.name' => ['required', 'string', 'max:255'],
+            'billing_address.street' => ['required', 'string', 'max:255'],
+            'billing_address.number' => ['nullable', 'string', 'max:20'],
+            'billing_address.zip_code' => ['required', 'string', 'max:10'],
+            'billing_address.city' => ['required', 'string', 'max:255'],
+            'billing_address.country' => ['required', 'string', 'max:100'],
+            'save_billing_address' => ['nullable', 'boolean'],
+            'billing_address_default' => ['nullable', 'boolean'],
+
+            'cost_centre' => ['nullable', 'array'],
+            'cost_centre.name' => ['nullable', 'string', 'max:255'],
+            'cost_centre.number' => ['nullable', 'string', 'max:100'],
+            'save_cost_centre' => ['nullable', 'boolean'],
+
+            'vehicle_location' => ['required', 'array'],
+            'vehicle_location.street' => ['required', 'string', 'max:255'],
+            'vehicle_location.number' => ['nullable', 'string', 'max:20'],
+            'vehicle_location.zip_code' => ['required', 'string', 'max:10'],
+            'vehicle_location.city' => ['required', 'string', 'max:255'],
+            'vehicle_location.country' => ['nullable', 'string', 'max:100'],
+
+            'pickup_requested' => ['nullable', 'boolean'],
+            'return_transport' => ['nullable', 'boolean'],
+
+            'leasing_company' => ['required', 'string', 'max:255'],
+
+            'preferred_date' => ['required', 'date_format:Y-m-d', 'after_or_equal:today'],
+            'time_from' => ['required', 'date_format:H:i'],
+            'time_to' => ['required', 'date_format:H:i'],
+
+            'location_contact' => ['nullable', 'array'],
+            'location_contact.name' => ['nullable', 'string', 'max:255'],
+            'location_contact.phone' => $phone,
+            'location_contact.email' => ['nullable', 'email', 'max:255'],
+
+            'notes' => ['nullable', 'string', 'max:5000'],
+        ], [
+            'billing_address.*.required' => 'Dieses Feld der Rechnungsadresse ist erforderlich.',
+            'vehicle_location.*.required' => 'Dieses Feld des Fahrzeugstandorts ist erforderlich.',
+            'leasing_company.required' => 'Bitte geben Sie den Leasinggeber an.',
+            'preferred_date.after_or_equal' => 'Der Wunschtermin darf nicht in der Vergangenheit liegen.',
+            '*.phone.regex' => 'Bitte geben Sie eine gültige Telefonnummer an.',
+            '*.email.email' => 'Bitte geben Sie eine gültige E-Mail-Adresse an.',
+        ]);
+
+        $errors = [];
+        $toMinutes = fn (string $time): int => ((int) substr($time, 0, 2)) * 60 + (int) substr($time, 3, 2);
+
+        // "Die Endzeit muss nach der Startzeit liegen, mindestens 2 Stunden."
+        if ($toMinutes($validated['time_to']) - $toMinutes($validated['time_from']) < 120) {
+            $errors['time_to'] = 'Das Zeitfenster muss mindestens 2 Stunden umfassen und nach der Startzeit enden.';
+        }
+
+        // "Return transport can be requested only when pickup is selected."
+        if (! empty($validated['return_transport']) && empty($validated['pickup_requested'])) {
+            $errors['return_transport'] = 'Eine Rückführung ist nur zusammen mit der Abholung möglich.';
+        }
+
+        if ($errors !== []) {
+            throw ValidationException::withMessages($errors);
+        }
+
+        return $validated;
+    }
+
+    /**
+     * GET /orders/{orderId}/bestaetigung (portal)
+     *
+     * The confirmation page after a booking. Only for someone who may see
+     * the order's vehicle — the same rule as the order page.
+     */
+    public function confirmation(Request $request, string $orderId): \Inertia\Response
+    {
+        $order = \App\Modules\UserProfile\Order\Models\LeasybackOrder::find($orderId);
+        abort_if($order === null, 404);
+
+        $vehicle = $this->scope->findVehicleWithAccess($order->vehicle_id, $request->user());
+        abort_if($vehicle === null, 404);
+
+        return Inertia::render('b2b/OrderConfirmation', [
+            'order' => [
+                'id' => $order->id,
+                'auftragsnummer' => $order->auftragsnummer,
+                'service_type' => $order->service_type,
+                'order_status' => $order->order_status,
+                'created_at' => $order->created_at?->toIso8601String(),
+            ],
+            'vehicle' => [
+                'license_plate' => $vehicle->license_plate,
+                'make' => $vehicle->make,
+                'model' => $vehicle->model,
+                'vin' => $vehicle->vin,
+            ],
+            'attachmentCount' => OrderAttachment::where('order_id', $order->id)
+                ->where('kind', OrderAttachment::KIND_CUSTOMER_UPLOAD)
+                ->count(),
+            // Every vehicle of a multi-vehicle order (Gutachten); empty otherwise.
+            'vehicles' => \App\Modules\UserProfile\Order\Models\OrderVehicle::where('order_id', $order->id)
+                ->orderBy('position')
+                ->with('vehicle:vehicle_id,license_plate,make,model,vin')
+                ->get()
+                ->map(fn ($row) => [
+                    'license_plate' => $row->vehicle?->license_plate,
+                    'make' => $row->vehicle?->make,
+                    'model' => $row->vehicle?->model,
+                    'vin' => $row->vehicle?->vin,
+                ])
+                ->all(),
+        ]);
+    }
+
+    /**
+     * The Unfallschaden form (Accident Damage brief): billing is mandatory,
+     * the vehicle location is mandatory, a different return location makes
+     * every return address field mandatory, contacts are optional but must
+     * be valid when given.
+     *
+     * @return array<string, mixed>
+     */
+    private function validatedAccidentDamageDetails(Request $request): array
+    {
+        $phone = ['nullable', 'string', 'max:30', 'regex:/^\+?[0-9 ()\/.\-]{5,30}$/'];
+        $returnDiffers = $request->boolean('return_differs');
+
+        $rules = [
+            'billing_address' => ['required', 'array'],
+            'billing_address.name' => ['required', 'string', 'max:255'],
+            'billing_address.street' => ['required', 'string', 'max:255'],
+            'billing_address.number' => ['nullable', 'string', 'max:20'],
+            'billing_address.zip_code' => ['required', 'string', 'max:10'],
+            'billing_address.city' => ['required', 'string', 'max:255'],
+            'billing_address.country' => ['required', 'string', 'max:100'],
+            'save_billing_address' => ['nullable', 'boolean'],
+            'billing_address_default' => ['nullable', 'boolean'],
+
+            'cost_centre' => ['nullable', 'array'],
+            'cost_centre.name' => ['nullable', 'string', 'max:255'],
+            'cost_centre.number' => ['nullable', 'string', 'max:100'],
+            'save_cost_centre' => ['nullable', 'boolean'],
+
+            'vehicle_location' => ['required', 'array'],
+            'vehicle_location.street' => ['required', 'string', 'max:255'],
+            'vehicle_location.number' => ['nullable', 'string', 'max:20'],
+            'vehicle_location.zip_code' => ['required', 'string', 'max:10'],
+            'vehicle_location.city' => ['required', 'string', 'max:255'],
+            'vehicle_location.country' => ['nullable', 'string', 'max:100'],
+
+            'location_contact' => ['nullable', 'array'],
+            'location_contact.name' => ['nullable', 'string', 'max:255'],
+            'location_contact.phone' => $phone,
+            'location_contact.email' => ['nullable', 'email', 'max:255'],
+
+            'return_differs' => ['nullable', 'boolean'],
+
+            'notes' => ['nullable', 'string', 'max:5000'],
+
+            'files' => ['nullable', 'array', 'max:'.OrderService::MAX_ATTACHMENTS],
+            'files.*' => ['file', 'max:'.OrderService::MAX_ATTACHMENT_KB, 'mimes:pdf,jpg,jpeg,png,webp,heic,heif,doc,docx'],
+        ];
+
+        if ($returnDiffers) {
+            $rules += [
+                'return_address' => ['required', 'array'],
+                'return_address.street' => ['required', 'string', 'max:255'],
+                'return_address.number' => ['nullable', 'string', 'max:20'],
+                'return_address.zip_code' => ['required', 'string', 'max:10'],
+                'return_address.city' => ['required', 'string', 'max:255'],
+                'return_address.country' => ['nullable', 'string', 'max:100'],
+                'return_contact' => ['nullable', 'array'],
+                'return_contact.name' => ['nullable', 'string', 'max:255'],
+                'return_contact.phone' => $phone,
+                'return_contact.email' => ['nullable', 'email', 'max:255'],
+            ];
+        }
+
+        return $request->validate($rules, [
+            'billing_address.*.required' => 'Dieses Feld der Rechnungsadresse ist erforderlich.',
+            'vehicle_location.*.required' => 'Dieses Feld des Fahrzeugstandorts ist erforderlich.',
+            'return_address.*.required' => 'Dieses Feld der Rückführadresse ist erforderlich.',
+            '*.phone.regex' => 'Bitte geben Sie eine gültige Telefonnummer an.',
+            '*.email.email' => 'Bitte geben Sie eine gültige E-Mail-Adresse an.',
+            'files.max' => 'Es können höchstens '.OrderService::MAX_ATTACHMENTS.' Dateien hochgeladen werden.',
+            'files.*.max' => 'Eine Datei ist größer als 20 MB.',
+            'files.*.mimes' => 'Erlaubt sind PDF, Bilder (JPG, PNG, WEBP, HEIC) und Word-Dateien.',
+        ]);
+    }
+
+    /**
      * GET /order/tuvsud/confirm — external callback. API-key auth is
      * enforced by the `tuvsud.webhook` route middleware, not inline here.
      *
@@ -423,7 +709,7 @@ class OrderController extends Controller
             TransitionOrderStatus::allowedNextStatuses(
                 $order->order_status,
                 TransitionOrderStatus::isB2bOrder($order),
-                TransitionOrderStatus::isRelocationOrder($order),
+                TransitionOrderStatus::isShortPathOrder($order),
             ),
             true,
         );
@@ -468,7 +754,7 @@ class OrderController extends Controller
         $allowed = TransitionOrderStatus::allowedNextStatuses(
             $order->order_status,
             TransitionOrderStatus::isB2bOrder($order),
-            TransitionOrderStatus::isRelocationOrder($order),
+            TransitionOrderStatus::isShortPathOrder($order),
         );
 
         if (! in_array('order_placed', $allowed, true)) {

@@ -55,6 +55,26 @@ class TransitionOrderStatus
     /** `leasyback_orders.service_type` of an Überführung. */
     public const SERVICE_RELOCATION = 'ueberfuehrung';
 
+    /** `leasyback_orders.service_type` of an Unfallschaden. */
+    public const SERVICE_ACCIDENT_DAMAGE = 'unfallschaden';
+
+    /** leasyback_orders.service_type of a Gutachten (Vehicle Condition Appraisal). */
+    public const SERVICE_APPRAISAL = 'gutachten';
+
+    /**
+     * What the customer is told a Gutachten now stands at.
+     *
+     * @var array<string, string>
+     */
+    private const APPRAISAL_STATUS_LABELS = [
+        'order_requested' => 'Gutachten angefragt',
+        'order_placed' => 'Gutachten angenommen',
+        'confirmed' => 'Gutachten terminiert',
+        'completed' => 'Gutachten abgeschlossen',
+        'cancelled' => 'Gutachten storniert',
+        'discarded' => 'Gutachtenanfrage abgelehnt',
+    ];
+
     public function __construct(
         private readonly VehicleScopeService $vehicleScope,
         private readonly Notifier $notifier,
@@ -166,6 +186,9 @@ class TransitionOrderStatus
      * The three middle statuses are only kept so a relocation created by the
      * first version, and already past `confirmed`, can still be completed.
      *
+     * The Unfallschaden uses this same graph (Accident Damage brief:
+     * REQUESTED → SCHEDULED → COMPLETED); it never reaches the middle ones.
+     *
      * Chosen by the order's own `service_type`, read from the locked row, so
      * no request can move a Leasingrückgabe onto this path.
      *
@@ -181,6 +204,20 @@ class TransitionOrderStatus
         'completed' => [],
         'cancelled' => [],
         'discarded' => [],
+    ];
+
+    /**
+     * What the customer is told an Unfallschaden now stands at.
+     *
+     * @var array<string, string>
+     */
+    private const ACCIDENT_DAMAGE_STATUS_LABELS = [
+        'order_requested' => 'Unfallschaden gemeldet',
+        'order_placed' => 'Unfallschaden angenommen',
+        'confirmed' => 'Nächster Schritt terminiert',
+        'completed' => 'Unfallschaden abgeschlossen',
+        'cancelled' => 'Unfallschaden storniert',
+        'discarded' => 'Unfallschadenmeldung abgelehnt',
     ];
 
     /**
@@ -222,7 +259,7 @@ class TransitionOrderStatus
             $locked = LeasybackOrder::whereKey($order->getKey())->lockForUpdate()->firstOrFail();
             $fromStatus = $locked->order_status;
             $isB2b = self::isB2bOrder($locked);
-            $isRelocation = self::isRelocationOrder($locked);
+            $isShortPath = self::isShortPathOrder($locked);
 
             $this->guardChannel($toStatus, $isB2b);
             $this->guardBillingBeforeCompletion($locked, $toStatus, $isB2b);
@@ -236,7 +273,7 @@ class TransitionOrderStatus
                 return $locked->fresh();
             }
 
-            $allowed = self::transitionsFor($isB2b, $isRelocation)[$fromStatus] ?? [];
+            $allowed = self::transitionsFor($isB2b, $isShortPath)[$fromStatus] ?? [];
             if (! in_array($toStatus, $allowed, true)) {
                 throw ValidationException::withMessages([
                     'order_status' => "Cannot transition order from '{$fromStatus}' to '{$toStatus}'.",
@@ -322,12 +359,18 @@ class TransitionOrderStatus
         // contradiction RepairPaymentPresentation exists to prevent. The
         // charge is opened before this runs, so the stage is already knowable.
         // An Überführung has its own wording (see RELOCATION_STATUS_LABELS).
-        $label = self::isRelocationOrder($order)
-            ? (self::RELOCATION_STATUS_LABELS[$order->order_status] ?? OrderStatusLabel::presented($order->order_status, null))
-            : OrderStatusLabel::presented(
+        $label = match (true) {
+            self::isRelocationOrder($order) => self::RELOCATION_STATUS_LABELS[$order->order_status]
+                ?? OrderStatusLabel::presented($order->order_status, null),
+            self::isAccidentDamageOrder($order) => self::ACCIDENT_DAMAGE_STATUS_LABELS[$order->order_status]
+                ?? OrderStatusLabel::presented($order->order_status, null),
+            self::isAppraisalOrder($order) => self::APPRAISAL_STATUS_LABELS[$order->order_status]
+                ?? OrderStatusLabel::presented($order->order_status, null),
+            default => OrderStatusLabel::presented(
                 $order->order_status,
                 $this->repairPayments->presentedStage($order, self::isB2bOrder($order)),
-            );
+            ),
+        };
 
         $this->notifier->send(
             $this->vehicleScope->resolveOwnerUsers($vehicle),
@@ -372,6 +415,25 @@ class TransitionOrderStatus
     }
 
     /**
+     * Whether this order is an Unfallschaden, read from the persisted row's
+     * own `service_type`.
+     */
+    public static function isAccidentDamageOrder(LeasybackOrder $order): bool
+    {
+        return $order->service_type === self::SERVICE_ACCIDENT_DAMAGE;
+    }
+
+    /**
+     * The services that run the short REQUESTED → SCHEDULED → COMPLETED path
+     * instead of the Leasingrückgabe process: Überführung and Unfallschaden.
+     * This is what callers pass to allowedNextStatuses().
+     */
+    public static function isShortPathOrder(LeasybackOrder $order): bool
+    {
+        return self::isRelocationOrder($order) || self::isAccidentDamageOrder($order) || self::isAppraisalOrder($order);
+    }
+
+    /**
      * b2b.txt §21: an order must not be marked complete before its mandatory
      * billing step has been processed. Enforced here, inside the locked
      * transaction, because this action is the only writer of order_status —
@@ -392,8 +454,9 @@ class TransitionOrderStatus
         }
 
         // An Überführung is completed by its Übergabeprotokoll, not by billing
-        // (traffic-light spec) — see unmetB2bPrerequisite().
-        if (self::isRelocationOrder($order)) {
+        // (traffic-light spec); an Unfallschaden has no billing step in its
+        // brief either — see unmetB2bPrerequisite().
+        if (self::isShortPathOrder($order)) {
             return;
         }
 
@@ -488,6 +551,14 @@ class TransitionOrderStatus
             return self::unmetRelocationPrerequisite($order, $toStatus);
         }
 
+        if (self::isAppraisalOrder($order)) {
+            return self::unmetAppraisalPrerequisite($order, $toStatus);
+        }
+
+        if (self::isAccidentDamageOrder($order)) {
+            return self::unmetAccidentDamagePrerequisite($order, $toStatus);
+        }
+
         return match ($toStatus) {
             OrderStatus::VehicleCollected->value => OrderLogistics::where('auftragsnummer', $order->auftragsnummer)
                 ->whereNotNull('confirmed_collection_date')->exists()
@@ -536,6 +607,27 @@ class TransitionOrderStatus
                 : 'Die Überführung wird mit dem Übergabeprotokoll abgeschlossen. Bitte speichern Sie es als Link oder PDF.',
             default => null,
         };
+    }
+
+    /**
+     * Unfallschaden: SCHEDULED means the inspection, vehicle access or
+     * collection is arranged and confirmed — so the saved kind and date.
+     * COMPLETED needs nothing further (brief: the final documentation is
+     * "available or has been delivered").
+     */
+    private static function unmetAccidentDamagePrerequisite(LeasybackOrder $order, string $toStatus): ?string
+    {
+        if ($toStatus !== OrderStatus::Confirmed->value) {
+            return null;
+        }
+
+        return DB::table('leasyback_order_logistics')
+            ->where('auftragsnummer', $order->auftragsnummer)
+            ->whereNotNull('confirmed_collection_date')
+            ->whereNotNull('confirmed_arrangement')
+            ->exists()
+            ? null
+            : 'Der Unfallschaden ist erst terminiert, wenn Art und Datum des nächsten Schritts gespeichert sind.';
     }
 
     /**
@@ -600,9 +692,10 @@ class TransitionOrderStatus
     /**
      * @return array<string, list<string>>
      */
-    private static function transitionsFor(bool $isB2b, bool $isRelocation = false): array
+    private static function transitionsFor(bool $isB2b, bool $isShortPath = false): array
     {
-        if ($isB2b && $isRelocation) {
+        // Überführung and Unfallschaden share the same three-status graph.
+        if ($isB2b && $isShortPath) {
             return self::RELOCATION_ALLOWED_TRANSITIONS;
         }
 
@@ -610,13 +703,47 @@ class TransitionOrderStatus
     }
 
     /**
-     * `$isRelocation` is optional so every existing caller keeps getting
-     * exactly the graph it got before.
+     * `$isShortPath` (see isShortPathOrder()) is optional so every existing
+     * caller keeps getting exactly the graph it got before.
      *
      * @return list<string>
      */
-    public static function allowedNextStatuses(string $fromStatus, bool $isB2b = false, bool $isRelocation = false): array
+    public static function allowedNextStatuses(string $fromStatus, bool $isB2b = false, bool $isShortPath = false): array
     {
-        return self::transitionsFor($isB2b, $isRelocation)[$fromStatus] ?? [];
+        return self::transitionsFor($isB2b, $isShortPath)[$fromStatus] ?? [];
+    }
+
+    /**
+     * Whether this order is a Gutachten (Vehicle Condition Appraisal), read
+     * from the persisted row's own service_type. It runs the same short
+     * REQUESTED → SCHEDULED → COMPLETED path as an Überführung.
+     */
+    public static function isAppraisalOrder(LeasybackOrder $order): bool
+    {
+        return $order->service_type === self::SERVICE_APPRAISAL;
+    }
+
+    /**
+     * The facts behind a Gutachten's two steps: SCHEDULED needs the saved date
+     * and time window, COMPLETED needs the final appraisal report.
+     */
+    private static function unmetAppraisalPrerequisite(LeasybackOrder $order, string $toStatus): ?string
+    {
+        return match ($toStatus) {
+            OrderStatus::Confirmed->value => DB::table('leasyback_order_logistics')
+                ->where('auftragsnummer', $order->auftragsnummer)
+                ->whereNotNull('confirmed_collection_date')
+                ->whereNotNull('confirmed_collection_time_slot')
+                ->exists()
+                ? null
+                : 'Das Gutachten ist erst terminiert, wenn Datum und Zeitfenster gespeichert sind.',
+            OrderStatus::Completed->value => DB::table('leasyback_order_attachments')
+                ->where('order_id', $order->id)
+                ->where('kind', 'final_document')
+                ->exists()
+                ? null
+                : 'Der Auftrag wird mit dem Abschlussgutachten abgeschlossen. Bitte laden Sie es zuerst hoch.',
+            default => null,
+        };
     }
 }
