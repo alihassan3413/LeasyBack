@@ -118,7 +118,7 @@ class AuthenticationTest extends TestCase
         // this app has no lang/ directory. The exact seconds-remaining count
         // is timing-dependent, so only the fixed prefix is asserted here.
         $message = session('errors')->get('email')[0];
-        $this->assertStringStartsWith('Zu viele Anmeldeversuche. Bitte versuche es in ', $message);
+        $this->assertStringStartsWith('Zu viele Anmeldeversuche. Bitte versuchen Sie es in ', $message);
         $this->assertGuest();
     }
 

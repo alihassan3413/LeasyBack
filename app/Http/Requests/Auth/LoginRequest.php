@@ -85,7 +85,7 @@ class LoginRequest extends FormRequest
         // :minutes placeholders never substituted (placeholder substitution
         // only happens against a *found* translation line, not the raw key).
         throw ValidationException::withMessages([
-            'email' => "Zu viele Anmeldeversuche. Bitte versuche es in {$seconds} Sekunden erneut.",
+            'email' => "Zu viele Anmeldeversuche. Bitte versuchen Sie es in {$seconds} Sekunden erneut.",
         ]);
     }
 

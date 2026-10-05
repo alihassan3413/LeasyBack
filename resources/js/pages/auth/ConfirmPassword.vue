@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { authButton, authField } from '@/components/auth/authClasses';
 import FormField from '@/components/form/FormField.vue';
 import { Button } from '@/components/ui/button';
 import { PasswordInput } from '@/components/ui/password-input';
@@ -16,46 +17,31 @@ const submit = () => {
         },
     });
 };
-
-// Design match note: consistent with Login/Register/ForgotPassword — see
-// Login.vue for the source of this pattern.
-const fieldClass = 'h-auto rounded-full border-brand-green-gray bg-white px-4 py-2.5 text-sm';
 </script>
 
 <template>
-    <AuthLayout>
+    <AuthLayout title="Passwort bestätigen" description="Dies ist ein geschützter Bereich. Bitte bestätigen Sie Ihr Passwort, um fortzufahren.">
         <Head title="Passwort bestätigen" />
 
-        <div class="flex flex-col py-8">
-            <p class="text-brand-teal mx-auto my-8 max-w-[292px] text-left text-lg font-bold xl:text-xl">Passwort bestätigen</p>
+        <form class="space-y-4" @submit.prevent="submit">
+            <FormField id="password" v-slot="{ id, describedBy, invalid }" label="Passwort" required :error="form.errors.password">
+                <PasswordInput
+                    :id="id"
+                    v-model="form.password"
+                    required
+                    autocomplete="current-password"
+                    autofocus
+                    :class="authField"
+                    :aria-invalid="invalid"
+                    :aria-describedby="describedBy"
+                />
+            </FormField>
 
-            <p class="text-brand-green-gray mb-5 text-xs">
-                Dies ist ein geschützter Bereich der Anwendung. Bitte bestätige dein Passwort, bevor du fortfährst.
-            </p>
-
-            <form class="space-y-5" @submit.prevent="submit">
-                <FormField id="password" v-slot="{ id, describedBy, invalid }" label="Passwort" required :error="form.errors.password">
-                    <PasswordInput
-                        :id="id"
-                        v-model="form.password"
-                        required
-                        autocomplete="current-password"
-                        autofocus
-                        placeholder="Passwort"
-                        :class="fieldClass"
-                        :aria-invalid="invalid"
-                        :aria-describedby="describedBy"
-                    />
-                </FormField>
-
-                <Button
-                    type="submit"
-                    :disabled="form.processing"
-                    class="bg-brand-orange hover:bg-brand-orange/90 h-auto w-full rounded-[5px] py-3 text-sm font-bold text-white shadow-none"
-                >
+            <div class="pt-4">
+                <Button type="submit" :disabled="form.processing" :class="authButton">
                     {{ form.processing ? 'Wird bestätigt…' : 'Passwort bestätigen' }}
                 </Button>
-            </form>
-        </div>
+            </div>
+        </form>
     </AuthLayout>
 </template>

@@ -1,61 +1,63 @@
 <script setup lang="ts">
+import { Link } from '@inertiajs/vue3';
+
 defineProps<{
     title?: string;
     description?: string;
 }>();
+
+// Same address the landing page footer publishes; there is no help, Impressum
+// or Datenschutz route yet, so nothing else is linked.
+const helpEmail = 'hallo@leasyback.de';
+const year = new Date().getFullYear();
 </script>
 
 <template>
-    <div class="relative flex min-h-screen overflow-hidden">
-        <!-- Left background -->
-        <div class="absolute top-0 left-0 z-0 h-full w-full lg:w-1/2" style="background-color: #fafafa"></div>
+    <!--
+        Framed centre: white header and footer bound the page, the tinted
+        ground (#F7F9F8, DESIGN-FUTURE surface-bordered) sets the white sheet
+        off as the focal point. Hairlines use the app's #e6eded. Below md the
+        sheet dissolves and the whole page is the white form surface.
+    -->
+    <div class="text-brand-black flex min-h-svh flex-col bg-white md:bg-[#F7F9F8]">
+        <header class="flex h-14 shrink-0 items-center justify-between border-b border-[#e6eded] bg-white px-4 md:h-16 md:px-6">
+            <Link :href="route('home')" class="focus-visible:outline-brand-teal rounded-[2px] focus-visible:outline-2 focus-visible:outline-offset-4">
+                <img src="/leasyback-logo-dark.svg" alt="LeasyBack – zur Startseite" class="h-6 w-auto md:h-7" />
+            </Link>
+            <a
+                :href="`mailto:${helpEmail}`"
+                :aria-label="`Hilfe per E-Mail: ${helpEmail}`"
+                class="text-brand-teal decoration-brand-teal/30 hover:decoration-brand-teal focus-visible:outline-brand-teal rounded-[2px] text-sm font-semibold underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2"
+            >
+                Hilfe
+            </a>
+        </header>
 
-        <!-- Decorative paths on the left side, behind the card -->
-        <img
-            src="/path-green.svg"
-            alt=""
-            class="pointer-events-none absolute z-10"
-            style="left: -6vw; top: 1vw; width: 112vw; height: auto; opacity: 0.54"
-        />
-        <img src="/path-orange.svg" alt="" class="pointer-events-none absolute z-10" style="left: -19vw; top: -12vw; width: 105vw; height: auto" />
-
-        <!-- Left side — form card -->
-        <div class="relative flex w-full items-center justify-center px-4 py-8 sm:px-6 sm:py-12 lg:w-1/2">
-            <div class="relative z-20 w-full max-w-[420px]">
-                <div class="border-brand-green-gray rounded-[10px] border bg-white px-5 pb-7 shadow-[0_4px_4px_rgba(0,0,0,0.25)] sm:px-9 sm:pb-9">
-                    <!--
-                        Optional, generic heading — only rendered when a page passes
-                        title/description. Login.vue supplies its own bespoke heading
-                        (matching the leasyback_web design exactly) as slot content
-                        instead, so this block doesn't apply to it; other auth pages
-                        that haven't been redesigned yet keep using this as before.
-                    -->
-                    <div v-if="title || description" class="flex flex-col gap-2 pt-7 text-center sm:pt-9">
-                        <h1 v-if="title" class="text-brand-black text-xl font-medium tracking-tight">{{ title }}</h1>
-                        <p v-if="description" class="text-muted-foreground text-sm">{{ description }}</p>
-                    </div>
-                    <slot />
+        <!-- Unequal vertical padding lifts the sheet slightly above the optical centre. -->
+        <main class="flex flex-1 flex-col px-4 pt-8 pb-10 md:items-center md:justify-center md:pt-10 md:pb-[10vh]">
+            <div class="md:border-brand-teal/15 w-full md:w-[448px] md:rounded-[10px] md:border md:bg-white md:p-8">
+                <div v-if="title || description" class="mb-6">
+                    <h1 v-if="title" class="text-brand-teal text-2xl leading-tight font-bold">{{ title }}</h1>
+                    <p v-if="description" class="text-brand-teal/70 mt-1.5 text-sm leading-normal">{{ description }}</p>
                 </div>
+                <slot />
             </div>
-        </div>
 
-        <!-- Right side — branding panel -->
-        <div class="bg-brand-teal relative hidden w-1/2 items-center justify-center px-12 lg:flex">
-            <div class="relative z-10 flex w-full max-w-[565px] flex-col items-center text-left">
-                <img
-                    src="/leasyback-logo.svg"
-                    alt="LeasyBack"
-                    class="h-auto w-full max-w-[220px] md:max-w-[300px] lg:max-w-[400px] xl:max-w-[565px]"
-                />
-
-                <p
-                    class="mt-8 w-full max-w-[386px] text-[20px] leading-normal font-normal text-white lg:text-[24px] xl:mt-10 xl:max-w-[454px] xl:text-[32px] 2xl:mt-12 2xl:max-w-[533px]"
-                >
-                    Sicher dir jetzt dein kostenloses Minderwert-Gutachten, erhalte günstige
-                    <span class="text-brand-orange">Reparaturangebote</span>
-                    und gib dein Leasingfahrzeug mit bis zu 42&nbsp;% Ersparnis stressfrei zurück!
-                </p>
+            <!-- Secondary navigation sits outside the sheet on desktop; on mobile it follows a hairline. -->
+            <div v-if="$slots.after" class="mt-8 border-t border-[#e6eded] pt-6 text-sm md:mt-6 md:w-[448px] md:border-0 md:pt-0 md:text-center">
+                <slot name="after" />
             </div>
-        </div>
+        </main>
+
+        <footer
+            class="text-brand-teal/70 flex shrink-0 flex-col gap-1 border-t border-[#e6eded] bg-white px-4 py-4 text-xs sm:flex-row sm:items-center sm:justify-between md:px-6"
+        >
+            <p>© {{ year }} LeasyBack</p>
+            <a
+                :href="`mailto:${helpEmail}`"
+                class="hover:text-brand-teal focus-visible:outline-brand-teal w-fit rounded-[2px] underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2"
+                >{{ helpEmail }}</a
+            >
+        </footer>
     </div>
 </template>

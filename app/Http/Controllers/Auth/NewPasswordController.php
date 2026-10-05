@@ -67,7 +67,7 @@ class NewPasswordController extends Controller
         // explicit German text instead, consistent with the rest of the app's
         // no-lang-directory convention (see docs/AUTH_MODULE.md).
         if ($status == Password::PasswordReset) {
-            return to_route('login')->with('status', 'Dein Passwort wurde erfolgreich zurückgesetzt.')
+            return to_route('login')->with('status', 'Ihr Passwort wurde erfolgreich zurückgesetzt.')
                 ->with('success', 'Passwort wurde zurückgesetzt.');
         }
 
@@ -75,8 +75,8 @@ class NewPasswordController extends Controller
             'email' => [match ($status) {
                 Password::InvalidToken => 'Dieser Link zum Zurücksetzen ist ungültig oder abgelaufen. Bitte fordere einen neuen an.',
                 Password::InvalidUser => 'Für diese E-Mail-Adresse konnte kein Account gefunden werden.',
-                Password::ResetThrottled => 'Zu viele Versuche. Bitte warte einen Moment und versuche es erneut.',
-                default => 'Das Passwort konnte nicht zurückgesetzt werden. Bitte versuche es erneut.',
+                Password::ResetThrottled => 'Zu viele Versuche. Bitte warten Sie einen Moment und versuchen Sie es erneut.',
+                default => 'Das Passwort konnte nicht zurückgesetzt werden. Bitte versuchen Sie es erneut.',
             }],
         ]);
     }

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { authButton, authCheckbox, authField, authLink } from '@/components/auth/authClasses';
+import AuthStatusMessage from '@/components/auth/AuthStatusMessage.vue';
 import FormField from '@/components/form/FormField.vue';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -7,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { PasswordInput } from '@/components/ui/password-input';
 import AuthBase from '@/layouts/AuthLayout.vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
+import { computed, ref } from 'vue';
 
 defineProps<{
     status?: string;
@@ -19,103 +22,91 @@ const form = useForm({
     remember: false,
 });
 
+// Remounts the error alert on every failed attempt so a repeated, identical
+// message ("Anmeldedaten stimmen nicht …") is announced again.
+const failedAttempts = ref(0);
+
 const submit = () => {
     form.post(route('login'), {
+        onError: () => failedAttempts.value++,
         onFinish: () => form.reset('password'),
     });
 };
 
-const fieldClass = 'h-auto rounded-full border-brand-green-gray bg-white px-4 py-2.5 text-sm';
+/*
+ * LoginRequest reports wrong credentials and the rate-limit lockout on the
+ * `email` key. Both concern the whole form, not the address itself, so they
+ * are shown once above the fields and both fields are marked invalid.
+ */
+const formError = computed(() => form.errors.email);
+const describedBy = (fieldDescribedBy?: string) => [formError.value ? 'login-error' : null, fieldDescribedBy].filter(Boolean).join(' ') || undefined;
 </script>
 
 <template>
-    <AuthBase>
+    <AuthBase title="Anmelden" description="Melden Sie sich mit Ihrem LeasyBack-Konto an.">
         <Head title="Anmelden" />
 
-        <div class="flex flex-col lg:min-h-145">
-            <p class="text-brand-teal mx-auto mt-10 mb-14 max-w-73 text-left text-lg font-bold sm:mt-16.25 sm:mb-25 xl:mt-22.75 xl:mb-35 xl:text-xl">
-                Hallo! Willkommen zurück!
-            </p>
+        <AuthStatusMessage v-if="status">{{ status }}</AuthStatusMessage>
 
-            <img src="/leasyback-logo-dark.svg" alt="LeasyBack" class="mx-auto -mt-6 mb-8 h-auto w-full max-w-55 lg:hidden" />
+        <AuthStatusMessage v-if="formError" id="login-error" :key="failedAttempts" variant="error">{{ formError }}</AuthStatusMessage>
 
-            <div class="flex-1" />
+        <form class="space-y-4" @submit.prevent="submit">
+            <FormField id="email" v-slot="{ id }" label="E-Mail-Adresse" required>
+                <Input
+                    :id="id"
+                    v-model="form.email"
+                    type="email"
+                    required
+                    autofocus
+                    autocomplete="email"
+                    :class="authField"
+                    :aria-invalid="!!formError"
+                    :aria-describedby="describedBy()"
+                />
+            </FormField>
 
-            <div v-if="status" class="mb-4 rounded-[5px] border border-green-300 bg-green-50 p-3 text-center text-sm text-green-700">
-                {{ status }}
+            <FormField
+                id="password"
+                v-slot="{ id, describedBy: passwordDescribedBy, invalid }"
+                label="Passwort"
+                required
+                :error="form.errors.password"
+            >
+                <!--
+                    No length hint here on purpose: login accepts any existing
+                    password, including older ones shorter than the current
+                    minimum for new passwords.
+                -->
+                <PasswordInput
+                    :id="id"
+                    v-model="form.password"
+                    required
+                    autocomplete="current-password"
+                    :class="authField"
+                    :aria-invalid="invalid || !!formError"
+                    :aria-describedby="describedBy(passwordDescribedBy)"
+                />
+            </FormField>
+
+            <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 pt-1">
+                <Label for="remember" class="flex items-center gap-2 font-normal">
+                    <Checkbox id="remember" v-model="form.remember" :class="authCheckbox" />
+                    <span>Angemeldet bleiben</span>
+                </Label>
+
+                <Link v-if="canResetPassword" :href="route('password.request')" :class="['text-sm', authLink]">Passwort vergessen?</Link>
             </div>
 
-            <form class="space-y-5" @submit.prevent="submit">
-                <FormField id="email" v-slot="{ id, describedBy, invalid }" label="E-Mail-Adresse" required :error="form.errors.email">
-                    <Input
-                        :id="id"
-                        v-model="form.email"
-                        type="email"
-                        required
-                        autofocus
-                        tabindex="1"
-                        autocomplete="email"
-                        placeholder="E-Mail-Adresse"
-                        :class="fieldClass"
-                        :aria-invalid="invalid"
-                        :aria-describedby="describedBy"
-                    />
-                </FormField>
+            <div class="pt-4">
+                <Button type="submit" :disabled="form.processing" :class="authButton">
+                    {{ form.processing ? 'Anmeldung läuft…' : 'Anmelden' }}
+                </Button>
+            </div>
+        </form>
 
-                <div>
-                    <FormField id="password" v-slot="{ id, describedBy, invalid }" label="Passwort" required :error="form.errors.password">
-                        <PasswordInput
-                            :id="id"
-                            v-model="form.password"
-                            required
-                            tabindex="2"
-                            autocomplete="current-password"
-                            placeholder="Passwort"
-                            :class="fieldClass"
-                            :aria-invalid="invalid"
-                            :aria-describedby="describedBy"
-                        />
-                    </FormField>
-
-                    <!--
-                        No length hint here on purpose: login accepts any
-                        existing password, including older ones shorter than
-                        the current minimum for new passwords.
-                    -->
-
-                    <Link
-                        v-if="canResetPassword"
-                        :href="route('password.request')"
-                        tabindex="5"
-                        class="text-brand-green mt-1.5 block text-[14px] font-bold underline decoration-[1.12px] underline-offset-[2.8px]"
-                    >
-                        Passwort vergessen?
-                    </Link>
-                </div>
-
-                <div class="flex items-center justify-between" tabindex="3">
-                    <Label for="remember" class="flex items-center space-x-3">
-                        <Checkbox id="remember" v-model="form.remember" tabindex="4" />
-                        <span>Angemeldet bleiben</span>
-                    </Label>
-                </div>
-
-                <div class="pt-6">
-                    <Button
-                        type="submit"
-                        tabindex="4"
-                        :disabled="form.processing"
-                        class="bg-brand-orange hover:bg-brand-orange/90 h-auto w-full rounded-[5px] py-3 text-sm font-bold text-white shadow-none"
-                    >
-                        {{ form.processing ? 'Einloggen…' : 'Einloggen' }}
-                    </Button>
-                </div>
-            </form>
-
-            <p class="text-brand-black mt-5 text-center text-sm">
-                Sind Sie noch kein Kunde bei uns?
-                <Link :href="route('register')" tabindex="5" class="text-brand-orange">Hier registrieren</Link>
-            </p>
-        </div>
+        <template #after>
+            Noch kein Konto?
+            <Link :href="route('register')" :class="['ml-1', authLink]">Registrieren</Link>
+        </template>
     </AuthBase>
 </template>

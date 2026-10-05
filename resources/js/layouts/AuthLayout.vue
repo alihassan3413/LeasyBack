@@ -10,5 +10,6 @@ defineProps<{
 <template>
     <AuthLayout :title="title" :description="description">
         <slot />
+        <template v-if="$slots.after" #after><slot name="after" /></template>
     </AuthLayout>
 </template>

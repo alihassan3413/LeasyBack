@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import { authButton, authField, authHint, authLink } from '@/components/auth/authClasses';
+import AuthStatusMessage from '@/components/auth/AuthStatusMessage.vue';
+import PasswordRequirements from '@/components/auth/PasswordRequirements.vue';
 import FormField from '@/components/form/FormField.vue';
 import SelectField, { type SelectFieldOption } from '@/components/form/SelectField.vue';
-import InputError from '@/components/InputError.vue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
@@ -63,101 +65,85 @@ const submit = () => {
  */
 const hiddenFieldError = computed(() => (isInvited.value ? form.errors.user_type : undefined));
 
-// Design match note: consistent with Login/ForgotPassword/etc. — see Login.vue.
-const fieldClass = 'h-auto rounded-full border-brand-green-gray bg-white px-4 py-2.5 text-sm';
+const title = computed(() => (props.invitation ? `Konto erstellen und ${props.invitation.company_name} beitreten` : 'Konto erstellen'));
+const description = computed(() =>
+    props.invitation
+        ? `Sie wurden als ${props.invitation.role_label} eingeladen. Nach der Registrierung sind Sie sofort Mitglied des Unternehmens.`
+        : 'Registrieren Sie sich als Privatkunde, Firmenkunde oder Werkstatt.',
+);
 </script>
 
 <template>
-    <AuthBase>
+    <AuthBase :title="title" :description="description">
         <Head title="Registrieren" />
 
-        <div class="flex min-h-145 flex-col">
-            <div
-                class="text-brand-teal mx-auto mt-10 mb-14 max-w-73 text-left text-lg leading-normal font-bold sm:mt-16.25 sm:mb-25 xl:mt-22.75 xl:mb-35 xl:text-xl"
+        <AuthStatusMessage v-if="hiddenFieldError" variant="error">{{ hiddenFieldError }}</AuthStatusMessage>
+
+        <form novalidate class="space-y-4" @submit.prevent="submit">
+            <FormField
+                v-if="!isInvited"
+                id="user_type"
+                v-slot="{ id, describedBy, invalid }"
+                label="Kontotyp"
+                required
+                :error="form.errors.user_type"
             >
-                <template v-if="invitation">
-                    <p>Konto erstellen und {{ invitation.company_name }} beitreten</p>
-                    <p class="text-brand-black/60 mt-2 text-sm font-medium">
-                        Sie wurden als {{ invitation.role_label }} eingeladen. Nach der Registrierung sind Sie sofort im Unternehmen.
-                    </p>
-                </template>
-                <p v-else>Sie können sich als Werkstatt, als Firmenkunde oder auch als Privatkunde registrieren</p>
-            </div>
+                <SelectField
+                    :id="id"
+                    :model-value="form.user_type"
+                    :options="roleOptions"
+                    placeholder="Bitte wählen"
+                    :invalid="invalid"
+                    :described-by="describedBy"
+                    :class="authField"
+                    @update:model-value="(value) => (form.user_type = value as UserType)"
+                />
+            </FormField>
 
-            <div class="flex-1" />
-
-            <form novalidate class="space-y-5" @submit.prevent="submit">
-                <InputError :message="hiddenFieldError" />
-
-                <FormField
-                    v-if="!isInvited"
-                    id="user_type"
-                    v-slot="{ id, describedBy, invalid }"
-                    label="Jetzt registrieren als"
+            <FormField
+                id="email"
+                v-slot="{ id, describedBy, invalid }"
+                label="E-Mail-Adresse"
+                required
+                :hint="isInvited ? 'Die Einladung gilt für diese Adresse und kann nicht geändert werden.' : undefined"
+                :error="form.errors.email"
+            >
+                <Input
+                    :id="id"
+                    v-model="form.email"
+                    type="email"
                     required
-                    :error="form.errors.user_type"
-                >
-                    <SelectField
-                        :id="id"
-                        :model-value="form.user_type"
-                        :options="roleOptions"
-                        placeholder="Bitte wählen"
-                        :invalid="invalid"
-                        :described-by="describedBy"
-                        @update:model-value="(value) => (form.user_type = value as UserType)"
-                    />
-                </FormField>
+                    :readonly="isInvited"
+                    autocomplete="email"
+                    :class="authField"
+                    :aria-invalid="invalid"
+                    :aria-describedby="describedBy"
+                />
+            </FormField>
 
-                <FormField id="email" v-slot="{ id, describedBy, invalid }" label="E-Mail-Adresse" required :error="form.errors.email">
-                    <Input
-                        :id="id"
-                        v-model="form.email"
-                        type="email"
-                        required
-                        :readonly="isInvited"
-                        autocomplete="email"
-                        placeholder="E-Mail-Adresse"
-                        :class="[fieldClass, isInvited ? 'bg-muted cursor-not-allowed' : '']"
-                        :aria-invalid="invalid"
-                        :aria-describedby="describedBy"
-                    />
-                    <p v-if="isInvited" class="text-brand-green-gray mt-1.5 text-xs">
-                        Die Einladung gilt für diese Adresse und kann nicht geändert werden.
-                    </p>
-                </FormField>
+            <FormField id="password" v-slot="{ id, describedBy, invalid }" label="Passwort" required :error="form.errors.password">
+                <PasswordInput
+                    :id="id"
+                    v-model="form.password"
+                    required
+                    autocomplete="new-password"
+                    :class="authField"
+                    :aria-invalid="invalid"
+                    :aria-describedby="[describedBy, 'password-requirements'].filter(Boolean).join(' ')"
+                />
+                <PasswordRequirements id="password-requirements" :class="authHint" />
+            </FormField>
 
-                <div>
-                    <FormField id="password" v-slot="{ id, describedBy, invalid }" label="Passwort" required :error="form.errors.password">
-                        <PasswordInput
-                            :id="id"
-                            v-model="form.password"
-                            required
-                            autocomplete="new-password"
-                            placeholder="Passwort"
-                            :class="fieldClass"
-                            :aria-invalid="invalid"
-                            :aria-describedby="[describedBy, 'password-requirements'].filter(Boolean).join(' ')"
-                        />
-                    </FormField>
+            <div class="pt-4">
+                <Button type="submit" :disabled="form.processing" :class="authButton">
+                    {{ form.processing ? 'Registrierung läuft…' : isInvited ? 'Registrieren und beitreten' : 'Registrieren' }}
+                </Button>
+            </div>
+        </form>
 
-                    <PasswordRequirements id="password-requirements" class="text-brand-green-gray mt-1.5" />
-                </div>
-
-                <div class="pt-6">
-                    <Button
-                        type="submit"
-                        :disabled="form.processing"
-                        class="bg-brand-orange hover:bg-brand-orange/90 h-auto w-full rounded-[5px] py-3 text-sm font-bold text-white shadow-none"
-                    >
-                        {{ form.processing ? 'Registrieren…' : isInvited ? 'Registrieren und beitreten' : 'Registrieren' }}
-                    </Button>
-                </div>
-            </form>
-
-            <p class="text-brand-black mt-5 text-center text-sm font-medium">
-                Sind Sie schon Kunde bei uns?
-                <Link :href="route('login')" class="text-brand-orange font-medium">Zum Login</Link>
-            </p>
-        </div>
+        <template #after>
+            Sie haben bereits ein Konto?
+            <Link :href="route('login')" :class="['ml-1', authLink]">Anmelden</Link>
+        </template>
     </AuthBase>
 </template>
