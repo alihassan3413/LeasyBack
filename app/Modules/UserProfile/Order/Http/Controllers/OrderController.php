@@ -10,6 +10,7 @@ use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
 use App\Modules\UserProfile\Order\Services\OrderCollectionService;
 use App\Modules\UserProfile\Order\Services\OrderService;
 use App\Modules\UserProfile\Vehicle\Services\VehicleScopeService;
+use App\Rules\PhoneNumber;
 use App\Support\PartnerLifecyclePermissions;
 use Carbon\Carbon;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -188,12 +189,12 @@ class OrderController extends Controller
 
             'pickup_contact' => ['nullable', 'array'],
             'pickup_contact.name' => ['nullable', 'string', 'max:255'],
-            'pickup_contact.phone' => ['nullable', 'string', 'max:50'],
+            'pickup_contact.phone' => ['nullable', 'string', new PhoneNumber],
             'pickup_contact.email' => ['nullable', 'email', 'max:255'],
 
             'destination_contact' => ['nullable', 'array'],
             'destination_contact.name' => ['nullable', 'string', 'max:255'],
-            'destination_contact.phone' => ['nullable', 'string', 'max:50'],
+            'destination_contact.phone' => ['nullable', 'string', new PhoneNumber],
             'destination_contact.email' => ['nullable', 'email', 'max:255'],
 
             'billing_address' => ['nullable', 'array'],

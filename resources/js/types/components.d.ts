@@ -249,6 +249,7 @@ declare module 'vue' {
     PasswordRequirements: typeof import('./../components/auth/PasswordRequirements.vue')['default']
     PaymentCheckoutPanel: typeof import('./../components/payment/PaymentCheckoutPanel.vue')['default']
     PaymentMethodStep: typeof import('./../components/payment/PaymentMethodStep.vue')['default']
+    PhoneInput: typeof import('./../components/form/PhoneInput.vue')['default']
     PhoneNumberFieldset: typeof import('./../components/form/PhoneNumberFieldset.vue')['default']
     PlaceholderPattern: typeof import('./../components/PlaceholderPattern.vue')['default']
     Popover: typeof import('./../components/ui/popover/Popover.vue')['default']

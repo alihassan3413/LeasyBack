@@ -68,7 +68,7 @@ class AuthController extends Controller
             'ok' => false,
             'data' => null,
             'message' => 'Validation failed.',
-            'errors' => ['password' => ['Password must be at least 8 characters.']],
+            'errors' => ['password' => ['Password must be at least 12 characters.']],
         ],
         description: 'General validation failure (missing/invalid field).'
     )]

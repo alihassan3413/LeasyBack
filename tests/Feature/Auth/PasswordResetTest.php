@@ -61,8 +61,8 @@ class PasswordResetTest extends TestCase
             $response = $this->post('/reset-password', [
                 'token' => $notification->token,
                 'email' => $user->email,
-                'password' => 'password',
-                'password_confirmation' => 'password',
+                'password' => 'Password1234',
+                'password_confirmation' => 'Password1234',
             ]);
 
             $response
@@ -92,8 +92,8 @@ class PasswordResetTest extends TestCase
         $response = $this->post('/reset-password', [
             'token' => 'not-a-real-token',
             'email' => $user->email,
-            'password' => 'new-password',
-            'password_confirmation' => 'new-password',
+            'password' => 'NewPassword123',
+            'password_confirmation' => 'NewPassword123',
         ]);
 
         $response->assertSessionHasErrors([
@@ -117,8 +117,8 @@ class PasswordResetTest extends TestCase
             $response = $this->post('/reset-password', [
                 'token' => $notification->token,
                 'email' => $user->email,
-                'password' => 'new-password',
-                'password_confirmation' => 'new-password',
+                'password' => 'NewPassword123',
+                'password_confirmation' => 'NewPassword123',
             ]);
 
             $response->assertSessionHasErrors([

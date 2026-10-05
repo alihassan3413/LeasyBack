@@ -12,9 +12,12 @@ const props = defineProps<{
 <template>
     <!--
         Non-authoritative guidance only — must always match the actual
-        backend rule (Auth\RegisterRequest / Auth\NewPasswordController:
-        `min:8`, nothing else). Never show a requirement the server doesn't
-        enforce; see docs/AUTH_FRONTEND_IMPLEMENTATION_PLAN.md §14.3.
+        backend rule (AppServiceProvider::passwordRules(): at least 12
+        characters, upper and lower case, at least one digit). Never show a
+        requirement the server doesn't enforce, and never omit one it does;
+        see docs/AUTH_FRONTEND_IMPLEMENTATION_PLAN.md §14.3.
     -->
-    <p :id="id" :class="cn('text-muted-foreground text-xs', props.class)">Mindestens 8 Zeichen.</p>
+    <p :id="id" :class="cn('text-muted-foreground text-xs', props.class)">
+        Mindestens 12 Zeichen, mit Groß- und Kleinbuchstaben und mindestens einer Zahl.
+    </p>
 </template>

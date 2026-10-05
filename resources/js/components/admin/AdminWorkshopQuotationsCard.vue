@@ -101,6 +101,18 @@ watch(issuedLink, (link) => (inviteOpen.value = inviteOpen.value || !!link), { i
 
 const submittedCount = computed(() => props.quotations.filter((quotation) => quotation.status === 'submitted').length);
 
+/**
+ * Additional damage a workshop reported that nobody has accepted or rejected
+ * yet — shown on the row so the admin does not have to open every comparison
+ * to find it.
+ */
+function pendingAdditionalCount(quotation: AdminWorkshopQuotation): number {
+    return quotation.additional_positions.filter((position) => {
+        const status = (position as { review_status?: string }).review_status;
+
+        return status === undefined || status === 'pending';
+    }).length;
+}
 const statusStyles: Record<string, { label: string; class: string }> = {
     invited: { label: 'Offen', class: 'bg-[#f4f7f6] text-[#6f8585]' },
     submitted: { label: 'Angebot eingegangen', class: 'bg-[#01B990]/10 text-[#00856a]' },
@@ -302,15 +314,41 @@ async function copyLink(link: string) {
                         Link widerrufen
                     </button>
 
+                    <!--
+                        An unreviewed additional damage is not an appraisal
+                        position yet, so an offer built now would quote a set
+                        of positions that is about to change. The server
+                        refuses it either way; this says so before the click.
+                    -->
                     <button
                         v-if="quotation.status === 'submitted' && !quotation.customer_offer && editable"
                         type="button"
-                        :disabled="offerForm.processing"
-                        class="text-[11.5px] font-bold text-[#10393b] hover:opacity-70 disabled:opacity-50"
+                        :disabled="offerForm.processing || pendingAdditionalCount(quotation) > 0"
+                        :title="
+                            pendingAdditionalCount(quotation) > 0
+                                ? 'Bitte übernehmen oder lehnen Sie zuerst die zusätzlichen Schäden dieses Angebots ab.'
+                                : undefined
+                        "
+                        class="text-[11.5px] font-bold text-[#10393b] hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-50"
+                        data-testid="create-customer-offer"
                         @click="createOffer(quotation.id)"
                     >
                         Als Kundenangebot übernehmen
                     </button>
+
+                    <span
+                        v-if="quotation.status === 'submitted' && !quotation.customer_offer && editable && pendingAdditionalCount(quotation) > 0"
+                        class="text-[11px] font-bold text-[#a9741b]"
+                        data-testid="offer-blocked-by-review"
+                    >
+                        Zuerst
+                        {{
+                            pendingAdditionalCount(quotation) === 1
+                                ? 'einen zusätzlichen Schaden'
+                                : `${pendingAdditionalCount(quotation)} zusätzliche Schäden`
+                        }}
+                        prüfen
+                    </span>
 
                     <span v-else-if="quotation.customer_offer" class="text-[11.5px] font-bold text-[#6f8585]">
                         Übernommen als {{ offerLabel(quotation.customer_offer.offer_sequence) }}
@@ -321,8 +359,23 @@ async function copyLink(link: string) {
                     </span>
                 </div>
 
+                <button
+                    v-if="pendingAdditionalCount(quotation) > 0 && expanded !== quotation.id"
+                    type="button"
+                    class="flex w-full items-center gap-1.5 border-t border-[#f2f6f5] bg-[#fffaf0] px-3 py-2 text-left text-[11.5px] font-bold text-[#a9741b] hover:bg-[#fff4dc]"
+                    data-testid="additional-positions-pending"
+                    @click="toggle(quotation.id)"
+                >
+                    {{
+                        pendingAdditionalCount(quotation) === 1
+                            ? '1 zusätzlicher Schaden zu prüfen'
+                            : `${pendingAdditionalCount(quotation)} zusätzliche Schäden zu prüfen`
+                    }}
+                    →
+                </button>
+
                 <div v-if="expanded === quotation.id" class="border-t border-[#f2f6f5] p-3">
-                    <WorkshopQuotationComparison :quotation="quotation" />
+                    <WorkshopQuotationComparison :quotation="quotation" :reviewable="editable" />
                 </div>
             </div>
         </div>

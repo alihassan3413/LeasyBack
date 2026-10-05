@@ -136,11 +136,11 @@ const fieldClass = 'h-auto rounded-full border-brand-green-gray bg-white px-4 py
                             placeholder="Passwort"
                             :class="fieldClass"
                             :aria-invalid="invalid"
-                            :aria-describedby="describedBy"
+                            :aria-describedby="[describedBy, 'password-requirements'].filter(Boolean).join(' ')"
                         />
                     </FormField>
 
-                    <p class="text-brand-green-gray mt-1.5 text-xs">Mindestens 8 Zeichen.</p>
+                    <PasswordRequirements id="password-requirements" class="text-brand-green-gray mt-1.5" />
                 </div>
 
                 <div class="pt-6">

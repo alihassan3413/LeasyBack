@@ -3,6 +3,7 @@
 namespace App\Modules\UserProfile\Profile\Http\Requests;
 
 use App\Models\LeasybackUserProfile;
+use App\Rules\PhoneNumber;
 use Illuminate\Foundation\Http\FormRequest;
 
 class AddressContactRequest extends FormRequest
@@ -40,7 +41,7 @@ class AddressContactRequest extends FormRequest
             'contact.last_name' => ['required', 'string', 'max:100'],
             'phones' => ['required', 'array', 'max:20'],
             'phones.*.international_prefix' => ['required', 'string', 'max:10'],
-            'phones.*.phone_number' => ['required', 'string', 'max:50'],
+            'phones.*.phone_number' => ['required', 'string', new PhoneNumber('international_prefix')],
         ];
     }
 }

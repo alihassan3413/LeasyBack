@@ -46,6 +46,12 @@ Route::middleware('web')->group(function () {
         Route::post('mfa/setup/confirm', [MfaEnrollmentController::class, 'confirmWeb'])
             ->middleware('throttle:mfa-verify')
             ->name('mfa.setup.confirm');
+
+        // "Weiter" after the recovery codes: back to wherever the user was
+        // going before EnsureMfaSatisfied pinned them to setup — for a fresh
+        // registration that is the onboarding funnel, not the dashboard.
+        Route::get('mfa/setup/continue', [MfaEnrollmentController::class, 'proceed'])
+            ->name('mfa.setup.continue');
     });
 });
 

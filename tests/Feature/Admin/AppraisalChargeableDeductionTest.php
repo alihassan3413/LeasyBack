@@ -15,22 +15,22 @@ use Tests\TestCase;
 /**
  * A Gutachten row that states only one amount leaves chargeable_amount_net
  * empty, which an admin then typed by hand for every position. The review
- * payload now proposes the appraiser's amount plus a configured markup
- * instead — a proposal like any other: visible in the review table, editable,
- * and written only by an explicit apply.
+ * payload now proposes the appraiser's amount less a configured percentage
+ * instead — 80,00 € proposes 72,00 € — a proposal like any other: visible in
+ * the review table, editable, and written only by an explicit apply.
  */
-class AppraisalChargeableMarkupTest extends TestCase
+class AppraisalChargeableDeductionTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_a_row_without_a_second_amount_is_proposed_with_the_markup(): void
+    public function test_a_row_without_a_second_amount_is_proposed_with_the_deduction(): void
     {
         [$order] = $this->readyExtraction();
 
         $lines = $this->reviewLines($order);
 
         $this->assertSame('120.00', $lines[0]['original_amount_net']);
-        $this->assertSame('132.00', $lines[0]['chargeable_amount_net']);
+        $this->assertSame('108.00', $lines[0]['chargeable_amount_net']);
     }
 
     public function test_a_row_that_states_its_own_second_amount_keeps_it(): void
@@ -43,7 +43,7 @@ class AppraisalChargeableMarkupTest extends TestCase
         $this->assertSame('60.00', $lines[1]['chargeable_amount_net']);
     }
 
-    public function test_the_markup_rounds_half_up_to_two_places(): void
+    public function test_the_deduction_rounds_half_up_to_two_places(): void
     {
         [$order] = $this->readyExtraction([
             ['original_amount_net' => '123.45', 'chargeable_amount_net' => null],
@@ -53,15 +53,15 @@ class AppraisalChargeableMarkupTest extends TestCase
 
         $lines = $this->reviewLines($order);
 
-        // bcmul alone truncates 135.795 to 135.79.
-        $this->assertSame('135.80', $lines[0]['chargeable_amount_net']);
+        // bcmul alone truncates 111.105 to 111.10.
+        $this->assertSame('111.11', $lines[0]['chargeable_amount_net']);
         $this->assertSame('0.01', $lines[1]['chargeable_amount_net']);
-        $this->assertSame('2750.55', $lines[2]['chargeable_amount_net']);
+        $this->assertSame('2250.45', $lines[2]['chargeable_amount_net']);
     }
 
     public function test_a_configured_percentage_of_zero_proposes_nothing(): void
     {
-        config(['gutachten.chargeable_markup_percent' => '0']);
+        config(['gutachten.chargeable_deduction_percent' => '0']);
         [$order] = $this->readyExtraction();
 
         $lines = $this->reviewLines($order);
@@ -72,15 +72,15 @@ class AppraisalChargeableMarkupTest extends TestCase
 
     public function test_the_percentage_is_configurable(): void
     {
-        config(['gutachten.chargeable_markup_percent' => '7.5']);
+        config(['gutachten.chargeable_deduction_percent' => '7.5']);
         [$order] = $this->readyExtraction();
 
         $lines = $this->reviewLines($order);
 
-        $this->assertSame('129.00', $lines[0]['chargeable_amount_net']);
+        $this->assertSame('111.00', $lines[0]['chargeable_amount_net']);
     }
 
-    public function test_an_applied_extraction_is_not_marked_up_again(): void
+    public function test_an_applied_extraction_is_not_reduced_again(): void
     {
         [$order] = $this->readyExtraction(status: AppraisalExtractionStatus::Applied);
 
@@ -90,7 +90,7 @@ class AppraisalChargeableMarkupTest extends TestCase
         $this->assertSame('60.00', $lines[1]['chargeable_amount_net']);
     }
 
-    public function test_applying_the_proposal_persists_the_marked_up_amount(): void
+    public function test_applying_the_proposal_persists_the_reduced_amount(): void
     {
         [$order, $extraction] = $this->readyExtraction();
         $lines = $this->reviewLines($order);
@@ -110,8 +110,8 @@ class AppraisalChargeableMarkupTest extends TestCase
 
         $positions = AppraisalPosition::where('order_id', $order->id)->orderBy('sort_order')->get();
 
-        $this->assertSame('132.00', (string) $positions[0]->chargeable_amount_net);
-        $this->assertSame('132.00', $positions[0]->effectiveAmountNet());
+        $this->assertSame('108.00', (string) $positions[0]->chargeable_amount_net);
+        $this->assertSame('108.00', $positions[0]->effectiveAmountNet());
         $this->assertSame('60.00', (string) $positions[1]->chargeable_amount_net);
     }
 

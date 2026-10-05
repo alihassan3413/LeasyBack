@@ -30,7 +30,7 @@ class AuthControllerTest extends TestCase
         $response = $this->postJson('/auth/register', [
             'user_email' => 'new.user@example.com',
             'user_type' => 'Privatkunde',
-            'password' => 'a-strong-password',
+            'password' => 'A-Strong-Password1',
         ]);
 
         $response->assertOk()
@@ -48,7 +48,7 @@ class AuthControllerTest extends TestCase
         ]);
 
         $user = User::where('email', 'new.user@example.com')->firstOrFail();
-        $this->assertTrue(Hash::check('a-strong-password', $user->password));
+        $this->assertTrue(Hash::check('A-Strong-Password1', $user->password));
     }
 
     public function test_registration_welcome_email_is_queued_not_sent_synchronously(): void
@@ -58,7 +58,7 @@ class AuthControllerTest extends TestCase
         $this->postJson('/auth/register', [
             'user_email' => 'queued-mail@example.com',
             'user_type' => 'Privatkunde',
-            'password' => 'a-strong-password',
+            'password' => 'A-Strong-Password1',
         ]);
 
         Mail::assertQueued(RegistrationWelcome::class, function (RegistrationWelcome $mail) {
@@ -80,7 +80,7 @@ class AuthControllerTest extends TestCase
         $response = $this->postJson('/auth/register', [
             'user_email' => 'mail-outage@example.com',
             'user_type' => 'Privatkunde',
-            'password' => 'a-strong-password',
+            'password' => 'A-Strong-Password1',
         ]);
 
         $response->assertOk()->assertJson(['ok' => true, 'message' => 'User registered']);
@@ -94,7 +94,7 @@ class AuthControllerTest extends TestCase
         $this->postJson('/auth/register', [
             'user_email' => 'jane.doe@example.com',
             'user_type' => 'Firmenkunde',
-            'password' => 'a-strong-password',
+            'password' => 'A-Strong-Password1',
         ])->assertOk();
 
         $user = User::where('email', 'jane.doe@example.com')->firstOrFail();
@@ -108,7 +108,7 @@ class AuthControllerTest extends TestCase
         $response = $this->postJson('/auth/register', [
             'user_email' => 'someone@example.com',
             'user_type' => 'NotARealType',
-            'password' => 'a-strong-password',
+            'password' => 'A-Strong-Password1',
         ]);
 
         $response->assertStatus(422);
@@ -122,7 +122,7 @@ class AuthControllerTest extends TestCase
         $response = $this->postJson('/auth/register', [
             'user_email' => 'wannabe-admin@example.com',
             'user_type' => 'Admin',
-            'password' => 'a-strong-password',
+            'password' => 'A-Strong-Password1',
         ]);
 
         $response->assertStatus(422);
@@ -138,7 +138,7 @@ class AuthControllerTest extends TestCase
         $response = $this->postJson('/auth/register', [
             'user_email' => 'duplicate@example.com',
             'user_type' => 'Privatkunde',
-            'password' => 'a-strong-password',
+            'password' => 'A-Strong-Password1',
         ]);
 
         $response->assertStatus(422);
@@ -155,7 +155,7 @@ class AuthControllerTest extends TestCase
         $response = $this->postJson('/auth/register', [
             'user_email' => 'casesensitive@example.com',
             'user_type' => 'Privatkunde',
-            'password' => 'a-strong-password',
+            'password' => 'A-Strong-Password1',
         ]);
 
         $response->assertStatus(422);
@@ -172,7 +172,7 @@ class AuthControllerTest extends TestCase
         $response = $this->postJson('/auth/register', [
             'user_email' => 'still-not-admin@example.com',
             'user_type' => 'Admin',
-            'password' => 'a-strong-password',
+            'password' => 'A-Strong-Password1',
         ]);
 
         $response->assertStatus(422);
@@ -244,7 +244,7 @@ class AuthControllerTest extends TestCase
     {
         $response = $this->postJson('/auth/changepassword', [
             'current_password' => 'whatever',
-            'new_password' => 'a-new-password',
+            'new_password' => 'A-New-Password1',
         ]);
 
         $response->assertStatus(401);
@@ -258,7 +258,7 @@ class AuthControllerTest extends TestCase
         $response = $this->withHeader('Authorization', "Bearer {$token}")
             ->postJson('/auth/changepassword', [
                 'current_password' => 'wrong-password',
-                'new_password' => 'a-new-password',
+                'new_password' => 'A-New-Password1',
             ]);
 
         $response->assertStatus(422)
@@ -301,13 +301,13 @@ class AuthControllerTest extends TestCase
         $response = $this->withHeader('Authorization', "Bearer {$token}")
             ->postJson('/auth/changepassword', [
                 'current_password' => 'correct-password',
-                'new_password' => 'a-brand-new-password',
+                'new_password' => 'A-Brand-New-Password1',
             ]);
 
         $response->assertOk()
             ->assertJson(['ok' => true, 'message' => 'Password updated successfully.']);
 
-        $this->assertTrue(Hash::check('a-brand-new-password', $user->refresh()->password));
+        $this->assertTrue(Hash::check('A-Brand-New-Password1', $user->refresh()->password));
     }
 
     public function test_logout_revokes_current_token(): void
@@ -424,14 +424,14 @@ class AuthControllerTest extends TestCase
             $this->postJson('/auth/register', [
                 'user_email' => "rate-limit-{$i}@example.com",
                 'user_type' => 'Privatkunde',
-                'password' => 'a-strong-password',
+                'password' => 'A-Strong-Password1',
             ]);
         }
 
         $response = $this->postJson('/auth/register', [
             'user_email' => 'rate-limit-6@example.com',
             'user_type' => 'Privatkunde',
-            'password' => 'a-strong-password',
+            'password' => 'A-Strong-Password1',
         ]);
 
         $response->assertStatus(429);
@@ -466,14 +466,14 @@ class AuthControllerTest extends TestCase
             $this->withHeader('Authorization', "Bearer {$token}")
                 ->postJson('/auth/changepassword', [
                     'current_password' => 'wrong-password',
-                    'new_password' => 'a-new-password',
+                    'new_password' => 'A-New-Password1',
                 ]);
         }
 
         $response = $this->withHeader('Authorization', "Bearer {$token}")
             ->postJson('/auth/changepassword', [
                 'current_password' => 'correct-password',
-                'new_password' => 'a-new-password',
+                'new_password' => 'A-New-Password1',
             ]);
 
         $response->assertStatus(429);

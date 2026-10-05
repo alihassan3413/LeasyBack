@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Enums\UserType;
 use App\Http\Controllers\Controller;
 use App\Models\Workshop;
+use App\Rules\PhoneNumber;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -173,10 +174,10 @@ class WorkshopController extends Controller
             'contact.first_name' => ['required', 'string', 'max:100'],
             'contact.last_name' => ['required', 'string', 'max:100'],
             'contact.international_prefix' => ['required', 'string', 'max:10'],
-            'contact.primary_phone_number' => ['required', 'string', 'max:30'],
+            'contact.primary_phone_number' => ['required', 'string', new PhoneNumber],
             'contact.phone_numbers' => ['present', 'array', 'max:10'],
             'contact.phone_numbers.*.international_prefix' => ['required', 'string', 'max:10'],
-            'contact.phone_numbers.*.phone_number' => ['required', 'string', 'max:30'],
+            'contact.phone_numbers.*.phone_number' => ['required', 'string', new PhoneNumber('international_prefix')],
         ];
     }
 
@@ -199,10 +200,10 @@ class WorkshopController extends Controller
             'contact.first_name' => ['sometimes', 'string', 'max:100'],
             'contact.last_name' => ['sometimes', 'string', 'max:100'],
             'contact.international_prefix' => ['sometimes', 'string', 'max:10'],
-            'contact.primary_phone_number' => ['sometimes', 'string', 'max:30'],
+            'contact.primary_phone_number' => ['sometimes', 'string', new PhoneNumber],
             'contact.phone_numbers' => ['sometimes', 'array', 'max:10'],
             'contact.phone_numbers.*.international_prefix' => ['required', 'string', 'max:10'],
-            'contact.phone_numbers.*.phone_number' => ['required', 'string', 'max:30'],
+            'contact.phone_numbers.*.phone_number' => ['required', 'string', new PhoneNumber('international_prefix')],
             'contact.phone_numbers.*.is_primary_contact' => ['sometimes', 'boolean'],
         ];
     }

@@ -19,9 +19,57 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Validation\Rules\Password;
 
 class AppServiceProvider extends ServiceProvider
 {
+    /**
+     * The minimum length of every password that is created or changed.
+     *
+     * One number for the whole application: web registration, password
+     * reset, both settings screens and the API requests all read it, so the
+     * rule can never drift between screens again. Existing accounts are not
+     * affected — login never checks the length, so an older, shorter
+     * password keeps working until its owner changes it.
+     */
+    public const PASSWORD_MIN_LENGTH = 12;
+
+    /**
+     * Upper bound on what is hashed. Argon2id has no practical limit, but an
+     * unbounded field is a cheap way to make the server do expensive work.
+     */
+    public const PASSWORD_MAX_LENGTH = 128;
+
+    /**
+     * The rules every create/change path applies, spread into its own rule
+     * list. One definition, so registration, profile, reset and both API
+     * endpoints cannot drift apart again — which is exactly what happened when
+     * the profile screen quietly lost mixedCase() and numbers().
+     *
+     * @return array<int, mixed>
+     */
+    public static function passwordRules(): array
+    {
+        return [Password::defaults(), 'max:'.self::PASSWORD_MAX_LENGTH];
+    }
+
+    /**
+     * German wording for every rule above. The application runs with the `en`
+     * locale and ships no lang/ directory, so Laravel's own messages are
+     * English; the customer-facing screens pass these instead.
+     *
+     * @return array<string, string>
+     */
+    public static function passwordMessages(string $field = 'password'): array
+    {
+        return [
+            $field.'.min' => 'Das Passwort muss mindestens '.self::PASSWORD_MIN_LENGTH.' Zeichen lang sein.',
+            $field.'.mixed' => 'Das Passwort muss Groß- und Kleinbuchstaben enthalten.',
+            $field.'.numbers' => 'Das Passwort muss mindestens eine Zahl enthalten.',
+            $field.'.max' => 'Das Passwort darf höchstens '.self::PASSWORD_MAX_LENGTH.' Zeichen lang sein.',
+        ];
+    }
+
     /**
      * Register any application services.
      */
@@ -75,8 +123,34 @@ class AppServiceProvider extends ServiceProvider
             URL::forceScheme('https');
         }
 
+        $this->registerPasswordRules();
         $this->registerWorkshopRateLimiters();
         $this->registerMfaRateLimiters();
+    }
+
+    /**
+     * The one password rule every create/change screen uses through
+     * Password::defaults(). Change it here and update
+     * resources/js/components/auth/PasswordRequirements.vue to match.
+     */
+    private function registerPasswordRules(): void
+    {
+        Password::defaults(fn () => Password::min(self::PASSWORD_MIN_LENGTH)->mixedCase()->numbers());
+    }
+
+    /**
+     * Guessing a six-digit code has to be expensive from outside as well as
+     * inside. The challenge itself already dies after five wrong codes, but
+     * that counter lives on one challenge — without a limiter, an attacker
+     * could keep minting fresh challenges and spend five guesses on each.
+     *
+     * Keyed on the caller, because the ticket is attacker-chosen and keying on
+     * it would hand out a fresh budget per guess.
+     */
+    private function registerMfaRateLimiters(): void
+    {
+        RateLimiter::for('mfa-verify', fn (Request $request) => Limit::perMinute(10)->by((string) $request->ip()));
+        RateLimiter::for('mfa-send', fn (Request $request) => Limit::perMinute(6)->by((string) $request->ip()));
     }
 
     /**
@@ -98,21 +172,6 @@ class AppServiceProvider extends ServiceProvider
      * The ceilings are the ones these routes already carried; only the buckets
      * are new.
      */
-    /**
-     * Guessing a six-digit code has to be expensive from outside as well as
-     * inside. The challenge itself already dies after five wrong codes, but
-     * that counter lives on one challenge — without a limiter, an attacker
-     * could keep minting fresh challenges and spend five guesses on each.
-     *
-     * Keyed on the caller, because the ticket is attacker-chosen and keying on
-     * it would hand out a fresh budget per guess.
-     */
-    private function registerMfaRateLimiters(): void
-    {
-        RateLimiter::for('mfa-verify', fn (Request $request) => Limit::perMinute(10)->by((string) $request->ip()));
-        RateLimiter::for('mfa-send', fn (Request $request) => Limit::perMinute(6)->by((string) $request->ip()));
-    }
-
     private function registerWorkshopRateLimiters(): void
     {
         RateLimiter::for('workshop-page', fn (Request $request) => Limit::perMinute(30)->by((string) $request->ip()));

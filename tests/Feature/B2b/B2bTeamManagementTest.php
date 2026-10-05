@@ -320,7 +320,7 @@ class B2bTeamManagementTest extends TestCase
 
         $this->post(route('register'), [
             'email' => 'direkt@example.com',
-            'password' => 'sicher-genug-123',
+            'password' => 'Sicher-Genug-123',
             'invitation' => $token,
         ])->assertRedirect(route('dashboard'));
 

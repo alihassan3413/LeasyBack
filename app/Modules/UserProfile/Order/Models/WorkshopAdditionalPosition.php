@@ -11,9 +11,20 @@ use Illuminate\Support\Str;
  * workshop that found it. It belongs to the quotation, never to the appraisal:
  * an admin decides whether it becomes an appraisal position, and nothing here
  * makes that decision for them.
+ *
+ * That decision is recorded in `review_status`: every row starts `pending`;
+ * accepting it creates an appraisal position (WorkshopAdditionalPositionReview
+ * Service) and remembers it in `appraisal_position_id`; rejecting it only
+ * marks it.
  */
 class WorkshopAdditionalPosition extends Model
 {
+    public const STATUS_PENDING = 'pending';
+
+    public const STATUS_ACCEPTED = 'accepted';
+
+    public const STATUS_REJECTED = 'rejected';
+
     protected $table = 'workshop_additional_positions';
 
     protected $primaryKey = 'id';
@@ -30,6 +41,14 @@ class WorkshopAdditionalPosition extends Model
         'repair_method',
         'amount_net',
         'damage_image_document_ids',
+        'review_status',
+        'reviewed_at',
+        'reviewed_by_user_id',
+        'appraisal_position_id',
+    ];
+
+    protected $attributes = [
+        'review_status' => self::STATUS_PENDING,
     ];
 
     protected function casts(): array
@@ -38,6 +57,7 @@ class WorkshopAdditionalPosition extends Model
             'sort_order' => 'integer',
             'amount_net' => 'decimal:2',
             'damage_image_document_ids' => 'array',
+            'reviewed_at' => 'datetime',
         ];
     }
 
@@ -53,5 +73,10 @@ class WorkshopAdditionalPosition extends Model
     public function quotation(): BelongsTo
     {
         return $this->belongsTo(WorkshopQuotation::class, 'quotation_id', 'id');
+    }
+
+    public function isPendingReview(): bool
+    {
+        return ($this->review_status ?? self::STATUS_PENDING) === self::STATUS_PENDING;
     }
 }

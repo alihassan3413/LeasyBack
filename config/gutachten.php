@@ -173,11 +173,15 @@ return [
     ],
 
     /*
-     * Percentage added to the appraiser's amount to propose a chargeable one,
-     * for review only. It fills the field an admin would otherwise type by
-     * hand, and only where the Gutachten row carried a single amount — a row
-     * that already states its own second amount keeps it (GutachtenRowSplitter).
-     * Set to 0 to propose nothing and leave the field empty as before.
+     * Percentage taken off the appraiser's amount to propose a chargeable one,
+     * for review only: 80,00 € proposes 72,00 €. It fills the field an admin
+     * would otherwise type by hand, and only where the Gutachten row carried a
+     * single amount — a row that already states its own second amount keeps it
+     * (GutachtenRowSplitter).
+     *
+     * Set to 0 to propose nothing and leave the field empty as before. Values
+     * at or above 100 are ignored for the same reason, since a chargeable
+     * amount of zero or less is not a proposal anyone would accept.
      */
-    'chargeable_markup_percent' => env('GUTACHTEN_CHARGEABLE_MARKUP_PERCENT', '10'),
+    'chargeable_deduction_percent' => env('GUTACHTEN_CHARGEABLE_DEDUCTION_PERCENT', '10'),
 ];

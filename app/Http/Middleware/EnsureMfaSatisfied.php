@@ -78,9 +78,13 @@ class EnsureMfaSatisfied
         // Owes a factor but has none: pinned to the setup screen rather than
         // turned away, since there is nothing they could present.
         if ($this->policy->mustEnroll($user)) {
-            return $request->routeIs('mfa.setup', 'mfa.setup.*', 'logout')
-                ? $next($request)
-                : redirect()->route('mfa.setup');
+            if ($request->routeIs('mfa.setup', 'mfa.setup.*', 'logout')) {
+                return $next($request);
+            }
+
+            $this->rememberDestination($request);
+
+            return redirect()->route('mfa.setup');
         }
 
         // Session flow: the login path marks the session once the challenge is
@@ -96,5 +100,34 @@ class EnsureMfaSatisfied
         return redirect()->route('login')->withErrors([
             'email' => 'Bitte melden Sie sich erneut an — Ihr Konto benötigt eine Zwei-Faktor-Bestätigung.',
         ]);
+    }
+
+    /**
+     * Remember the page the user was on the way to before being pinned to
+     * MFA setup, so that finishing setup brings them back to it
+     * (MfaEnrollmentController::proceed() reads it through
+     * redirect()->intended()).
+     *
+     * This is what keeps the registration funnels intact: a new Privatkunde is
+     * sent from registration to /onboarding, a new Firmenkunde to
+     * /onboarding/b2b. Without this, the detour through MFA setup dropped
+     * that destination and everyone landed on the dashboard instead.
+     *
+     * Only GET page visits are remembered (a POST cannot be replayed by a
+     * redirect), and the first destination wins: once the user is pinned to
+     * setup, clicking around must not overwrite where registration was
+     * actually taking them.
+     */
+    private function rememberDestination(Request $request): void
+    {
+        if (! $request->isMethod('GET') || $request->expectsJson()) {
+            return;
+        }
+
+        if ($request->session()->has('url.intended')) {
+            return;
+        }
+
+        $request->session()->put('url.intended', $request->fullUrl());
     }
 }

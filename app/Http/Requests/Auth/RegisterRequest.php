@@ -5,13 +5,13 @@ namespace App\Http\Requests\Auth;
 use App\Enums\UserType;
 use App\Modules\UserProfile\B2B\Models\B2bInvitation;
 use App\Modules\UserProfile\B2B\Services\B2bInvitationService;
+use App\Providers\AppServiceProvider;
 use App\Rules\CaseInsensitiveUniqueEmail;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
-use Illuminate\Validation\Rules\Password;
 
 class RegisterRequest extends FormRequest
 {
@@ -45,7 +45,8 @@ class RegisterRequest extends FormRequest
                 'max:255',
                 new CaseInsensitiveUniqueEmail,
             ],
-            'password' => ['required', Password::defaults()],
+            // The whole policy comes from AppServiceProvider::passwordRules().
+            'password' => ['required', ...AppServiceProvider::passwordRules()],
             // Admin is deliberately excluded from registrableValues() — it
             // can never be reached through this form no matter what a client
             // sends, since anything outside this allow-list fails validation.
@@ -121,6 +122,7 @@ class RegisterRequest extends FormRequest
         return [
             'user_type.required' => 'Bitte wählen Sie eine Kontoart aus.',
             'user_type.in' => 'Bitte wählen Sie eine gültige Kontoart aus.',
+            ...AppServiceProvider::passwordMessages(),
         ];
     }
 }

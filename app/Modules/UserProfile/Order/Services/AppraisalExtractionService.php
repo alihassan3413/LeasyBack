@@ -269,9 +269,12 @@ class AppraisalExtractionService
             return (string) $chargeable;
         }
 
-        $percent = (string) config('gutachten.chargeable_markup_percent', '0');
+        $percent = (string) config('gutachten.chargeable_deduction_percent', '0');
 
-        if ($original === null || $original === '' || ! is_numeric($original) || bccomp($percent, '0', 4) <= 0) {
+        // A deduction of 100% or more would propose zero or a negative amount,
+        // which is not a proposal — treated like 0 and the field stays empty.
+        if ($original === null || $original === '' || ! is_numeric($original)
+            || bccomp($percent, '0', 4) <= 0 || bccomp($percent, '100', 4) >= 0) {
             return $chargeable === null ? null : (string) $chargeable;
         }
 
@@ -280,7 +283,7 @@ class AppraisalExtractionService
         }
 
         // bcmath truncates, so the half is added before cutting to two places.
-        $multiplier = bcadd('1', bcdiv($percent, '100', 6), 6);
+        $multiplier = bcsub('1', bcdiv($percent, '100', 6), 6);
 
         return bcadd(bcmul((string) $original, $multiplier, 6), '0.005', 2);
     }

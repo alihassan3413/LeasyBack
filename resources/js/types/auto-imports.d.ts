@@ -11,6 +11,7 @@ declare global {
   const B2B_ORDER_STAGE_SEQUENCE: typeof import('../lib/customerOrderFlow').B2B_ORDER_STAGE_SEQUENCE
   const BOOKABLE_SERVICE: typeof import('../lib/services').BOOKABLE_SERVICE
   const CUSTOMER_ORDER_STAGE_SEQUENCE: typeof import('../lib/customerOrderFlow').CUSTOMER_ORDER_STAGE_SEQUENCE
+  const DEFAULT_PREFIX: typeof import('../lib/phone').DEFAULT_PREFIX
   const DOCUMENT_TYPE_LABELS: typeof import('../lib/documentTypes').DOCUMENT_TYPE_LABELS
   const EffectScope: typeof import('vue').EffectScope
   const Head: typeof import('@inertiajs/vue3').Head
@@ -39,18 +40,21 @@ declare global {
   const cn: typeof import('../lib/utils').cn
   const companyFormData: typeof import('../lib/company').companyFormData
   const computed: typeof import('vue').computed
+  const countryFor: typeof import('../lib/phone').countryFor
   const createApp: typeof import('vue').createApp
   const customRef: typeof import('vue').customRef
   const defineAsyncComponent: typeof import('vue').defineAsyncComponent
   const defineComponent: typeof import('vue').defineComponent
   const defineStore: typeof import('pinia').defineStore
   const effectScope: typeof import('vue').effectScope
+  const formatAsYouType: typeof import('../lib/phone').formatAsYouType
   const formatCollectionTimeSlot: typeof import('../lib/collectionTimeSlot').formatCollectionTimeSlot
   const formatGermanDateTime: typeof import('../lib/customerOrderFlow').formatGermanDateTime
   const formatPortalDate: typeof import('../lib/portalDate').formatPortalDate
   const formatPortalDateTime: typeof import('../lib/portalDate').formatPortalDateTime
   const formatPortalDateTimeShort: typeof import('../lib/portalDate').formatPortalDateTimeShort
   const formatRelocationAddress: typeof import('../lib/customerOrderFlow').formatRelocationAddress
+  const formatStored: typeof import('../lib/phone').formatStored
   const getAdminDashboardStatus: typeof import('../lib/adminStatus').getAdminDashboardStatus
   const getCurrentInstance: typeof import('vue').getCurrentInstance
   const getCurrentScope: typeof import('vue').getCurrentScope
@@ -77,6 +81,7 @@ declare global {
   const isShallow: typeof import('vue').isShallow
   const isTerminalOffRamp: typeof import('../lib/orderFlow').isTerminalOffRamp
   const isValidDeCoord: typeof import('../composables/useGooglePlaces').isValidDeCoord
+  const isValidPhone: typeof import('../lib/phone').isValidPhone
   const isVehicleCompleted: typeof import('../lib/vehicleStatus').isVehicleCompleted
   const labelForDocumentType: typeof import('../lib/documentTypes').labelForDocumentType
   const loadGoogleMaps: typeof import('../composables/useGoogleMapsLoader').loadGoogleMaps
@@ -126,6 +131,7 @@ declare global {
   const taskPriorityStyle: typeof import('../lib/adminTaskPriority').taskPriorityStyle
   const timelineDotStyle: typeof import('../lib/timeline').timelineDotStyle
   const timelineLineStyle: typeof import('../lib/timeline').timelineLineStyle
+  const toE164: typeof import('../lib/phone').toE164
   const toOrderTimelineEntries: typeof import('../lib/timeline').toOrderTimelineEntries
   const toPlateUpperCase: typeof import('../lib/licensePlate').toPlateUpperCase
   const toRaw: typeof import('vue').toRaw
@@ -232,6 +238,7 @@ declare module 'vue' {
     readonly B2B_ORDER_STAGE_SEQUENCE: UnwrapRef<typeof import('../lib/customerOrderFlow')['B2B_ORDER_STAGE_SEQUENCE']>
     readonly BOOKABLE_SERVICE: UnwrapRef<typeof import('../lib/services')['BOOKABLE_SERVICE']>
     readonly CUSTOMER_ORDER_STAGE_SEQUENCE: UnwrapRef<typeof import('../lib/customerOrderFlow')['CUSTOMER_ORDER_STAGE_SEQUENCE']>
+    readonly DEFAULT_PREFIX: UnwrapRef<typeof import('../lib/phone')['DEFAULT_PREFIX']>
     readonly DOCUMENT_TYPE_LABELS: UnwrapRef<typeof import('../lib/documentTypes')['DOCUMENT_TYPE_LABELS']>
     readonly EffectScope: UnwrapRef<typeof import('vue')['EffectScope']>
     readonly Head: UnwrapRef<typeof import('@inertiajs/vue3')['Head']>
@@ -260,18 +267,21 @@ declare module 'vue' {
     readonly cn: UnwrapRef<typeof import('../lib/utils')['cn']>
     readonly companyFormData: UnwrapRef<typeof import('../lib/company')['companyFormData']>
     readonly computed: UnwrapRef<typeof import('vue')['computed']>
+    readonly countryFor: UnwrapRef<typeof import('../lib/phone')['countryFor']>
     readonly createApp: UnwrapRef<typeof import('vue')['createApp']>
     readonly customRef: UnwrapRef<typeof import('vue')['customRef']>
     readonly defineAsyncComponent: UnwrapRef<typeof import('vue')['defineAsyncComponent']>
     readonly defineComponent: UnwrapRef<typeof import('vue')['defineComponent']>
     readonly defineStore: UnwrapRef<typeof import('pinia')['defineStore']>
     readonly effectScope: UnwrapRef<typeof import('vue')['effectScope']>
+    readonly formatAsYouType: UnwrapRef<typeof import('../lib/phone')['formatAsYouType']>
     readonly formatCollectionTimeSlot: UnwrapRef<typeof import('../lib/collectionTimeSlot')['formatCollectionTimeSlot']>
     readonly formatGermanDateTime: UnwrapRef<typeof import('../lib/customerOrderFlow')['formatGermanDateTime']>
     readonly formatPortalDate: UnwrapRef<typeof import('../lib/portalDate')['formatPortalDate']>
     readonly formatPortalDateTime: UnwrapRef<typeof import('../lib/portalDate')['formatPortalDateTime']>
     readonly formatPortalDateTimeShort: UnwrapRef<typeof import('../lib/portalDate')['formatPortalDateTimeShort']>
     readonly formatRelocationAddress: UnwrapRef<typeof import('../lib/customerOrderFlow')['formatRelocationAddress']>
+    readonly formatStored: UnwrapRef<typeof import('../lib/phone')['formatStored']>
     readonly getAdminDashboardStatus: UnwrapRef<typeof import('../lib/adminStatus')['getAdminDashboardStatus']>
     readonly getCurrentInstance: UnwrapRef<typeof import('vue')['getCurrentInstance']>
     readonly getCurrentScope: UnwrapRef<typeof import('vue')['getCurrentScope']>
@@ -298,6 +308,7 @@ declare module 'vue' {
     readonly isShallow: UnwrapRef<typeof import('vue')['isShallow']>
     readonly isTerminalOffRamp: UnwrapRef<typeof import('../lib/orderFlow')['isTerminalOffRamp']>
     readonly isValidDeCoord: UnwrapRef<typeof import('../composables/useGooglePlaces')['isValidDeCoord']>
+    readonly isValidPhone: UnwrapRef<typeof import('../lib/phone')['isValidPhone']>
     readonly isVehicleCompleted: UnwrapRef<typeof import('../lib/vehicleStatus')['isVehicleCompleted']>
     readonly labelForDocumentType: UnwrapRef<typeof import('../lib/documentTypes')['labelForDocumentType']>
     readonly loadGoogleMaps: UnwrapRef<typeof import('../composables/useGoogleMapsLoader')['loadGoogleMaps']>
@@ -347,6 +358,7 @@ declare module 'vue' {
     readonly taskPriorityStyle: UnwrapRef<typeof import('../lib/adminTaskPriority')['taskPriorityStyle']>
     readonly timelineDotStyle: UnwrapRef<typeof import('../lib/timeline')['timelineDotStyle']>
     readonly timelineLineStyle: UnwrapRef<typeof import('../lib/timeline')['timelineLineStyle']>
+    readonly toE164: UnwrapRef<typeof import('../lib/phone')['toE164']>
     readonly toOrderTimelineEntries: UnwrapRef<typeof import('../lib/timeline')['toOrderTimelineEntries']>
     readonly toPlateUpperCase: UnwrapRef<typeof import('../lib/licensePlate')['toPlateUpperCase']>
     readonly toRaw: UnwrapRef<typeof import('vue')['toRaw']>

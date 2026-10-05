@@ -22,7 +22,7 @@ class RegistrationTest extends TestCase
         $response = $this->post('/register', [
             'user_type' => 'Privatkunde',
             'email' => 'test@example.com',
-            'password' => 'password',
+            'password' => 'Password1234',
         ]);
 
         $this->assertAuthenticated();
@@ -34,7 +34,7 @@ class RegistrationTest extends TestCase
         $response = $this->post('/register', [
             'user_type' => 'Firmenkunde',
             'email' => 'firmenkunde-redirect@example.com',
-            'password' => 'password',
+            'password' => 'Password1234',
         ]);
 
         $response->assertRedirect(route('onboarding.b2b.show', absolute: false));
@@ -46,7 +46,7 @@ class RegistrationTest extends TestCase
         $response = $this->post('/register', [
             'user_type' => 'Werksatatt',
             'email' => 'werkstatt-redirect@example.com',
-            'password' => 'password',
+            'password' => 'Password1234',
         ]);
 
         $response->assertRedirect(route('dashboard', absolute: false));
@@ -59,7 +59,7 @@ class RegistrationTest extends TestCase
         $this->post('/register', [
             'user_type' => 'Privatkunde',
             'email' => 'jane.doe@example.com',
-            'password' => 'password',
+            'password' => 'Password1234',
         ]);
 
         $user = User::where('email', 'jane.doe@example.com')->firstOrFail();
@@ -72,7 +72,7 @@ class RegistrationTest extends TestCase
         $this->post('/register', [
             'user_type' => 'Privatkunde',
             'email' => 'privatkunde-check@example.com',
-            'password' => 'password',
+            'password' => 'Password1234',
         ]);
 
         $user = User::where('email', 'privatkunde-check@example.com')->firstOrFail();
@@ -86,7 +86,7 @@ class RegistrationTest extends TestCase
         $this->post('/register', [
             'user_type' => 'Firmenkunde',
             'email' => 'firmenkunde-check@example.com',
-            'password' => 'password',
+            'password' => 'Password1234',
         ]);
 
         $this->assertSame('Firmenkunde', User::where('email', 'firmenkunde-check@example.com')->firstOrFail()->user_type->value);
@@ -98,7 +98,7 @@ class RegistrationTest extends TestCase
         $this->post('/register', [
             'user_type' => 'Werksatatt',
             'email' => 'werkstatt-check@example.com',
-            'password' => 'password',
+            'password' => 'Password1234',
         ]);
 
         $this->assertSame('Werksatatt', User::where('email', 'werkstatt-check@example.com')->firstOrFail()->user_type->value);
@@ -111,7 +111,7 @@ class RegistrationTest extends TestCase
         $response = $this->post('/register', [
             'user_type' => 'Admin',
             'email' => 'no-admin-smuggling@example.com',
-            'password' => 'password',
+            'password' => 'Password1234',
         ]);
 
         $response->assertSessionHasErrors('user_type');
@@ -126,7 +126,7 @@ class RegistrationTest extends TestCase
         $response = $this->post('/register', [
             'user_type' => 'Privatkunde',
             'email' => 'duplicate@example.com',
-            'password' => 'password',
+            'password' => 'Password1234',
         ]);
 
         $response->assertSessionHasErrors('email');

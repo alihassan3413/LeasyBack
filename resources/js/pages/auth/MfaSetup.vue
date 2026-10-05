@@ -34,9 +34,14 @@ const props = defineProps<{
     /** Server-rendered SVG markup. Generated with bacon/bacon-qr-code so the
      *  secret never reaches a client-side QR library. */
     qrCode: string | null;
-    recoveryCodes?: string[] | null;
+       recoveryCodes?: string[] | null;
     status?: string | null;
+    /** Where "Weiter" goes after the recovery codes. Points at mfa.setup.continue,
+     *  which sends the user back to the page MFA interrupted (e.g. the
+     *  registration onboarding) instead of always to the dashboard. */
+    continueUrl?: string | null;
 }>();
+
 
 const RESEND_SECONDS = 30;
 
@@ -108,7 +113,9 @@ function submit() {
 }
 
 function finish() {
-    router.visit(route('dashboard'));
+    // Back to wherever MFA setup interrupted the user (e.g. the onboarding
+    // funnel after registration); the server falls back to the home page.
+    router.visit(props.continueUrl ?? route('mfa.setup.continue'));
 }
 
 onBeforeUnmount(() => window.clearInterval(timer));
