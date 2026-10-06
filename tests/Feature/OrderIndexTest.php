@@ -107,6 +107,10 @@ class OrderIndexTest extends TestCase
 
         LeasybackOrder::factory()->create(['vehicle_id' => $vehicle->vehicle_id, 'order_status' => OrderStatus::Confirmed->value]);
         LeasybackOrder::factory()->create(['vehicle_id' => $vehicle->vehicle_id, 'order_status' => OrderStatus::Completed->value]);
+        // Neither the customer's own cancellation nor an abandoned order may
+        // show up under "Abgeschlossen" — closedValues() would count them.
+        LeasybackOrder::factory()->create(['vehicle_id' => $vehicle->vehicle_id, 'order_status' => OrderStatus::Cancelled->value]);
+        LeasybackOrder::factory()->create(['vehicle_id' => $vehicle->vehicle_id, 'order_status' => OrderStatus::Discarded->value]);
 
         $this->actingAs($owner)
             ->get(route('orders.index', ['status' => 'closed']))

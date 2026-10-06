@@ -27,10 +27,11 @@ const hasQuery = computed(
 
 /**
  * The list's primary view: everything, or one of AdminQueryService's three
- * status *groups* (§ OrderStatus::openValues()/inProgressValues()/
- * closedValues()) — never one of the 16 exact statuses, which live in the
- * secondary dropdown below instead. Both write the same `status` param, so
- * only one is ever active at a time.
+ * status *groups* — openValues()/inProgressValues()/completedValues() — never
+ * one of the 16 exact statuses, which live in the secondary dropdown below
+ * instead. `closed` resolves to completedValues() (only `completed`): a
+ * cancelled or discarded order must not show up as "Abgeschlossen". Both
+ * write the same `status` param, so only one is ever active at a time.
  */
 const STATUS_TABS: { value: string; label: string }[] = [
     { value: '', label: 'Alle' },

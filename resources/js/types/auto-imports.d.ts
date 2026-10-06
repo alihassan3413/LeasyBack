@@ -126,6 +126,7 @@ declare global {
   const shallowReadonly: typeof import('vue').shallowReadonly
   const shallowRef: typeof import('vue').shallowRef
   const splitOrderHistory: typeof import('../lib/orderHistory').splitOrderHistory
+  const splitPlate: typeof import('../lib/licensePlate').splitPlate
   const storeToRefs: typeof import('pinia').storeToRefs
   const summariseOrder: typeof import('../lib/orderHistory').summariseOrder
   const taskPriorityStyle: typeof import('../lib/adminTaskPriority').taskPriorityStyle
@@ -353,6 +354,7 @@ declare module 'vue' {
     readonly shallowReadonly: UnwrapRef<typeof import('vue')['shallowReadonly']>
     readonly shallowRef: UnwrapRef<typeof import('vue')['shallowRef']>
     readonly splitOrderHistory: UnwrapRef<typeof import('../lib/orderHistory')['splitOrderHistory']>
+    readonly splitPlate: UnwrapRef<typeof import('../lib/licensePlate')['splitPlate']>
     readonly storeToRefs: UnwrapRef<typeof import('pinia')['storeToRefs']>
     readonly summariseOrder: UnwrapRef<typeof import('../lib/orderHistory')['summariseOrder']>
     readonly taskPriorityStyle: UnwrapRef<typeof import('../lib/adminTaskPriority')['taskPriorityStyle']>

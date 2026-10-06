@@ -29,9 +29,12 @@ class B2bTeamManagementTest extends TestCase
 
     /**
      * The advanced editor lets "Inhaber" be picked with whatever boxes happen
-     * to be ticked. An owner holds everything, so the invitation is stored
+     * to be ticked. An owner holds everything, so such an invitation is stored
      * with everything and named as the administrator — on the pending list,
      * on the invitation page, and in the email.
+     *
+     * While an administrator is active none can be created any more, so the
+     * row is built directly here; the refusal itself is asserted first.
      */
     public function test_an_owner_invitation_with_a_partial_list_is_the_administrator_everywhere(): void
     {
@@ -48,34 +51,54 @@ class B2bTeamManagementTest extends TestCase
                 'permissions' => [B2bPermission::ViewVehicles->value],
                 'vehicle_scope' => 'all',
             ])
-            ->assertSessionHasNoErrors();
+            ->assertSessionHasErrors('invitation');
+        $this->assertSame(0, B2bInvitation::where('email', 'chefin@example.com')->count());
+
+        $token = Str::random(64);
+        B2bInvitation::create([
+            'b2b_id' => $company->b2b_id,
+            'email' => 'chefin@example.com',
+            'role' => 'owner',
+            'permissions' => [B2bPermission::ViewVehicles->value],
+            'vehicle_scope' => 'all',
+            'token_hash' => hash('sha256', $token),
+            'invited_by_user_id' => $owner->id,
+            'expires_at' => now()->addDays(3),
+        ]);
 
         $invitation = B2bInvitation::where('email', 'chefin@example.com')->firstOrFail();
-        $this->assertSame(B2bPermission::values(), $invitation->permissions);
+        $this->assertSame([B2bPermission::ViewVehicles->value], $invitation->permissions);
 
-        $token = null;
-        Notification::assertSentOnDemand(
-            B2bInvitationNotification::class,
-            function (B2bInvitationNotification $notification) use (&$token, $administrator) {
-                $token = Str::afterLast((new \ReflectionProperty($notification, 'acceptUrl'))->getValue($notification), '/');
-
-                return (new \ReflectionProperty($notification, 'roleLabel'))->getValue($notification) === $administrator;
-            },
-        );
-
+        // The row holds a partial list; every surface reads it as the full
+        // administrator set, because an owner holds everything.
         $this->actingAs($owner)
             ->get(route('b2b.members.index'))
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->where('invitations.0.preset', B2bRolePreset::CompanyAdministrator->value)
                 ->where('invitations.0.preset_label', $administrator)
                 ->where('invitations.0.role_label', $administrator)
+                ->where('invitations.0.permissions', B2bPermission::values())
             );
 
         $this->app['auth']->guard()->logout();
         $this->app['auth']->forgetGuards();
 
         $this->get(route('b2b.invitations.show', $token))
-            ->assertInertia(fn (AssertableInertia $page) => $page->where('invitation.role_label', $administrator));
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('invitation.role_label', $administrator)
+                ->where('invitation.permissions', B2bPermission::values())
+            );
+
+        // A pre-existing owner invitation can still be resent, and the email
+        // names the administrator rather than the bare "Inhaber".
+        $this->actingAs($owner)
+            ->post(route('b2b.invitations.resend', $invitation->invitation_id))
+            ->assertSessionHasNoErrors();
+
+        Notification::assertSentOnDemand(
+            B2bInvitationNotification::class,
+            fn (B2bInvitationNotification $notification) => (new \ReflectionProperty($notification, 'roleLabel'))->getValue($notification) === $administrator,
+        );
     }
 
     /** An owner invitation stored with a partial list before this fix still reads as the administrator. */

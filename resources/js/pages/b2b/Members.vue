@@ -93,7 +93,12 @@ const memberBeingEdited = ref<B2bMemberRow | null>(null);
 
 const statusChanging = ref<number | null>(null);
 
-const ownerCount = computed(() => props.members.filter((member) => member.role === 'owner').length);
+/**
+ * Whether the company already has an active administrator. The server
+ * refuses a second one (B2bMembershipService::assertNoOtherActiveOwner);
+ * the invite/edit dialog mirrors that so the choice can't be made at all.
+ */
+const adminSlotTaken = computed(() => props.members.some((member) => member.role === 'owner' && member.status === 'active'));
 
 function openInvite() {
     accessModalMode.value = 'invite';
@@ -116,17 +121,13 @@ function canEdit(member: B2bMemberRow): boolean {
  * (B2bMembershipService), this just avoids offering an action that will fail.
  */
 
-
-
 function toggleMemberStatus(member: B2bMemberRow) {
     statusChanging.value = member.user_id;
 
     router.patch(
         route('b2b.members.status', member.user_id),
         {
-            status: member.status === 'active'
-                ? 'inactive'
-                : 'active',
+            status: member.status === 'active' ? 'inactive' : 'active',
         },
         {
             preserveScroll: true,
@@ -303,12 +304,7 @@ function roleChipClass(preset: B2bRolePresetValue | null): string {
 
                                     <td class="py-4 pr-4 align-middle">
                                         <span :class="[ROLE_CHIP_BASE, roleChipClass(member.preset)]">{{ member.preset_label }}</span>
-                                    <span
-    v-if="member.status !== 'active'"
-    class="text-destructive mt-1 block text-xs"
->
-    deaktiviert
-</span>
+                                        <span v-if="member.status !== 'active'" class="text-destructive mt-1 block text-xs"> deaktiviert </span>
                                     </td>
 
                                     <td class="text-muted-foreground py-4 pr-4 align-middle text-sm">{{ scopeLabel(member) }}</td>
@@ -330,18 +326,12 @@ function roleChipClass(preset: B2bRolePresetValue | null): string {
                                                     :disabled="!canEdit(member)"
                                                     @click="openEdit(member)"
                                                 />
-                                           <RowIconAction
-    :icon="member.status === 'active'
-        ? MdiCloseCircleOutline
-        : MdiAccountGroupOutline"
-
-    :label="member.status === 'active'
-        ? 'Deaktivieren'
-        : 'Aktivieren'"
-
-    :disabled="statusChanging === member.user_id"
-    @click="toggleMemberStatus(member)"
-/>
+                                                <RowIconAction
+                                                    :icon="member.status === 'active' ? MdiCloseCircleOutline : MdiAccountGroupOutline"
+                                                    :label="member.status === 'active' ? 'Deaktivieren' : 'Aktivieren'"
+                                                    :disabled="statusChanging === member.user_id"
+                                                    @click="toggleMemberStatus(member)"
+                                                />
                                             </div>
                                         </div>
                                     </td>
@@ -401,8 +391,6 @@ function roleChipClass(preset: B2bRolePresetValue | null): string {
                                                 <MdiCogOutline class="size-4" aria-hidden="true" />
                                                 Rechte
                                             </button>
-
-                                          
                                         </div>
                                     </div>
                                 </div>
@@ -499,7 +487,7 @@ function roleChipClass(preset: B2bRolePresetValue | null): string {
             :role-options="roleOptions"
             :vehicle-scope-options="vehicleScopeOptions"
             :can-assign-owner="can.assign_owner"
+            :admin-slot-taken="adminSlotTaken"
         />
-
     </AppLayout>
 </template>

@@ -232,6 +232,22 @@ class AppraisalExtractionTest extends TestCase
             ['chargeable_exceeds_original', 'low_confidence', 'duplicate_component', 'total_mismatch', 'vin_mismatch', 'unexpected_currency'],
             array_column($result->warnings, 'code'),
         );
+
+        // These land in the admin extraction card beside the German
+        // `GutachtenTotals` notes, so they have to be German too — an English
+        // "The VIN in the Gutachten ..." next to "Die FIN im Gutachten ..."
+        // is exactly the translation drift the QA report flagged.
+        $this->assertEqualsCanonicalizing(
+            [
+                'chargeable_exceeds_original' => 'Der berechenbare Betrag übersteigt den Gutachtenbetrag.',
+                'low_confidence' => 'Diese Position wurde mit geringer Sicherheit erkannt.',
+                'duplicate_component' => 'Dieses Bauteil kommt mehrfach vor.',
+                'total_mismatch' => 'Die erkannten Positionen ergeben in Summe 700.00, das Gutachten weist 900.00 aus.',
+                'vin_mismatch' => 'Die FIN im Gutachten weicht vom Fahrzeug ab.',
+                'unexpected_currency' => 'Das Gutachten ist in CHF ausgewiesen, nicht in EUR.',
+            ],
+            array_column($result->warnings, 'message', 'code'),
+        );
     }
 
     public function test_a_failing_parser_falls_back_to_the_ai_extractor(): void

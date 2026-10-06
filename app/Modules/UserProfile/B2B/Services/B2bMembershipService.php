@@ -52,12 +52,12 @@ class B2bMembershipService
             ->orderBy('ub.created_at')
             ->get([
                 'ub.user_id',
-'ub.role',
-'ub.permissions',
-'ub.vehicle_scope',
-'ub.status',
-'ub.joined_at',
-'u.name', 'u.email', 'u.is_active', 'inviter.email as invited_by_email',
+                'ub.role',
+                'ub.permissions',
+                'ub.vehicle_scope',
+                'ub.status',
+                'ub.joined_at',
+                'u.name', 'u.email', 'u.is_active', 'inviter.email as invited_by_email',
             ]);
 
         if ($rows->isEmpty()) {
@@ -87,25 +87,26 @@ class B2bMembershipService
                 : B2bPermissionSet::fromRaw($this->decodeJson($row->permissions));
             // Display only — the stored role/permissions remain the authority.
             $preset = B2bRolePreset::match($role, $permissions);
-return [
-    'user_id' => (int) $row->user_id,
-    'name' => $row->name,
-    'email' => $row->email,
-    'is_active' => (bool) $row->is_active,
-    'status' => $row->status,
-    'role' => $role->value,
-    'role_label' => B2bRolePreset::labelFor($role, $permissions),
-    'preset' => $preset?->value,
-    'preset_label' => B2bRolePreset::labelFor($role, $permissions),
-    'vehicle_scope' => $isOwner
-        ? B2bVehicleScope::All->value
-        : (B2bVehicleScope::tryFrom((string) $row->vehicle_scope)?->value ?? B2bVehicleScope::All->value),
-    'permissions' => $permissions->toArray(),
-    'joined_at' => $row->joined_at ? Carbon::parse($row->joined_at)->toISOString() : null,
-    'invited_by_email' => $row->invited_by_email,
-    'vehicle_count' => (int) ($vehicleCounts[$row->user_id] ?? 0),
-    'order_count' => (int) ($orderCounts[$row->user_id] ?? 0),
-];
+
+            return [
+                'user_id' => (int) $row->user_id,
+                'name' => $row->name,
+                'email' => $row->email,
+                'is_active' => (bool) $row->is_active,
+                'status' => $row->status,
+                'role' => $role->value,
+                'role_label' => B2bRolePreset::labelFor($role, $permissions),
+                'preset' => $preset?->value,
+                'preset_label' => B2bRolePreset::labelFor($role, $permissions),
+                'vehicle_scope' => $isOwner
+                    ? B2bVehicleScope::All->value
+                    : (B2bVehicleScope::tryFrom((string) $row->vehicle_scope)?->value ?? B2bVehicleScope::All->value),
+                'permissions' => $permissions->toArray(),
+                'joined_at' => $row->joined_at ? Carbon::parse($row->joined_at)->toISOString() : null,
+                'invited_by_email' => $row->invited_by_email,
+                'vehicle_count' => (int) ($vehicleCounts[$row->user_id] ?? 0),
+                'order_count' => (int) ($orderCounts[$row->user_id] ?? 0),
+            ];
         })->all();
     }
 
@@ -122,6 +123,10 @@ return [
         B2bVehicleScope $scope,
         ?int $invitedByUserId = null,
     ): void {
+        if ($role === B2bRole::Owner) {
+            $this->assertNoOtherActiveOwner($b2bId, $userId);
+        }
+
         DB::table('user_b2b')->insert([
             'user_id' => $userId,
             'b2b_id' => $b2bId,
@@ -163,22 +168,10 @@ return [
                 $this->assertNotLastOwner($actor->b2bId, $targetUserId);
             }
 
-
             if ($role === B2bRole::Owner) {
-    $existingOwner = DB::table('user_b2b')
-        ->where('b2b_id', $actor->b2bId)
-        ->where('role', B2bRole::Owner->value)
-        ->where('status', 'active')
-        ->where('user_id', '!=', $targetUserId)
-        ->exists();
+                $this->assertNoOtherActiveOwner($actor->b2bId, $targetUserId);
+            }
 
-    if ($existingOwner) {
-        $this->fail(
-            422,
-            'Dieses Unternehmen hat bereits einen Administrator.'
-        );
-    }
-}
             DB::table('user_b2b')
                 ->where('b2b_id', $actor->b2bId)
                 ->where('user_id', $targetUserId)
@@ -204,66 +197,79 @@ return [
      */
 
     /**
- * Activate/deactivate a company member without deleting their data.
- */
-public function updateMemberStatus(
-    B2bMembership $actor,
-    int $targetUserId,
-    string $status
-): void {
-    if (! in_array($status, ['active', 'inactive'], true)) {
-        $this->fail(422, 'Invalid member status.');
-    }
+     * Activate/deactivate a company member without deleting their data.
+     */
+    public function updateMemberStatus(
+        B2bMembership $actor,
+        int $targetUserId,
+        string $status
+    ): void {
+        if (! in_array($status, ['active', 'inactive'], true)) {
+            $this->fail(422, 'Invalid member status.');
+        }
 
-    if ($actor->userId === $targetUserId) {
-        $this->fail(422, 'Sie können Ihren eigenen Status nicht ändern.');
-    }
+        if ($actor->userId === $targetUserId) {
+            $this->fail(422, 'Sie können Ihren eigenen Status nicht ändern.');
+        }
 
-    DB::transaction(function () use ($actor, $targetUserId, $status) {
+        DB::transaction(function () use ($actor, $targetUserId, $status) {
 
-        $target = $this->lockedMembership(
-            $actor->b2bId,
-            $targetUserId
-        );
-
-        $targetRole = B2bRole::tryFrom((string) $target->role)
-            ?? B2bRole::Member;
-
-        // Do not allow removing the last owner.
-        if (
-            $targetRole === B2bRole::Owner
-            && $status === 'inactive'
-        ) {
-            $this->assertNotLastOwner(
+            $target = $this->lockedMembership(
                 $actor->b2bId,
                 $targetUserId
             );
-        }
 
-        DB::table('user_b2b')
-            ->where('b2b_id', $actor->b2bId)
-            ->where('user_id', $targetUserId)
-            ->update([
-                'status' => $status,
-                'updated_at' => now(),
-            ]);
+            $targetRole = B2bRole::tryFrom((string) $target->role)
+                ?? B2bRole::Member;
 
-        /*
-         * If a member is disabled, remove only their active company context.
-         * Do NOT touch other users.
-         */
-        if ($status === 'inactive') {
-            DB::table('users')
-                ->where('id', $targetUserId)
-                ->where('active_b2b_id', $actor->b2bId)
+            // The same authority rules as every other member mutation: a manager
+            // may not touch an owner, nor anyone whose rights they could not
+            // have granted themselves.
+            $this->assertWithinAuthority($actor, $target, $targetUserId);
+
+            // Reactivating an owner fills the administrator slot again — refused
+            // while another administrator is already active, exactly as
+            // promoting or inviting one is.
+            if ($status === 'active' && $targetRole === B2bRole::Owner) {
+                $this->assertNoOtherActiveOwner($actor->b2bId, $targetUserId);
+            }
+
+            // Do not allow removing the last owner.
+            if (
+                $targetRole === B2bRole::Owner
+                && $status === 'inactive'
+            ) {
+                $this->assertNotLastOwner(
+                    $actor->b2bId,
+                    $targetUserId
+                );
+            }
+
+            DB::table('user_b2b')
+                ->where('b2b_id', $actor->b2bId)
+                ->where('user_id', $targetUserId)
                 ->update([
-                    'active_b2b_id' => null,
+                    'status' => $status,
+                    'updated_at' => now(),
                 ]);
-        }
 
-        $this->context->forget($targetUserId);
-    });
-}
+            /*
+             * If a member is disabled, remove only their active company context.
+             * Do NOT touch other users.
+             */
+            if ($status === 'inactive') {
+                DB::table('users')
+                    ->where('id', $targetUserId)
+                    ->where('active_b2b_id', $actor->b2bId)
+                    ->update([
+                        'active_b2b_id' => null,
+                    ]);
+            }
+
+            $this->context->forget($targetUserId);
+        });
+    }
+
     public function removeMember(B2bMembership $actor, int $targetUserId): void
     {
         // Removing yourself from the team page would pull the page out from
@@ -303,27 +309,6 @@ public function updateMemberStatus(
             $this->context->forget($targetUserId);
         });
     }
-
-
-public function updateStatus(Request $request, int $userId): RedirectResponse
-{
-    $membership = $this->membership($request);
-
-    $request->validate([
-        'status' => ['required','in:active,inactive'],
-    ]);
-
-    $this->members->updateMemberStatus(
-        $membership,
-        $userId,
-        $request->string('status')->toString()
-    );
-
-    // Clear cached membership state
-    $this->context->forget($userId);
-
-    return back()->with('success', 'Mitgliedsstatus aktualisiert.');
-}
 
     /**
      * Leaving a company on your own initiative. Same last-owner guard.
@@ -419,6 +404,26 @@ public function updateStatus(Request $request, int $userId): RedirectResponse
 
         if ($remaining === 0) {
             $this->fail(422, 'Das Unternehmen muss mindestens einen Inhaber behalten.');
+        }
+    }
+
+    /**
+     * A company has at most one Company Administrator: refuse while another
+     * active owner already holds the slot. Shared by every path that writes
+     * B2bRole::Owner — promotion, invitation, invitation acceptance and status
+     * reactivation — so the invariant holds wherever the role comes from.
+     */
+    public function assertNoOtherActiveOwner(string $b2bId, ?int $exceptUserId = null): void
+    {
+        $slotTaken = DB::table('user_b2b')
+            ->where('b2b_id', $b2bId)
+            ->where('role', B2bRole::Owner->value)
+            ->where('status', 'active')
+            ->when($exceptUserId !== null, fn ($query) => $query->where('user_id', '!=', $exceptUserId))
+            ->exists();
+
+        if ($slotTaken) {
+            $this->fail(422, 'Dieses Unternehmen hat bereits einen Administrator.');
         }
     }
 

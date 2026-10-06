@@ -64,32 +64,32 @@ final class AppraisalProposalValidator
             $sum = bcadd($sum, $line->chargeableAmountNet ?? $line->originalAmountNet, 2);
 
             if ($line->chargeableAmountNet !== null && bccomp($line->chargeableAmountNet, $line->originalAmountNet, 2) === 1) {
-                $warnings[] = $this->warning('chargeable_exceeds_original', 'The chargeable amount is higher than the appraisal amount.', $index);
+                $warnings[] = $this->warning('chargeable_exceeds_original', 'Der berechenbare Betrag übersteigt den Gutachtenbetrag.', $index);
             }
 
             if ($line->confidence !== null && $line->confidence < self::LOW_CONFIDENCE_THRESHOLD) {
-                $warnings[] = $this->warning('low_confidence', 'This position was extracted with low confidence.', $index);
+                $warnings[] = $this->warning('low_confidence', 'Diese Position wurde mit geringer Sicherheit erkannt.', $index);
             }
 
             $key = mb_strtolower(trim($line->component));
 
             if (isset($seenComponents[$key])) {
-                $warnings[] = $this->warning('duplicate_component', 'This component appears more than once.', $index);
+                $warnings[] = $this->warning('duplicate_component', 'Dieses Bauteil kommt mehrfach vor.', $index);
             }
 
             $seenComponents[$key] = true;
         }
 
         if ($proposal->totalNet !== null && bccomp($sum, $proposal->totalNet, 2) !== 0) {
-            $warnings[] = $this->warning('total_mismatch', "The positions add up to {$sum}, the Gutachten states {$proposal->totalNet}.");
+            $warnings[] = $this->warning('total_mismatch', "Die erkannten Positionen ergeben in Summe {$sum}, das Gutachten weist {$proposal->totalNet} aus.");
         }
 
         if ($proposal->vin !== null && $vehicleVin !== null && $this->normalizeVin($proposal->vin) !== $this->normalizeVin($vehicleVin)) {
-            $warnings[] = $this->warning('vin_mismatch', 'The VIN in the Gutachten does not match the vehicle.');
+            $warnings[] = $this->warning('vin_mismatch', 'Die FIN im Gutachten weicht vom Fahrzeug ab.');
         }
 
         if ($proposal->currency !== null && strtoupper($proposal->currency) !== 'EUR') {
-            $warnings[] = $this->warning('unexpected_currency', "The Gutachten is stated in {$proposal->currency}, not EUR.");
+            $warnings[] = $this->warning('unexpected_currency', "Das Gutachten ist in {$proposal->currency} ausgewiesen, nicht in EUR.");
         }
 
         return $warnings;

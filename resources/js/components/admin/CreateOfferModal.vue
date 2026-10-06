@@ -80,6 +80,20 @@ const props = withDefaults(
 
 const isB2b = computed(() => props.vehicleBelongs === 'B2B');
 
+/**
+ * An offer's "Gültig bis" can only be today or later — the server enforces the
+ * same (RepairOfferService, `after_or_equal:today`). The native date input is
+ * given min so the picker disables past days instead of letting them be chosen
+ * and only rejected on submit.
+ */
+const minValidUntil = computed(() => {
+    const today = new Date();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+
+    return `${today.getFullYear()}-${month}-${day}`;
+});
+
 const emit = defineEmits<{ (e: 'update:open', value: boolean): void }>();
 
 /** Only a submitted quotation has prices to build an offer from. */
@@ -350,7 +364,14 @@ function submitFromQuotation() {
 
                 <div class="grid grid-cols-1 gap-x-4 gap-y-1 md:grid-cols-2">
                     <FormField v-slot="{ id, describedBy, invalid }" label="Gültig bis (optional)" :error="quotationForm.errors.valid_until">
-                        <Input :id="id" v-model="quotationForm.valid_until" type="date" :aria-invalid="invalid" :aria-describedby="describedBy" />
+                        <Input
+                            :id="id"
+                            v-model="quotationForm.valid_until"
+                            type="date"
+                            :min="minValidUntil"
+                            :aria-invalid="invalid"
+                            :aria-describedby="describedBy"
+                        />
                     </FormField>
 
                     <FormField
