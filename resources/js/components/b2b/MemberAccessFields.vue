@@ -37,6 +37,8 @@ const props = defineProps<{
     vehicleScopeOptions: SelectFieldOption[];
     /** Only an owner may hand out ownership — and so the administrator preset. */
     canAssignOwner: boolean;
+    /** The company already has an active administrator — one is the limit. */
+    ownerSlotTaken?: boolean;
     errors?: Record<string, string | undefined>;
     disabled?: boolean;
 }>();
@@ -51,13 +53,24 @@ const uid = useId();
 const isOwner = computed(() => props.modelValue.role === 'owner');
 const controlsDisabled = computed(() => props.disabled || isOwner.value);
 
-const availableRoles = computed(() => (props.canAssignOwner ? props.roleOptions : props.roleOptions.filter((option) => option.value !== 'owner')));
-
 /**
  * Handing out ownership is owner-only, server-side too — an administrator
- * preset offered to a non-owner would only earn them a 403.
+ * preset offered to a non-owner would only earn them a 403. Even for an
+ * owner, a second administrator is refused while one is active, so the
+ * preset is shown but closed rather than vanishing without explanation.
  */
+const ownerSlotTaken = computed(() => props.ownerSlotTaken === true);
+
+function isPresetLocked(preset: B2bRolePresetOption): boolean {
+    return preset.assigns_owner && ownerSlotTaken.value;
+}
+
 const availablePresets = computed(() => props.presets.filter((preset) => props.canAssignOwner || !preset.assigns_owner));
+
+/** The raw select offers "Inhaber" only when picking it would actually stick. */
+const showOwnerRole = computed(() => props.canAssignOwner && (!ownerSlotTaken.value || props.modelValue.role === 'owner'));
+
+const availableRoles = computed(() => (showOwnerRole.value ? props.roleOptions : props.roleOptions.filter((option) => option.value !== 'owner')));
 
 // Opened by default when the member already has a hand-picked set, so nobody
 // has to discover a disclosure to see why their rights look unfamiliar.
@@ -78,7 +91,7 @@ function patch(changes: Partial<B2bMemberAccessFormData>) {
 
 /** Selecting a preset replaces role and permissions together. */
 function selectPreset(preset: B2bRolePresetOption) {
-    if (props.disabled) {
+    if (props.disabled || isPresetLocked(preset)) {
         return;
     }
 
@@ -172,8 +185,9 @@ function dependenciesOf(permission: B2bPermissionValue): B2bPermissionValue[] {
                     :for="`${uid}-preset-${preset.value}`"
                     class="flex cursor-pointer items-start gap-3 rounded-xl border p-4 font-normal transition-colors"
                     :class="[
-                        isPresetSelected(preset.value) ? 'border-[#01b990] bg-[#01b990]/[0.06]' : 'border-gray-200 hover:border-[#01b990]/60',
-                        disabled ? 'cursor-not-allowed opacity-60' : '',
+                        isPresetSelected(preset.value) ? 'border-[#01b990] bg-[#01b990]/[0.06]' : 'border-gray-200',
+                        !isPresetSelected(preset.value) && !disabled && !isPresetLocked(preset) ? 'hover:border-[#01b990]/60' : '',
+                        disabled || isPresetLocked(preset) ? 'cursor-not-allowed opacity-60' : '',
                     ]"
                 >
                     <input
@@ -183,7 +197,7 @@ function dependenciesOf(permission: B2bPermissionValue): B2bPermissionValue[] {
                         :name="`${uid}-preset`"
                         :value="preset.value"
                         :checked="isPresetSelected(preset.value)"
-                        :disabled="disabled"
+                        :disabled="disabled || isPresetLocked(preset)"
                         @change="selectPreset(preset)"
                     />
 
@@ -200,6 +214,13 @@ function dependenciesOf(permission: B2bPermissionValue): B2bPermissionValue[] {
                         <span class="block text-[12px] leading-[1.45] text-gray-500">{{ preset.description }}</span>
                     </span>
                 </Label>
+
+                <p
+                    v-if="canAssignOwner && ownerSlotTaken"
+                    class="rounded-xl border border-gray-200 bg-[#f8faf9] px-4 py-3 text-[12px] leading-[1.45] text-gray-500"
+                >
+                    Dieses Unternehmen hat bereits einen Unternehmens-Administrator. Pro Unternehmen ist nur einer möglich.
+                </p>
 
                 <p
                     v-if="modelValue.preset === null"

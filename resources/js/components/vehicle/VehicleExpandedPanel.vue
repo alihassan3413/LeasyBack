@@ -588,6 +588,13 @@ const compareOpen = ref(false);
 const canCompareOffers = computed(() => rawOffers.value.length > 1);
 const acceptedOffer = computed(() => offersData.value.find((offer) => offer.accepted));
 
+/**
+ * Mirrors AdminOrderDetail.editable.offers and the OfferService::publishOffer
+ * guard: once an offer has been accepted *or* rejected, no further offer may
+ * be published — hide the button instead of letting the server 422 it.
+ */
+const offerEditingLocked = computed(() => offersData.value.some((offer) => offer.status === 'selected' || offer.status === 'rejected'));
+
 const pendingOfferId = ref<string | null>(null);
 const selectingOfferId = ref<string | null>(null);
 
@@ -603,7 +610,7 @@ function requestSelect(offerId: string) {
 
     const offer = offersData.value.find((candidate) => candidate.offerId === offerId);
 
-    if (props.admin && offer?.status !== 'published') {
+    if (offer?.status !== 'published') {
         return;
     }
 
@@ -615,7 +622,7 @@ function canSelect(offer: PanelOffer): boolean {
         return false;
     }
 
-    return props.admin ? offer.status === 'published' : true;
+    return offer.status === 'published';
 }
 
 function selectTitle(offer: PanelOffer): string {
@@ -1023,8 +1030,8 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                             :style="offerIndex > 0 ? 'border-color: #ececec' : ''"
                         >
                             <p v-if="offer.presentation.workshop_name" class="mb-3 text-[13px] font-bold" style="color: #2e3e3f">
-                                <template v-if="pendingPresentedOffers.length > 1">{{ offer.name }} · </template
-                                >Ausführende Werkstatt: {{ offer.presentation.workshop_name }}
+                                <template v-if="pendingPresentedOffers.length > 1">{{ offer.name }} · </template>Ausführende Werkstatt:
+                                {{ offer.presentation.workshop_name }}
                             </p>
 
                             <!--
@@ -1307,7 +1314,7 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                                     customer card's shape and rhythm are untouched. Indented
                                     to the pill's text column (16px padding + 24px radio + 16px gap).
                                 -->
-                            <div v-if="admin" class="flex items-center justify-between gap-3 pr-4 pl-14">
+                            <div v-if="admin || offer.status === 'rejected'" class="flex items-center justify-between gap-3 pr-4 pl-14">
                                 <span
                                     class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10.5px] font-bold"
                                     :style="offerStatusPill(offer.status)"
@@ -1318,7 +1325,7 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
 
                                 <div v-if="offer.status === 'draft' || offer.status === 'published'" class="flex items-center gap-1.5">
                                     <button
-                                        v-if="offer.status === 'draft'"
+                                        v-if="offer.status === 'draft' && !offerEditingLocked"
                                         type="button"
                                         class="rounded-full border border-[#01b990] px-3 py-1 text-[11px] font-bold text-[#01b990] transition-all hover:bg-[#01b990] hover:text-white disabled:opacity-40"
                                         :disabled="mutatingOfferId === offer.offerId"
@@ -1723,7 +1730,7 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
 
                             <div v-if="offer.status === 'draft' || offer.status === 'published'" class="flex items-center gap-1.5">
                                 <button
-                                    v-if="offer.status === 'draft'"
+                                    v-if="offer.status === 'draft' && !offerEditingLocked"
                                     type="button"
                                     class="rounded-full border border-[#01b990] px-3 py-1 text-[11px] font-bold text-[#01b990] disabled:opacity-40"
                                     :disabled="mutatingOfferId === offer.offerId"

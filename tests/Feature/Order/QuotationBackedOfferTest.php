@@ -597,6 +597,12 @@ class QuotationBackedOfferTest extends TestCase
      *
      * Both now resolve by status. If this ordering is ever changed, that is a
      * deliberate decision and this test is where it gets noticed.
+     *
+     * The scenario is set up with both offers already published and the
+     * rejection + acceptance on top of that: publishing a fresh offer after a
+     * rejection is refused (OfferService::publishOffer()'s guard), so the
+     * coexistence of a rejected and a selected offer can only come from an
+     * order that carried more than one offer at decision time.
      */
     public function test_a_rejected_offer_precedes_the_accepted_one_in_the_payload(): void
     {
@@ -604,11 +610,12 @@ class QuotationBackedOfferTest extends TestCase
         $owner = $this->ownerOf($order);
 
         $rejected = $this->publishOffer($order, $this->quotedBy($order, ['400.00'], 'Abgelehnt GmbH'));
+        $accepted = $this->publishOffer($order, $this->quotedBy($order, ['300.00'], 'Angenommen GmbH'));
+
         $this->actingAs($owner)->from('/dashboard')
             ->post(route('offers.reject', $rejected->offer_id))
             ->assertSessionHasNoErrors();
 
-        $accepted = $this->publishOffer($order, $this->quotedBy($order, ['300.00'], 'Angenommen GmbH'));
         $this->actingAs($owner)->from('/dashboard')
             ->post(route('offers.select', $accepted->offer_id))
             ->assertSessionHasNoErrors();

@@ -26,11 +26,21 @@ const props = defineProps<{
     roleOptions: SelectFieldOption[];
     vehicleScopeOptions: SelectFieldOption[];
     canAssignOwner: boolean;
+    /** The company already has an active administrator. */
+    adminSlotTaken?: boolean;
 }>();
 
 const emit = defineEmits<{ 'update:open': [value: boolean] }>();
 
 const isInvite = computed(() => props.mode === 'invite');
+
+/**
+ * A second administrator must not be created — but editing the existing one
+ * must stay possible (re-saving them creates no second admin, and the server
+ * skips the target in its check), so the slot only counts when someone else
+ * fills it.
+ */
+const ownerSlotTaken = computed(() => (props.adminSlotTaken ?? false) && props.member?.role !== 'owner');
 
 const form = useForm<B2bMemberAccessFormData & { email: string }>({
     email: '',
@@ -160,6 +170,7 @@ const description = computed(() =>
                 :role-options="roleOptions"
                 :vehicle-scope-options="vehicleScopeOptions"
                 :can-assign-owner="canAssignOwner"
+                :owner-slot-taken="ownerSlotTaken"
                 :errors="errors"
                 :disabled="form.processing"
                 @update:model-value="applyAccess"

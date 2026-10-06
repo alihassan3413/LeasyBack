@@ -108,13 +108,14 @@ class MemberController extends Controller
             'status' => ['required', 'in:active,inactive'],
         ]);
 
-        $this->members->updateMemberStatus(
-            $membership,
-            $userId,
-            $request->string('status')->toString()
-        );
-
-        return back()->with(
+        return $this->withServiceErrorHandling(
+            'member',
+            fn () => $this->members->updateMemberStatus(
+                $membership,
+                $userId,
+                $validated['status']
+            )
+        ) ?? back()->with(
             'success',
             'Mitgliedsstatus aktualisiert.'
         );

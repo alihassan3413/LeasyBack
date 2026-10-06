@@ -363,7 +363,6 @@ function stageHappened(stage: CustomerOrderStage, ctx: CustomerOrderFlowInput): 
     const offers = ctx.offers ?? [];
 
     switch (stage) {
-        
         case 'offers_published':
             return offers.length > 0;
         case 'offer_approved':
@@ -386,9 +385,7 @@ function offerApprovedSubtitle(offer: CustomerOrderOffer | null): string {
         return '';
     }
 
-    const reference = offer.offer_sequence
-        ? `Angebot ${String(offer.offer_sequence).padStart(2, '0')}`
-        : 'Ihr Angebot';
+    const reference = offer.offer_sequence ? `Angebot ${String(offer.offer_sequence).padStart(2, '0')}` : 'Ihr Angebot';
 
     const note = offer.additional_notes?.trim();
 
@@ -565,13 +562,10 @@ const B2B_TERMINAL_STATUSES = new Set(['cancelled', 'discarded']);
 function resolveB2bProgressIndex(
     status: string,
     relevantOffer: CustomerOrderOffer | null,
-    reportDocuments: ReadonlyArray<CustomerOrderReportDocument>
+    reportDocuments: ReadonlyArray<CustomerOrderReportDocument>,
 ): number | null {
     if (status === 'vehicle_collected' || status === 'inspected') {
-        const hasGutachten = !!findLatestDoc(
-            reportDocuments,
-            'gutachten'
-        );
+        const hasGutachten = !!findLatestDoc(reportDocuments, 'gutachten');
 
         if (!hasGutachten) {
             return 3; // vehicle_collected
@@ -589,6 +583,17 @@ function resolveB2bProgressIndex(
         if (relevantOffer?.offer_status === 'published') return 6;
 
         return 5;
+    }
+
+    // The same race exists at the end of the repair: the Gutachter's
+    // Nachgutachten can be uploaded and published before Admin explicitly
+    // transitions the order to `reinspection`, and without this check
+    // "Nachgutachten abgeschlossen" kept showing as the Next step even though
+    // the report was already sitting right there. Capped at its own rung, the
+    // way the initial appraisal is — a finished appraisal does not mean the
+    // vehicle was returned or billed.
+    if ((status === 'repair_completed' || status === 'reinspection') && findLatestDoc(reportDocuments, 'nachgutachten')) {
+        return 11; // final_appraisal
     }
 
     return B2B_STATUS_STAGE_INDEX[status] ?? null;
@@ -670,10 +675,8 @@ function b2bStageSubtitle(stage: B2bOrderStage, ctx: CustomerOrderFlowInput, rel
         }
         case 'approval_required':
             return isCurrent ? 'Bitte geben Sie ein Angebot Ihrer Wahl frei.' : '';
-       case 'repair_approved':
-    return relevantOffer?.offer_status === 'selected'
-        ? offerApprovedSubtitle(relevantOffer)
-        : '';
+        case 'repair_approved':
+            return relevantOffer?.offer_status === 'selected' ? offerApprovedSubtitle(relevantOffer) : '';
         case 'quotations_preparing': {
             if (!isCurrent) {
                 return '';
@@ -1101,11 +1104,10 @@ function getB2bOrderFlowSteps(ctx: CustomerOrderFlowInput): CustomerOrderFlowSte
     if (B2B_TERMINAL_STATUSES.has(status)) {
         const terminalEntry = ctx.statusHistory.find((entry) => entry.new_status === status);
         const priorStatus = (terminalEntry?.old_status ?? '').trim();
-        const priorIndex = Math.min(resolveB2bProgressIndex(
-    status,
-    relevantOffer,
-    ctx.reportDocuments ?? []
-) ?? 0, B2B_ORDER_STAGE_SEQUENCE.length - 1);
+        const priorIndex = Math.min(
+            resolveB2bProgressIndex(status, relevantOffer, ctx.reportDocuments ?? []) ?? 0,
+            B2B_ORDER_STAGE_SEQUENCE.length - 1,
+        );
         const isRejected = status === 'discarded';
         const terminalDate = terminalEntry?.created_at ?? '';
         const priorCtx: CustomerOrderFlowInput = { ...ctx, orderStatus: priorStatus };
@@ -1130,11 +1132,7 @@ function getB2bOrderFlowSteps(ctx: CustomerOrderFlowInput): CustomerOrderFlowSte
         });
     }
 
-    const progressIndex = resolveB2bProgressIndex(
-    status,
-    relevantOffer,
-    ctx.reportDocuments ?? []
-);
+    const progressIndex = resolveB2bProgressIndex(status, relevantOffer, ctx.reportDocuments ?? []);
 
     if (progressIndex === null) {
         return null;

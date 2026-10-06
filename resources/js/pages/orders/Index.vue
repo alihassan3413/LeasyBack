@@ -26,7 +26,6 @@ const props = defineProps<{
         model?: string;
         leasinggeber?: string;
         leasing_end?: string;
-        order_status?: string;
     };
 }>();
 
@@ -34,7 +33,6 @@ const search = ref(props.filters.search);
 const status = ref(props.filters.status);
 const make = ref(props.filters.make ?? '');
 const leasinggeber = ref(props.filters.leasinggeber ?? '');
-const orderStatus = ref(props.filters.order_status ?? '');
 
 const SCOPES = [
     { value: 'open', label: 'Laufend' },
@@ -52,7 +50,6 @@ function reload() {
             status: status.value || undefined,
             make: make.value || undefined,
             leasinggeber: leasinggeber.value || undefined,
-            order_status: orderStatus.value || undefined,
         },
         { preserveState: true, preserveScroll: true, replace: true, only: ['orders', 'filters'] },
     );
@@ -65,7 +62,6 @@ watch(search, () => debouncedReload());
 watch(status, () => reload());
 watch(make, () => reload());
 watch(leasinggeber, () => reload());
-watch(orderStatus, () => reload());
 
 function openOrder(order: CustomerOrderRow) {
     router.visit(route('orders.show', order.id));
@@ -136,15 +132,6 @@ function appointmentLabel(order: CustomerOrderRow): string {
                             <option value="BMW">BMW</option>
                             <option value="Mercedes">Mercedes</option>
                             <option value="Audi">Audi</option>
-                        </select>
-
-                        <select
-                            v-model="orderStatus"
-                            class="h-12 min-w-[160px] rounded-xl border border-gray-200 bg-white px-4 text-sm text-gray-700 shadow-sm outline-none focus:border-[#01B990]"
-                        >
-                            <option value="">All statuses</option>
-                            <option value="open">Ongoing</option>
-                            <option value="completed">Completed</option>
                         </select>
                     </div>
                 </div>

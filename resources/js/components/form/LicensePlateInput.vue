@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import RequiredMark from '@/components/form/RequiredMark.vue';
-import { normalizePlate, sanitizePlateNumber, toPlateUpperCase, validatePlateParts } from '@/lib/licensePlate';
+import { normalizePlate, sanitizePlateNumber, splitPlate, toPlateUpperCase, validatePlateParts } from '@/lib/licensePlate';
 import { computed, ref, useId, watch } from 'vue';
 
 const props = withDefaults(
@@ -16,7 +16,11 @@ const props = withDefaults(
     {
         label: 'Kennzeichen',
         required: true,
-        hint: '(Format: K LB 2026E)',
+        // Names every segment's full width, and spells out that the trailing
+        // "E" is optional rather than leaving it in the example — it is
+        // reserved for electric vehicles, so a default ending in "E" would
+        // read as though every plate had one.
+        hint: '(Format: ABC AB 1234, optional E für Elektrofahrzeuge)',
         disabled: false,
     },
 );
@@ -25,12 +29,6 @@ const emit = defineEmits<{ (e: 'update:modelValue', value: string): void }>();
 
 const autoId = useId();
 const fieldId = computed(() => props.id ?? autoId);
-
-function splitPlate(plate: string): [string, string, string] {
-    const parts = plate.trim().split(/\s+/).filter(Boolean);
-
-    return [parts[0] ?? '', parts[1] ?? '', parts[2] ?? ''];
-}
 
 const [initialCity, initialLetters, initialNumber] = splitPlate(props.modelValue);
 const city = ref(initialCity);
@@ -97,7 +95,7 @@ const segmentClass =
                     :value="city"
                     type="text"
                     :disabled="disabled"
-                    placeholder="K"
+                    placeholder="ABC"
                     maxlength="3"
                     aria-label="Unterscheidungszeichen"
                     :class="segmentClass"
@@ -115,7 +113,7 @@ const segmentClass =
                     :value="letters"
                     type="text"
                     :disabled="disabled"
-                    placeholder="LB"
+                    placeholder="AB"
                     maxlength="2"
                     aria-label="Erkennungszeichen"
                     :class="segmentClass"
@@ -128,7 +126,7 @@ const segmentClass =
                     :value="number"
                     type="text"
                     :disabled="disabled"
-                    placeholder="2026E"
+                    placeholder="1234"
                     maxlength="5"
                     aria-label="Erkennungsnummer"
                     :class="segmentClass"
@@ -137,7 +135,7 @@ const segmentClass =
             </div>
         </div>
 
-        <p v-for="message in errors" :key="message" class="text-xs text-red-500">
+        <p v-for="message in errors" :key="message" data-testid="plate-error" class="text-xs text-red-500">
             {{ message }}
         </p>
 

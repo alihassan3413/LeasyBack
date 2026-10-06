@@ -6,6 +6,7 @@ import type { OfferData } from '@/types/order';
 import { router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 import MdiCheck from '~icons/mdi/check';
+import MdiClose from '~icons/mdi/close';
 import MdiInformationOutline from '~icons/mdi/information-outline';
 import MdiTrendingDown from '~icons/mdi/trending-down';
 
@@ -66,7 +67,6 @@ const selectingOfferId = ref<string | null>(null);
 
 const sorted = computed(() => [...props.offers].sort((a, b) => a.offer_sequence - b.offer_sequence));
 const hasSelected = computed(() => props.offers.some((offer) => offer.offer_status === 'selected'));
-const selectedForDecision = ref<OfferData | null>(null);
 /**
  * "Günstigster" is advice about a decision the customer can still make, so it
  * is computed over the offers they could still choose — published, and not past
@@ -199,7 +199,7 @@ function confirmSelection() {
                             v-for="offer in sorted"
                             :key="offer.offer_id"
                             class="px-4 py-3 text-right align-bottom"
-                            :class="offer.offer_status === 'selected' ? 'bg-[#01B990]/[0.06]' : ''"
+                            :class="offer.offer_status === 'selected' ? 'bg-[#01B990]/[0.06]' : offer.offer_status === 'rejected' ? 'opacity-60' : ''"
                         >
                             <div class="flex flex-col items-end gap-1">
                                 <span class="text-[13px] font-bold text-[#10393b]">Angebot {{ offer.offer_sequence }}</span>
@@ -212,6 +212,13 @@ function confirmSelection() {
                                 >
                                     <MdiCheck class="text-[11px]" />
                                     Angenommen
+                                </span>
+                                <span
+                                    v-else-if="offer.offer_status === 'rejected'"
+                                    class="mt-0.5 inline-flex items-center gap-1 rounded-full bg-[#dc2626]/10 px-2 py-0.5 text-[10px] font-bold text-[#991b1b]"
+                                >
+                                    <MdiClose class="text-[11px]" />
+                                    Abgelehnt
                                 </span>
                                 <span
                                     v-else-if="isBest(offer)"
@@ -232,7 +239,7 @@ function confirmSelection() {
                             v-for="offer in sorted"
                             :key="offer.offer_id"
                             class="px-4 py-2.5 text-right text-[13px] text-[#10393b] tabular-nums"
-                            :class="offer.offer_status === 'selected' ? 'bg-[#01B990]/[0.06]' : ''"
+                            :class="offer.offer_status === 'selected' ? 'bg-[#01B990]/[0.06]' : offer.offer_status === 'rejected' ? 'opacity-60' : ''"
                         >
                             {{ currency(rowAmount(offer, row)) }}
                         </td>
@@ -244,7 +251,7 @@ function confirmSelection() {
                             v-for="offer in sorted"
                             :key="offer.offer_id"
                             class="px-4 py-3.5 text-right"
-                            :class="offer.offer_status === 'selected' ? 'bg-[#01B990]/[0.06]' : ''"
+                            :class="offer.offer_status === 'selected' ? 'bg-[#01B990]/[0.06]' : offer.offer_status === 'rejected' ? 'opacity-60' : ''"
                         >
                             <span class="text-[16px] font-extrabold tabular-nums" :class="isBest(offer) ? 'text-[#01B990]' : 'text-[#10393b]'">
                                 {{ currency(displayedTotal(offer)) }}
@@ -261,7 +268,7 @@ function confirmSelection() {
                             v-for="offer in sorted"
                             :key="offer.offer_id"
                             class="px-4 py-3 text-right align-top text-[12px] leading-[1.45] text-[#00000080]"
-                            :class="offer.offer_status === 'selected' ? 'bg-[#01B990]/[0.06]' : ''"
+                            :class="offer.offer_status === 'selected' ? 'bg-[#01B990]/[0.06]' : offer.offer_status === 'rejected' ? 'opacity-60' : ''"
                         >
                             {{ offer.additional_notes || '—' }}
                         </td>

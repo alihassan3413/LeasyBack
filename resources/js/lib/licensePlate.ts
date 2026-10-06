@@ -5,23 +5,34 @@
 //   2. Erkennungszeichen (identification letters)        — 1–2 letters
 //   3. Erkennungsnummer (number, optional electric "E")  — 1–4 digits + optional final "E"
 //
-// Overall rule: the concatenated plate may contain at most 8 alphanumeric
+// Overall rule: the concatenated plate may contain at most 10 alphanumeric
 // characters (separators/spaces/hyphens never count — the three section values
-// hold no separators anyway).
+// hold no separators anyway). That is exactly the sum of what the three sections
+// accept: 3 + 2 + 5.
+//
+// The cap used to be 8, which contradicted this file's own per-section rules:
+// the number section reserves five characters for "four digits plus the electric
+// E", so a three-letter district could never be combined with an electric plate
+// ("SÜW AB 1234E"), and even the widest non-electric plate ("ABC AB 1234") was
+// rejected — while the inputs happily accepted the typing and only complained
+// afterwards. Three-letter districts are ordinary (BR, SÜW, WES, SG), so this
+// turned away real plates.
 //
 // These helpers only VALIDATE and (for casing) NORMALISE — they never silently
 // strip or truncate content, so invalid input surfaces a German error message
 // instead of disappearing.
 
-export const PLATE_MAX_TOTAL = 8;
+export const PLATE_MAX_TOTAL = 10;
 
+// Interpolated rather than written out, so the sentence cannot drift away from
+// the cap it reports.
 export const PLATE_MESSAGES = {
     city: 'Bitte geben Sie 1 bis 3 Buchstaben ein.',
     letters: 'Bitte geben Sie 1 bis 2 Buchstaben ein.',
     number: 'Bitte geben Sie 1 bis 4 Ziffern ein. Optional kann am Ende ein E stehen.',
     invalidE: 'Das E darf nur einmal und nur am Ende des Kennzeichens stehen.',
-    maxLength: 'Das Kennzeichen darf insgesamt höchstens 8 Zeichen enthalten.',
-} as const;
+    maxLength: `Das Kennzeichen darf insgesamt höchstens ${PLATE_MAX_TOTAL} Zeichen enthalten.`,
+};
 
 /** Upper-cases the value (lowercase → uppercase) without stripping anything. */
 export function toPlateUpperCase(value: string): string {
@@ -117,4 +128,28 @@ export function validatePlateParts(city: string, letters: string, number: string
  */
 export function normalizePlate(city: string, letters: string, number: string): string {
     return `${city} ${letters} ${number}`.replace(/\s+/g, ' ').trim().toUpperCase();
+}
+
+/**
+ * Split a stored plate back into its three sections — the inverse of
+ * {@link normalizePlate}.
+ *
+ * Accepts every separator the format is written with in the wild. The form
+ * normalises to spaces, but a plate can arrive from the Excel import holding
+ * whatever the sheet contained, and German plates are conventionally written
+ * with a hyphen between the district code and the letter code ("K-LB 2026").
+ * Splitting on whitespace alone would push "K-LB" into the first section and
+ * "2026" into the second, so both segments fail validation — on a field the
+ * customer cannot edit, because the plate is immutable after creation.
+ *
+ * Extras beyond three sections are dropped, matching what the three inputs can
+ * hold, so a malformed value shows the parts it does have rather than nothing.
+ */
+export function splitPlate(plate: string): [string, string, string] {
+    const parts = plate
+        .trim()
+        .split(/[\s-]+/)
+        .filter(Boolean);
+
+    return [parts[0] ?? '', parts[1] ?? '', parts[2] ?? ''];
 }
