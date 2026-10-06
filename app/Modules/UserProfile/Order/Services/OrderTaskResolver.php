@@ -56,6 +56,18 @@ class OrderTaskResolver
     /** `leasyback_orders.service_type` of an Überführung. */
     private const SERVICE_RELOCATION = 'ueberfuehrung';
 
+    /** `leasyback_orders.service_type` of an Unfallschaden. */
+    private const SERVICE_ACCIDENT_DAMAGE = 'unfallschaden';
+
+    /** leasyback_orders.service_type of a Gutachten. */
+    private const SERVICE_APPRAISAL = 'gutachten';
+
+    /** The Gutachten's final report card on the Admin order page. */
+    public const SECTION_APPRAISAL_REPORT = 'abschlussgutachten';
+
+    /** The Unfallschaden's final documentation card on the Admin order page. */
+    public const SECTION_FINAL_DOCUMENTS = 'abschlussdokumente';
+
     /**
      * How the card should carry out a task's primary action.
      *
@@ -244,6 +256,14 @@ class OrderTaskResolver
             'is_b2b' => $isB2b,
             // An Überführung walks its own two-step list (relocationDefinitions()).
             'is_relocation' => $isB2b && ($order['service_type'] ?? null) === self::SERVICE_RELOCATION,
+            // An Unfallschaden walks its own two-step list (accidentDamageDefinitions()).
+            'is_accident' => $isB2b && ($order['service_type'] ?? null) === self::SERVICE_ACCIDENT_DAMAGE,
+            // A Gutachten walks its own two-step list (appraisalDefinitions()).
+            'is_appraisal' => $isB2b && ($order['service_type'] ?? null) === self::SERVICE_APPRAISAL,
+            'confirmed_arrangement' => $order['collection']['confirmed_arrangement'] ?? null,
+            'final_document_count' => collect((array) ($order['attachments'] ?? []))
+                ->filter(fn ($file) => (((array) $file)['kind'] ?? null) === 'final_document')
+                ->count(),
             'status' => $status,
             'is_closed' => $isCancelled || $status === 'completed',
             'rank' => $ranks[$effectiveStatus] ?? 0,
@@ -310,6 +330,14 @@ class OrderTaskResolver
             return $this->relocationDefinitions($context);
         }
 
+        if ($context['is_accident']) {
+            return $this->accidentDamageDefinitions($context);
+        }
+
+        if ($context['is_appraisal']) {
+            return $this->appraisalDefinitions($context);
+        }
+
         return $context['is_b2b'] ? $this->b2bDefinitions($context) : $this->b2cDefinitions($context);
     }
 
@@ -362,6 +390,52 @@ class OrderTaskResolver
                 date: $context['transfer_protocol_saved_at'] ?? $context['confirmed_date'],
                 dateLabel: $context['transfer_protocol_saved_at'] !== null ? 'Gespeichert am' : 'Überführungstermin',
                 action: $this->inlineAction(self::SECTION_TRANSFER_PROTOCOL, 'Protokoll hinzufügen'),
+                priorityDate: $context['confirmed_date'],
+            ),
+        ];
+    }
+
+    /**
+     * The Unfallschaden (Accident Damage brief): operations arrange the next
+     * step — inspection, vehicle access or collection — which schedules the
+     * order, then add the final documentation and complete it. Both tasks stay
+     * green (traffic-light spec: no time-based escalation for this service).
+     *
+     * @param  array<string, mixed>  $context
+     * @return array<int, array<string, mixed>>
+     */
+    private function accidentDamageDefinitions(array $context): array
+    {
+        $rank = $context['rank'];
+        $scheduled = $rank >= 2;
+
+        return [
+            $this->definition(
+                key: 'accident_schedule_next_step',
+                title: 'Nächsten Schritt terminieren',
+                description: 'Der Unfallschaden ist gemeldet. Vereinbaren Sie Begutachtung, Fahrzeugzugang oder Abholung und tragen Sie Art und Datum ein — damit ist der Auftrag terminiert.',
+                section: self::SECTION_COLLECTION,
+                done: $scheduled,
+                open: ! $scheduled,
+                date: $context['created_at'],
+                dateLabel: 'Meldung eingegangen',
+                action: $this->inlineAction(self::SECTION_COLLECTION, 'Schritt eintragen'),
+                priorityDate: $context['created_at'],
+            ),
+            $this->definition(
+                key: 'accident_complete',
+                title: 'Abschlussdokumentation hinzufügen und abschließen',
+                description: $context['final_document_count'] > 0
+                    ? 'Die Abschlussdokumentation liegt vor. Schließen Sie den Auftrag ab — der Kunde sieht die Dokumente danach im Portal.'
+                    : 'Der nächste Schritt ist terminiert. Laden Sie die Abschlussdokumentation hoch und schließen Sie den Auftrag ab.',
+                section: self::SECTION_FINAL_DOCUMENTS,
+                done: $rank >= 11,
+                open: $scheduled && $rank < 11,
+                date: $context['confirmed_date'],
+                dateLabel: 'Termin',
+                action: $context['final_document_count'] > 0
+                    ? $this->statusAction($context['order_id'], 'completed', 'Auftrag abschließen')
+                    : $this->inlineAction(self::SECTION_FINAL_DOCUMENTS, 'Dokumente hochladen'),
                 priorityDate: $context['confirmed_date'],
             ),
         ];
@@ -1203,5 +1277,52 @@ class OrderTaskResolver
     private function rows(mixed $rows): Collection
     {
         return collect(is_iterable($rows) ? $rows : [])->map(fn (mixed $row) => (array) $row)->values();
+    }
+
+    /**
+     * The Gutachten (Vehicle Condition Appraisal): two timed Admin tasks, timed
+     * exactly like the Überführung's (OrderTaskPriorityResolver, by key).
+     *
+     * 1. Confirm the appointment — open from order receipt; its clock runs from
+     *    the order timestamp. Done once date and full time window are saved,
+     *    which is what moves the order to confirmed (SCHEDULED).
+     * 2. Add the final report — eligible once scheduled; its clock counts
+     *    calendar days from the appointment date. Uploading the report
+     *    completes the order, so no further task follows.
+     *
+     * @param  array<string, mixed>  $context
+     * @return array<int, array<string, mixed>>
+     */
+    private function appraisalDefinitions(array $context): array
+    {
+        $rank = $context['rank'];
+        $scheduled = $rank >= 2;
+
+        return [
+            $this->definition(
+                key: OrderTaskPriorityResolver::APPRAISAL_APPOINTMENT_TASK,
+                title: 'Gutachtentermin bestätigen',
+                description: 'Die Gutachtenanfrage ist eingegangen. Bestätigen Sie den Wunschtermin oder tragen Sie einen anderen Termin mit vollständigem Zeitfenster ein — damit ist das Gutachten terminiert.',
+                section: self::SECTION_COLLECTION,
+                done: $scheduled,
+                open: ! $scheduled,
+                date: $context['created_at'],
+                dateLabel: 'Auftrag eingegangen',
+                action: $this->inlineAction(self::SECTION_COLLECTION, 'Termin eintragen'),
+                priorityDate: $context['created_at'],
+            ),
+            $this->definition(
+                key: OrderTaskPriorityResolver::APPRAISAL_REPORT_TASK,
+                title: 'Abschlussgutachten hinzufügen',
+                description: 'Der Termin ist bestätigt. Laden Sie das Abschlussgutachten hoch — damit ist der Auftrag abgeschlossen und der Kunde sieht das Gutachten im Portal.',
+                section: self::SECTION_APPRAISAL_REPORT,
+                done: $rank >= 11,
+                open: $scheduled && $rank < 11,
+                date: $context['confirmed_date'],
+                dateLabel: 'Gutachtentermin',
+                action: $this->inlineAction(self::SECTION_APPRAISAL_REPORT, 'Gutachten hochladen'),
+                priorityDate: $context['confirmed_date'],
+            ),
+        ];
     }
 }

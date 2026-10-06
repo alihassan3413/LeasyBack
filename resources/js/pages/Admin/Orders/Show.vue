@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import AdminAccidentDocumentsCard from '@/components/admin/AdminAccidentDocumentsCard.vue';
 import AdminAppraisalExtractionCard from '@/components/admin/AdminAppraisalExtractionCard.vue';
 import AdminAppraisalPositionsCard from '@/components/admin/AdminAppraisalPositionsCard.vue';
+import AdminAppraisalReportCard from '@/components/admin/AdminAppraisalReportCard.vue';
+import AdminAppraisalScheduleCard from '@/components/admin/AdminAppraisalScheduleCard.vue';
 import AdminCollectionCard from '@/components/admin/AdminCollectionCard.vue';
 import AdminInvoiceCard from '@/components/admin/AdminInvoiceCard.vue';
 import AdminOffersCard from '@/components/admin/AdminOffersCard.vue';
@@ -19,9 +22,14 @@ import { useLiveUpdates } from '@/composables/useLiveUpdates';
 import AdminLayout from '@/layouts/AdminLayout.vue';
 import { getAdminDashboardStatus as getStatus } from '@/lib/adminStatus';
 import {
+    ACCIDENT_ARRANGEMENT_LABELS,
     formatRelocationAddress,
     getCustomerOrderFlowSteps,
     getCustomerOrderHeadline,
+    appraisalDetailRows,
+    type AppraisalDetails,
+    type AppraisalVehicle,
+    type AccidentDamageDetails,
     type RelocationContact,
     type RelocationDetails,
 } from '@/lib/customerOrderFlow';
@@ -30,6 +38,7 @@ import { serviceTitle } from '@/lib/services';
 import { toOrderTimelineEntries } from '@/lib/timeline';
 import { getOrderStatusLabel } from '@/lib/vehicleStatus';
 import type { AdminOrderDetail, AdminOrderTaskAction } from '@/types/admin';
+import type { OrderAttachmentData } from '@/types/order';
 import { Head, Link } from '@inertiajs/vue3';
 import { computed, nextTick, onMounted, ref } from 'vue';
 
@@ -61,7 +70,13 @@ const vehicleTitle = computed(() => [props.order.make, props.order.model].filter
  * every order reads as a Leasingrückgabe, exactly as before.
  */
 const serviceFields = computed(
-    () => props.order as AdminOrderDetail & { service_type?: string | null; request_payload?: RelocationDetails | null },
+    () =>
+        props.order as AdminOrderDetail & {
+            service_type?: string | null;
+            request_payload?: (RelocationDetails & AccidentDamageDetails & AppraisalDetails) | null;
+            attachments?: OrderAttachmentData[];
+            vehicles?: AppraisalVehicle[];
+        },
 );
 
 const serviceType = computed(() => serviceFields.value.service_type ?? null);
@@ -69,6 +84,76 @@ const serviceType = computed(() => serviceFields.value.service_type ?? null);
 const isRelocation = computed(() => serviceType.value === 'ueberfuehrung');
 
 const relocation = computed<RelocationDetails | null>(() => (isRelocation.value ? (serviceFields.value.request_payload ?? null) : null));
+
+/** Unfallschaden: the report form data, its files, and the three-status path. */
+const isAccident = computed(() => serviceType.value === 'unfallschaden');
+
+const accident = computed<AccidentDamageDetails | null>(() => (isAccident.value ? (serviceFields.value.request_payload ?? null) : null));
+
+const accidentAttachments = computed<OrderAttachmentData[]>(() => serviceFields.value.attachments ?? []);
+
+const accidentRows = computed(() => {
+    const a = accident.value;
+
+    if (!a) {
+        return [];
+    }
+
+    const arrangement = props.order.collection?.confirmed_arrangement;
+    const scheduledDate = props.order.collection?.confirmed_collection_date;
+
+    return [
+        { label: 'Fahrzeugstandort', value: formatRelocationAddress(a.vehicle_location) },
+        { label: 'Kontakt Standort', value: contactText(a.location_contact) },
+        { label: 'Rückführadresse', value: a.return_differs ? formatRelocationAddress(a.return_address) : 'wie Fahrzeugstandort' },
+        { label: 'Kontakt Rückführort', value: a.return_differs ? contactText(a.return_contact) : '' },
+        { label: 'Rechnungsadresse', value: [a.billing_address?.name, formatRelocationAddress(a.billing_address)].filter(Boolean).join(', ') },
+        { label: 'Kostenstelle', value: [a.cost_centre?.name, a.cost_centre?.number].filter(Boolean).join(' · ') },
+        {
+            label: 'Nächster Schritt',
+            value: [arrangement ? (ACCIDENT_ARRANGEMENT_LABELS[arrangement] ?? '') : '', scheduledDate ? formatDate(scheduledDate) : '']
+                .filter(Boolean)
+                .join(' am '),
+        },
+        { label: 'Hinweis', value: a.notes ?? '' },
+    ].filter((row) => !!row.value);
+});
+
+/** Final documents can be added while the order is not cancelled or discarded. */
+const accidentDocumentsEditable = computed(() => !['cancelled', 'discarded'].includes(props.order.order_status));
+
+/** Gutachten: one order for several vehicles, scheduled by date and time window, completed by its report. */
+const isAppraisal = computed(() => serviceType.value === 'gutachten');
+
+const appraisal = computed<AppraisalDetails | null>(() => (isAppraisal.value ? (serviceFields.value.request_payload ?? null) : null));
+
+/** Every vehicle of the order, from the server's own list; the booking snapshot is the fallback. */
+const appraisalVehicles = computed<AppraisalVehicle[]>(() => {
+    if (!isAppraisal.value) {
+        return [];
+    }
+
+    const listed = serviceFields.value.vehicles ?? [];
+
+    return listed.length ? listed : (appraisal.value?.vehicles ?? []);
+});
+
+const appraisalRows = computed(() => (appraisal.value ? appraisalDetailRows(appraisal.value, props.order.collection) : []));
+
+const appraisalReports = computed(() => (isAppraisal.value ? accidentAttachments.value.filter((file) => file.kind === 'final_document') : []));
+
+/** The customer's wish from the booking — what the appointment card offers to adopt. */
+const appraisalRequest = computed(() =>
+    appraisal.value
+        ? {
+              requested_date: appraisal.value.preferred_date ?? null,
+              time_from: appraisal.value.time_from ?? null,
+              time_to: appraisal.value.time_to ?? null,
+              pickup_requested: !!appraisal.value.pickup_requested,
+              return_transport: !!appraisal.value.return_transport,
+          }
+        : null,
+);
 
 /** The customer's wish from the booking — what the appointment card offers to adopt. */
 const relocationRequest = computed(() =>
@@ -151,6 +236,9 @@ const customerFlowSteps = computed(() =>
         audience: 'admin',
         serviceType: serviceType.value,
         relocation: relocation.value,
+        accident: accident.value,
+        appraisal: appraisal.value,
+        appraisalReportUrl: appraisalReports.value[0]?.url ?? null,
     }),
 );
 
@@ -316,6 +404,8 @@ function formatDateTime(value: string | null): string {
                     <p class="text-[10.5px] font-bold tracking-[0.12em] text-[#9bb0af] uppercase">
                         {{ order.user_type === 'Firmenkunde' ? 'Firmenkunde' : 'Privatkunde' }}
                         <template v-if="isRelocation"> · Überführung</template>
+                        <template v-if="isAccident"> · Unfallschaden</template>
+                        <template v-if="isAppraisal"> · Gutachten</template>
                     </p>
                     <h1 class="truncate text-[16px] leading-tight font-extrabold tracking-[-0.3px] text-[#10393b]">
                         {{ order.auftragsnummer }} · {{ order.license_plate }}
@@ -506,15 +596,97 @@ function formatDateTime(value: string | null): string {
                         </dl>
                     </div>
 
+                    <!-- Unfallschaden: what the customer reported. -->
+                    <div v-if="accidentRows.length" id="order-section-unfallschaden" class="content-card">
+                        <div class="mb-4">
+                            <h2 class="text-[17px] font-extrabold tracking-[-0.3px] text-[#10393b]">Unfallschaden</h2>
+                            <p class="mt-0.5 text-[12px] font-medium text-[#9bb0af]">Angaben aus der Meldung des Kunden</p>
+                        </div>
+
+                        <dl class="flex flex-col">
+                            <div
+                                v-for="row in accidentRows"
+                                :key="row.label"
+                                class="flex items-start justify-between gap-3 border-b border-[#f2f6f5] py-2 last:border-0"
+                            >
+                                <dt class="shrink-0 text-[12px] font-medium text-[#9bb0af]">{{ row.label }}</dt>
+                                <dd class="text-right text-[12.5px] font-bold text-[#10393b]">{{ row.value }}</dd>
+                            </div>
+                        </dl>
+                    </div>
+
+                    <!-- Gutachten: every vehicle of the order and what the customer booked. -->
+                    <div v-if="isAppraisal" id="order-section-gutachten" class="content-card">
+                        <div class="mb-4">
+                            <h2 class="text-[17px] font-extrabold tracking-[-0.3px] text-[#10393b]">Gutachten</h2>
+                            <p class="mt-0.5 text-[12px] font-medium text-[#9bb0af]">
+                                {{ appraisalVehicles.length }} {{ appraisalVehicles.length === 1 ? 'Fahrzeug' : 'Fahrzeuge' }} · Angaben aus der Buchung des
+                                Kunden
+                            </p>
+                        </div>
+
+                        <ul class="mb-3 flex flex-col gap-1">
+                            <li
+                                v-for="(item, index) in appraisalVehicles"
+                                :key="item.vehicle_id ?? index"
+                                class="flex items-baseline justify-between gap-3 rounded-[11px] bg-[#f6f9f8] px-3 py-2"
+                            >
+                                <span class="shrink-0 font-mono text-[12.5px] font-bold text-[#10393b]">{{ item.license_plate }}</span>
+                                <span class="truncate text-right text-[12px] text-[#6f8585]">
+                                    {{ [item.make, item.model, item.vin].filter(Boolean).join(' · ') }}
+                                </span>
+                            </li>
+                        </ul>
+
+                        <dl class="flex flex-col">
+                            <div
+                                v-for="row in appraisalRows"
+                                :key="row.label"
+                                class="flex items-start justify-between gap-3 border-b border-[#f2f6f5] py-2 last:border-0"
+                            >
+                                <dt class="shrink-0 text-[12px] font-medium text-[#9bb0af]">{{ row.label }}</dt>
+                                <dd class="text-right text-[12.5px] font-bold text-[#10393b]">{{ row.value }}</dd>
+                            </div>
+                        </dl>
+                    </div>
+
+                    <!-- Gutachten: the report that completes the order. -->
+                    <AdminAppraisalReportCard
+                        v-if="isAppraisal"
+                        id="order-section-abschlussgutachten"
+                        :order-id="order.id"
+                        :reports="appraisalReports"
+                        :order-status="order.order_status"
+                    />
+
+                    <AdminAccidentDocumentsCard
+                        v-if="isAccident"
+                        id="order-section-abschlussdokumente"
+                        :order-id="order.id"
+                        :attachments="accidentAttachments"
+                        :editable="accidentDocumentsEditable"
+                    />
+
                     <OrderMessages :order-id="order.id" :auftragsnummer="order.auftragsnummer" container-class="content-card overflow-hidden p-0" />
 
+                    <!-- Gutachten: its own appointment card — date, time window, inspection site, transport. -->
+                    <AdminAppraisalScheduleCard
+                        v-if="isAppraisal"
+                        id="order-section-abholung"
+                        :order-id="order.id"
+                        :collection="order.collection"
+                        :request="appraisalRequest"
+                        :editable="order.editable.collection"
+                    />
+
                     <AdminCollectionCard
-                        v-if="order.vehicle_belongs === 'B2B'"
+                        v-if="order.vehicle_belongs === 'B2B' && !isAppraisal"
                         id="order-section-abholung"
                         :order-id="order.id"
                         :collection="order.collection"
                         :editable="order.editable.collection"
                         :relocation="relocationRequest"
+                        :accident="isAccident"
                     />
 
                     <!-- Überführung: the protocol that completes the order. -->
@@ -549,7 +721,7 @@ function formatDateTime(value: string | null): string {
                         that were not the invoice.
                     -->
                     <AdminInvoiceCard
-                        v-if="order.vehicle_belongs === 'B2B' && order.billing && showBilling && !isRelocation"
+                        v-if="order.vehicle_belongs === 'B2B' && order.billing && showBilling && !isRelocation && !isAccident && !isAppraisal"
                         id="order-section-abrechnung"
                         :order-id="order.id"
                         :auftragsnummer="order.auftragsnummer"
@@ -687,7 +859,7 @@ function formatDateTime(value: string | null): string {
                     An Überführung has no appraisal, quotations or offers, so those
                     sections are left out for it.
                 -->
-                <template v-if="!isRelocation">
+                <template v-if="!isRelocation && !isAccident && !isAppraisal">
                     <AdminAppraisalExtractionCard
                         :order-id="order.id"
                         :extractions="order.appraisal_extractions"

@@ -97,11 +97,36 @@ class LeasybackOrder extends Model
                 ? null
                 : $model->vehicle_id;
         });
+
+        /*
+         * The same rule for the other vehicles of a multi-vehicle order
+         * (Vehicle Condition Appraisal): once the order closes, none of its
+         * vehicles holds an open slot any more. Runs after every save, so it
+         * follows TransitionOrderStatus's locked update exactly like the hook
+         * above. Orders without extra vehicles have no rows here; the update
+         * then touches nothing.
+         */
+        static::saved(function (self $model) {
+            if (in_array($model->order_status, OrderStatus::closedValues(), true)) {
+                OrderVehicle::where('order_id', $model->id)
+                    ->whereNotNull('active_vehicle_id')
+                    ->update(['active_vehicle_id' => null]);
+            }
+        });
     }
 
     public function vehicle(): BelongsTo
     {
         return $this->belongsTo(Vehicle::class, 'vehicle_id', 'vehicle_id');
+    }
+
+    /**
+     * Every vehicle of a multi-vehicle order, in the order they were selected.
+     * Empty for an order that only ever had its one `vehicle_id`.
+     */
+    public function orderVehicles(): HasMany
+    {
+        return $this->hasMany(OrderVehicle::class, 'order_id', 'id')->orderBy('position');
     }
 
     public function creator(): BelongsTo

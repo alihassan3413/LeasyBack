@@ -10,6 +10,7 @@ use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Order\Services\AppraisalExtractionService;
 use App\Modules\UserProfile\Order\Services\AppraisalPositionService;
+use App\Modules\UserProfile\Order\Services\AccidentDamageAttachmentService;
 use App\Modules\UserProfile\Order\Services\B2bBillingService;
 use App\Modules\UserProfile\Order\Services\B2bLexwareDraftService;
 use App\Modules\UserProfile\Order\Services\B2bOrderNoteService;
@@ -357,7 +358,7 @@ class AdminQueryService
 
     /** @return array{page:int,limit:int,start:?CarbonImmutable,end:?CarbonImmutable,status:?string} */
     /** The two services an order can belong to, as OrderService writes them. */
-    private const SERVICE_TYPES = [OrderService::SERVICE_LEASING_RETURN, OrderService::SERVICE_RELOCATION];
+       private const SERVICE_TYPES = [OrderService::SERVICE_LEASING_RETURN, OrderService::SERVICE_RELOCATION, OrderService::SERVICE_ACCIDENT_DAMAGE, OrderService::SERVICE_APPRAISAL];
 
     private function filters(Request $request): array
     {
@@ -687,9 +688,23 @@ class AdminQueryService
         // cost centre) is its request payload. Only a relocation's payload is
         // sent: a TÜV SÜD booking payload is a partner request, and older rows
         // of it may still carry credentials.
-        $order['request_payload'] = $order['service_type'] === self::RELOCATION_SERVICE_TYPE
+                $order['request_payload'] = in_array($order['service_type'], [self::RELOCATION_SERVICE_TYPE, OrderService::SERVICE_ACCIDENT_DAMAGE, OrderService::SERVICE_APPRAISAL], true)
             ? (json_decode((string) $row->request_payload, true) ?: null)
             : null;
+
+        // Unfallschaden: the customer's files and the final documentation (operations see both).
+        $order['attachments'] = in_array($order['service_type'], [OrderService::SERVICE_ACCIDENT_DAMAGE, OrderService::SERVICE_APPRAISAL], true)
+            ? (app(AccidentDamageAttachmentService::class)->forOrders([$orderId], [], true)[$orderId] ?? [])
+            : [];
+
+        // Gutachten: every vehicle of the order, in booking order. Empty for a single-vehicle order.
+        $order['vehicles'] = DB::table('leasyback_order_vehicles as ov')
+            ->join('vehicles as veh', 'veh.vehicle_id', '=', 'ov.vehicle_id')
+            ->where('ov.order_id', $orderId)
+            ->orderBy('ov.position')
+            ->get(['veh.vehicle_id', 'veh.license_plate', 'veh.make', 'veh.model', 'veh.vin'])
+            ->map(fn ($item) => (array) $item)
+            ->all();
 
         $order['offers'] = DB::table('leasyback_offers')
             ->where('order_id', $orderId)
@@ -997,10 +1012,10 @@ class AdminQueryService
     public function vehicles(Request $request, ?string $userType = null, int|string|null $userId = null, ?string $b2bId = null): array
     {
         $filters = $this->filters($request);
-        $base = DB::table('vehicles as v')
+          $base = DB::table('vehicles as v')
             ->leftJoin('leasyback_orders as o', function ($join) {
-                $join->on('o.vehicle_id', '=', 'v.vehicle_id')
-                    ->whereRaw('o.id = (SELECT latest.id FROM leasyback_orders latest WHERE latest.vehicle_id = v.vehicle_id ORDER BY latest.created_at DESC, latest.id DESC LIMIT 1)');
+                // The vehicle's newest order — its own, or a multi-vehicle order that lists it.
+                $join->whereRaw('o.id = (SELECT latest.id FROM leasyback_orders latest WHERE latest.vehicle_id = v.vehicle_id OR latest.id IN (SELECT lov.order_id FROM leasyback_order_vehicles lov WHERE lov.vehicle_id = v.vehicle_id) ORDER BY latest.created_at DESC, latest.id DESC LIMIT 1)');
             });
         $base->when($filters['start'], fn (Builder $q, $date) => $q->where('v.created_at', '>=', $date));
         $base->when($filters['end'], fn (Builder $q, $date) => $q->where('v.created_at', '<=', $date));
@@ -1037,8 +1052,8 @@ class AdminQueryService
     {
         $row = DB::table('vehicles as v')
             ->leftJoin('leasyback_orders as o', function ($join) {
-                $join->on('o.vehicle_id', '=', 'v.vehicle_id')
-                    ->whereRaw('o.id = (SELECT latest.id FROM leasyback_orders latest WHERE latest.vehicle_id = v.vehicle_id ORDER BY latest.created_at DESC, latest.id DESC LIMIT 1)');
+                // The vehicle's newest order — its own, or a multi-vehicle order that lists it.
+                $join->whereRaw('o.id = (SELECT latest.id FROM leasyback_orders latest WHERE latest.vehicle_id = v.vehicle_id OR latest.id IN (SELECT lov.order_id FROM leasyback_order_vehicles lov WHERE lov.vehicle_id = v.vehicle_id) ORDER BY latest.created_at DESC, latest.id DESC LIMIT 1)');
             })
             ->where('v.vehicle_id', $vehicleId)
             ->select([
@@ -1060,7 +1075,6 @@ class AdminQueryService
 
         return $vehicle === null ? null : $this->hydrateVehicleDetail($vehicle);
     }
-
     /**
      * Detail-page-only enrichment, deliberately kept out of the shared
      * enrichVehicles(): the vehicle *list* renders one row per vehicle and
@@ -1144,14 +1158,27 @@ class AdminQueryService
 
         $owners = $this->ownersForVehicles($rows);
         $vehicleIds = $rows->pluck('vehicle_id')->unique()->values();
+              // A multi-vehicle order (Vehicle Condition Appraisal) belongs to each
+        // of its vehicles, so it is loaded for, and listed under, every one.
+        $linkedVehicles = DB::table('leasyback_order_vehicles')->whereIn('vehicle_id', $vehicleIds)->get(['order_id', 'vehicle_id']);
+        $linkedByOrder = $linkedVehicles->groupBy('order_id');
+
         $rawHistory = DB::table('leasyback_orders as o')
             ->leftJoin('leasyback_order_confirmations as c', 'c.auftragsnummer', '=', 'o.auftragsnummer')
-            ->whereIn('o.vehicle_id', $vehicleIds)->orderByDesc('o.created_at')
+            ->where(fn (Builder $q) => $q->whereIn('o.vehicle_id', $vehicleIds)
+                ->orWhereIn('o.id', $linkedVehicles->pluck('order_id')->unique()->values()))
+            ->orderByDesc('o.created_at')
             ->get([
                 'o.vehicle_id', 'o.id', 'o.auftragsnummer', 'o.leasyback_partner',
                 'o.order_status', 'o.service_type', 'o.sent_at', 'o.created_at', 'o.response_status', 'o.response_body',
                 'c.confirmation_date',
-            ]);
+            ])
+            ->flatMap(fn (object $item) => collect([$item->vehicle_id])
+                ->merge($linkedByOrder->get($item->id, collect())->pluck('vehicle_id'))
+                ->unique()
+                ->intersect($vehicleIds)
+                ->map(fn ($vehicleId) => (object) [...(array) $item, 'vehicle_id' => $vehicleId])
+                ->values());
         // Whether "Dokumente abrufen" can do anything for this vehicle: it
         // needs a TÜV SÜD order whose response_body carries the
         // Gutachtennummer. The raw body is only read here and then dropped
@@ -1288,9 +1315,9 @@ class AdminQueryService
         $order = LeasybackOrder::find($orderId);
 
         // An Überführung follows its own, shorter B2B path.
-        $isRelocation = $order !== null && TransitionOrderStatus::isRelocationOrder($order);
+               $isShortPath = $order !== null && TransitionOrderStatus::isShortPathOrder($order);
 
-        $candidates = array_diff(TransitionOrderStatus::allowedNextStatuses($status, $isB2b, $isRelocation), $withheld);
+        $candidates = array_diff(TransitionOrderStatus::allowedNextStatuses($status, $isB2b, $isShortPath), $withheld);
 
         if ($candidates === []) {
             return [];

@@ -22,11 +22,10 @@ Route::middleware(['auth', 'active', 'verified'])->group(function () {
     Route::post('offers/{offerId}/select', [OfferController::class, 'select'])
         ->middleware('b2b.can:offers.select')->name('offers.select');
 
-  Route::post('offers/{offerId}/reject', [OfferController::class, 'reject'])
-    ->middleware('b2b.can:offers.select')
-    ->name('offers.reject');
+    Route::post('offers/{offerId}/reject', [OfferController::class, 'reject'])
+        ->middleware('b2b.can:offers.select')
+        ->name('offers.reject');
 
- 
     /*
      * One order in full, by its own id. Every reorder is a separate record
      * with its own Auftragsnummer, so a vehicle's past is a list of addresses
@@ -39,6 +38,17 @@ Route::middleware(['auth', 'active', 'verified'])->group(function () {
     Route::get('orders/{orderId}', [OrderController::class, 'show'])
         ->whereUuid('orderId')
         ->middleware('b2b.can:vehicles.view')->name('orders.show');
+
+    /*
+     * The confirmation page shown right after a booking (Unfallschaden).
+     * Same gate as the order page.
+     */
+    Route::get('orders/{orderId}/bestaetigung', [
+        \App\Modules\UserProfile\Order\Http\Controllers\OrderController::class,
+        'confirmation',
+    ])
+        ->whereUuid('orderId')
+        ->middleware('b2b.can:vehicles.view')->name('orders.confirmation');
 
     /*
      * Shared by the customer's vehicle page and Admin's order page — no
@@ -63,7 +73,7 @@ Route::middleware(['auth', 'active'])->group(function () {
         \App\Modules\UserProfile\Order\Http\Controllers\OrderController::class,
         'createB2bRelocationBatch',
     ])->name('orders.b2b.relocation.batch');
- 
+
     // One vehicle — kept for anything still posting to the per-vehicle URL.
     Route::post('/orders/b2b/relocation/{vehicleId}', [
         \App\Modules\UserProfile\Order\Http\Controllers\OrderController::class,
@@ -71,5 +81,20 @@ Route::middleware(['auth', 'active'])->group(function () {
     ])
         ->whereUuid('vehicleId')
         ->name('orders.b2b.relocation.store');
+
+    // Gutachten (Vehicle Condition Appraisal): one order for one or more vehicles.
+    Route::post('/orders/b2b/appraisal', [
+        \App\Modules\UserProfile\Order\Http\Controllers\OrderController::class,
+        'createVehicleAppraisal',
+    ])
+        ->middleware('b2b.can:orders.create')
+        ->name('orders.b2b.appraisal.store');
+
+    // Unfallschaden: exactly one vehicle, with optional files.
+    Route::post('/orders/b2b/accident-damage', [
+        \App\Modules\UserProfile\Order\Http\Controllers\OrderController::class,
+        'createAccidentDamage',
+    ])
+        ->middleware('b2b.can:orders.create')
+        ->name('orders.b2b.accident-damage.store');
 });
- 

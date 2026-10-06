@@ -6,6 +6,7 @@ import OfferComparison from '@/components/vehicle/OfferComparison.vue';
 import OrderCreationModal from '@/components/vehicle/OrderCreationModal.vue';
 import OrderHistoryList from '@/components/vehicle/OrderHistoryList.vue';
 import OrderProgress from '@/components/vehicle/OrderProgress.vue';
+import AppraisalOrderDetails from '@/components/vehicle/AppraisalOrderDetails.vue';
 import UploadDocumentModal from '@/components/vehicle/UploadDocumentModal.vue';
 import { useB2bPermissions } from '@/composables/useB2bPermissions';
 import { useLiveUpdates } from '@/composables/useLiveUpdates';
@@ -15,12 +16,14 @@ import {
     formatRelocationAddress,
     getCustomerOrderFlowSteps,
     newOrderAction,
+    type AppraisalDetails,
+    type AppraisalVehicle,
     type RelocationContact,
     type RelocationDetails,
 } from '@/lib/customerOrderFlow';
 import { formatPortalDate, formatPortalDateTime } from '@/lib/portalDate';
 import { getVehicleStatusDisplay } from '@/lib/vehicleStatus';
-import type { StationData } from '@/types/order';
+import type { OrderAttachmentData, StationData } from '@/types/order';
 import type { VehicleData } from '@/types/vehicle';
 import { Head, Link, router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
@@ -156,6 +159,8 @@ const steps = computed(() => {
         audience: 'customer',
         serviceType: order.service_type ?? null,
         relocation: relocation.value,
+        appraisal: appraisal.value,
+        appraisalReportUrl: appraisalReports.value[0]?.url ?? null,
     });
 });
 
@@ -168,6 +173,27 @@ const STATUS_TONE: Record<string, string> = {
 };
 
 const statusColor = computed(() => STATUS_TONE[status.value.variant] ?? STATUS_TONE.secondary);
+
+/** Gutachten: one order for several vehicles; the booking form data is in request_payload. */
+const isAppraisal = computed(() => currentOrder.value?.service_type === 'gutachten');
+
+const appraisal = computed<AppraisalDetails | null>(() =>
+    isAppraisal.value ? (currentOrder.value?.request_payload as unknown as AppraisalDetails | null) : null,
+);
+
+type AppraisalOrderExtras = { vehicles?: AppraisalVehicle[]; attachments?: OrderAttachmentData[] };
+
+const appraisalOrder = computed(() => (isAppraisal.value ? (currentOrder.value as unknown as AppraisalOrderExtras | null) : null));
+
+/** Every vehicle of the order, from the server's own list; the booking snapshot is the fallback. */
+const appraisalVehicles = computed<AppraisalVehicle[]>(() => {
+    const listed = appraisalOrder.value?.vehicles ?? [];
+
+    return listed.length ? listed : (appraisal.value?.vehicles ?? []);
+});
+
+/** The final report — the server sends it only once the order is completed. */
+const appraisalReports = computed(() => (appraisalOrder.value?.attachments ?? []).filter((file) => file.kind === 'final_document'));
 
 const specs = computed(() => [
     { label: 'Kennzeichen', value: props.vehicle.license_plate },
@@ -265,7 +291,7 @@ function formatDateTime(value: string | undefined): string {
 
             <div class="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_320px] lg:items-start">
                 <div class="flex flex-col gap-5">
-                    <OfferComparison :offers="offers" :vehicle-belongs="vehicle.vehicle_belongs" />
+                    <OfferComparison v-if="!isAppraisal" :offers="offers" :vehicle-belongs="vehicle.vehicle_belongs" />
 
                     <section class="overflow-hidden rounded-[16px] border border-[#e6eded] bg-white">
                         <header class="flex items-start justify-between gap-3 border-b border-[#f1f5f5] px-5 py-4">
@@ -433,6 +459,16 @@ function formatDateTime(value: string | undefined): string {
                             </div>
                         </dl>
                     </section>
+
+                    <!-- Gutachten: every vehicle of the order, the booking details and the final report. -->
+                    <AppraisalOrderDetails
+                        v-if="isAppraisal"
+                        :details="appraisal"
+                        :collection="currentOrder?.collection"
+                        :vehicles="appraisalVehicles"
+                        :reports="appraisalReports"
+                        :completed="currentOrder?.order_status === 'completed'"
+                    />
 
                     <section v-if="appointment" class="overflow-hidden rounded-[16px] border border-[#e6eded] bg-white">
                         <header class="border-b border-[#f1f5f5] px-5 py-4">

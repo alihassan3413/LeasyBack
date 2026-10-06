@@ -14,8 +14,9 @@ import MdiFileSearchOutline from '~icons/mdi/file-search-outline';
  * offers no catalogue, so every line here is written for a fleet customer.
  *
  * `bookable` services have a working order flow: Leasingrückgabe (the
- * dashboard's lead workflow) and Überführung. The rest stay `soon` until
- * their flow exists — never a card that looks pressable and then refuses.
+ * dashboard's lead workflow), Überführung and Unfallschaden. The rest stay
+ * `soon` until their flow exists — never a card that looks pressable and then
+ * refuses.
  *
  * Adding a service is an entry here and nothing else; promoting one is a
  * single field. No component holds its own list.
@@ -51,18 +52,18 @@ export const SERVICES: ServiceDefinition[] = [
         availability: 'bookable',
     },
     {
-        key: 'gutachten',
+             key: 'gutachten',
         title: 'Gutachten',
         summary: 'Zustandsbewertung durch zertifizierte Prüfer.',
         icon: MdiFileDocumentCheckOutline,
-        availability: 'soon',
+        availability: 'bookable',
     },
     {
         key: 'unfallschaden',
         title: 'Unfallschaden',
         summary: 'Schadenaufnahme und Abwicklung nach einem Unfall.',
         icon: MdiCarEmergency,
-        availability: 'soon',
+        availability: 'bookable',
     },
     {
         key: 'fahrzeuganfrage',

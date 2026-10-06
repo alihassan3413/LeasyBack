@@ -9,17 +9,25 @@ use App\Models\User;
 use App\Models\Vehicle;
 use App\Modules\PartnerApi\Services\PartnerWebhookEvents;
 use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
+use App\Modules\UserProfile\Order\Models\CompanyBillingAddress;
+use App\Modules\UserProfile\Order\Models\CompanyCostCentre;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
+use App\Modules\UserProfile\Order\Models\OrderAttachment;
+use App\Modules\UserProfile\Order\Models\OrderVehicle;
 use App\Modules\UserProfile\Vehicle\Services\VehicleService;
 use App\Services\Mail\OrderMailer;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use RuntimeException;
 use Throwable;
 
 /**
@@ -36,12 +44,32 @@ class OrderService
 
     public const B2B_RELOCATION_ORDER_TYPE = 'vehicle_relocation';
 
+    public const ACCIDENT_DAMAGE_ORDER_TYPE = 'accident_damage';
+
+    public const APPRAISAL_ORDER_TYPE = 'vehicle_appraisal';
+
     public const SERVICE_LEASING_RETURN = 'leasingrueckgabe';
 
     public const SERVICE_RELOCATION = 'ueberfuehrung';
 
+    public const SERVICE_ACCIDENT_DAMAGE = 'unfallschaden';
+
+    /** Vehicle Condition Appraisal ("Gutachten"): one order for one or more vehicles. */
+    public const SERVICE_APPRAISAL = 'gutachten';
+
+    /** Upper bound for one appraisal order. */
+    public const MAX_APPRAISAL_VEHICLES = 25;
+
     /** Upper bound for one multi-vehicle Überführung booking. */
     public const MAX_RELOCATION_VEHICLES = 25;
+
+    /** Accident Damage uploads: per file (KB, as Laravel's `max` rule reads it) and per order. */
+    public const MAX_ATTACHMENT_KB = 20480;
+
+    public const MAX_ATTACHMENTS = 10;
+
+    /** Form-only switches that steer saving, never stored on the order. */
+    private const ACCIDENT_FORM_FLAGS = ['save_billing_address', 'billing_address_default', 'save_cost_centre', 'vehicle_id', 'vehicle_ids', 'files'];
 
     public function __construct(
         private readonly VehicleService $vehicleService,
@@ -51,6 +79,307 @@ class OrderService
         private readonly OrderNumberGenerator $orderNumbers,
         private readonly PartnerWebhookEvents $webhooks,
     ) {}
+
+    /**
+     * Unfallschaden for exactly one vehicle (Accident Damage brief,
+     * 17 September 2026).
+     *
+     * The whole report lives in `request_payload`, marked with its own order
+     * type; the supporting files are stored on the `documents` disk and
+     * recorded in leasyback_order_attachments. Everything is written in one
+     * transaction, and files already stored are removed again if anything
+     * fails, so a failed submission leaves neither an order nor stray files.
+     *
+     * Duplicate submissions are refused by the same rule every order obeys:
+     * a vehicle with a running order cannot take another one.
+     *
+     * @param  array<string, mixed>  $details  validated form data
+     * @param  list<UploadedFile>  $files
+     */
+    public function createAccidentDamageOrder(Vehicle $vehicle, User $user, array $details, array $files = []): LeasybackOrder
+    {
+        if ($vehicle->vehicle_belongs !== 'B2B') {
+            $this->fail(422, 'accident damage orders are only available for B2B vehicles');
+        }
+
+        $this->assertVehicleIsFree($vehicle);
+
+        $this->rememberCompanyBillingAndCostCentre((string) $vehicle->b2b_id, $user, $details);
+
+        $payload = self::normaliseAccidentDamageDetails($details);
+        $auftragsnummer = $this->reserveOrderNumber($vehicle, $user);
+        $storedPaths = [];
+
+        try {
+            $order = DB::transaction(function () use ($vehicle, $user, $payload, $files, $auftragsnummer, &$storedPaths) {
+                $order = $this->insertOrder([
+                    'vehicle_id' => $vehicle->vehicle_id,
+                    'auftragsnummer' => $auftragsnummer,
+                    'leasyback_partner' => self::B2B_PARTNER,
+                    'order_status' => 'order_requested',
+                    'service_type' => self::SERVICE_ACCIDENT_DAMAGE,
+                    'request_payload' => [
+                        'order_type' => self::ACCIDENT_DAMAGE_ORDER_TYPE,
+                        ...$payload,
+                    ],
+                    'created_by_user_id' => $user->id,
+                ]);
+
+                foreach ($files as $file) {
+                    $extension = strtolower($file->getClientOriginalExtension() ?: 'bin');
+                    $path = $file->storeAs('accident-damage/'.$order->id, Str::uuid().'.'.$extension, OrderAttachment::DISK);
+
+                    if ($path === false) {
+                        throw new RuntimeException('An accident damage file could not be stored.');
+                    }
+
+                    $storedPaths[] = $path;
+
+                    OrderAttachment::create([
+                        'order_id' => $order->id,
+                        'auftragsnummer' => $order->auftragsnummer,
+                        'kind' => OrderAttachment::KIND_CUSTOMER_UPLOAD,
+                        'original_name' => $file->getClientOriginalName(),
+                        'path' => $path,
+                        'mime_type' => $file->getClientMimeType(),
+                        'size' => (int) $file->getSize(),
+                        'uploaded_by_user_id' => $user->id,
+                    ]);
+                }
+
+                $this->auditOrder($order, 'REQUEST_ACCIDENT_DAMAGE', null, [
+                    'order_status' => 'order_requested',
+                    'service_type' => self::SERVICE_ACCIDENT_DAMAGE,
+                    'attachments' => count($files),
+                ], $user->id);
+
+                return $order;
+            });
+        } catch (Throwable $e) {
+            foreach ($storedPaths as $path) {
+                Storage::disk(OrderAttachment::DISK)->delete($path);
+            }
+
+            throw $e;
+        }
+
+        // Customer confirmation and the operations team's notification
+        // (OrderMailer::orderCreated sends both).
+        $this->orderMailer->orderCreated($order, $vehicle);
+
+        return $order;
+    }
+
+    /**
+     * Vehicle Condition Appraisal (brief of 17 September 2026): ONE order with
+     * one order number for every selected vehicle.
+     *
+     * The first vehicle is stored on the order row, as for every order; all of
+     * them — the first included — are listed in leasyback_order_vehicles, which
+     * is what holds each one (VehicleService::blocksNewOrder()) and shows the
+     * order on each vehicle's page. Every vehicle is checked before anything is
+     * written, so a busy one refuses the whole booking and names it; the unique
+     * slot on leasyback_order_vehicles backs that up against a race.
+     *
+     * Location, logistics, leasing company and appointment are the same for
+     * all vehicles of the order (brief: "Keep the same vehicle location,
+     * logistics selection and appointment details for all vehicles").
+     *
+     * @param  list<Vehicle>  $vehicles
+     * @param  array<string, mixed>  $details  validated form data, without vehicle ids
+     */
+    public function createVehicleAppraisalOrder(array $vehicles, User $user, array $details): LeasybackOrder
+    {
+        if ($vehicles === []) {
+            throw ValidationException::withMessages(['vehicle_ids' => 'Bitte wählen Sie mindestens ein Fahrzeug.']);
+        }
+
+        foreach ($vehicles as $vehicle) {
+            if ($vehicle->vehicle_belongs !== 'B2B') {
+                throw ValidationException::withMessages([
+                    'vehicle_ids' => "Gutachten sind nur für Firmenfahrzeuge verfügbar ({$vehicle->license_plate}).",
+                ]);
+            }
+
+            if ($this->vehicleService->blocksNewOrder($vehicle->vehicle_id)) {
+                throw ValidationException::withMessages([
+                    'vehicle_ids' => "Für das Fahrzeug {$vehicle->license_plate} läuft bereits ein Auftrag.",
+                ]);
+            }
+        }
+
+        $first = $vehicles[0];
+
+        $this->rememberCompanyBillingAndCostCentre((string) $first->b2b_id, $user, $details);
+
+        $payload = self::normaliseAppraisalDetails($details);
+        $auftragsnummer = $this->reserveOrderNumber($first, $user);
+
+        try {
+            $order = DB::transaction(function () use ($vehicles, $first, $user, $payload, $auftragsnummer) {
+                $order = $this->insertOrder([
+                    'vehicle_id' => $first->vehicle_id,
+                    'auftragsnummer' => $auftragsnummer,
+                    'leasyback_partner' => self::B2B_PARTNER,
+                    'order_status' => 'order_requested',
+                    'service_type' => self::SERVICE_APPRAISAL,
+                    'request_payload' => [
+                        'order_type' => self::APPRAISAL_ORDER_TYPE,
+                        ...$payload,
+                        // A snapshot of what was selected, for every display of
+                        // the order; the live link is leasyback_order_vehicles.
+                        'vehicles' => array_map(fn (Vehicle $vehicle) => [
+                            'vehicle_id' => $vehicle->vehicle_id,
+                            'license_plate' => $vehicle->license_plate,
+                            'make' => $vehicle->make,
+                            'model' => $vehicle->model,
+                            'vin' => $vehicle->vin,
+                            'leasing_end_date' => VehicleService::asDateString($vehicle->leasing_end_date),
+                        ], $vehicles),
+                    ],
+                    'created_by_user_id' => $user->id,
+                ]);
+
+                foreach (array_values($vehicles) as $position => $vehicle) {
+                    OrderVehicle::create([
+                        'order_id' => $order->id,
+                        'vehicle_id' => $vehicle->vehicle_id,
+                        'position' => $position,
+                    ]);
+                }
+
+                $this->auditOrder($order, 'REQUEST_APPRAISAL', null, [
+                    'order_status' => 'order_requested',
+                    'service_type' => self::SERVICE_APPRAISAL,
+                    'vehicle_count' => count($vehicles),
+                ], $user->id);
+
+                return $order;
+            });
+        } catch (UniqueConstraintViolationException $e) {
+            // Two bookings raced for the same vehicle; the loser gets the
+            // ordinary refusal rather than a database error.
+            if (! str_contains($e->getMessage(), 'active_vehicle_id')) {
+                throw $e;
+            }
+
+            throw ValidationException::withMessages([
+                'vehicle_ids' => 'Eines der Fahrzeuge wurde gerade für einen anderen Auftrag gebucht.',
+            ]);
+        }
+
+        // Customer confirmation and the operations team's notification.
+        $this->orderMailer->orderCreated($order, $first);
+
+        return $order;
+    }
+
+    /**
+     * The stored shape of an appraisal order's details.
+     *
+     * - `time_from`/`time_to` are also written as `time_slot` ("08:00-12:00"),
+     *   like the Überführung.
+     * - Return transport only exists together with pickup (brief).
+     * - Empty optional blocks are null; the form's save switches are dropped.
+     *
+     * @param  array<string, mixed>  $details
+     * @return array<string, mixed>
+     */
+    public static function normaliseAppraisalDetails(array $details): array
+    {
+        $details = collect($details)->except(self::ACCIDENT_FORM_FLAGS)->all();
+
+        if (! empty($details['time_from']) && ! empty($details['time_to'])) {
+            $details['time_slot'] = $details['time_from'].'-'.$details['time_to'];
+        }
+
+        $details['pickup_requested'] = (bool) ($details['pickup_requested'] ?? false);
+        $details['return_transport'] = $details['pickup_requested'] && (bool) ($details['return_transport'] ?? false);
+
+        foreach (['location_contact', 'cost_centre'] as $block) {
+            $values = collect((array) ($details[$block] ?? []))->filter(fn ($value) => filled($value));
+            $details[$block] = $values->isEmpty() ? null : $details[$block];
+        }
+
+        return $details;
+    }
+
+    /**
+     * The stored shape of an Unfallschaden report.
+     *
+     * - Without a different return location, no return address or contact is
+     *   kept — the vehicle comes back to where it is.
+     * - Empty optional blocks (contacts, cost centre) are stored as null.
+     * - The form's save switches are not part of the order.
+     *
+     * @param  array<string, mixed>  $details
+     * @return array<string, mixed>
+     */
+    public static function normaliseAccidentDamageDetails(array $details): array
+    {
+        $details = collect($details)->except(self::ACCIDENT_FORM_FLAGS)->all();
+        $details['return_differs'] = (bool) ($details['return_differs'] ?? false);
+
+        if (! $details['return_differs']) {
+            $details['return_address'] = null;
+            $details['return_contact'] = null;
+        }
+
+        foreach (['location_contact', 'return_contact', 'cost_centre'] as $block) {
+            $values = collect((array) ($details[$block] ?? []))->filter(fn ($value) => filled($value));
+            $details[$block] = $values->isEmpty() ? null : $details[$block];
+        }
+
+        return $details;
+    }
+
+    /**
+     * Saves the billing address and cost centre to the company account — but
+     * only when the customer explicitly asked for it. Editing an address for
+     * one order never changes a saved one (brief: "unless the customer
+     * explicitly saves it").
+     *
+     * @param  array<string, mixed>  $details
+     */
+    private function rememberCompanyBillingAndCostCentre(string $b2bId, User $user, array $details): void
+    {
+        if ($b2bId === '') {
+            return;
+        }
+
+        if (! empty($details['save_billing_address']) && ! empty($details['billing_address'])) {
+            $billing = (array) $details['billing_address'];
+            $makeDefault = ! empty($details['billing_address_default'])
+                || ! CompanyBillingAddress::where('b2b_id', $b2bId)->exists();
+
+            DB::transaction(function () use ($b2bId, $user, $billing, $makeDefault) {
+                if ($makeDefault) {
+                    CompanyBillingAddress::where('b2b_id', $b2bId)->update(['is_default' => false]);
+                }
+
+                CompanyBillingAddress::create([
+                    'b2b_id' => $b2bId,
+                    'name' => (string) ($billing['name'] ?? ''),
+                    'details' => collect($billing)->except('name')->all(),
+                    'is_default' => $makeDefault,
+                    'created_by_user_id' => $user->id,
+                ]);
+            });
+        }
+
+        $costCentre = (array) ($details['cost_centre'] ?? []);
+
+        if (! empty($details['save_cost_centre']) && filled($costCentre['name'] ?? null)) {
+            CompanyCostCentre::firstOrCreate(
+                [
+                    'b2b_id' => $b2bId,
+                    'name' => trim((string) $costCentre['name']),
+                    'number' => filled($costCentre['number'] ?? null) ? trim((string) $costCentre['number']) : null,
+                ],
+                ['created_by_user_id' => $user->id],
+            );
+        }
+    }
 
     /**
      * Book one Überführung per vehicle, all sharing the same booking details
@@ -549,8 +878,8 @@ class OrderService
      * from TÜV SÜD. TransitionOrderStatus still sends the single
      * customer-facing status notification it always does.
      *
-     * An Überführung is approved the same way: it is a LeasyBack-partner B2B
-     * order with no external booking either.
+     * An Überführung and an Unfallschaden are approved the same way: both are
+     * LeasyBack-partner B2B orders with no external booking either.
      */
     private function approveB2bCollectionOrder(LeasybackOrder $order, User $user, ?string $callerIp): LeasybackOrder
     {
@@ -576,7 +905,9 @@ class OrderService
      */
     private function isB2bCollectionOrder(LeasybackOrder $order): bool
     {
-        if (in_array(data_get($order->request_payload, 'order_type'), [self::B2B_ORDER_TYPE, self::B2B_RELOCATION_ORDER_TYPE], true)) {
+        $b2bOrderTypes = [self::B2B_ORDER_TYPE, self::B2B_RELOCATION_ORDER_TYPE, self::ACCIDENT_DAMAGE_ORDER_TYPE, self::APPRAISAL_ORDER_TYPE];
+
+        if (in_array(data_get($order->request_payload, 'order_type'), $b2bOrderTypes, true)) {
             return true;
         }
 

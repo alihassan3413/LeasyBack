@@ -2,7 +2,13 @@
 
 namespace App\Services\Mail;
 
+use App\Mail\Orders\AccidentDamageCompletedMail;
+use App\Mail\Orders\AccidentDamageRequestedMail;
+use App\Mail\Orders\AccidentDamageScheduledMail;
 use App\Mail\Orders\AppointmentConfirmedMail;
+use App\Mail\Orders\AppraisalCompletedMail;
+use App\Mail\Orders\AppraisalRequestedMail;
+use App\Mail\Orders\AppraisalScheduledMail;
 use App\Mail\Orders\AppointmentRequestedMail;
 use App\Mail\Orders\B2bCollectionRequestedMail;
 use App\Mail\Orders\B2bCollectionRescheduledMail;
@@ -39,6 +45,12 @@ class OrderMailer
 {
     /** `leasyback_orders.service_type` of an Überführung. */
     private const SERVICE_RELOCATION = 'ueberfuehrung';
+
+    /** `leasyback_orders.service_type` of an Unfallschaden. */
+    private const SERVICE_ACCIDENT_DAMAGE = 'unfallschaden';
+
+    /** `leasyback_orders.service_type` of a Vehicle Condition Appraisal. */
+    private const SERVICE_APPRAISAL = 'gutachten';
 
     /**
      * @var array<string, class-string<OrderEventMail>>
@@ -93,6 +105,29 @@ class OrderMailer
         'completed' => RelocationCompletedMail::class,
     ];
 
+    /**
+     * The Unfallschaden: REQUESTED → SCHEDULED → COMPLETED (Accident Damage
+     * brief). Statuses without an entry fall back to the generic update.
+     *
+     * @var array<string, class-string<OrderEventMail>>
+     */
+    private const ACCIDENT_DAMAGE_STATUS_MAILABLES = [
+        'order_requested' => AccidentDamageRequestedMail::class,
+        'confirmed' => AccidentDamageScheduledMail::class,
+        'completed' => AccidentDamageCompletedMail::class,
+    ];
+
+    /**
+     * The Vehicle Condition Appraisal: REQUESTED → SCHEDULED → COMPLETED.
+     *
+     * @var array<string, class-string<OrderEventMail>>
+     */
+    private const APPRAISAL_STATUS_MAILABLES = [
+        'order_requested' => AppraisalRequestedMail::class,
+        'confirmed' => AppraisalScheduledMail::class,
+        'completed' => AppraisalCompletedMail::class,
+    ];
+
     public function __construct(
         private readonly OrderEmailDataFactory $dataFactory,
         private readonly MailRecipientResolver $recipients,
@@ -110,6 +145,8 @@ class OrderMailer
 
         $customerMailable = match (true) {
             self::isRelocation($order) => RelocationRequestedMail::class,
+            self::isAccidentDamage($order) => AccidentDamageRequestedMail::class,
+            self::isAppraisal($order) => AppraisalRequestedMail::class,
             $vehicle?->vehicle_belongs === 'B2B' => B2bCollectionRequestedMail::class,
             $order->order_status === 'order_requested' => AppointmentRequestedMail::class,
             default => OrderCreatedCustomerMail::class,
@@ -124,6 +161,8 @@ class OrderMailer
 
         $mailables = match (true) {
             self::isRelocation($order) => self::RELOCATION_STATUS_MAILABLES,
+            self::isAccidentDamage($order) => self::ACCIDENT_DAMAGE_STATUS_MAILABLES,
+            self::isAppraisal($order) => self::APPRAISAL_STATUS_MAILABLES,
             $vehicle?->vehicle_belongs === 'B2B' => self::B2B_STATUS_MAILABLES,
             default => self::STATUS_MAILABLES,
         };
@@ -244,6 +283,22 @@ class OrderMailer
     private static function isRelocation(LeasybackOrder $order): bool
     {
         return $order->service_type === self::SERVICE_RELOCATION;
+    }
+
+    /**
+     * Read from the order's own `service_type`, never from the caller.
+     */
+    private static function isAccidentDamage(LeasybackOrder $order): bool
+    {
+        return $order->service_type === self::SERVICE_ACCIDENT_DAMAGE;
+    }
+
+    /**
+     * Read from the order's own `service_type`, never from the caller.
+     */
+    private static function isAppraisal(LeasybackOrder $order): bool
+    {
+        return $order->service_type === self::SERVICE_APPRAISAL;
     }
 
     /**

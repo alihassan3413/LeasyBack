@@ -6,7 +6,10 @@
 // biome-ignore lint: disable
 export {}
 declare global {
+  const ACCIDENT_ARRANGEMENT_LABELS: typeof import('../lib/customerOrderFlow').ACCIDENT_ARRANGEMENT_LABELS
+  const ACCIDENT_DAMAGE_STAGE_SEQUENCE: typeof import('../lib/customerOrderFlow').ACCIDENT_DAMAGE_STAGE_SEQUENCE
   const ADMIN_ORDER_STATUS_FILTERS: typeof import('../lib/adminStatus').ADMIN_ORDER_STATUS_FILTERS
+  const APPRAISAL_STAGE_SEQUENCE: typeof import('../lib/customerOrderFlow').APPRAISAL_STAGE_SEQUENCE
   const AVAILABILITY_LABELS: typeof import('../lib/services').AVAILABILITY_LABELS
   const B2B_ORDER_STAGE_SEQUENCE: typeof import('../lib/customerOrderFlow').B2B_ORDER_STAGE_SEQUENCE
   const BOOKABLE_SERVICE: typeof import('../lib/services').BOOKABLE_SERVICE
@@ -36,6 +39,7 @@ declare global {
   const VEHICLE_BRAND_OPTIONS: typeof import('../lib/vehicleBrands').VEHICLE_BRAND_OPTIONS
   const VEHICLE_STATUS_FILTER_OPTIONS: typeof import('../lib/vehicleStatus').VEHICLE_STATUS_FILTER_OPTIONS
   const VIN_LENGTH: typeof import('../lib/vin').VIN_LENGTH
+  const appraisalDetailRows: typeof import('../lib/customerOrderFlow').appraisalDetailRows
   const cancellationFeeSettled: typeof import('../lib/customerOrderFlow').cancellationFeeSettled
   const cn: typeof import('../lib/utils').cn
   const companyFormData: typeof import('../lib/company').companyFormData
@@ -203,7 +207,7 @@ declare global {
   export type { StatusPillStyle } from '../lib/adminStatus'
   import('../lib/adminStatus')
   // @ts-ignore
-  export type { CustomerOrderStage, RepairPaymentStage, CustomerOrderCancellationFee, CustomerOrderRepairPayment, B2bOrderStage, CustomerOrderFlowStep, CustomerOrderStatusHistoryEntry, CustomerOrderBesichtigungsort, CustomerOrderReportDocument, CustomerOrderOffer, CustomerOrderFlowInput, CustomerOrderCollection, RelocationStage, RelocationAddress, RelocationContact, RelocationDetails, NewOrderAction } from '../lib/customerOrderFlow'
+  export type { CustomerOrderStage, RepairPaymentStage, CustomerOrderCancellationFee, CustomerOrderRepairPayment, B2bOrderStage, CustomerOrderFlowStep, CustomerOrderStatusHistoryEntry, CustomerOrderBesichtigungsort, CustomerOrderReportDocument, CustomerOrderOffer, CustomerOrderFlowInput, CustomerOrderCollection, RelocationStage, RelocationAddress, RelocationContact, RelocationDetails, AccidentDamageStage, AccidentDamageDetails, AppraisalStage, AppraisalVehicle, AppraisalDetails, NewOrderAction } from '../lib/customerOrderFlow'
   import('../lib/customerOrderFlow')
   // @ts-ignore
   export type { ErrorIllustrationVariant, ErrorPageCopy } from '../lib/errorPages'
@@ -233,7 +237,10 @@ import { UnwrapRef } from 'vue'
 declare module 'vue' {
   interface GlobalComponents {}
   interface ComponentCustomProperties {
+    readonly ACCIDENT_ARRANGEMENT_LABELS: UnwrapRef<typeof import('../lib/customerOrderFlow')['ACCIDENT_ARRANGEMENT_LABELS']>
+    readonly ACCIDENT_DAMAGE_STAGE_SEQUENCE: UnwrapRef<typeof import('../lib/customerOrderFlow')['ACCIDENT_DAMAGE_STAGE_SEQUENCE']>
     readonly ADMIN_ORDER_STATUS_FILTERS: UnwrapRef<typeof import('../lib/adminStatus')['ADMIN_ORDER_STATUS_FILTERS']>
+    readonly APPRAISAL_STAGE_SEQUENCE: UnwrapRef<typeof import('../lib/customerOrderFlow')['APPRAISAL_STAGE_SEQUENCE']>
     readonly AVAILABILITY_LABELS: UnwrapRef<typeof import('../lib/services')['AVAILABILITY_LABELS']>
     readonly B2B_ORDER_STAGE_SEQUENCE: UnwrapRef<typeof import('../lib/customerOrderFlow')['B2B_ORDER_STAGE_SEQUENCE']>
     readonly BOOKABLE_SERVICE: UnwrapRef<typeof import('../lib/services')['BOOKABLE_SERVICE']>
@@ -263,6 +270,7 @@ declare module 'vue' {
     readonly VEHICLE_BRAND_OPTIONS: UnwrapRef<typeof import('../lib/vehicleBrands')['VEHICLE_BRAND_OPTIONS']>
     readonly VEHICLE_STATUS_FILTER_OPTIONS: UnwrapRef<typeof import('../lib/vehicleStatus')['VEHICLE_STATUS_FILTER_OPTIONS']>
     readonly VIN_LENGTH: UnwrapRef<typeof import('../lib/vin')['VIN_LENGTH']>
+    readonly appraisalDetailRows: UnwrapRef<typeof import('../lib/customerOrderFlow')['appraisalDetailRows']>
     readonly cancellationFeeSettled: UnwrapRef<typeof import('../lib/customerOrderFlow')['cancellationFeeSettled']>
     readonly cn: UnwrapRef<typeof import('../lib/utils')['cn']>
     readonly companyFormData: UnwrapRef<typeof import('../lib/company')['companyFormData']>

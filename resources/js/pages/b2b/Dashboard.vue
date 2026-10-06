@@ -2,6 +2,8 @@
 import FleetOverview from '@/components/b2b/FleetOverview.vue';
 import OnboardingModal from '@/components/dashboard/OnboardingModal.vue';
 import { Badge } from '@/components/ui/badge';
+import AccidentDamageOrderModal from '@/components/vehicle/AccidentDamageOrderModal.vue';
+import AppraisalOrderModal from '@/components/vehicle/AppraisalOrderModal.vue';
 import OrderCreationModal from '@/components/vehicle/OrderCreationModal.vue';
 import RelocationOrderModal from '@/components/vehicle/RelocationOrderModal.vue';
 import SelectVehicleModal from '@/components/vehicle/SelectVehicleModal.vue';
@@ -28,6 +30,14 @@ import { computed, ref } from 'vue';
  * Firmenkunde only. A Privatkunde's dashboard is their vehicle list, as it
  * has always been — see DashboardController.
  */
+interface AddressDetails {
+    street?: string | null;
+    number?: string | null;
+    zip_code?: string | null;
+    city?: string | null;
+    country?: string | null;
+}
+
 const props = defineProps<{
     bookableVehicles: BookableVehicleData[];
     /** The newest few processes — the full list lives on `orders.index`. */
@@ -48,13 +58,11 @@ const props = defineProps<{
     myOverview: { vehicles: number; active_orders: number; bookable_vehicles: number } | null;
     /** A few of the vehicles this member can reach, newest first. */
     myVehicles: VehicleData[];
-    /** Saved addresses and cost centres the Überführung form offers. */
+    /** Saved addresses, billing addresses and cost centres the service forms offer. */
     relocationOptions?: {
-        address_profiles: {
-            id: string;
-            profile_name: string;
-            details: { street?: string | null; number?: string | null; zip_code?: string | null; city?: string | null; country?: string | null } | null;
-        }[];
+        address_profiles: { id: string; profile_name: string; details: AddressDetails | null }[];
+        billing_addresses?: { id: string; name: string; details: AddressDetails | null; is_default: boolean }[];
+        saved_cost_centres?: { id: string; name: string; number: string | null }[];
         cost_centres: string[];
     };
 }>();
@@ -178,7 +186,16 @@ const orderVehicle = ref<BookableVehicleData | null>(null);
 const relocationModalOpen = ref(false);
 const relocationVehicles = ref<BookableVehicleData[]>([]);
 
-const isRelocationService = computed(() => activeService.value?.key === 'ueberfuehrung');
+/** Unfallschaden: exactly one vehicle, AccidentDamageOrderModal. */
+const accidentModalOpen = ref(false);
+const accidentVehicle = ref<BookableVehicleData | null>(null);
+
+/** Gutachten: one or more vehicles in ONE order, AppraisalOrderModal. */
+const appraisalModalOpen = ref(false);
+const appraisalVehicles = ref<BookableVehicleData[]>([]);
+
+/** The services whose picker allows several vehicles. */
+const isMultiVehicleService = computed(() => ['ueberfuehrung', 'gutachten'].includes(activeService.value?.key ?? ''));
 
 /** How many services the reader could actually start right now. */
 const bookableCount = computed(() => SERVICES.filter((service) => service.availability === 'bookable').length);
@@ -209,19 +226,38 @@ function startService(service: ServiceDefinition) {
     selectVehicleOpen.value = true;
 }
 
-/** Single-vehicle confirmation — the Leasingrückgabe flow. */
+/** Single-vehicle confirmation — Leasingrückgabe or Unfallschaden, by the service picked. */
 function onVehicleChosen(vehicle: BookableVehicleData) {
     selectVehicleOpen.value = false;
     relocationModalOpen.value = false;
+    orderModalOpen.value = false;
+    accidentModalOpen.value = false;
+
+    if (activeService.value?.key === 'unfallschaden') {
+        accidentVehicle.value = vehicle;
+        accidentModalOpen.value = true;
+
+        return;
+    }
 
     orderVehicle.value = vehicle;
     orderModalOpen.value = true;
 }
 
-/** Multi-vehicle confirmation — the Überführung flow. */
+/** Multi-vehicle confirmation — Überführung (one order per vehicle) or Gutachten (one order for all). */
 function onVehiclesChosen(vehicles: BookableVehicleData[]) {
     selectVehicleOpen.value = false;
     orderModalOpen.value = false;
+    accidentModalOpen.value = false;
+    relocationModalOpen.value = false;
+    appraisalModalOpen.value = false;
+
+    if (activeService.value?.key === 'gutachten') {
+        appraisalVehicles.value = vehicles;
+        appraisalModalOpen.value = true;
+
+        return;
+    }
 
     relocationVehicles.value = vehicles;
     relocationModalOpen.value = true;
@@ -454,7 +490,7 @@ function onOnboardingOpenChange(value: boolean) {
             v-model:open="selectVehicleOpen"
             :service="activeService"
             :vehicles="bookableVehicles"
-            :multiple="isRelocationService"
+            :multiple="isMultiVehicleService"
             @confirm="onVehicleChosen"
             @confirm-many="onVehiclesChosen"
         />
@@ -472,6 +508,26 @@ function onOnboardingOpenChange(value: boolean) {
             v-model:open="relocationModalOpen"
             :vehicles="relocationVehicles"
             :address-profiles="relocationOptions?.address_profiles ?? []"
+            :cost-centres="relocationOptions?.cost_centres ?? []"
+        />
+
+        <AccidentDamageOrderModal
+            v-if="accidentVehicle"
+            v-model:open="accidentModalOpen"
+            :vehicle="accidentVehicle"
+            :address-profiles="relocationOptions?.address_profiles ?? []"
+            :billing-addresses="relocationOptions?.billing_addresses ?? []"
+            :saved-cost-centres="relocationOptions?.saved_cost_centres ?? []"
+            :cost-centres="relocationOptions?.cost_centres ?? []"
+        />
+
+        <AppraisalOrderModal
+            v-if="appraisalVehicles.length"
+            v-model:open="appraisalModalOpen"
+            :vehicles="appraisalVehicles"
+            :address-profiles="relocationOptions?.address_profiles ?? []"
+            :billing-addresses="relocationOptions?.billing_addresses ?? []"
+            :saved-cost-centres="relocationOptions?.saved_cost_centres ?? []"
             :cost-centres="relocationOptions?.cost_centres ?? []"
         />
 

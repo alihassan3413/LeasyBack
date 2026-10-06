@@ -49,6 +49,16 @@ class OrderCollectionService
      */
     public const REPAIR_APPOINTMENT_STATUSES = ['workshop_commissioned', 'workshop', 'reworkshop'];
 
+    /**
+     * What operations arranged for an Unfallschaden (Accident Damage brief:
+     * "The inspection, vehicle access or collection has been arranged").
+     */
+    public const ACCIDENT_ARRANGEMENTS = [
+        'inspection' => 'Begutachtung vor Ort',
+        'vehicle_access' => 'Fahrzeugzugang',
+        'collection' => 'Abholung',
+    ];
+
     /** An Überführung time window must span at least this long — the customer form's rule. */
     public const RELOCATION_MIN_WINDOW_MINUTES = 120;
 
@@ -118,6 +128,12 @@ class OrderCollectionService
             'confirmed_collection_date' => ['nullable', 'date_format:Y-m-d'],
             'confirmed_time_from' => ['nullable', 'date_format:H:i'],
             'confirmed_time_to' => ['nullable', 'date_format:H:i'],
+            // Unfallschaden only: what was arranged.
+            'confirmed_arrangement' => ['nullable', 'string', 'in:'.implode(',', array_keys(self::ACCIDENT_ARRANGEMENTS))],
+            // Gutachten only: the inspection site and whether the transport there is arranged.
+            'inspection_site_name' => ['nullable', 'string', 'max:255'],
+            'inspection_site_address' => ['nullable', 'string', 'max:500'],
+            'transport_confirmed' => ['nullable', 'boolean'],
             'internal_note' => ['nullable', 'string', 'max:2000'],
             ...self::addressRules(),
         ];
@@ -316,6 +332,10 @@ class OrderCollectionService
 
         $order = $order->fresh() ?? $order;
         $isRelocation = TransitionOrderStatus::isRelocationOrder($order);
+        $isAccident = TransitionOrderStatus::isAccidentDamageOrder($order);
+        $isAppraisal = TransitionOrderStatus::isAppraisalOrder($order);
+        // Überführung and Gutachten are both scheduled by a date together with a full time window.
+        $needsTimeWindow = $isRelocation || $isAppraisal;
 
         if (! in_array($order->order_status, self::COLLECTION_EDITABLE_STATUSES, true)) {
             throw ValidationException::withMessages([
@@ -339,17 +359,31 @@ class OrderCollectionService
 
         // The Überführung's time window. Resolved before anything is written,
         // so a refused save changes nothing.
-        $slotSent = $isRelocation
+        $slotSent = $needsTimeWindow
             && (array_key_exists('confirmed_time_from', $validated) || array_key_exists('confirmed_time_to', $validated));
-        $confirmedSlot = $isRelocation
+        $confirmedSlot = $needsTimeWindow
             ? ($slotSent
                 ? $this->relocationTimeSlot($validated['confirmed_time_from'] ?? null, $validated['confirmed_time_to'] ?? null)
                 : $this->trimToNull($logistics?->confirmed_collection_time_slot ?? null))
             : null;
 
-        if ($isRelocation && $confirmedDate !== null && $confirmedSlot === null) {
+        if ($needsTimeWindow && $confirmedDate !== null && $confirmedSlot === null) {
             throw ValidationException::withMessages([
                 'confirmed_time_from' => 'Bitte geben Sie ein vollständiges Zeitfenster (von/bis) an.',
+            ]);
+        }
+
+        // Unfallschaden: scheduled by the kind of step together with its date.
+        $arrangementSent = $isAccident && array_key_exists('confirmed_arrangement', $validated);
+        $confirmedArrangement = $isAccident
+            ? ($arrangementSent
+                ? $this->trimToNull($validated['confirmed_arrangement'])
+                : $this->trimToNull($logistics?->confirmed_arrangement ?? null))
+            : null;
+
+        if ($isAccident && $confirmedDate !== null && $confirmedArrangement === null) {
+            throw ValidationException::withMessages([
+                'confirmed_arrangement' => 'Bitte wählen Sie, was vereinbart wurde (Begutachtung, Fahrzeugzugang oder Abholung).',
             ]);
         }
 
@@ -388,6 +422,34 @@ class OrderCollectionService
                 ->update(['confirmed_collection_time_slot' => $confirmedSlot]);
         }
 
+        if ($arrangementSent) {
+            DB::table('leasyback_order_logistics')
+                ->where('auftragsnummer', $order->auftragsnummer)
+                ->update(['confirmed_arrangement' => $confirmedArrangement]);
+        }
+
+        // Gutachten: where the inspection takes place and whether the transport
+        // there is arranged. Only the fields actually sent are written.
+        if ($isAppraisal) {
+            $site = [];
+
+            foreach (['inspection_site_name', 'inspection_site_address'] as $field) {
+                if (array_key_exists($field, $validated)) {
+                    $site[$field] = $this->trimToNull($validated[$field]);
+                }
+            }
+
+            if (array_key_exists('transport_confirmed', $validated)) {
+                $site['transport_confirmed'] = (bool) $validated['transport_confirmed'];
+            }
+
+            if ($site !== []) {
+                DB::table('leasyback_order_logistics')
+                    ->where('auftragsnummer', $order->auftragsnummer)
+                    ->update($site);
+            }
+        }
+
         $this->announceCollectionChange($order, $vehicle, $previousDate, $confirmedDate);
 
         if ($confirmedDate === null) {
@@ -398,7 +460,7 @@ class OrderCollectionService
 
         // The first confirmation is announced by the `confirmed` status mail.
         // A date that moves afterwards has no status change to carry it.
-        if ($previousDate !== null && $confirmedDate !== $previousDate) {
+        if (! $isAppraisal && $previousDate !== null && $confirmedDate !== $previousDate) {
             $this->orderMailer->collectionRescheduled($order->fresh() ?? $order, $vehicle);
         }
     }
@@ -529,6 +591,12 @@ class OrderCollectionService
                 'requested_collection_time_slot' => $row->requested_collection_time_slot,
                 // The Überführung's confirmed window; null for every other order.
                 'confirmed_collection_time_slot' => $row->confirmed_collection_time_slot,
+                // The Unfallschaden's arranged step (inspection / vehicle_access / collection).
+                'confirmed_arrangement' => $row->confirmed_arrangement ?? null,
+                // The Gutachten's inspection site and transport confirmation — logistics the customer sees too.
+                'inspection_site_name' => $row->inspection_site_name ?? null,
+                'inspection_site_address' => $row->inspection_site_address ?? null,
+                'transport_confirmed' => (bool) ($row->transport_confirmed ?? false),
                 // Customer-visible business dates (§11/§15), unlike
                 // `internal_note` below which stays gated on $includeInternal.
                 'confirmed_repair_start_date' => $row->confirmed_repair_start_date?->toDateString(),

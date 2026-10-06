@@ -19,6 +19,21 @@ class OrderTaskPriorityResolver
 
     public const RELOCATION_PROTOCOL_TASK = 'relocation_add_transfer_protocol';
 
+    /**
+     * The two timed Admin tasks of a Gutachten. Same two phases as the
+     * Überführung: elapsed hours since the order, then calendar days from the
+     * appointment date.
+     */
+    public const APPRAISAL_APPOINTMENT_TASK = 'appraisal_schedule_appointment';
+
+    public const APPRAISAL_REPORT_TASK = 'appraisal_add_report';
+
+    /**
+     * The Unfallschaden's Admin tasks. Traffic-light spec: "For now, all open
+     * Admin tasks stay green. No time-based escalation."
+     */
+    public const ACCIDENT_DAMAGE_TASKS = ['accident_schedule_next_step', 'accident_complete'];
+
     /** Phase 2 counts local calendar days in this zone, weekends and holidays included. */
     private const RELOCATION_TIMEZONE = 'Europe/Berlin';
 
@@ -53,11 +68,15 @@ class OrderTaskPriorityResolver
         // other B2B task stays untimed exactly as before.
         $key = (string) ($task['key'] ?? '');
 
-        if ($key === self::RELOCATION_APPOINTMENT_TASK) {
+        if ($key === self::RELOCATION_APPOINTMENT_TASK || $key === self::APPRAISAL_APPOINTMENT_TASK) {
             return self::elapsedHoursPriority($task['priority_date'] ?? null, $now ?? PortalTimestamp::now());
         }
 
-        if ($key === self::RELOCATION_PROTOCOL_TASK) {
+        if (in_array($key, self::ACCIDENT_DAMAGE_TASKS, true)) {
+            return TaskPriority::Green;
+        }
+
+        if ($key === self::RELOCATION_PROTOCOL_TASK || $key === self::APPRAISAL_REPORT_TASK) {
             return self::calendarDayPriority($task['priority_date'] ?? null, $now ?? PortalTimestamp::now());
         }
 

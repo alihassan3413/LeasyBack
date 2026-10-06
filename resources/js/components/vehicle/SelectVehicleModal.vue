@@ -194,6 +194,7 @@ const confirmLabel = computed(() => {
                                 {{ [vehicle.make, vehicle.model].filter(Boolean).join(' ') || '—' }}
                                 <template v-if="vehicle.leasing_end_date"> · Leasingende {{ formatPortalDate(vehicle.leasing_end_date) }} </template>
                             </span>
+                            <span v-if="vehicle.vin" class="text-muted-foreground block truncate font-mono text-[11px]">FIN {{ vehicle.vin }}</span>
                         </span>
                     </button>
                 </div>

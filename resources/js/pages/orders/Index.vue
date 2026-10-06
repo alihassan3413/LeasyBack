@@ -67,6 +67,27 @@ watch(make, () => reload());
 watch(leasinggeber, () => reload());
 watch(orderStatus, () => reload());
 
+/** A Gutachten order can cover several vehicles; its row then speaks for all of them. */
+type OrderListRow = CustomerOrderRow & { vehicle_count?: number };
+
+function vehicleCount(order: OrderListRow): number {
+    return order.vehicle_count ?? 1;
+}
+
+function vehicleTitle(order: OrderListRow): string {
+    return vehicleCount(order) > 1 ? vehicleCount(order) + ' Fahrzeuge' : order.license_plate;
+}
+
+function vehicleSubtitle(order: OrderListRow): string {
+    const others = vehicleCount(order) - 1;
+
+    if (others > 0) {
+        return order.license_plate + ' und ' + others + (others === 1 ? ' weiteres' : ' weitere');
+    }
+
+    return [order.make, order.model].filter(Boolean).join(' ') || '—';
+}
+
 function openOrder(order: CustomerOrderRow) {
     router.visit(route('orders.show', order.id));
 }
@@ -182,9 +203,9 @@ function appointmentLabel(order: CustomerOrderRow): string {
                                 <span class="text-muted-foreground block text-[12px]">{{ formatPortalDate(order.created_at) }}</span>
                             </TableCell>
                             <TableCell class="px-4">
-                                <span class="block text-[14px] text-gray-700">{{ order.license_plate }}</span>
+                                <span class="block text-[14px] text-gray-700">{{ vehicleTitle(order) }}</span>
                                 <span class="text-muted-foreground block truncate text-[12px]">
-                                    {{ [order.make, order.model].filter(Boolean).join(' ') || '—' }}
+                                    {{ vehicleSubtitle(order) }}
                                 </span>
                             </TableCell>
                             <TableCell class="px-4 text-[14px] text-gray-600">
@@ -217,9 +238,9 @@ function appointmentLabel(order: CustomerOrderRow): string {
                 >
                     <div class="flex items-start justify-between gap-3">
                         <div class="min-w-0">
-                            <span class="text-brand-teal block text-[15px] font-semibold">{{ order.license_plate }}</span>
+                            <span class="text-brand-teal block text-[15px] font-semibold">{{ vehicleTitle(order) }}</span>
                             <span class="text-muted-foreground block truncate text-[12.5px]">
-                                {{ [order.make, order.model].filter(Boolean).join(' ') || '—' }} · {{ serviceTitle(order.service_type) }}
+                                {{ vehicleSubtitle(order) }} · {{ serviceTitle(order.service_type) }}
                             </span>
                         </div>
                         <Badge :variant="getVehicleStatusDisplay(order.order_status).variant">

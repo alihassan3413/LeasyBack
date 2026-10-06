@@ -33,9 +33,19 @@ const props = defineProps<{
     editable: boolean;
     /** Set for an Überführung: the customer's wish from the booking. */
     relocation?: { requested_date: string | null; requested_time_slot: string | null } | null;
+    /** Set for an Unfallschaden: the card records what was arranged, and when. */
+    accident?: boolean;
 }>();
 
 const isRelocation = computed(() => !!props.relocation);
+const isAccident = computed(() => !!props.accident);
+
+/** Mirrors OrderCollectionService::ACCIDENT_ARRANGEMENTS. */
+const ARRANGEMENTS = [
+    { value: 'inspection', label: 'Begutachtung vor Ort' },
+    { value: 'vehicle_access', label: 'Fahrzeugzugang' },
+    { value: 'collection', label: 'Abholung' },
+];
 
 /* ── Time window (Überführung): 06:00–20:00 in half hours, at least 2 hours ── */
 const MIN_WINDOW_MINUTES = 120;
@@ -68,6 +78,7 @@ const form = useForm(() => ({
     confirmed_collection_date: props.collection?.confirmed_collection_date ?? '',
     confirmed_time_from: initialFrom,
     confirmed_time_to: initialTo,
+    confirmed_arrangement: props.collection?.confirmed_arrangement ?? '',
     internal_note: props.collection?.internal_note ?? '',
     collection_address: {
         street: props.collection?.collection_address?.street ?? '',
@@ -115,9 +126,11 @@ const canAdoptRequested = computed(() => {
     return form.confirmed_collection_date !== requestedDate.value || form.confirmed_time_from !== from || form.confirmed_time_to !== to;
 });
 
-/** An Überführung is only scheduled by date plus a complete window. */
+/** An Überführung is only scheduled by date plus a complete window; an Unfallschaden by date plus what was arranged. */
 const relocationIncomplete = computed(
-    () => isRelocation.value && (form.confirmed_collection_date === '' || form.confirmed_time_from === '' || form.confirmed_time_to === ''),
+    () =>
+        (isRelocation.value && (form.confirmed_collection_date === '' || form.confirmed_time_from === '' || form.confirmed_time_to === '')) ||
+        (isAccident.value && (form.confirmed_collection_date === '' || form.confirmed_arrangement === '')),
 );
 
 function formatDate(value: string | null): string {
@@ -144,15 +157,22 @@ function submit() {
     }
 
     form.transform((data) => {
+        if (isAccident.value) {
+            // The Unfallschaden's locations live in its report, not in this card.
+            const { collection_address: _address, confirmed_time_from: _from, confirmed_time_to: _to, ...rest } = data;
+
+            return rest;
+        }
+
         if (!isRelocation.value) {
-            // Unchanged for every other order: the time window is not sent.
-            const { confirmed_time_from: _from, confirmed_time_to: _to, ...rest } = data;
+            // Unchanged for every other order: the time window and arrangement are not sent.
+            const { confirmed_time_from: _from, confirmed_time_to: _to, confirmed_arrangement: _arrangement, ...rest } = data;
 
             return rest;
         }
 
         // The Überführung's addresses live in its booking, not in this card.
-        const { collection_address: _address, ...rest } = data;
+        const { collection_address: _address, confirmed_arrangement: _arrangement, ...rest } = data;
 
         return rest;
     }).patch(route('admin.orders.collection', props.orderId), { preserveScroll: true });
@@ -167,10 +187,16 @@ const selectClass = 'h-9 w-full rounded-md border border-[#e9efee] bg-transparen
             <span class="flex h-9 w-9 items-center justify-center rounded-[11px] bg-[#4FA3A6]/15 text-[#2c7a7d]">
                 <MdiTruckOutline class="size-[17px]" />
             </span>
-            <h2 class="text-[15px] font-extrabold tracking-[-0.3px] text-[#10393b]">{{ isRelocation ? 'Überführungstermin' : 'Abholung' }}</h2>
+            <h2 class="text-[15px] font-extrabold tracking-[-0.3px] text-[#10393b]">
+                {{ isAccident ? 'Nächster Schritt' : isRelocation ? 'Überführungstermin' : 'Abholung' }}
+            </h2>
         </div>
 
-        <dl class="mb-4 flex flex-col">
+        <p v-if="isAccident" class="mb-4 text-[12px] text-[#6f8585]">
+            Vereinbaren Sie Begutachtung, Fahrzeugzugang oder Abholung. Mit Art und Datum ist der Auftrag terminiert.
+        </p>
+
+        <dl v-if="!isAccident" class="mb-4 flex flex-col">
             <div class="flex items-center justify-between gap-3 border-b border-[#f2f6f5] py-2">
                 <dt class="text-[12px] font-medium text-[#9bb0af]">Wunschtermin Kunde</dt>
                 <dd class="text-[12.5px] font-bold text-[#10393b]">{{ formatDate(requestedDate) }}</dd>
@@ -195,8 +221,18 @@ const selectClass = 'h-9 w-full rounded-md border border-[#e9efee] bg-transparen
 
         <form class="flex flex-col gap-3" @submit.prevent="submit">
             <fieldset :disabled="!editable" class="flex min-w-0 flex-col gap-3">
+                <!-- Unfallschaden: what was arranged, required together with the date. -->
+                <div v-if="isAccident" class="flex flex-col gap-1">
+                    <label class="text-[12px] font-bold text-[#10393b]">Vereinbart</label>
+                    <select v-model="form.confirmed_arrangement" :class="selectClass">
+                        <option value="">Bitte wählen</option>
+                        <option v-for="option in ARRANGEMENTS" :key="option.value" :value="option.value">{{ option.label }}</option>
+                    </select>
+                    <InputError :message="(form.errors as Record<string, string>).confirmed_arrangement" />
+                </div>
+
                 <div class="flex flex-col gap-1">
-                    <label class="text-[12px] font-bold text-[#10393b]">{{ isRelocation ? 'Termin (Datum)' : 'Bestätigter Abholtermin' }}</label>
+                    <label class="text-[12px] font-bold text-[#10393b]">{{ isRelocation || isAccident ? 'Termin (Datum)' : 'Bestätigter Abholtermin' }}</label>
                     <CalendarDateField
                         v-model="form.confirmed_collection_date"
                         :disabled="!editable"
@@ -204,7 +240,7 @@ const selectClass = 'h-9 w-full rounded-md border border-[#e9efee] bg-transparen
                     />
                     <InputError :message="form.errors.confirmed_collection_date" />
                     <button
-                        v-if="editable && canAdoptRequested"
+                        v-if="editable && canAdoptRequested && !isAccident"
                         type="button"
                         class="self-start text-[11.5px] font-bold text-[#00856a] hover:opacity-70"
                         @click="adoptRequested"
@@ -238,7 +274,7 @@ const selectClass = 'h-9 w-full rounded-md border border-[#e9efee] bg-transparen
                     </p>
                 </div>
 
-                <div v-if="!isRelocation" class="grid grid-cols-2 gap-2">
+                <div v-if="!isRelocation && !isAccident" class="grid grid-cols-2 gap-2">
                     <div class="flex flex-col gap-1">
                         <label class="text-[12px] font-bold text-[#10393b]">Straße</label>
                         <Input v-model="form.collection_address.street" />
@@ -293,7 +329,7 @@ const selectClass = 'h-9 w-full rounded-md border border-[#e9efee] bg-transparen
                     :disabled="form.processing || relocationIncomplete"
                     class="self-end rounded-[13px] bg-[#10393b] px-4 py-2.5 text-[13px] font-bold text-white transition-all hover:opacity-90 disabled:opacity-50"
                 >
-                    {{ form.processing ? 'Speichert...' : isRelocation ? 'Termin speichern' : 'Abholung speichern' }}
+                    {{ form.processing ? 'Speichert...' : isRelocation || isAccident ? 'Termin speichern' : 'Abholung speichern' }}
                 </button>
             </fieldset>
         </form>

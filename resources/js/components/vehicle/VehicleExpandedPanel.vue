@@ -16,6 +16,9 @@ import {
     formatRelocationAddress,
     getCustomerOrderFlowSteps,
     getCustomerOrderHeadline,
+    appraisalDetailRows,
+    type AppraisalDetails,
+    type AppraisalVehicle,
     type RelocationContact,
     type RelocationDetails,
 } from '@/lib/customerOrderFlow';
@@ -23,7 +26,7 @@ import { formatPortalDate } from '@/lib/portalDate';
 import { toOrderTimelineEntries, type OrderTimelineEntry } from '@/lib/timeline';
 import { getOrderStatusLabel } from '@/lib/vehicleStatus';
 import type { SharedData } from '@/types';
-import type { B2bOfferPresentationData, B2bOfferPresentationLine, OfferData } from '@/types/order';
+import type { B2bOfferPresentationData, B2bOfferPresentationLine, OfferData, OrderAttachmentData } from '@/types/order';
 import type { VehicleCollectionAddress, VehicleData } from '@/types/vehicle';
 import { router, usePage } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
@@ -280,6 +283,29 @@ const paymentSetupOrder = computed(() => props.vehicle.orders.find((order) => or
 
 const paymentModalOpen = ref(false);
 
+/** Gutachten: one order for several vehicles; the booking form data is in request_payload. */
+const isAppraisal = computed(() => currentOrder.value?.service_type === 'gutachten');
+
+const appraisal = computed<AppraisalDetails | null>(() =>
+    isAppraisal.value ? (currentOrder.value?.request_payload as unknown as AppraisalDetails | null) : null,
+);
+
+type AppraisalOrderExtras = { vehicles?: AppraisalVehicle[]; attachments?: OrderAttachmentData[] };
+
+const appraisalOrder = computed(() => (isAppraisal.value ? (currentOrder.value as unknown as AppraisalOrderExtras | null) : null));
+
+/** Every vehicle of the order, from the server's own list; the booking snapshot is the fallback. */
+const appraisalVehicles = computed<AppraisalVehicle[]>(() => {
+    const listed = appraisalOrder.value?.vehicles ?? [];
+
+    return listed.length ? listed : (appraisal.value?.vehicles ?? []);
+});
+
+/** The final report — the server sends it only once the order is completed. */
+const appraisalReports = computed(() => (appraisalOrder.value?.attachments ?? []).filter((file) => file.kind === 'final_document'));
+
+const appraisalRows = computed(() => (appraisal.value ? appraisalDetailRows(appraisal.value, currentOrder.value?.collection ?? null) : []));
+
 function openPaymentSetup() {
     paymentModalOpen.value = true;
 }
@@ -390,6 +416,8 @@ const customerFlowSteps = computed(() => {
         audience: 'customer',
         serviceType: order.service_type ?? null,
         relocation: relocation.value,
+        appraisal: appraisal.value,
+        appraisalReportUrl: appraisalReports.value[0]?.url ?? null,
     });
 });
 
@@ -757,7 +785,7 @@ const orderNotes = computed(() => (isB2bVehicle.value ? (currentOrder.value?.not
 const hasCollectionData = computed(() => {
     const collection = orderCollection.value;
 
-    return !!collection && (!!collection.requested_collection_date || !!collection.confirmed_collection_date || !!collection.collection_address);
+    return !isAppraisal.value && !!collection && (!!collection.requested_collection_date || !!collection.confirmed_collection_date || !!collection.collection_address);
 });
 
 const collectionRows = computed(() => [
@@ -1178,7 +1206,7 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                     </template>
                 </div>
 
-                <div class="flex flex-col rounded-[16px] border bg-white" style="border-color: #ececec">
+                <div v-if="!isAppraisal" class="flex flex-col rounded-[16px] border bg-white" style="border-color: #ececec">
                     <div class="flex items-center justify-between gap-3 px-6 py-6">
                         <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">Angebote</p>
 
@@ -1395,6 +1423,66 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                             </div>
                         </template>
                         <p v-if="!relocationRows.length" class="py-4 text-[14px]" style="color: #8f9ba7">Keine Angaben vorhanden.</p>
+                    </div>
+                </div>
+
+                <div
+                    v-else-if="isAppraisal"
+                    class="relative flex w-full flex-col overflow-hidden rounded-3xl border bg-white"
+                    style="border-color: #ececec"
+                >
+                    <div class="px-6 pt-6">
+                        <p class="text-[16px] font-bold uppercase" style="color: #000">GUTACHTEN</p>
+                    </div>
+
+                    <div class="flex flex-col gap-0 px-6 pt-4 pb-6">
+                        <p class="text-[10px] font-medium uppercase" style="color: #8f9ba7; letter-spacing: 0.5px">
+                            {{ appraisalVehicles.length }} {{ appraisalVehicles.length === 1 ? 'Fahrzeug' : 'Fahrzeuge' }} in diesem Auftrag
+                        </p>
+                        <ul class="pt-2 pb-3">
+                            <li
+                                v-for="(item, index) in appraisalVehicles"
+                                :key="item.vehicle_id ?? index"
+                                class="flex items-baseline justify-between gap-3 py-1"
+                            >
+                                <span class="shrink-0 text-[14px] font-bold" style="color: #2e3e3f">{{ item.license_plate }}</span>
+                                <span class="truncate text-right text-[13px]" style="color: #64748b">
+                                    {{ [item.make, item.model].filter(Boolean).join(' ') }}
+                                </span>
+                            </li>
+                        </ul>
+
+                        <template v-for="row in appraisalRows" :key="row.label">
+                            <div class="h-px bg-gray-200"></div>
+                            <div class="flex items-start justify-between gap-4 py-4">
+                                <span class="shrink-0 text-[16px] font-normal" style="color: #64748b">{{ row.label }}</span>
+                                <span class="text-right text-[16px] font-semibold" style="color: #000">{{ row.value }}</span>
+                            </div>
+                        </template>
+
+                        <div class="h-px bg-gray-200"></div>
+                        <div class="pt-3">
+                            <p class="text-[16px] font-normal" style="color: #64748b">Abschlussgutachten</p>
+                            <p v-if="!appraisalReports.length" class="mt-1 text-[13px]" style="color: #8f9ba7">
+                                {{
+                                    currentOrder?.order_status === 'completed'
+                                        ? 'Für diesen Auftrag ist kein Gutachten hinterlegt.'
+                                        : 'Steht bereit, sobald der Auftrag abgeschlossen ist.'
+                                }}
+                            </p>
+                            <template v-for="file in appraisalReports" :key="file.id">
+                                <a
+                                    v-if="file.url"
+                                    :href="file.url"
+                                    target="_blank"
+                                    rel="noopener"
+                                    class="mt-2 flex items-center gap-2 text-[14px] font-semibold text-[#01b990] hover:opacity-70"
+                                >
+                                    <IconMdiFileDocumentOutline class="size-[18px] shrink-0" />
+                                    <span class="truncate">{{ file.original_name }}</span>
+                                </a>
+                            </template>
+                        </div>
                     </div>
                 </div>
 
@@ -1645,7 +1733,7 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
             </div>
         </div>
 
-        <div>
+        <div v-if="!isAppraisal">
             <div class="flex flex-col rounded-[16px] border bg-white" style="border-color: #ececec">
                 <div class="flex items-center justify-between gap-3 px-4 py-4">
                     <p class="text-[16px] font-bold uppercase" style="color: #2e3e3f">Angebote</p>
@@ -1832,6 +1920,62 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                     </div>
                 </template>
                 <p v-if="!relocationRows.length" class="py-3 text-[13px]" style="color: #8f9ba7">Keine Angaben vorhanden.</p>
+            </div>
+        </div>
+
+        <div v-else-if="isAppraisal" class="flex flex-col overflow-hidden rounded-3xl border bg-white" style="border-color: #ececec">
+            <div class="px-4 pt-4">
+                <p class="text-[16px] font-bold uppercase" style="color: #000">GUTACHTEN</p>
+            </div>
+
+            <div class="flex flex-col gap-0 px-4 pt-3 pb-4">
+                <p class="text-[10px] font-medium uppercase" style="color: #8f9ba7; letter-spacing: 0.5px">
+                    {{ appraisalVehicles.length }} {{ appraisalVehicles.length === 1 ? 'Fahrzeug' : 'Fahrzeuge' }} in diesem Auftrag
+                </p>
+                <ul class="pt-2 pb-3">
+                    <li
+                        v-for="(item, index) in appraisalVehicles"
+                        :key="item.vehicle_id ?? index"
+                        class="flex items-baseline justify-between gap-3 py-1"
+                    >
+                        <span class="shrink-0 text-[14px] font-bold" style="color: #2e3e3f">{{ item.license_plate }}</span>
+                        <span class="truncate text-right text-[13px]" style="color: #64748b">
+                            {{ [item.make, item.model].filter(Boolean).join(' ') }}
+                        </span>
+                    </li>
+                </ul>
+
+                <template v-for="row in appraisalRows" :key="row.label">
+                    <div class="h-px bg-gray-200"></div>
+                    <div class="flex items-start justify-between gap-3 py-3">
+                        <span class="shrink-0 text-[14px] font-normal" style="color: #64748b">{{ row.label }}</span>
+                        <span class="text-right text-[14px] font-semibold" style="color: #000">{{ row.value }}</span>
+                    </div>
+                </template>
+
+                <div class="h-px bg-gray-200"></div>
+                <div class="pt-3">
+                    <p class="text-[14px] font-normal" style="color: #64748b">Abschlussgutachten</p>
+                    <p v-if="!appraisalReports.length" class="mt-1 text-[13px]" style="color: #8f9ba7">
+                        {{
+                            currentOrder?.order_status === 'completed'
+                                ? 'Für diesen Auftrag ist kein Gutachten hinterlegt.'
+                                : 'Steht bereit, sobald der Auftrag abgeschlossen ist.'
+                        }}
+                    </p>
+                    <template v-for="file in appraisalReports" :key="file.id">
+                        <a
+                            v-if="file.url"
+                            :href="file.url"
+                            target="_blank"
+                            rel="noopener"
+                            class="mt-2 flex items-center gap-2 text-[14px] font-semibold text-[#01b990] hover:opacity-70"
+                        >
+                            <IconMdiFileDocumentOutline class="size-[18px] shrink-0" />
+                            <span class="truncate">{{ file.original_name }}</span>
+                        </a>
+                    </template>
+                </div>
             </div>
         </div>
 
