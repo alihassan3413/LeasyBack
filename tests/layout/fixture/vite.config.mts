@@ -35,6 +35,7 @@ export default defineConfig({
                 positions: path.resolve(import.meta.dirname, 'positions.html'),
                 extraction: path.resolve(import.meta.dirname, 'extraction.html'),
                 mfa: path.resolve(import.meta.dirname, 'mfa.html'),
+                'license-plate': path.resolve(import.meta.dirname, 'license-plate.html'),
                 relocation: path.resolve(import.meta.dirname, 'relocation.html'),
                 'additional-damage': path.resolve(import.meta.dirname, 'additional-damage.html'),
                 'document-actions': path.resolve(import.meta.dirname, 'document-actions.html'),
