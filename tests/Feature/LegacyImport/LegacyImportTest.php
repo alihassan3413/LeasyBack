@@ -5,9 +5,11 @@ namespace Tests\Feature\LegacyImport;
 use App\Models\LegacyImportMap;
 use App\Support\LegacyImport\ImportOptions;
 use Illuminate\Auth\Events\Registered;
+use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 class LegacyImportTest extends LegacyImportTestCase
 {
@@ -430,6 +432,72 @@ class LegacyImportTest extends LegacyImportTestCase
 
         $this->assertSame(1, $report->has('dokument', 'skipped', 'host_not_allowed'));
         Http::assertNotSent(fn ($request) => str_contains($request->url(), 'evil.example'));
+    }
+
+    public function test_the_allowed_document_hosts_are_exactly_base44_app_and_its_media_host(): void
+    {
+        $this->assertSame(['base44.app', 'media.base44.com'], config('legacy_import.document_hosts'));
+    }
+
+    public function test_a_base44_link_that_redirects_to_its_media_host_is_downloaded_and_verified(): void
+    {
+        $this->buildScenario();
+        $media = [];
+        Http::fake(function (Request $request) use (&$media) {
+            if (str_starts_with($request->url(), 'https://media.base44.com/')) {
+                $media[] = $request->url();
+
+                return Http::response('PDF-BYTES-11', 200, ['Content-Type' => 'application/pdf']);
+            }
+
+            return Http::response('', 302, ['Location' => 'https://media.base44.com/blob/'.md5($request->url()).'.bin']);
+        });
+
+        $report = $this->runImport(['companies', 'users', 'vehicles', 'orders', 'messages', 'documents']);
+
+        $number = $this->legacy('auftrag', $this->ids['o_return'])->payload['auftragsnummer'];
+        $this->assertSame(3, DB::table('vehicle_report_documents')->where('auftragsnummer', $number)->count(), 'every file arrived through the media host');
+        $this->assertCount(3, $media);
+        $this->assertSame(0, $report->has('dokument', 'failed'));
+
+        $document = $this->legacy('dokument', $this->ids['d_file']);
+        $this->assertSame(hash('sha256', 'PDF-BYTES-11'), $document->payload['sha256'], 'the checksum is still recorded');
+        $this->assertSame(12, $document->payload['size']);
+        $this->assertStringStartsWith('https://base44.app/', $document->payload['original_url'], 'the original link is what is recorded');
+        $this->assertSame(1, $report->has('dokument', 'warning', 'size_differs_from_source'), 'the source-size check still runs (source says 11, 12 arrived)');
+        Storage::disk('documents')->assertExists($document->payload['path']);
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function unrelatedRedirectTargets(): array
+    {
+        return [
+            'unrelated host' => ['https://evil.example/leak.pdf'],
+            'the parent domain' => ['https://base44.com/leak.pdf'],
+            'a lookalike suffix' => ['https://media.base44.com.evil.example/leak.pdf'],
+            'a lookalike prefix' => ['https://notmedia.base44.com/leak.pdf'],
+            'a lookalike without the dot' => ['https://evilbase44.app/leak.pdf'],
+            'a sibling subdomain' => ['https://cdn.base44.com/leak.pdf'],
+            'plain http to the media host' => ['http://media.base44.com/leak.pdf'],
+        ];
+    }
+
+    #[DataProvider('unrelatedRedirectTargets')]
+    public function test_a_redirect_to_any_unrelated_host_is_still_rejected(string $target): void
+    {
+        $this->buildScenario();
+        Http::fake(function (Request $request) use ($target) {
+            return str_starts_with($request->url(), $target) ? Http::response('LEAK', 200) : Http::response('', 302, ['Location' => $target]);
+        });
+
+        $report = $this->runImport(['companies', 'users', 'vehicles', 'orders', 'messages', 'documents']);
+
+        $this->assertSame(0, DB::table('vehicle_report_documents')->count(), 'nothing is stored');
+        $this->assertSame([], Storage::disk('documents')->allFiles());
+        $this->assertSame(3, $report->has('dokument', 'failed', 'download_error'));
+        Http::assertNotSent(fn (Request $request) => str_starts_with($request->url(), $target));
     }
 
     public function test_a_redirect_to_another_host_is_not_followed(): void
