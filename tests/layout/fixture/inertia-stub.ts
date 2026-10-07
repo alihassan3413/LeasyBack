@@ -82,8 +82,11 @@ export const Link: Component = {
     },
 };
 
+/** A fixture can hand the page its shared props by setting `window.__fixturePageProps` before mounting. */
 export function usePage() {
-    return reactive({ props: {}, url: '/', component: '', version: null });
+    const props = (window as unknown as { __fixturePageProps?: Record<string, unknown> }).__fixturePageProps ?? {};
+
+    return reactive({ props, url: '/', component: '', version: null });
 }
 
 export function usePoll() {

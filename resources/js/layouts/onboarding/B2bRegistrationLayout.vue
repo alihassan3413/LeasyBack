@@ -12,6 +12,8 @@ withDefaults(
         title: string;
         /** Label of the dashboard escape hatch in the top-right corner. */
         backLabel?: string;
+        /** Where the escape hatch leads; the dashboard unless the page knows better. */
+        backHref?: string;
     }>(),
     {
         backLabel: 'Später fertigstellen',
@@ -39,7 +41,7 @@ withDefaults(
         <div class="relative z-10 mx-auto flex min-h-dvh max-w-[720px] flex-col px-6 pt-12 pb-10 sm:pt-16">
             <div class="flex items-start justify-between gap-4">
                 <h1 class="text-2xl leading-tight font-bold text-white md:text-[32px]">{{ title }}</h1>
-                <Link :href="route('dashboard')" class="text-brand-orange mt-1 shrink-0 text-sm font-medium hover:underline">
+                <Link :href="backHref ?? route('dashboard')" class="text-brand-orange mt-1 shrink-0 text-sm font-medium hover:underline">
                     {{ backLabel }}
                 </Link>
             </div>

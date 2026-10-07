@@ -19,6 +19,16 @@ const page = usePage<SharedData>();
 
 const form = useForm<B2bRegistrationFormData>(companyFormData(null, page.props.auth.user?.email ?? ''));
 
+/*
+ * "Später fertigstellen" and "Jetzt überspringen" leave the form for Mein
+ * Konto, not the dashboard: the dashboard sends a Firmenkunde without a company
+ * straight back here (BuildsFleetPage::fleetAccessRedirect), so skipping to it
+ * kept the user on this page. Mein Konto is their home until a company exists
+ * and offers this form again ("Firmendaten hinterlegen"). Nothing is stored or
+ * marked done by skipping — the next visit to the dashboard asks again.
+ */
+const skipHref = route('profile.edit');
+
 function submit() {
     // Always multipart: the logo is a File, and the payload shape must not
     // change depending on whether the user happened to pick one.
@@ -29,7 +39,7 @@ function submit() {
 <template>
     <Head title="Firmenkunden - Registrierung" />
 
-    <B2bRegistrationLayout title="Firmenkunden - Registrierung" back-label="Später fertigstellen">
+    <B2bRegistrationLayout title="Firmenkunden - Registrierung" back-label="Später fertigstellen" :back-href="skipHref">
         <form novalidate class="space-y-6" @submit.prevent="submit">
             <InputError :message="form.errors.company" />
 
@@ -38,7 +48,7 @@ function submit() {
             <B2bAdminCard :form="form">
                 <template #actions>
                     <Link
-                        :href="route('dashboard')"
+                        :href="skipHref"
                         class="bg-brand-orange hover:bg-brand-orange/90 w-full rounded-[5px] px-8 py-2.5 text-center text-sm font-bold text-white transition sm:w-auto"
                     >
                         Jetzt überspringen
