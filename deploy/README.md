@@ -45,7 +45,7 @@ php8.4 /var/www/LeasyBack/artisan webpush:vapid  # VAPID keys for push notificat
 
 certbot --nginx -d leasyback.insuretechgurus.com --redirect --agree-tos -m you@insuretechgurus.com
 
-sudo -u deploy bash /var/www/LeasyBack/deploy/deploy.sh --seed
+sudo -u deploy bash /var/www/LeasyBack/deploy/deploy.sh --production --seed
 curl -I https://leasyback.insuretechgurus.com/up
 ```
 
@@ -56,41 +56,86 @@ resets the password back to whatever `.env` currently holds.
 
 ## 2. Every release after that
 
-```bash
-ssh deploy@172.105.74.98
-bash /var/www/LeasyBack/deploy/deploy.sh
-```
-
-Or in one line from your machine:
+`deploy.sh` needs a mode — there is no default, so a rehearsal can never be
+mistaken for production or the other way round:
 
 ```bash
-ssh deploy@172.105.74.98 'bash /var/www/LeasyBack/deploy/deploy.sh --yes'
+# AWS rehearsal (today): /var/www/LeasyBack is the rehearsal copy
+bash /var/www/LeasyBack/deploy/deploy.sh --rehearsal --branch=feat/base44-migration --yes
+
+# final production (after sign-off)
+bash /var/www/LeasyBack/deploy/deploy.sh --production --yes
 ```
 
-What it does: maintenance mode → `git reset --hard origin/main` → `composer install --no-dev`
-→ `npm ci && npm run build` → back up the SQLite file → `migrate --force` → rebuild caches →
-fix permissions → reload php-fpm, restart queue workers and Reverb → maintenance off →
-hit `/up`. The app is brought out of maintenance mode even if a step fails.
+Or in one line from your machine: `ssh deploy@<server> 'bash /var/www/LeasyBack/deploy/deploy.sh --production --yes'`.
 
-Flags: `--seed`, `--no-build`, `--no-migrate`, `--branch staging`, `--yes`, `--rollback`.
+| | `--rehearsal` | `--production` |
+| --- | --- | --- |
+| `APP_ENV` | `local` (or a value in `REHEARSAL_ALLOWED_APP_ENVS`), never `production` | `production`, `APP_DEBUG=false`, `APP_KEY` set |
+| `APP_URL` | anything but `PRODUCTION_DOMAIN`; a bare IP is fine | `https://` on `PRODUCTION_DOMAIN` (or `DOMAIN`), no IP |
+| mail / queue / broadcast | `MAIL_MAILER=log`, `QUEUE_CONNECTION=null`, broadcast `log`/`null` | a real mailer with its key, a real queue, Reverb credentials when `BROADCAST_CONNECTION=reverb` |
+| integrations | Stripe, AWS/S3, TÜV, DEKRA, Lexware, Reverb, webhook, partner… credentials must be blank or test values; `LEXWARE_INTEGRATION_MODE=disabled` (the same rules as `scripts/base44-rehearsal.sh`, read from the commit being deployed) | no `CHANGE_ME` left; S3 keys when an S3 disk is used |
+| queue workers, Reverb | stopped and verified stopped; a scheduler cron for the app is refused | `queue:restart`, supervisor `leasyback-worker:*` and `leasyback-reverb` restarted and verified `RUNNING` |
+| branch | any (`--branch=NAME`) | `PRODUCTION_BRANCH` (default `main`) unless `--allow-non-production-branch` |
+| `--seed` | refused | allowed (first deploy only) |
+
+Each run, in order — any failure stops it, and the app is brought back up:
+
+1. **Pre-flight, nothing changed yet:** repo root and `origin` (`REPO_URL`), tools,
+   the *running* PHP-FPM version (detected — `PHP_VERSION` only pins it), Node 20+,
+   `git fetch` of the branch (refused if it was force-pushed, unless
+   `--allow-non-fast-forward`), a clean working tree (else `--allow-dirty`), the
+   `.env` checks above, no shell variable shadowing `.env`, and the SQLite file:
+   must exist (never created), not a symlink, `PRAGMA integrity_check` ok.
+2. Rehearsal only: stop and verify no worker/Reverb/scheduler process runs.
+3. Maintenance mode → checkout → `composer install --no-dev --optimize-autoloader`
+   → `npm ci && npm run build` (fails without `public/build/manifest.json`).
+4. SQLite `.backup` to `storage/app/backups/` (mode 600, last `KEEP_BACKUPS`
+   kept), the backup's `integrity_check` must pass → `migrate --force` →
+   integrity re-checked, no migration may remain pending.
+5. `storage:link` if missing, `optimize:clear`, config/view/event caches, route cache where possible.
+6. Group `WEB_GROUP` (www-data) on storage, bootstrap/cache and the database, verified.
+7. `nginx -t` (when sudo allows it), reload php-fpm and nginx; production restarts workers/Reverb.
+8. Maintenance off → `GET APP_URL/up` through this server's nginx must answer 200 →
+   summary: branch/commit, migrations, frontend build, php-fpm/nginx/supervisor status.
+
+Output is timestamped (UTC) and written to `DEPLOY_LOG_DIR` (default
+`~/leasyback-deploy-logs`, outside the repo). The script runs from a temporary
+copy of itself, so the checkout cannot rewrite it mid-run.
+
+A deploy **never** runs `legacy:import` or any `legacy:*` command, `db:seed`
+(unless `--seed` in production), `migrate:fresh`/`db:wipe`, and never touches
+`/secure/base44-export`. The Base44 migration stays a separate, explicit action
+(`scripts/base44-rehearsal.sh`, then `php artisan legacy:import`).
+
+Flags: `--branch NAME` / `--branch=NAME`, `--no-build`, `--no-migrate`, `--rollback`,
+`--seed` (production), `--allow-dirty`, `--allow-non-fast-forward`,
+`--allow-non-production-branch` (production), `--yes`, `--help`.
 
 ```bash
-bash deploy/deploy.sh --rollback --yes   # back to the previously deployed commit
+bash deploy/deploy.sh --production --rollback --yes   # back to the previously deployed commit
 ```
+
+**Changed from earlier versions:** a mode is now required (`deploy.sh --yes` alone exits
+with an error — the old behaviour is `--production --yes`); a dirty tree, a failed
+backup and a failed health check now stop the deploy instead of warning; a missing
+database is no longer created; `config.sh` is optional (defaults come from the checkout).
 
 ## Database (SQLite)
 
 - Lives at `/var/www/LeasyBack/database/database.sqlite`, owner `deploy`, group `www-data`,
   mode `0664`. The `database/` directory is `2775` because SQLite writes `-wal`/`-shm`
   siblings next to the file.
-- Ignored by git (`database/.gitignore` → `*.sqlite*`), so `git reset --hard` during a
-  deploy never touches it. `deploy.sh` creates it only when missing and never overwrites it.
+- Ignored by git (`database/.gitignore` → `*.sqlite*`), so a checkout during a deploy
+  never touches it. `provision.sh` creates it on a fresh server; `deploy.sh` never
+  creates, deletes or overwrites it and stops if it is missing or fails `integrity_check`.
 - Nginx serves `public/` only, so the database file is not reachable over HTTP.
 - `journal_mode=WAL` is set by `provision.sh` and persists in the file header — sessions,
   cache and the queue all share this one file, so readers must not block on writers.
-- Every deploy that migrates writes a snapshot to
-  `storage/app/backups/database-<timestamp>.sqlite` and keeps the last 10. `--rollback`
-  reverts *code only* — restore a snapshot by hand if a migration needs undoing:
+- Every deploy that migrates writes a verified snapshot to
+  `storage/app/backups/database-<timestamp>.sqlite` (`DEPLOY_BACKUP_DIR`, mode 600) and keeps
+  the last `KEEP_BACKUPS` (10). `--rollback` reverts *code only* — restore a snapshot by
+  hand if a migration needs undoing:
   ```bash
   sudo supervisorctl stop leasyback-worker: leasyback-reverb
   cp storage/app/backups/database-20260803-120000.sqlite database/database.sqlite
@@ -157,7 +202,10 @@ calls `Storage::disk('documents')`, so the driver is an env choice, not a code c
   `REVERB_SERVER_HOST=127.0.0.1` / `REVERB_SERVER_PORT=8080` (what the process binds to).
   Set `RUN_REVERB=false` in `config.sh` if you don't need websockets yet.
 - **Queue workers** are `queue:work` under supervisor (`QUEUE_WORKERS` in `config.sh`).
-  `deploy.sh` restarts them so they pick up new code.
+  `deploy.sh --production` restarts them so they pick up new code; `--rehearsal` stops
+  them. Both supervisor programs are `autostart=true`, so on a rehearsal host remove
+  `/etc/supervisor/conf.d/leasyback-*.conf` (and the deploy user's `schedule:run`
+  crontab line) or they return after a reboot.
 - **Route caching is skipped** — `routes/web.php` and `routes/settings.php` register
   closure routes, which Laravel can't serialize. Convert those two to controller
   actions and `deploy.sh` will start caching routes automatically.
