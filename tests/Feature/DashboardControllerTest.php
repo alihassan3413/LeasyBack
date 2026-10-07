@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Str;
 use Inertia\Testing\AssertableInertia;
 use Tests\Feature\B2b\Concerns\BuildsB2bCompanies;
 use Tests\TestCase;
@@ -605,5 +606,89 @@ class DashboardControllerTest extends TestCase
         $this->actingAs($user)
             ->get(route('dashboard'))
             ->assertRedirect(route('onboarding.b2b.show'));
+    }
+
+    // ── The page components and the props the server sends ─────────
+
+    /**
+     * Every prop a dashboard page declares must be in the response that renders
+     * it. A page reading a prop its route never sends crashes on first render
+     * and leaves a white screen — which is what happened when the private fleet
+     * page (`Dashboard`) was overwritten with a copy of `b2b/Dashboard` that
+     * reads `recentOrders`.
+     *
+     * @return list<string>
+     */
+    private function declaredProps(string $page): array
+    {
+        $source = (string) file_get_contents(resource_path("js/pages/{$page}.vue"));
+        $block = Str::between($source, 'defineProps<{', '}>()');
+        preg_match_all('/^( +)([A-Za-z]\w*)\??:/m', $block, $matches, PREG_SET_ORDER);
+        $topIndent = min(array_map(fn (array $m) => strlen($m[1]), $matches));
+
+        return array_values(array_map(
+            fn (array $m) => $m[2],
+            array_filter($matches, fn (array $m) => strlen($m[1]) === $topIndent),
+        ));
+    }
+
+    private function assertSendsEveryDeclaredProp(User $user, string $component): void
+    {
+        $declared = $this->declaredProps($component);
+        $this->assertNotEmpty($declared, "no props parsed from {$component}.vue");
+
+        $this->actingAs($user)
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertInertia(function (AssertableInertia $page) use ($component, $declared) {
+                $page->component($component);
+
+                foreach ($declared as $prop) {
+                    $page->has($prop);
+                }
+            });
+    }
+
+    public function test_the_private_fleet_dashboard_receives_every_prop_its_page_reads(): void
+    {
+        $owner = User::factory()->create(['user_type' => UserType::Privatkunde]);
+        Vehicle::factory()->create(['b2c_user_id' => $owner->id]);
+
+        $this->assertSendsEveryDeclaredProp($owner, 'Dashboard');
+    }
+
+    /** The regression itself: the fleet page must stay the fleet page. */
+    public function test_the_private_fleet_dashboard_is_not_the_company_dashboard(): void
+    {
+        $this->assertNotContains('recentOrders', $this->declaredProps('Dashboard'));
+        $this->assertNotSame(
+            file_get_contents(resource_path('js/pages/Dashboard.vue')),
+            file_get_contents(resource_path('js/pages/b2b/Dashboard.vue')),
+        );
+    }
+
+    public function test_the_company_dashboard_receives_every_prop_its_page_reads(): void
+    {
+        $company = $this->makeCompany();
+        $this->makeB2bOrder($this->makeB2bVehicle($company));
+
+        $this->assertSendsEveryDeclaredProp($this->makeOwner($company), 'b2b/Dashboard');
+        $this->assertSendsEveryDeclaredProp($this->makeMember($company, B2bRolePreset::StandardUser->permissions()->toArray()), 'b2b/Dashboard');
+    }
+
+    /** `recentOrders` is a JSON list, never an object or null, whatever the reader may see. */
+    public function test_recent_orders_is_always_a_list(): void
+    {
+        $company = $this->makeCompany();
+        $this->makeB2bOrder($this->makeB2bVehicle($company, ['license_plate' => 'K RO 1']));
+        $this->makeB2bOrder($this->makeB2bVehicle($company, ['license_plate' => 'K RO 2']));
+
+        foreach ([[$this->makeOwner($company), 2], [$this->makeMember($company, B2bRolePreset::StandardUser->permissions()->toArray()), 0]] as [$user, $count]) {
+            $props = $this->actingAs($user)->get(route('dashboard'))->viewData('page')['props'];
+
+            $this->assertIsArray($props['recentOrders']);
+            $this->assertTrue(array_is_list($props['recentOrders']), 'a list, so the browser gets an array');
+            $this->assertCount($count, $props['recentOrders']);
+        }
     }
 }

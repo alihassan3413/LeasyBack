@@ -38,34 +38,51 @@ interface AddressDetails {
     country?: string | null;
 }
 
-const props = defineProps<{
-    bookableVehicles: BookableVehicleData[];
-    /** The newest few processes — the full list lives on `orders.index`. */
-    recentOrders: CustomerOrderRow[];
-    stations: StationData[];
-    analytics: B2bAnalytics | null;
-    /**
-     * Order totals, processing time and savings. Null for a member without
-     * `analytics.view` — the company overview is withheld from the payload
-     * rather than hidden in the template, so it never reaches the page source.
-     */
-    statistics: B2bStatistics | null;
-    /**
-     * The member's own operating figures. Null for a Company Administrator,
-     * who gets the company overview instead — the two are alternatives, never
-     * both, so the page is never two dashboards stacked.
-     */
-    myOverview: { vehicles: number; active_orders: number; bookable_vehicles: number } | null;
-    /** A few of the vehicles this member can reach, newest first. */
-    myVehicles: VehicleData[];
-    /** Saved addresses, billing addresses and cost centres the service forms offer. */
-    relocationOptions?: {
-        address_profiles: { id: string; profile_name: string; details: AddressDetails | null }[];
-        billing_addresses?: { id: string; name: string; details: AddressDetails | null; is_default: boolean }[];
-        saved_cost_centres?: { id: string; name: string; number: string | null }[];
-        cost_centres: string[];
-    };
-}>();
+/*
+ * DashboardController always sends every prop. The defaults only keep a missing
+ * or partial Inertia prop from blanking the whole page — and a missing
+ * `statistics` must read as "no company overview" (null), never as a section
+ * to show.
+ */
+const props = withDefaults(
+    defineProps<{
+        bookableVehicles?: BookableVehicleData[];
+        /** The newest few processes — the full list lives on `orders.index`. */
+        recentOrders?: CustomerOrderRow[];
+        stations?: StationData[];
+        analytics?: B2bAnalytics | null;
+        /**
+         * Order totals, processing time and savings. Null for a member without
+         * `analytics.view` — the company overview is withheld from the payload
+         * rather than hidden in the template, so it never reaches the page source.
+         */
+        statistics?: B2bStatistics | null;
+        /**
+         * The member's own operating figures. Null for a Company Administrator,
+         * who gets the company overview instead — the two are alternatives, never
+         * both, so the page is never two dashboards stacked.
+         */
+        myOverview?: { vehicles: number; active_orders: number; bookable_vehicles: number } | null;
+        /** A few of the vehicles this member can reach, newest first. */
+        myVehicles?: VehicleData[];
+        /** Saved addresses, billing addresses and cost centres the service forms offer. */
+        relocationOptions?: {
+            address_profiles: { id: string; profile_name: string; details: AddressDetails | null }[];
+            billing_addresses?: { id: string; name: string; details: AddressDetails | null; is_default: boolean }[];
+            saved_cost_centres?: { id: string; name: string; number: string | null }[];
+            cost_centres: string[];
+        };
+    }>(),
+    {
+        bookableVehicles: () => [],
+        recentOrders: () => [],
+        stations: () => [],
+        analytics: null,
+        statistics: null,
+        myOverview: null,
+        myVehicles: () => [],
+    },
+);
 
 const { can } = useB2bPermissions();
 

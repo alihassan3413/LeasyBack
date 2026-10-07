@@ -1,500 +1,372 @@
 <script setup lang="ts">
 import FleetOverview from '@/components/b2b/FleetOverview.vue';
 import OnboardingModal from '@/components/dashboard/OnboardingModal.vue';
-import { Badge } from '@/components/ui/badge';
-import AccidentDamageOrderModal from '@/components/vehicle/AccidentDamageOrderModal.vue';
-import AppraisalOrderModal from '@/components/vehicle/AppraisalOrderModal.vue';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import AddVehicleModal from '@/components/vehicle/AddVehicleModal.vue';
+import ImportVehiclesModal from '@/components/vehicle/ImportVehiclesModal.vue';
 import OrderCreationModal from '@/components/vehicle/OrderCreationModal.vue';
-import RelocationOrderModal from '@/components/vehicle/RelocationOrderModal.vue';
-import SelectVehicleModal from '@/components/vehicle/SelectVehicleModal.vue';
+import SortableTableHead from '@/components/vehicle/SortableTableHead.vue';
+import VehicleMobileCard from '@/components/vehicle/VehicleMobileCard.vue';
+import VehiclePagination, { type PaginationMeta } from '@/components/vehicle/VehiclePagination.vue';
+import VehicleRow from '@/components/vehicle/VehicleRow.vue';
+import type { MemberFilterOption } from '@/components/vehicle/VehicleToolbar.vue';
+import VehicleToolbar from '@/components/vehicle/VehicleToolbar.vue';
 import { useB2bPermissions } from '@/composables/useB2bPermissions';
+import { useLiveUpdates } from '@/composables/useLiveUpdates';
 import { useOnboarding } from '@/composables/useOnboarding';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { ONBOARDING_VIDEO_POSTER_URL, ONBOARDING_VIDEO_URL } from '@/lib/onboarding';
-import { formatPortalDate } from '@/lib/portalDate';
-import { AVAILABILITY_LABELS, BOOKABLE_SERVICE, SERVICES, serviceTitle, type ServiceDefinition } from '@/lib/services';
-import { getVehicleStatusDisplay } from '@/lib/vehicleStatus';
+import { isVehicleCompleted } from '@/lib/vehicleStatus';
 import { type SharedData } from '@/types';
-import type { B2bAnalytics, B2bStatistics } from '@/types/b2b';
-import type { CustomerOrderRow, StationData } from '@/types/order';
-import { formatEuro } from '@/types/payment';
-import type { BookableVehicleData, VehicleData } from '@/types/vehicle';
-import { Head, Link, usePage } from '@inertiajs/vue3';
-import { computed, ref } from 'vue';
+import type { B2bAnalytics } from '@/types/b2b';
+import type { StationData } from '@/types/order';
+import type { VehicleData } from '@/types/vehicle';
+import { Head, router, usePage } from '@inertiajs/vue3';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 
-/**
- * The company's landing page: what LeasyBack does, and the way into booking
- * it. The fleet and the orders each have their own page — this one exists to
- * answer "which service, for which vehicle" and hand off to the booking form.
- *
- * Firmenkunde only. A Privatkunde's dashboard is their vehicle list, as it
- * has always been — see DashboardController.
- */
-interface AddressDetails {
-    street?: string | null;
-    number?: string | null;
-    zip_code?: string | null;
-    city?: string | null;
-    country?: string | null;
+export interface DashboardFilters {
+    search: string;
+    status: string;
+    sort: string;
+    direction: string;
+    /** Company member who registered the vehicle; '' means everyone. */
+    created_by: string;
 }
-
-const props = defineProps<{
-    bookableVehicles: BookableVehicleData[];
-    /** The newest few processes — the full list lives on `orders.index`. */
-    recentOrders: CustomerOrderRow[];
-    stations: StationData[];
-    analytics: B2bAnalytics | null;
-    /**
-     * Order totals, processing time and savings. Null for a member without
-     * `analytics.view` — the company overview is withheld from the payload
-     * rather than hidden in the template, so it never reaches the page source.
-     */
-    statistics: B2bStatistics | null;
-    /**
-     * The member's own operating figures. Null for a Company Administrator,
-     * who gets the company overview instead — the two are alternatives, never
-     * both, so the page is never two dashboards stacked.
-     */
-    myOverview: { vehicles: number; active_orders: number; bookable_vehicles: number } | null;
-    /** A few of the vehicles this member can reach, newest first. */
-    myVehicles: VehicleData[];
-    /** Saved addresses, billing addresses and cost centres the service forms offer. */
-    relocationOptions?: {
-        address_profiles: { id: string; profile_name: string; details: AddressDetails | null }[];
-        billing_addresses?: { id: string; name: string; details: AddressDetails | null; is_default: boolean }[];
-        saved_cost_centres?: { id: string; name: string; number: string | null }[];
-        cost_centres: string[];
-    };
-}>();
-
-const { can } = useB2bPermissions();
 
 /*
- * The company overview. Every figure here is computed by
- * B2bStatisticsService/B2bAnalyticsService — the dashboard formats them and
- * derives nothing of its own, so it can never disagree with the statistics
- * page about what a number means.
- *
- * Formatting matches that page: German locale, one decimal, and an em dash
- * where a figure is genuinely undefined rather than zero (no accepted offer
- * yet is not "0 % saved").
+ * The server always sends every prop (BuildsFleetPage::fleetPageProps). The
+ * defaults only keep a missing or partial Inertia prop from blanking the whole
+ * page: an empty list renders an empty state, a crash renders nothing.
  */
-const decimal = new Intl.NumberFormat('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-const DASH = '—';
-
-/**
- * Whether this reader gets the company overview at all.
- *
- * `analytics.view` is the existing permission for "Kennzahlen und
- * Auswertungen", and an owner holds every permission implicitly — so a
- * Company Administrator sees the whole overview while a Standard User and a
- * Read-only member get their own scoped figures instead. Driven by the props
- * the server did or did not send, so the template can never show what the
- * payload does not contain. Complementary with `myOverview` by construction
- * (DashboardController only ever populates one of the two).
- */
-const showCompanyOverview = computed(() => props.statistics !== null);
-
-/**
- * The figures, once `showCompanyOverview` has established there are any. The
- * KPI list is only ever read inside `v-if="showCompanyOverview"`, so this is
- * a narrowing helper rather than a default worth rendering.
- */
-const EMPTY_STATISTICS: B2bStatistics = {
-    orders: { active: 0, completed: 0, cancelled: 0, total: 0 },
-    savings: {
-        orders_counted: 0,
-        vehicles_counted: 0,
-        appraisal_total_net: '0.00',
-        repair_total_net: '0.00',
-        saving_total_net: '0.00',
-        average_saving_per_vehicle_net: null,
-        saving_percentage: null,
+const props = withDefaults(
+    defineProps<{
+        vehicles?: VehicleData[];
+        stations?: StationData[];
+        filters?: DashboardFilters;
+        pagination?: PaginationMeta;
+        /** Empty unless the viewer may see the whole company fleet. */
+        memberOptions?: MemberFilterOption[];
+        analytics?: B2bAnalytics | null;
+    }>(),
+    {
+        vehicles: () => [],
+        stations: () => [],
+        filters: () => ({ search: '', status: '', sort: 'created_at', direction: 'desc', created_by: '' }),
+        pagination: () => ({ current_page: 1, last_page: 1, per_page: 20, total: 0, from: null, to: null }),
+        memberOptions: () => [],
+        analytics: null,
     },
-    processing_time: { average_days: null, measured_orders: 0 },
-    status_distribution: [],
-    monthly_volume: [],
-    scope: { company_wide: true },
-};
+);
 
-const stats = computed<B2bStatistics>(() => props.statistics ?? EMPTY_STATISTICS);
+// Every vehicle the viewer owns is on this page, so any notification about
+// one of them is about something visible here — no filter.
+useLiveUpdates();
 
-/**
- * The member's own figures. Deliberately three counts and no money: savings,
- * processing time and anyone else's activity are the company's numbers and
- * belong to the administrator's view.
- */
-const myKpis = computed(() => {
-    const overview = props.myOverview;
+const search = ref(props.filters.search);
+const status = ref(props.filters.status);
+const sort = ref(props.filters.sort);
+const direction = ref(props.filters.direction);
+const createdBy = ref(props.filters.created_by ?? '');
 
-    if (overview === null) {
-        return [];
+function reload(page = 1) {
+    const sorted = sort.value !== 'created_at' || direction.value !== 'desc';
+
+    router.get(
+        route('dashboard'),
+        {
+            search: search.value || undefined,
+            status: status.value || undefined,
+            created_by: createdBy.value || undefined,
+            sort: sorted ? sort.value : undefined,
+            direction: sorted ? direction.value : undefined,
+            page: page > 1 ? page : undefined,
+        },
+        { preserveState: true, preserveScroll: true, replace: true, only: ['vehicles', 'filters', 'pagination', 'analytics'] },
+    );
+}
+
+function goToPage(page: number) {
+    expandedId.value = null;
+    reload(page);
+}
+
+const debouncedReload = useDebounceFn(() => reload(), 300);
+
+watch(search, () => debouncedReload());
+watch([status, sort, direction, createdBy], () => reload());
+
+function toggleSort(column: string) {
+    if (sort.value === column) {
+        direction.value = direction.value === 'asc' ? 'desc' : 'asc';
+
+        return;
     }
 
-    return [
-        { key: 'vehicles', label: 'Fahrzeuge', value: overview.vehicles, hint: 'für Sie sichtbar' },
-        { key: 'active', label: 'Laufende Aufträge', value: overview.active_orders, hint: 'derzeit in Bearbeitung' },
-        { key: 'bookable', label: 'Ohne Vorgang', value: overview.bookable_vehicles, hint: 'bereit für eine Leistung' },
-    ];
-});
+    sort.value = column;
+    direction.value = 'asc';
+}
 
-const kpis = computed(() => [
-    {
-        key: 'vehicles',
-        label: 'Fahrzeuge',
-        value: String(props.analytics?.totals.vehicles ?? 0),
-        hint: 'im Fuhrpark',
-    },
-    {
-        key: 'active',
-        label: 'Laufende Aufträge',
-        value: String(stats.value.orders.active),
-        hint: `von ${stats.value.orders.total} gesamt`,
-    },
-    {
-        key: 'completed',
-        label: 'Abgeschlossen',
-        value: String(stats.value.orders.completed),
-        hint: 'Rückgaben beendet',
-    },
-    {
-        key: 'processing',
-        label: 'Ø Bearbeitungszeit',
-        value: stats.value.processing_time.average_days === null ? DASH : `${decimal.format(stats.value.processing_time.average_days)} Tage`,
-        hint:
-            stats.value.processing_time.measured_orders === 0 ? 'noch keine Messung' : `aus ${stats.value.processing_time.measured_orders} Vorgängen`,
-    },
-    {
-        key: 'savings',
-        label: 'Ersparnis',
-        value: stats.value.savings.saving_percentage === null ? DASH : `${decimal.format(Number(stats.value.savings.saving_percentage))} %`,
-        hint: stats.value.savings.orders_counted === 0 ? 'noch kein Angebot angenommen' : formatEuro(stats.value.savings.saving_total_net),
-    },
-]);
+function resetFilters() {
+    status.value = '';
+    createdBy.value = '';
+}
 
-/** A member without `orders.create` may look at the catalogue but not start one. */
-const canBook = computed(() => can('orders.create'));
+const hasQuery = computed(() => search.value !== '' || status.value !== '' || createdBy.value !== '');
 
-const activeService = ref<ServiceDefinition | null>(null);
-const selectVehicleOpen = ref(false);
+const { can, seesOwnVehiclesOnly, isCompanyUser } = useB2bPermissions();
 
-/** Leasingrückgabe: one vehicle, OrderCreationModal. */
+function latestOrderStatus(vehicle: VehicleData): string | undefined {
+    return vehicle.current_order?.order_status;
+}
+
+const activeVehicles = computed(() => props.vehicles.filter((vehicle) => !isVehicleCompleted(latestOrderStatus(vehicle))));
+const completedVehicles = computed(() => props.vehicles.filter((vehicle) => isVehicleCompleted(latestOrderStatus(vehicle))));
+
+const expandedId = ref<string | null>(null);
+
+watch(
+    activeVehicles,
+    (vehicles) => {
+        if (vehicles.length > 0 && !expandedId.value) {
+            expandedId.value = vehicles[0].vehicle_id;
+        }
+    },
+    { immediate: true },
+);
+
+/**
+ * The panel is roughly half again as tall as the list's viewport, so a row
+ * opened in the lower half used to unfold almost entirely below the fold: the
+ * arrow turned, a sliver of panel appeared, and the row read as unresponsive.
+ * Collapsing the previous panel made it worse by clamping the scroll container
+ * and moving the list under the cursor. Bringing the opened row to the top of
+ * the list is what makes the panel it owns the thing you are looking at.
+ */
+async function handleToggle(vehicle: VehicleData) {
+    const opening = expandedId.value !== vehicle.vehicle_id;
+
+    expandedId.value = opening ? vehicle.vehicle_id : null;
+
+    if (!opening) {
+        return;
+    }
+
+    await nextTick();
+
+    // Both the table row and the mobile card carry the id; only one of them is
+    // laid out at any width.
+    const row = Array.from(document.querySelectorAll<HTMLElement>(`[data-vehicle-row="${vehicle.vehicle_id}"]`)).find(
+        (element) => element.getClientRects().length > 0,
+    );
+
+    row?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
+
+const addVehicleOpen = ref(false);
+const importVehiclesOpen = ref(false);
+
 const orderModalOpen = ref(false);
-const orderVehicle = ref<BookableVehicleData | null>(null);
+const orderVehicle = ref<VehicleData | null>(null);
 
-/** Überführung: one or more vehicles, RelocationOrderModal. Kept apart from the return flow. */
-const relocationModalOpen = ref(false);
-const relocationVehicles = ref<BookableVehicleData[]>([]);
-
-/** Unfallschaden: exactly one vehicle, AccidentDamageOrderModal. */
-const accidentModalOpen = ref(false);
-const accidentVehicle = ref<BookableVehicleData | null>(null);
-
-/** Gutachten: one or more vehicles in ONE order, AppraisalOrderModal. */
-const appraisalModalOpen = ref(false);
-const appraisalVehicles = ref<BookableVehicleData[]>([]);
-
-/** The services whose picker allows several vehicles. */
-const isMultiVehicleService = computed(() => ['ueberfuehrung', 'gutachten'].includes(activeService.value?.key ?? ''));
-
-/** How many services the reader could actually start right now. */
-const bookableCount = computed(() => SERVICES.filter((service) => service.availability === 'bookable').length);
-
-/** Everything but the one workflow the page leads with — the reference list beneath it. */
-const futureServices = computed(() => SERVICES.filter((service) => service.key !== BOOKABLE_SERVICE.key));
-
-/** A row is a button only when it can actually start something. */
-function isLaunchable(service: ServiceDefinition): boolean {
-    return service.availability === 'bookable' && canBook.value;
-}
-
-/** Right-hand label for a row that can't be started by this reader. */
-function rowLabel(service: ServiceDefinition): string {
-    if (service.availability === 'bookable') {
-        return 'Keine Berechtigung';
-    }
-
-    return AVAILABILITY_LABELS[service.availability];
-}
-
-function startService(service: ServiceDefinition) {
-    if (service.availability !== 'bookable' || !canBook.value) {
-        return;
-    }
-
-    activeService.value = service;
-    selectVehicleOpen.value = true;
-}
-
-/** Single-vehicle confirmation — Leasingrückgabe or Unfallschaden, by the service picked. */
-function onVehicleChosen(vehicle: BookableVehicleData) {
-    selectVehicleOpen.value = false;
-    relocationModalOpen.value = false;
-    orderModalOpen.value = false;
-    accidentModalOpen.value = false;
-
-    if (activeService.value?.key === 'unfallschaden') {
-        accidentVehicle.value = vehicle;
-        accidentModalOpen.value = true;
-
-        return;
-    }
-
+function startProcess(vehicle: VehicleData) {
     orderVehicle.value = vehicle;
     orderModalOpen.value = true;
 }
 
-/** Multi-vehicle confirmation — Überführung (one order per vehicle) or Gutachten (one order for all). */
-function onVehiclesChosen(vehicles: BookableVehicleData[]) {
-    selectVehicleOpen.value = false;
-    orderModalOpen.value = false;
-    accidentModalOpen.value = false;
-    relocationModalOpen.value = false;
-    appraisalModalOpen.value = false;
-
-    if (activeService.value?.key === 'gutachten') {
-        appraisalVehicles.value = vehicles;
-        appraisalModalOpen.value = true;
-
-        return;
-    }
-
-    relocationVehicles.value = vehicles;
-    relocationModalOpen.value = true;
-}
-
 const page = usePage<SharedData>();
 
-// The button below only ever opens it by hand: the first-visit auto-open is a
-// Privatkunde behaviour, and they never reach this page.
-const { isOpen: onboardingOpen, open: openOnboarding, dismiss: dismissOnboarding } = useOnboarding(() => page.props.auth.user?.email);
+const {
+    isOpen: onboardingOpen,
+    maybeShow: maybeShowOnboarding,
+    open: openOnboarding,
+    dismiss: dismissOnboarding,
+} = useOnboarding(() => page.props.auth.user?.email);
 
 function onOnboardingOpenChange(value: boolean) {
     if (!value) {
         dismissOnboarding();
     }
 }
+
+onMounted(() => {
+    if (page.props.auth.user?.user_type === 'Privatkunde') {
+        maybeShowOnboarding();
+    }
+});
 </script>
 
 <template>
     <Head title="Dashboard" />
 
     <AppLayout>
+        <template #header>
+            <VehicleToolbar
+                v-model:search="search"
+                v-model:status="status"
+                v-model:created-by="createdBy"
+                :member-options="memberOptions"
+                @reset="resetFilters"
+            />
+        </template>
+
         <div class="flex flex-col">
-            <header class="mb-6 flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-                <div>
-                    <h1 class="text-brand-teal text-[22px] font-semibold md:text-[28px]">Mein Dashboard</h1>
-                    <p class="text-muted-foreground mt-1 text-sm">Leistung wählen, Fahrzeug zuordnen, Termin buchen.</p>
+            <div class="mb-6 flex flex-col gap-4">
+                <div class="flex flex-col items-start justify-between gap-3 md:flex-row md:items-center">
+                    <div>
+                        <h1 class="text-[22px] font-semibold text-[#10393b] md:text-[28px]">Mein Dashboard</h1>
+                        <p v-if="seesOwnVehiclesOnly" class="mt-1 text-sm text-[#6f8585]">
+                            Sie sehen nur die Fahrzeuge, die Sie selbst angelegt haben.
+                        </p>
+                    </div>
+
+                    <div class="flex w-full flex-col items-stretch gap-3 md:w-auto md:flex-row md:items-center">
+                        <!--
+                            Import is a company feature only. `can()` returns true for
+                            non-Firmenkunde accounts by design, so isCompanyUser is
+                            what keeps this off a Privatkunde dashboard — matching the
+                            controller, which refuses them with 403.
+                        -->
+                        <button
+                            v-if="isCompanyUser && can('vehicles.create')"
+                            class="flex w-full items-center justify-center gap-2 rounded-full border border-[#ef8450] px-4 py-2 font-medium text-[#ef8450] transition-colors hover:bg-[#fff4ee] md:w-auto"
+                            @click="importVehiclesOpen = true"
+                        >
+                            <span>Fahrzeuge importieren</span>
+                        </button>
+
+                        <button
+                            v-if="can('vehicles.create')"
+                            class="flex w-full items-center justify-center gap-2 rounded-full px-4 py-2 font-medium text-white md:w-auto"
+                            style="background-color: #ef8450"
+                            @click="addVehicleOpen = true"
+                        >
+                            <IconIcBaselinePlus class="h-5 w-5" />
+                            <span>Neues Fahrzeug anlegen</span>
+                        </button>
+                    </div>
                 </div>
 
-                <!-- Was a floating pill over the content; a plain text action
-                     next to the title is discoverable without sitting on top
-                     of the page. -->
-                <button
-                    type="button"
-                    class="text-muted-foreground hover:text-brand-teal mt-1 shrink-0 text-[12.5px] font-medium transition-colors hover:underline"
-                    @click="openOnboarding"
-                >
-                    Einführung ansehen
-                </button>
-            </header>
+                <FleetOverview v-if="analytics" :analytics="analytics" :active-filter="status" />
+            </div>
 
-            <!-- ════════════════════════════════════════════════════════════
-                 Leistungen — the primary workflow, and the first section on
-                 the page for every role. Starting a return is what a company
-                 account comes here to do; everything below is the record of
-                 what is already running, not the reason to visit.
-            ═════════════════════════════════════════════════════════════ -->
-            <section>
-                <div class="flex flex-wrap items-baseline justify-between gap-2">
-                    <h2 class="text-brand-teal text-[20px] leading-tight font-bold">Leistungen</h2>
-                    <span class="text-muted-foreground text-[12.5px]">{{ bookableCount }} von {{ SERVICES.length }} verfügbar</span>
-                </div>
-
-                <!-- The lead workflow. Weight comes from type scale, a real CTA
-                     and the accent border — not from a box or a tinted background. -->
-                <component
-                    :is="isLaunchable(BOOKABLE_SERVICE) ? 'button' : 'div'"
-                    :type="isLaunchable(BOOKABLE_SERVICE) ? 'button' : undefined"
-                    class="border-border border-brand-orange mt-4 flex w-full items-center gap-4 border-b border-l-2 py-5 pl-4 text-left transition-colors"
-                    :class="isLaunchable(BOOKABLE_SERVICE) ? 'hover:bg-muted/30 cursor-pointer' : ''"
-                    @click="startService(BOOKABLE_SERVICE)"
-                >
-                    <span class="min-w-0 flex-1">
-                        <span class="text-brand-teal block text-[18px] font-bold">{{ BOOKABLE_SERVICE.title }}</span>
-                        <span class="text-muted-foreground mt-1 block text-[13.5px]">{{ BOOKABLE_SERVICE.summary }}</span>
-                    </span>
-
-                    <span
-                        v-if="isLaunchable(BOOKABLE_SERVICE)"
-                        class="bg-brand-orange hover:bg-brand-orange/90 shrink-0 rounded-[6px] px-5 py-2.5 text-[13.5px] font-bold whitespace-nowrap text-white transition-colors"
-                    >
-                        Starten
-                    </span>
-                    <span v-else class="text-muted-foreground shrink-0 text-[12px] whitespace-nowrap">Keine Berechtigung</span>
-                </component>
-
-                <!-- Every other service. A bookable one is a button; the rest
-                     are catalogue entries with their availability as text. -->
-                <div class="mt-6">
-                    <h3 class="text-brand-teal text-[16px] font-semibold">Weitere Leistungen</h3>
-
-                    <ul class="divide-border mt-2 divide-y">
-                        <li v-for="service in futureServices" :key="service.key">
-                            <component
-                                :is="isLaunchable(service) ? 'button' : 'div'"
-                                :type="isLaunchable(service) ? 'button' : undefined"
-                                class="flex w-full items-center justify-between gap-3 py-2 text-left transition-colors"
-                                :class="isLaunchable(service) ? 'hover:bg-muted/30 cursor-pointer' : ''"
-                                @click="startService(service)"
-                            >
-                                <span
-                                    class="truncate text-[13px] font-medium"
-                                    :class="isLaunchable(service) ? 'text-brand-teal' : 'text-muted-foreground'"
+            <div>
+                <div class="hidden overflow-hidden rounded-[12px] border border-gray-100 shadow-sm md:block">
+                    <Table>
+                        <TableHeader>
+                            <TableRow style="background-color: #01b990; height: 44px">
+                                <SortableTableHead column="license_plate" :sort="sort" :direction="direction" class="w-[22%] px-4" @sort="toggleSort">
+                                    Kennzeichen
+                                </SortableTableHead>
+                                <SortableTableHead column="make" :sort="sort" :direction="direction" class="w-[30%] px-4" @sort="toggleSort">
+                                    Marke / Modell
+                                </SortableTableHead>
+                                <SortableTableHead
+                                    column="leasing_end_date"
+                                    :sort="sort"
+                                    :direction="direction"
+                                    class="w-[20%] px-4"
+                                    @sort="toggleSort"
                                 >
-                                    {{ service.title }}
-                                </span>
-                                <span v-if="isLaunchable(service)" class="text-brand-orange shrink-0 text-[12px] font-bold whitespace-nowrap">
-                                    Starten
-                                </span>
-                                <span v-else class="text-muted-foreground shrink-0 text-[12px] whitespace-nowrap">
-                                    {{ rowLabel(service) }}
-                                </span>
-                            </component>
-                        </li>
-                    </ul>
-                </div>
-            </section>
+                                    Leasingende
+                                </SortableTableHead>
+                                <SortableTableHead column="status" :sort="sort" :direction="direction" class="w-[16%] px-4" @sort="toggleSort">
+                                    Status
+                                </SortableTableHead>
+                                <TableHead class="w-[10%] px-4 text-right text-[13px] font-medium text-white">Optionen</TableHead>
+                            </TableRow>
+                        </TableHeader>
 
-            <!-- ── Company overview — Company Administrator / Read-only ── -->
-            <section v-if="showCompanyOverview" class="mt-8">
-                <div class="flex flex-wrap items-center justify-between gap-2">
-                    <h3 class="text-brand-teal text-[16px] font-semibold">Unternehmen im Überblick</h3>
+                        <TableBody>
+                            <TableRow v-if="!vehicles.length" class="hover:bg-transparent">
+                                <TableCell colspan="5" class="px-4 py-10 text-center text-[14px] text-gray-500">
+                                    {{ hasQuery ? 'Keine Fahrzeuge gefunden.' : 'Noch keine Fahrzeuge angelegt.' }}
+                                </TableCell>
+                            </TableRow>
+
+                            <VehicleRow
+                                v-for="vehicle in activeVehicles"
+                                :key="vehicle.vehicle_id"
+                                :vehicle="vehicle"
+                                :is-expanded="expandedId === vehicle.vehicle_id"
+                                :stations="stations"
+                                @toggle="handleToggle(vehicle)"
+                            />
+
+                            <TableRow
+                                v-if="completedVehicles.length"
+                                class="border-0 hover:bg-transparent"
+                                style="background-color: #01b990; height: 44px"
+                            >
+                                <TableCell colspan="5" class="h-[44px] px-4 text-[13px] font-bold text-white"> Abgeschlossene Vorgänge </TableCell>
+                            </TableRow>
+
+                            <VehicleRow
+                                v-for="vehicle in completedVehicles"
+                                :key="vehicle.vehicle_id"
+                                :vehicle="vehicle"
+                                :is-expanded="expandedId === vehicle.vehicle_id"
+                                :stations="stations"
+                                @toggle="handleToggle(vehicle)"
+                            />
+                        </TableBody>
+                    </Table>
+                </div>
+
+                <div class="space-y-4 md:hidden">
+                    <p v-if="!vehicles.length" class="rounded-xl border border-gray-100 bg-white p-6 text-center text-[14px] text-gray-500">
+                        {{ hasQuery ? 'Keine Fahrzeuge gefunden.' : 'Noch keine Fahrzeuge angelegt.' }}
+                    </p>
+
+                    <VehicleMobileCard
+                        v-for="vehicle in activeVehicles"
+                        :key="vehicle.vehicle_id"
+                        :vehicle="vehicle"
+                        :expanded="expandedId === vehicle.vehicle_id"
+                        @toggle="handleToggle(vehicle)"
+                        @start-process="startProcess(vehicle)"
+                    />
+
+                    <div v-if="completedVehicles.length" class="mt-6">
+                        <div class="flex items-center gap-2 rounded-lg px-4 py-3" style="background-color: #01b990">
+                            <span class="text-[14px] font-bold text-white">Abgeschlossene Vorgänge</span>
+                        </div>
+                    </div>
+
                     <!--
-                        A member limited to their own vehicles is looking at
-                        their own figures, not the company's. Saying so is the
-                        difference between a small number and a wrong one.
+                        The same card as above, deliberately. A finished order is
+                        still the one place a customer finds their Gutachten and
+                        their Rechnung, so it opens exactly like an active one.
                     -->
-                    <span v-if="!stats.scope.company_wide" class="text-muted-foreground text-[12px]"> Nur Ihre eigenen Fahrzeuge </span>
+                    <VehicleMobileCard
+                        v-for="vehicle in completedVehicles"
+                        :key="vehicle.vehicle_id"
+                        :vehicle="vehicle"
+                        :expanded="expandedId === vehicle.vehicle_id"
+                        @toggle="handleToggle(vehicle)"
+                        @start-process="startProcess(vehicle)"
+                    />
                 </div>
 
-                <dl class="divide-border mt-3 flex divide-x overflow-x-auto">
-                    <div v-for="kpi in kpis" :key="kpi.key" class="min-w-[120px] flex-1 shrink-0 px-4 py-1 first:pl-0">
-                        <dt class="text-muted-foreground truncate text-[11px] font-semibold tracking-[0.06em] uppercase">{{ kpi.label }}</dt>
-                        <dd class="text-brand-teal mt-1 truncate text-[18px] leading-none font-semibold tabular-nums">{{ kpi.value }}</dd>
-                        <p class="text-muted-foreground mt-1 truncate text-[11.5px]">{{ kpi.hint }}</p>
-                    </div>
-                </dl>
-            </section>
-
-            <FleetOverview v-if="showCompanyOverview && analytics" :analytics="analytics" class="mt-4" />
-
-            <!-- ── Recent processes ──
-                Deliberately a short read-only list and not a second orders
-                page: it answers "what is moving right now", and every row
-                opens the order it names.
-            -->
-            <section v-if="showCompanyOverview" class="mt-8">
-                <div class="flex items-center justify-between gap-3">
-                    <h3 class="text-brand-teal text-[16px] font-semibold">Letzte Vorgänge</h3>
-                    <Link :href="route('orders.index')" class="text-brand-teal text-[12px] font-semibold hover:underline">Alle Aufträge</Link>
-                </div>
-
-                <div class="border-border bg-card mt-3 overflow-hidden rounded-[10px] border">
-                    <p v-if="!recentOrders.length" class="text-muted-foreground px-5 py-8 text-center text-[13px]">
-                        Noch keine Vorgänge. Buchen Sie oben eine Leistung für eines Ihrer Fahrzeuge.
-                    </p>
-
-                    <ul v-else class="divide-border divide-y">
-                        <li v-for="order in recentOrders" :key="order.id">
-                            <Link
-                                :href="route('orders.show', order.id)"
-                                class="hover:bg-muted/50 flex items-center gap-3 px-5 py-3.5 transition-colors"
-                            >
-                                <span class="min-w-0 flex-1">
-                                    <span class="text-brand-teal block truncate text-[14px] font-semibold">
-                                        {{ order.license_plate }}
-                                        <span class="text-muted-foreground font-normal">
-                                            · {{ [order.make, order.model].filter(Boolean).join(' ') || '—' }}
-                                        </span>
-                                    </span>
-                                    <span class="text-muted-foreground block truncate text-[12px]">
-                                        {{ serviceTitle(order.service_type) }} · Auftrag {{ order.auftragsnummer }} ·
-                                        {{ formatPortalDate(order.created_at) }}
-                                        <template v-if="order.appointment"> · Termin {{ formatPortalDate(order.appointment) }} </template>
-                                    </span>
-                                </span>
-
-                                <Badge :variant="getVehicleStatusDisplay(order.order_status).variant" class="shrink-0">
-                                    {{ getVehicleStatusDisplay(order.order_status).label }}
-                                </Badge>
-                            </Link>
-                        </li>
-                    </ul>
-                </div>
-            </section>
-
-            <!-- ── Member view: Meine Übersicht — Standard User ── -->
-            <section v-if="myOverview" class="mt-8">
-                <h3 class="text-brand-teal text-[16px] font-semibold">Meine Übersicht</h3>
-
-                <dl class="divide-border mt-3 flex divide-x overflow-x-auto">
-                    <div v-for="kpi in myKpis" :key="kpi.key" class="min-w-[120px] flex-1 shrink-0 px-4 py-1 first:pl-0">
-                        <dt class="text-muted-foreground truncate text-[11px] font-semibold tracking-[0.06em] uppercase">{{ kpi.label }}</dt>
-                        <dd class="text-brand-teal mt-1 truncate text-[18px] leading-none font-semibold tabular-nums">{{ kpi.value }}</dd>
-                        <p class="text-muted-foreground mt-1 truncate text-[11.5px]">{{ kpi.hint }}</p>
-                    </div>
-                </dl>
-            </section>
-
-            <!-- ── Member view: Meine Fahrzeuge ── -->
-            <section v-if="myOverview" class="mt-8">
-                <div class="flex items-center justify-between gap-3">
-                    <h3 class="text-brand-teal text-[16px] font-semibold">Meine Fahrzeuge</h3>
-                    <Link :href="route('vehicles.index')" class="text-brand-teal text-[12px] font-semibold hover:underline">Alle Fahrzeuge</Link>
-                </div>
-
-                <div class="border-border bg-card mt-3 overflow-hidden rounded-[10px] border">
-                    <p v-if="!myVehicles.length" class="text-muted-foreground px-5 py-8 text-center text-[13px]">
-                        Ihnen ist derzeit kein Fahrzeug zugeordnet.
-                    </p>
-
-                    <ul v-else class="divide-border divide-y">
-                        <li v-for="vehicle in myVehicles" :key="vehicle.vehicle_id">
-                            <Link
-                                :href="route('vehicles.show', vehicle.vehicle_id)"
-                                class="hover:bg-muted/50 flex items-center gap-3 px-5 py-3.5 transition-colors"
-                            >
-                                <span class="min-w-0 flex-1">
-                                    <span class="text-brand-teal block truncate text-[14px] font-semibold">{{ vehicle.license_plate }}</span>
-                                    <span class="text-muted-foreground block truncate text-[12px]">
-                                        {{ [vehicle.make, vehicle.model].filter(Boolean).join(' ') || '—' }}
-                                        <template v-if="vehicle.leasing_end_date">
-                                            · Leasingende {{ formatPortalDate(vehicle.leasing_end_date) }}
-                                        </template>
-                                    </span>
-                                </span>
-
-                                <Badge :variant="getVehicleStatusDisplay(vehicle.current_order?.order_status).variant" class="shrink-0">
-                                    {{ getVehicleStatusDisplay(vehicle.current_order?.order_status).label }}
-                                </Badge>
-                            </Link>
-                        </li>
-                    </ul>
-                </div>
-            </section>
+                <VehiclePagination :meta="pagination" @change="goToPage" />
+            </div>
         </div>
 
-        <!-- Step 1: which vehicle(s). Step 2: the booking form for that service. -->
-        <SelectVehicleModal
-            v-model:open="selectVehicleOpen"
-            :service="activeService"
-            :vehicles="bookableVehicles"
-            :multiple="isMultiVehicleService"
-            @confirm="onVehicleChosen"
-            @confirm-many="onVehiclesChosen"
-        />
+        <button
+            type="button"
+            aria-label="Einführung ansehen"
+            title="Einführung ansehen"
+            class="fixed right-4 bottom-20 z-[60] flex items-center gap-2 rounded-full py-2.5 pr-4 pl-2.5 text-white shadow-lg transition-all duration-200 hover:shadow-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-[#01b990]/40 md:right-8 md:bottom-8"
+            style="background-color: #10393b"
+            @click="openOnboarding"
+        >
+            <span class="flex h-6 w-6 items-center justify-center rounded-full" style="background-color: #01b990">
+                <IconMdiPlay class="h-4 w-4" />
+            </span>
+            <span class="text-sm font-medium">Einführung</span>
+        </button>
 
+        <AddVehicleModal v-model:open="addVehicleOpen" :vehicle="null" />
+        <ImportVehiclesModal v-model:open="importVehiclesOpen" />
         <OrderCreationModal
             v-if="orderVehicle"
             v-model:open="orderModalOpen"
@@ -502,35 +374,6 @@ function onOnboardingOpenChange(value: boolean) {
             :stations="stations"
             :vehicle="orderVehicle"
         />
-
-        <RelocationOrderModal
-            v-if="relocationVehicles.length"
-            v-model:open="relocationModalOpen"
-            :vehicles="relocationVehicles"
-            :address-profiles="relocationOptions?.address_profiles ?? []"
-            :cost-centres="relocationOptions?.cost_centres ?? []"
-        />
-
-        <AccidentDamageOrderModal
-            v-if="accidentVehicle"
-            v-model:open="accidentModalOpen"
-            :vehicle="accidentVehicle"
-            :address-profiles="relocationOptions?.address_profiles ?? []"
-            :billing-addresses="relocationOptions?.billing_addresses ?? []"
-            :saved-cost-centres="relocationOptions?.saved_cost_centres ?? []"
-            :cost-centres="relocationOptions?.cost_centres ?? []"
-        />
-
-        <AppraisalOrderModal
-            v-if="appraisalVehicles.length"
-            v-model:open="appraisalModalOpen"
-            :vehicles="appraisalVehicles"
-            :address-profiles="relocationOptions?.address_profiles ?? []"
-            :billing-addresses="relocationOptions?.billing_addresses ?? []"
-            :saved-cost-centres="relocationOptions?.saved_cost_centres ?? []"
-            :cost-centres="relocationOptions?.cost_centres ?? []"
-        />
-
         <OnboardingModal
             :open="onboardingOpen"
             :video-url="ONBOARDING_VIDEO_URL"
