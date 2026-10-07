@@ -121,8 +121,16 @@ final class CompanyStep extends AbstractStep
         }
 
         $contactEmail = LegacyValue::email($row['kontaktperson_email']);
+        $withheldContactEmail = null;
 
-        if ($contactEmail !== null && ($contactEmailCounts[$contactEmail] ?? 0) > 1) {
+        // A LeasyBack address is never a company's operational contact: it
+        // would route that company's notifications to staff. It is kept in the
+        // map instead.
+        if ($contactEmail !== null && $this->isInternalAddress($contactEmail)) {
+            $withheldContactEmail = $contactEmail;
+            $contactEmail = null;
+            $notes[] = 'internal_contact_email_withheld';
+        } elseif ($contactEmail !== null && ($contactEmailCounts[$contactEmail] ?? 0) > 1) {
             $notes[] = 'shared_contact_email';
         }
 
@@ -142,6 +150,7 @@ final class CompanyStep extends AbstractStep
             'relevance' => $context->plan->relevantKunden[$id],
             'kundennummer' => LegacyValue::text($row['kundennummer']),
             'kontaktperson_telefon' => $rawPhone,
+            'withheld_internal_contact_email' => $withheldContactEmail,
             'address_id' => $addressId,
             'contact_id' => $contactId,
             'archived_billing_addresses' => LegacyValue::json($row['gespeicherte_rechnungsadressen']),
@@ -153,5 +162,10 @@ final class CompanyStep extends AbstractStep
         foreach ($notes as $note) {
             $context->report->add('kunde', $id, 'warning', $note);
         }
+    }
+
+    private function isInternalAddress(string $email): bool
+    {
+        return in_array(substr((string) strrchr($email, '@'), 1), config('legacy_import.staff_email_domains'), true);
     }
 }

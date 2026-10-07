@@ -43,6 +43,35 @@ class LegacyImportTest extends LegacyImportTestCase
         $this->assertSame(0, (int) $delta->is_active);
     }
 
+    public function test_an_internal_contact_email_never_becomes_a_companys_notification_address(): void
+    {
+        $internal = $this->export->add('kunde', ['firmenname' => 'Intern A GmbH', 'aktiv' => true, 'kontaktperson_email' => 'Fleet.Import@leasyback.com']);
+        $internalToo = $this->export->add('kunde', ['firmenname' => 'Intern B GmbH', 'aktiv' => true, 'kontaktperson_email' => 'fleet.import@leasyback.com']);
+        $own = $this->export->add('kunde', ['firmenname' => 'Eigene GmbH', 'aktiv' => true, 'kontaktperson_email' => 'einkauf@eigene.example']);
+        $ownToo = $this->export->add('kunde', ['firmenname' => 'Eigene Zwei GmbH', 'aktiv' => true, 'kontaktperson_email' => 'einkauf@eigene.example']);
+        foreach ([$internal, $internalToo, $own, $ownToo] as $kunde) {
+            $this->export->add('fahrzeug', ['kunde_id' => $kunde, 'kennzeichen' => 'K-'.substr($kunde, -4), 'hersteller' => 'Renault']);
+        }
+
+        $report = $this->runImport(['companies']);
+
+        foreach ([$internal, $internalToo] as $kunde) {
+            $row = $this->legacy('kunde', $kunde);
+            $this->assertNull(DB::table('b2b')->where('b2b_id', $row->target_id)->value('contact_email'), 'no operational address');
+            $this->assertSame('fleet.import@leasyback.com', $row->payload['withheld_internal_contact_email'], 'the original is kept in the map');
+        }
+
+        $this->assertSame(2, $report->has('kunde', 'warning', 'internal_contact_email_withheld'));
+
+        foreach ([$own, $ownToo] as $kunde) {
+            $this->assertSame('einkauf@eigene.example', DB::table('b2b')->where('b2b_id', $this->legacy('kunde', $kunde)->target_id)->value('contact_email'), "a customer's own address stays, even when two of their companies share it");
+            $this->assertArrayNotHasKey('withheld_internal_contact_email', $this->legacy('kunde', $kunde)->payload);
+        }
+
+        $this->assertSame(2, $report->has('kunde', 'warning', 'shared_contact_email'));
+        $this->assertSame(0, DB::table('b2b')->whereIn('contact_email', ['fleet.import@leasyback.com'])->count());
+    }
+
     public function test_a_company_known_only_through_a_pending_invitation_is_imported_by_default(): void
     {
         $lonely = $this->export->add('kunde', ['firmenname' => 'Nur Einladung GmbH', 'aktiv' => true]);
