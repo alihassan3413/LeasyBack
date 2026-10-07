@@ -146,6 +146,22 @@ class LegacyImportCommandsTest extends LegacyImportTestCase
         $this->assertSame([], Storage::disk('documents')->allFiles());
     }
 
+    public function test_rolling_back_the_first_batch_leaves_nothing_behind_even_after_a_second_import(): void
+    {
+        $this->buildScenario();
+
+        $this->importCommand()->assertSuccessful();
+        $first = $this->batchOfLastRun();
+        $this->importCommand()->assertSuccessful();
+
+        $this->assertSame(0, LegacyImportMap::query()->where('batch_id', '!=', $first)->count(), 'a re-evaluated skipped row keeps its first batch');
+
+        $this->artisan('legacy:rollback', ['batch' => $first, '--report-path' => $this->reports])->assertSuccessful();
+
+        $this->assertSame(0, LegacyImportMap::query()->count());
+        $this->assertSame(0, DB::table('vehicles')->count());
+    }
+
     public function test_rollback_keeps_an_order_that_has_seen_activity_since_the_import(): void
     {
         $this->buildScenario();
