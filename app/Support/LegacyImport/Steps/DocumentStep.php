@@ -277,13 +277,7 @@ final class DocumentStep extends AbstractStep
             return false;
         }
 
-        foreach (config('legacy_import.document_hosts') as $allowed) {
-            if ($host === $allowed || str_ends_with($host, '.'.$allowed)) {
-                return true;
-            }
-        }
-
-        return false;
+        return in_array($host, config('legacy_import.document_hosts'), true);
     }
 
     /**

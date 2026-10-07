@@ -21,6 +21,7 @@ class LegacyProbeDocumentsCommandTest extends LegacyImportTestCase
         }
 
         $e->add('dateianhang', ['auftrag_id' => $order, 'speicherort' => 'https://elsewhere.example/files/secret-other-host.pdf', 'dateiname' => 'x']);
+        $e->add('dateianhang', ['auftrag_id' => $order, 'speicherort' => 'https://sub.base44.app/files/secret-subdomain.pdf', 'dateiname' => 'x']);
         $e->add('dateianhang', ['auftrag_id' => 'FAHRZEUG_IMPORT_1768212572926', 'speicherort' => self::BASE.'secret-import-sheet.csv', 'dateiname' => 'x']);
         $e->add('kommentar', ['auftrag_id' => $order, 'text' => 'x', 'anhaenge' => [['name' => 'secret-comment.png', 'url' => self::BASE.'secret-ok-comment.png']]]);
         $e->add('kommentar', ['auftrag_id' => $order, 'text' => 'x', 'geloescht' => true, 'anhaenge' => [['name' => 'secret-deleted.png', 'url' => self::BASE.'secret-ok-deleted.png']]]);
@@ -50,7 +51,7 @@ class LegacyProbeDocumentsCommandTest extends LegacyImportTestCase
         $this->fakeBase44();
 
         $this->artisan('legacy:probe-documents', ['--source' => $this->export->directory])
-            ->expectsOutputToContain('Probing 7 document URL(s)')
+            ->expectsOutputToContain('Probing 8 document URL(s)')
             ->expectsOutputToContain('BLOCKED by our redirect protection: redirects to cdn.other-host.example and would work (HTTP 200)')
             ->expectsOutputToContain('AUTH required (HTTP 401)')
             ->expectsOutputToContain('NOT FOUND / gone (HTTP 404)')

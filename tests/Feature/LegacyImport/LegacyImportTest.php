@@ -480,6 +480,9 @@ class LegacyImportTest extends LegacyImportTestCase
             'a lookalike prefix' => ['https://notmedia.base44.com/leak.pdf'],
             'a lookalike without the dot' => ['https://evilbase44.app/leak.pdf'],
             'a sibling subdomain' => ['https://cdn.base44.com/leak.pdf'],
+            'a subdomain of base44.app' => ['https://files.base44.app/leak.pdf'],
+            'a subdomain of the media host' => ['https://eu.media.base44.com/leak.pdf'],
+            'the media host as a fully qualified name' => ['https://media.base44.com./leak.pdf'],
             'plain http to the media host' => ['http://media.base44.com/leak.pdf'],
         ];
     }
@@ -498,6 +501,19 @@ class LegacyImportTest extends LegacyImportTestCase
         $this->assertSame([], Storage::disk('documents')->allFiles());
         $this->assertSame(3, $report->has('dokument', 'failed', 'download_error'));
         Http::assertNotSent(fn (Request $request) => str_starts_with($request->url(), $target));
+    }
+
+    public function test_a_file_link_on_a_subdomain_of_an_allowed_host_is_never_fetched(): void
+    {
+        $this->buildScenario();
+        $this->export->add('dateianhang', ['auftrag_id' => $this->ids['o_return'], 'speicherort' => 'https://files.base44.app/api/x.pdf', 'dateiname' => 'sub.pdf', 'dateigroesse' => '1']);
+        $this->export->add('dateianhang', ['auftrag_id' => $this->ids['o_return'], 'speicherort' => 'https://eu.media.base44.com/x.pdf', 'dateiname' => 'sub2.pdf', 'dateigroesse' => '1']);
+        Http::fake(['*' => Http::response('DATA', 200)]);
+
+        $report = $this->runImport(['companies', 'users', 'vehicles', 'orders', 'messages', 'documents']);
+
+        $this->assertSame(2, $report->has('dokument', 'skipped', 'host_not_allowed'));
+        Http::assertNotSent(fn (Request $request) => str_contains($request->url(), 'files.base44.app') || str_contains($request->url(), 'eu.media.base44.com'));
     }
 
     public function test_a_redirect_to_another_host_is_not_followed(): void

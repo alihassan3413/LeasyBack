@@ -155,9 +155,10 @@ return [
 
     /**
      * Only these hosts are fetched when copying attachments into V2 storage,
-     * and a redirect may only lead to one of them. Base44 file links on
-     * base44.app redirect to its media host. No wildcards: add a host here only
-     * after checking where the files really live (php artisan legacy:probe-documents).
+     * and a redirect may only lead to one of them. Matching is exact: listing a
+     * host does not allow its subdomains. Base44 file links on base44.app
+     * redirect to its media host. Add a host here only after checking where the
+     * files really live (php artisan legacy:probe-documents).
      */
     'document_hosts' => ['base44.app', 'media.base44.com'],
 
