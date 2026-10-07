@@ -135,6 +135,60 @@ class RehearsalScriptHelpersTest extends TestCase
         $this->assertSame('', $this->sh("url_host ''")[0]);
     }
 
+    public function test_laravel_reports_an_unquoted_null_queue_as_empty_and_the_script_accepts_exactly_that(): void
+    {
+        // The real chain: .env -> Dotenv/Env -> config value -> JSON -> the script's php_cfg.
+        $dir = $this->tmp.DIRECTORY_SEPARATOR.'dotenv';
+        mkdir($dir, 0700, true);
+        file_put_contents($dir.DIRECTORY_SEPARATOR.'.env', "QUEUE_CONNECTION=null\nBROADCAST_CONNECTION=null\n");
+
+        $laravel = new Process([PHP_BINARY, '-r', '
+            require $argv[1];
+            Dotenv\Dotenv::create(Illuminate\Support\Env::getRepository(), $argv[2])->load();
+            echo json_encode([
+                "queue" => env("QUEUE_CONNECTION", "database"),
+                "broadcast" => env("BROADCAST_CONNECTION", "null"),
+            ]);
+        ', '--', base_path('vendor/autoload.php'), $dir], null, ['QUEUE_CONNECTION' => false, 'BROADCAST_CONNECTION' => false]);
+        $laravel->mustRun();
+
+        $json = $laravel->getOutput();
+        $this->assertSame('{"queue":null,"broadcast":null}', $json, 'Laravel turns the literal null into a real null, not the string "null"');
+
+        $json = str_replace("'", '', $json);
+        $this->assertSame('', $this->sh("CFG_JSON='$json'; php_cfg queue")[0], 'which the script reads as an empty value');
+
+        $env = $this->envFile("QUEUE_CONNECTION=null\nBROADCAST_CONNECTION=null\n");
+        $this->assertSame('ok', $this->verdict("CFG_JSON='$json'; ENV_FILE=$env; if chk_effective_queue; then echo ok; else echo refused; fi"));
+        $this->assertSame('ok', $this->verdict("CFG_JSON='$json'; ENV_FILE=$env; if chk_effective_broadcast; then echo ok; else echo refused; fi"));
+    }
+
+    public function test_an_empty_effective_queue_or_broadcast_is_safe_only_when_null_was_configured(): void
+    {
+        $queue = fn (string $json, string $envContents) => $this->verdict("CFG_JSON='$json'; ENV_FILE={$this->envFile($envContents)}; if chk_effective_queue; then echo ok; else echo refused; fi");
+        $broadcast = fn (string $json, string $envContents) => $this->verdict("CFG_JSON='$json'; ENV_FILE={$this->envFile($envContents)}; if chk_effective_broadcast; then echo ok; else echo refused; fi");
+
+        // accepted: the null driver, however Laravel renders it
+        $this->assertSame('ok', $queue('{"queue":null}', "QUEUE_CONNECTION=null\n"));
+        $this->assertSame('ok', $queue('{"queue":"null"}', "QUEUE_CONNECTION=null\n"));
+        $this->assertSame('ok', $queue('{"queue":null}', "QUEUE_CONNECTION='null'\n"));
+
+        // refused: empty without an explicit null, or any real queue
+        $this->assertSame('refused', $queue('{"queue":null}', "APP_NAME=x\n"), 'empty and nothing configured');
+        $this->assertSame('refused', $queue('{"queue":null}', "QUEUE_CONNECTION=\n"), 'empty and configured empty');
+        $this->assertSame('refused', $queue('{"queue":null}', "QUEUE_CONNECTION=sync\n"), 'configured sync but Laravel says empty');
+        $this->assertSame('refused', $queue('{"queue":"sync"}', "QUEUE_CONNECTION=sync\n"), 'sync is never allowed');
+        $this->assertSame('refused', $queue('{"queue":"database"}', "QUEUE_CONNECTION=null\n"), 'a real queue is refused even when .env says null');
+        $this->assertSame('refused', $queue('{"queue":"redis"}', "QUEUE_CONNECTION=redis\n"));
+
+        $this->assertSame('ok', $broadcast('{"broadcast":null}', "BROADCAST_CONNECTION=null\n"));
+        $this->assertSame('ok', $broadcast('{"broadcast":null}', "BROADCAST_DRIVER=null\n"));
+        $this->assertSame('ok', $broadcast('{"broadcast":"log"}', "BROADCAST_CONNECTION=log\n"));
+        $this->assertSame('refused', $broadcast('{"broadcast":null}', "APP_NAME=x\n"));
+        $this->assertSame('refused', $broadcast('{"broadcast":"reverb"}', "BROADCAST_CONNECTION=reverb\n"));
+        $this->assertSame('refused', $broadcast('{"broadcast":"pusher"}', "BROADCAST_CONNECTION=null\n"));
+    }
+
     public function test_masking_hides_emails_and_phone_numbers_but_keeps_dates_and_ids(): void
     {
         [$out] = $this->sh("printf '%s' 'mail anna.beispiel@firma.example call +49 30 123456 or 030 12345678 on 2026-10-06 batch 8f14e45f-ceea-467f-a0e6-3c5bb2d4d9d1' | mask_pii");

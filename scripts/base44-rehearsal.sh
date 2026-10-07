@@ -591,6 +591,32 @@ load_effective_config() {
 }
 php_cfg() { php -r '$j = json_decode($argv[1], true); echo $j[$argv[2]] ?? "";' -- "$CFG_JSON" "$1"; }
 
+# Dotenv turns an unquoted `null` in .env into a real PHP null, which Laravel's
+# config then holds as null and JSON-encodes as nothing. So an EMPTY effective
+# value is the safe "null" driver, but only when `null` was explicitly configured;
+# an empty value with nothing configured is still a refusal.
+null_setting_ok() { # EFFECTIVE CONFIGURED
+  [[ $1 == null ]] || { [[ -z $1 && $2 == null ]]; }
+}
+
+chk_effective_queue() {
+  local v configured
+  v=$(php_cfg queue); configured=$(effective QUEUE_CONNECTION)
+  null_setting_ok "$v" "$configured" && return 0
+  echo "      effective queue.default is '${v:-<empty>}' with QUEUE_CONNECTION='${configured:-<unset>}' (only the null driver is allowed)"
+  return 1
+}
+
+chk_effective_broadcast() {
+  local v configured
+  v=$(php_cfg broadcast); configured=$(effective BROADCAST_CONNECTION)
+  [[ -n $configured ]] || configured=$(effective BROADCAST_DRIVER)
+  [[ $v == log ]] && return 0
+  null_setting_ok "$v" "$configured" && return 0
+  echo "      effective broadcasting.default is '${v:-<empty>}' with BROADCAST_CONNECTION='${configured:-<unset>}' (only log or null is allowed)"
+  return 1
+}
+
 chk_effective_config() {
   local bad=0 v
   v=$(php_cfg app_env);     [[ $v == local ]]  || { echo "      effective app.env is '$v'"; bad=1; }
@@ -600,8 +626,8 @@ chk_effective_config() {
   [[ $(real "$v") == "$(real "$DB_FILE")" ]] || { echo "      Laravel would open '$v', not the rehearsal DB '$DB_FILE'"; bad=1; }
   [[ $(real "$v") != "$(real "$PROD_DB")" ]] || { echo "      Laravel would open the production DB"; bad=1; }
   v=$(php_cfg mail);        [[ $v == log ]]    || { echo "      effective mail.default is '$v'"; bad=1; }
-  v=$(php_cfg queue);       [[ $v == null ]]   || { echo "      effective queue.default is '$v'"; bad=1; }
-  v=$(php_cfg broadcast);   [[ $v == log || $v == null ]] || { echo "      effective broadcasting.default is '$v'"; bad=1; }
+  chk_effective_queue     || bad=1
+  chk_effective_broadcast || bad=1
   v=$(php_cfg cache);       [[ $v != redis && $v != memcached && $v != dynamodb ]] || { echo "      effective cache store is '$v'"; bad=1; }
   v=$(php_cfg session);     [[ $v != redis && $v != memcached && $v != dynamodb ]] || { echo "      effective session driver is '$v'"; bad=1; }
   v=$(php_cfg fs_default);  [[ $v != s3 ]]     || { echo "      default filesystem disk is s3"; bad=1; }
