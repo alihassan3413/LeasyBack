@@ -57,7 +57,7 @@ class RehearsalScriptHelpersTest extends TestCase
     {
         $script = $this->posix(base_path('scripts/base44-rehearsal.sh'));
         // the PHPUnit process has its own APP_ENV, DB_DATABASE... which the script rightly treats as shadowing
-        $clean = array_fill_keys(['APP_ENV', 'APP_URL', 'DB_CONNECTION', 'DB_DATABASE', 'MAIL_MAILER', 'QUEUE_CONNECTION', 'BROADCAST_CONNECTION', 'BROADCAST_DRIVER', 'CACHE_STORE', 'SESSION_DRIVER', 'FILESYSTEM_DISK', 'DOCUMENTS_FILESYSTEM_DRIVER', 'LEXWARE_INTEGRATION_MODE', 'LEGACY_IMPORT_SOURCE_PATH', 'REHEARSAL_PROD_DIR', 'REHEARSAL_PROD_DB', 'REHEARSAL_PROD_URL'], false);
+        $clean = array_fill_keys(['APP_ENV', 'APP_URL', 'DB_CONNECTION', 'DB_DATABASE', 'MAIL_MAILER', 'QUEUE_CONNECTION', 'BROADCAST_CONNECTION', 'BROADCAST_DRIVER', 'CACHE_STORE', 'SESSION_DRIVER', 'FILESYSTEM_DISK', 'DOCUMENTS_FILESYSTEM_DRIVER', 'LEXWARE_INTEGRATION_MODE', 'LEGACY_IMPORT_SOURCE_PATH', 'REHEARSAL_PROD_DIR', 'REHEARSAL_PROD_DB', 'REHEARSAL_PROD_URL', 'LEGACY_REHEARSAL_PRODUCTION_PATH'], false);
         $process = new Process(['bash', '-c', 'source "$1"; set +e; '.$snippet, '_', $script], base_path(), $env + $clean);
         $process->run();
 
@@ -100,8 +100,8 @@ class RehearsalScriptHelpersTest extends TestCase
         $this->assertStringNotContainsString('migrate:fresh', $executable);
         $this->assertStringNotContainsString('migrate:reset', $executable);
         $this->assertStringNotContainsString('db:wipe', $executable);
-        $this->assertDoesNotMatchRegularExpression('/\$PROD_DIR(_LITERAL)?\/[^"\s]*["\s]*>>?\s/', $executable, 'no redirect into the production tree');
-        $this->assertDoesNotMatchRegularExpression('/(rm|mv|cp|chmod|chown|touch|sqlite3 "\$PROD_DB")\s[^\n|;]*\$PROD_(DIR|DB)/', $executable);
+        $this->assertDoesNotMatchRegularExpression('/\$(PROTECTED_)?PROD_DIR\/[^"\s]*["\s]*>>?\s/', $executable, 'no redirect into the production tree');
+        $this->assertDoesNotMatchRegularExpression('/(rm|mv|cp|chmod|chown|touch|sqlite3 "\$PROD_DB")\s[^\n|;]*\$(PROTECTED_)?PROD_(DIR|DB)/', $executable);
     }
 
     public function test_env_get_reads_plain_quoted_and_commented_values_and_the_last_assignment_wins(): void
@@ -310,6 +310,139 @@ class RehearsalScriptHelpersTest extends TestCase
         foreach (['/var/www/LeasyBack', '/var/www/LeasyBack/storage'] as $repo) {
             $this->assertSame('refused', $this->verdict("REPO=$repo; if chk_not_production_dir; then echo ok; else echo refused; fi", ['REHEARSAL_PROD_DIR' => '/somewhere/else']));
         }
+    }
+
+    // ------------------------------------------- protected production path
+
+    public function test_the_protected_production_path_defaults_to_var_www_leasyback(): void
+    {
+        $this->assertSame('/var/www/LeasyBack (from built-in default)', $this->sh('describe_protected_prod_dir')[0]);
+        $this->assertSame('ok', $this->verdict('REPO=/srv/rehearsal-repo; ENV_FILE=; if chk_protected_prod_dir; then echo ok; else echo refused; fi'));
+    }
+
+    /**
+     * The AWS host: /var/www/LeasyBack is the rehearsal copy today and becomes
+     * production after sign-off, so the old live server is named instead.
+     */
+    public function test_an_explicit_override_lets_var_www_leasyback_be_the_rehearsal_copy(): void
+    {
+        $override = ['LEGACY_REHEARSAL_PRODUCTION_PATH' => '/nonexistent-old-production'];
+
+        $this->assertSame('/nonexistent-old-production (from LEGACY_REHEARSAL_PRODUCTION_PATH)', $this->sh('describe_protected_prod_dir', $override)[0]);
+        $this->assertSame('ok', $this->verdict('REPO=/var/www/LeasyBack; ENV_FILE=; if chk_protected_prod_dir && chk_not_production_dir; then echo ok; else echo refused; fi', $override));
+        $this->assertSame(
+            'refused',
+            $this->verdict('REPO=/var/www/LeasyBack; if chk_not_production_dir; then echo ok; else echo refused; fi'),
+            'without the override /var/www/LeasyBack stays production',
+        );
+    }
+
+    public function test_the_overridden_path_is_protected_exactly_like_the_default(): void
+    {
+        $t = $this->posix($this->tmp);
+        mkdir($this->tmp.DIRECTORY_SEPARATOR.'old-prod'.DIRECTORY_SEPARATOR.'storage', 0700, true);
+        mkdir($this->tmp.DIRECTORY_SEPARATOR.'old-prod'.DIRECTORY_SEPARATOR.'logs', 0700, true);
+        $override = ['LEGACY_REHEARSAL_PRODUCTION_PATH' => "$t/old-prod"];
+
+        foreach (["$t/old-prod", "$t/old-prod/storage", "$t/old-prod/storage/../storage"] as $repo) {
+            $this->assertSame('refused', $this->verdict("REPO=$repo; if chk_not_production_dir; then echo ok; else echo refused; fi", $override), $repo);
+        }
+
+        $this->assertSame('refused', $this->verdict("REPO=/srv/repo; LOG_ROOT=$t/old-prod/logs; if chk_log_root; then echo ok; else echo refused; fi", $override), 'log root inside it');
+    }
+
+    public function test_the_database_identity_checks_hold_against_the_overridden_path(): void
+    {
+        $t = $this->posix($this->tmp);
+        mkdir($this->tmp.DIRECTORY_SEPARATOR.'old-prod'.DIRECTORY_SEPARATOR.'database', 0700, true);
+        file_put_contents($this->tmp.'/old-prod/database/database.sqlite', 'prod');
+        file_put_contents($this->tmp.'/copy.sqlite', 'copy');
+        $prodDb = "$t/old-prod/database/database.sqlite";
+        $vars = ['LEGACY_REHEARSAL_PRODUCTION_PATH' => "$t/old-prod", 'REHEARSAL_PROD_DB' => $prodDb];
+        $check = fn (string $db) => $this->verdict("ENV_FILE={$this->envFile("DB_CONNECTION=sqlite\nDB_DATABASE=$db\n")}; if chk_database; then echo ok; else echo refused; fi", $vars);
+
+        $this->assertSame('ok', $check("$t/copy.sqlite"));
+        $this->assertSame('refused', $check($prodDb), 'the production database itself');
+
+        $made = new Process(['bash', '-c', 'ln "$1" "$2" 2>/dev/null; [ "$(stat -c %h "$1" 2>/dev/null || stat -f %l "$1")" = 2 ] && echo made', '_', $prodDb, "$t/hardlinked.sqlite"]);
+        $made->run();
+
+        if (trim($made->getOutput()) === 'made') {
+            $this->assertSame('refused', $check("$t/hardlinked.sqlite"), 'same inode as production');
+        }
+    }
+
+    public function test_symlinks_into_the_overridden_path_are_refused(): void
+    {
+        $t = $this->posix($this->tmp);
+        $setup = new Process(['bash', '-c', 'mkdir -p "$1/old-prod/storage" "$1/repo/storage/app"; ln -s "$1/old-prod/storage" "$1/repo/storage/app/evil" 2>/dev/null; [ -L "$1/repo/storage/app/evil" ] && echo made', '_', $t]);
+        $setup->run();
+
+        if (trim($setup->getOutput()) !== 'made') {
+            $this->markTestIncomplete('Symlinks are not supported on this filesystem.');
+        }
+
+        $this->assertSame('refused', $this->verdict("REPO=$t/repo; if chk_symlinks; then echo ok; else echo refused; fi", ['LEGACY_REHEARSAL_PRODUCTION_PATH' => "$t/old-prod"]));
+    }
+
+    /** The override moves one path; every environment rule stays exactly as strict. */
+    public function test_the_environment_checks_are_unchanged_by_the_override(): void
+    {
+        $vars = ['LEGACY_REHEARSAL_PRODUCTION_PATH' => '/nonexistent-old-production', 'REHEARSAL_PROD_URL' => 'https://leasyback.example'];
+        $run = fn (string $contents, string $check) => $this->verdict("ENV_FILE={$this->envFile($contents)}; if $check; then echo ok; else echo refused; fi", $vars);
+
+        $this->assertSame('refused', $run("APP_ENV=production\n", 'chk_app_env_local'));
+        $this->assertSame('refused', $run("MAIL_MAILER=smtp\n", 'chk_mail_log'));
+        $this->assertSame('refused', $run("QUEUE_CONNECTION=database\nBROADCAST_CONNECTION=log\n", 'chk_queue_and_broadcast'));
+        $this->assertSame('refused', $run("STRIPE_SECRET=sk_live_x\nLEXWARE_INTEGRATION_MODE=disabled\n", 'chk_integrations'));
+        $this->assertSame('refused', $run("LEXWARE_INTEGRATION_MODE=live\n", 'chk_integrations'));
+        $this->assertSame('refused', $run("APP_URL=https://leasyback.example\n", 'chk_app_url'));
+    }
+
+    public function test_an_empty_or_malformed_override_is_refused(): void
+    {
+        $check = fn (string $value) => $this->verdict('REPO=/srv/rehearsal-repo; ENV_FILE=; if chk_protected_prod_dir; then echo ok; else echo refused; fi', ['LEGACY_REHEARSAL_PRODUCTION_PATH' => $value]);
+
+        $this->assertSame('refused', $check(''), 'set but empty');
+        $this->assertSame('refused', $check('   '), 'whitespace only');
+        $this->assertSame('refused', $check('old-production'), 'relative');
+        $this->assertSame('refused', $check('/'), 'the filesystem root');
+        $this->assertSame('refused', $check('/srv/old production'), 'contains whitespace');
+        $this->assertSame('refused', $check('/srv/rehearsal-repo'), 'the working copy itself');
+        $this->assertSame('refused', $check('/srv/rehearsal-repo/storage'), 'inside the working copy');
+        $this->assertSame('ok', $check('/srv/old-production'));
+    }
+
+    /** Explicit means typed into the shell for this run, not inherited from the rehearsal .env. */
+    public function test_the_override_is_only_honoured_from_the_shell(): void
+    {
+        $env = $this->envFile("APP_ENV=local\nLEGACY_REHEARSAL_PRODUCTION_PATH=/nonexistent-old-production\n");
+
+        $this->assertSame('refused', $this->verdict("REPO=/srv/rehearsal-repo; ENV_FILE=$env; if chk_protected_prod_dir; then echo ok; else echo refused; fi", ['LEGACY_REHEARSAL_PRODUCTION_PATH' => '/nonexistent-old-production']));
+        $this->assertSame(
+            '/var/www/LeasyBack (from built-in default)',
+            $this->sh("ENV_FILE=$env; describe_protected_prod_dir")[0],
+            'a value in .env alone changes nothing',
+        );
+    }
+
+    /** The real entry point: the path is logged first, and a bad override stops the run before anything is written. */
+    public function test_the_runner_logs_the_effective_path_and_stops_on_an_empty_override(): void
+    {
+        $clean = array_fill_keys(['APP_ENV', 'APP_URL', 'DB_CONNECTION', 'DB_DATABASE', 'MAIL_MAILER', 'QUEUE_CONNECTION', 'REHEARSAL_PROD_DIR', 'REHEARSAL_PROD_DB', 'REHEARSAL_PROD_URL'], false);
+        $logRoot = $this->tmp.DIRECTORY_SEPARATOR.'logs';
+        $process = new Process(
+            ['bash', $this->posix(base_path('scripts/base44-rehearsal.sh')), 'check', '--log-root', $this->posix($logRoot)],
+            base_path(),
+            ['LEGACY_REHEARSAL_PRODUCTION_PATH' => ''] + $clean,
+        );
+        $process->run();
+        $output = $process->getOutput().$process->getErrorOutput();
+
+        $this->assertSame(2, $process->getExitCode(), $output);
+        $this->assertStringContainsString('protected production path:  (from LEGACY_REHEARSAL_PRODUCTION_PATH)', $output);
+        $this->assertStringContainsString('the protected production path is not usable', $output);
+        $this->assertDirectoryDoesNotExist($logRoot, 'nothing is written before the refusal');
     }
 
     public function test_the_rehearsal_database_must_be_its_own_regular_file(): void

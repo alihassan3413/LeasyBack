@@ -4,8 +4,21 @@
 #
 # Runs the whole migration rehearsal on a COPIED environment, with safety checks
 # that stop it before anything can reach production. It never reads or writes
-# /var/www/LeasyBack, except one read-only, lock-free row-count comparison of the
-# production SQLite file (skippable with --skip-prod-compare).
+# the protected production path (default /var/www/LeasyBack), except one
+# read-only, lock-free row-count comparison of the production SQLite file
+# (skippable with --skip-prod-compare).
+#
+# Protected production path:
+#   LEGACY_REHEARSAL_PRODUCTION_PATH=/abs/path   replaces /var/www/LeasyBack as the
+#                               tree every check treats as production. Only for a
+#                               server where /var/www/LeasyBack is itself the
+#                               rehearsal copy (e.g. the AWS host before sign-off),
+#                               e.g. LEGACY_REHEARSAL_PRODUCTION_PATH=/nonexistent-old-production.
+#                               Must be set explicitly in the shell (never in .env),
+#                               absolute, non-empty, and outside the working copy.
+#                               The effective path is logged at startup. With a
+#                               path that has no .env, set REHEARSAL_PROD_URL and
+#                               REHEARSAL_PROD_DB as well.
 #
 #   scripts/base44-rehearsal.sh check
 #   scripts/base44-rehearsal.sh dry-run
@@ -32,8 +45,20 @@ set -Eeuo pipefail
 umask 077
 
 readonly SCRIPT_VERSION="1.0"
-readonly PROD_DIR_LITERAL="/var/www/LeasyBack"             # never overridable
-PROD_DIR="${REHEARSAL_PROD_DIR:-$PROD_DIR_LITERAL}"        # override exists for tests
+readonly PROD_DIR_DEFAULT="/var/www/LeasyBack"
+# The tree every check treats as production. Changed only by an explicit
+# LEGACY_REHEARSAL_PRODUCTION_PATH in the shell environment; validated by
+# chk_protected_prod_dir before anything else runs. Set but empty is refused,
+# never silently replaced by the default.
+if [[ -n ${LEGACY_REHEARSAL_PRODUCTION_PATH+x} ]]; then
+  PROTECTED_PROD_DIR=$LEGACY_REHEARSAL_PRODUCTION_PATH
+  readonly PROTECTED_PROD_DIR_SOURCE="LEGACY_REHEARSAL_PRODUCTION_PATH"
+else
+  PROTECTED_PROD_DIR=$PROD_DIR_DEFAULT
+  readonly PROTECTED_PROD_DIR_SOURCE="built-in default"
+fi
+readonly PROTECTED_PROD_DIR
+PROD_DIR="${REHEARSAL_PROD_DIR:-$PROTECTED_PROD_DIR}"      # second protected tree; exists for tests
 LOG_ROOT_DEFAULT="/secure/legacy-rehearsal"
 
 readonly EXPORT_FILES=(
@@ -206,10 +231,30 @@ count_action() {
 # =============================================================================
 # Static safety checks (no Laravel, no composer, no DB writes)
 # =============================================================================
+# The protected production path itself must be a real, explicit choice: a
+# mistyped or empty override must stop the run, not quietly protect nothing.
+chk_protected_prod_dir() {
+  local p=$PROTECTED_PROD_DIR
+  [[ -n ${p//[[:space:]]/} ]] || { echo "      $PROTECTED_PROD_DIR_SOURCE is set but empty (unset it to protect $PROD_DIR_DEFAULT, or name the real production path)"; return 1; }
+  [[ $p != *[[:space:]]* ]]   || { echo "      the protected production path '$p' contains whitespace"; return 1; }
+  [[ $p == /* ]]              || { echo "      the protected production path '$p' must be absolute"; return 1; }
+  [[ $(real "$p") != / ]]     || { echo "      the protected production path may not be /"; return 1; }
+  if [[ -n $REPO ]] && is_inside "$p" "$REPO"; then
+    echo "      the protected production path '$p' lies inside the working copy $(real "$REPO")"; return 1
+  fi
+  if [[ -n $ENV_FILE && -f $ENV_FILE ]] && grep -qE '^[[:space:]]*(export[[:space:]]+)?LEGACY_REHEARSAL_PRODUCTION_PATH[[:space:]]*=' "$ENV_FILE"; then
+    echo "      LEGACY_REHEARSAL_PRODUCTION_PATH is in $ENV_FILE; it is only honoured from the shell, set it there explicitly"; return 1
+  fi
+}
+
+describe_protected_prod_dir() {
+  printf '%s (from %s)' "$PROTECTED_PROD_DIR" "$PROTECTED_PROD_DIR_SOURCE"
+}
+
 chk_not_production_dir() {
   local here repo p pr
   here=$(pwd -P); repo=$(real "$REPO")
-  for p in "$PROD_DIR_LITERAL" "$PROD_DIR"; do
+  for p in "$PROTECTED_PROD_DIR" "$PROD_DIR"; do
     pr=$(real "$p")
     if is_inside "$repo" "$pr" || is_inside "$here" "$pr"; then
       echo "      the working copy ($repo) is inside production ($pr)"; return 1
@@ -303,7 +348,7 @@ chk_database() {
   [[ $DB_FILE == /* ]] || { echo "      DB_DATABASE must be an absolute path (got '${DB_FILE:-<unset>}')"; return 1; }
   [[ -f $DB_FILE ]]    || { echo "      $DB_FILE does not exist (copy the database in first)"; return 1; }
   [[ ! -L $DB_FILE ]]  || { echo "      the rehearsal DB is a symlink"; return 1; }
-  if is_inside "$DB_FILE" "$PROD_DIR_LITERAL" || is_inside "$DB_FILE" "$PROD_DIR"; then
+  if is_inside "$DB_FILE" "$PROTECTED_PROD_DIR" || is_inside "$DB_FILE" "$PROD_DIR"; then
     echo "      the rehearsal DB lies inside production"; return 1
   fi
   PROD_DB=${REHEARSAL_PROD_DB:-$(abs_db_path "$PROD_DIR/.env" "$PROD_DIR")}
@@ -323,8 +368,8 @@ chk_database() {
 chk_symlinks() {
   local root hits=""
   for root in "$REPO/storage" "$REPO/public" "$REPO/bootstrap/cache" "$REPO/database" "$REPO"; do
-    hits+=$(symlinks_into "$root" "$PROD_DIR_LITERAL")$'\n'
-    [[ $PROD_DIR == "$PROD_DIR_LITERAL" ]] || hits+=$(symlinks_into "$root" "$PROD_DIR")$'\n'
+    hits+=$(symlinks_into "$root" "$PROTECTED_PROD_DIR")$'\n'
+    [[ $PROD_DIR == "$PROTECTED_PROD_DIR" ]] || hits+=$(symlinks_into "$root" "$PROD_DIR")$'\n'
   done
   hits=$(printf '%s' "$hits" | sed '/^$/d' | sort -u)
   if [[ -n $hits ]]; then echo "      symlinks into production:"; printf '        %s\n' "$hits"; return 1; fi
@@ -334,7 +379,7 @@ chk_symlinks() {
 chk_no_stale_config_cache() {
   local cache="$REPO/bootstrap/cache/config.php"
   [[ -f $cache ]] || return 0
-  if grep -qF -- "$PROD_DIR_LITERAL" "$cache" || { [[ -n $PROD_DB ]] && grep -qF -- "$PROD_DB" "$cache"; }; then
+  if grep -qF -- "$PROTECTED_PROD_DIR" "$cache" || { [[ -n $PROD_DB ]] && grep -qF -- "$PROD_DB" "$cache"; }; then
     echo "      bootstrap/cache/config.php references production"; return 1
   fi
   warn "bootstrap/cache/config.php exists; it is cleared before any artisan command runs"
@@ -347,7 +392,7 @@ chk_export() {
   [[ -d $EXPORT_DIR ]]    || { echo "      $EXPORT_DIR is not a directory"; return 1; }
   EXPORT_DIR=$(real "$EXPORT_DIR")
   local d
-  for d in "$REPO" "$PROD_DIR_LITERAL" "$PROD_DIR"; do
+  for d in "$REPO" "$PROTECTED_PROD_DIR" "$PROD_DIR"; do
     if is_inside "$EXPORT_DIR" "$d"; then echo "      the export lies inside $d (it must live outside both repositories)"; return 1; fi
   done
   local f missing=0
@@ -361,7 +406,7 @@ chk_export() {
 
 chk_log_root() {
   local d
-  for d in "$REPO" "$PROD_DIR_LITERAL" "$PROD_DIR"; do
+  for d in "$REPO" "$PROTECTED_PROD_DIR" "$PROD_DIR"; do
     if is_inside "$LOG_ROOT" "$d"; then echo "      log root $LOG_ROOT is inside $d"; return 1; fi
   done
 }
@@ -412,7 +457,7 @@ chk_sqlite_sound() { # FILE LABEL
 
 run_static_checks() {
   STAGE="safety: static checks"
-  log "mode=$MODE  repo=$(real "$REPO")  prod=$PROD_DIR_LITERAL (never touched)"
+  log "mode=$MODE  repo=$(real "$REPO")  prod=$(describe_protected_prod_dir) (never touched)"
   check "working directory is not the production tree"      chk_not_production_dir
   check "required tools are installed"                      chk_tools
   check ".env present, private, no environment override file" chk_env_file
@@ -449,6 +494,7 @@ record_environment() {
     echo "base44-rehearsal $SCRIPT_VERSION  mode=$MODE  started=$(ts)"
     echo "host=$(hostname)  user=$(id -un)"
     echo "repo=$(real "$REPO")"
+    echo "protected_production_path=$(describe_protected_prod_dir)"
     echo "git=$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null) $(git -C "$REPO" rev-parse --short HEAD 2>/dev/null)"
     echo "php=$(php -r 'echo PHP_VERSION;')  sqlite3=$(sqlite3 --version | cut -d' ' -f1)"
     echo "rehearsal_db=$DB_FILE  size_bytes=$(stat -c %s "$DB_FILE" 2>/dev/null || stat -f %z "$DB_FILE")"
@@ -634,7 +680,7 @@ chk_effective_config() {
   v=$(php_cfg docs_driver); [[ $v == local ]]  || { echo "      documents disk driver is '$v' (must be local)"; bad=1; }
   v=$(php_cfg docs_root)
   [[ -n $v ]] && is_inside "$v" "$REPO" || { echo "      documents disk root '$v' is not inside the rehearsal tree"; bad=1; }
-  if is_inside "$v" "$PROD_DIR_LITERAL"; then echo "      documents disk root is inside production"; bad=1; fi
+  if is_inside "$v" "$PROTECTED_PROD_DIR"; then echo "      documents disk root is inside production"; bad=1; fi
   v=$(php_cfg source_path); [[ $(real "$v") == "$EXPORT_DIR" ]] || { echo "      legacy_import.source_path '$v' differs from the checked export '$EXPORT_DIR'"; bad=1; }
   return $bad
 }
@@ -832,7 +878,8 @@ stage_full() {
 # =============================================================================
 # Entry point
 # =============================================================================
-usage() { sed -n '2,34p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+# The header comment block, however long it grows.
+usage() { awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "${BASH_SOURCE[0]}"; }
 
 parse_args() {
   [[ $# -ge 1 ]] || { usage; exit 64; }
@@ -867,6 +914,8 @@ main() {
   FK_BEFORE=0
 
   # Production is refused before anything is written anywhere.
+  log "protected production path: $(describe_protected_prod_dir)"
+  chk_protected_prod_dir || refuse "the protected production path is not usable"
   chk_not_production_dir || refuse "working directory is the production tree"
   [[ -f $ENV_FILE ]] || refuse ".env not found in $REPO"
   check "log root is outside both repositories" chk_log_root
