@@ -167,8 +167,11 @@ function offerLabel(sequence: number): string {
     return `Angebot ${String(sequence).padStart(2, '0')}`;
 }
 
+// legacy: navigator.clipboard does not exist over plain HTTP (the rehearsal server).
+const { copy } = useClipboard({ legacy: true });
+
 async function copyLink(link: string) {
-    await navigator.clipboard.writeText(link);
+    await copy(link);
     copied.value = true;
     window.setTimeout(() => (copied.value = false), 2000);
 }

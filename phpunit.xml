@@ -26,6 +26,7 @@
         <env name="LEXWARE_INTEGRATION_MODE" value="disabled"/>
         <env name="DB_DATABASE" value=":memory:"/>
         <env name="MAIL_MAILER" value="array"/>
+        <env name="MFA_EXEMPT_EMAILS" value=""/>
         <env name="PULSE_ENABLED" value="false"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>

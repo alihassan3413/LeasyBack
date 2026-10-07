@@ -23,7 +23,7 @@ Route::middleware(['auth', 'active', 'verified'])->group(function () {
         ->middleware('b2b.can:offers.select')->name('offers.select');
 
     Route::post('offers/{offerId}/reject', [OfferController::class, 'reject'])
-        ->middleware('b2b.can:offers.select')
+        ->middleware('b2b.can:offers.reject')
         ->name('offers.reject');
 
     /*
@@ -44,7 +44,7 @@ Route::middleware(['auth', 'active', 'verified'])->group(function () {
      * Same gate as the order page.
      */
     Route::get('orders/{orderId}/bestaetigung', [
-        \App\Modules\UserProfile\Order\Http\Controllers\OrderController::class,
+        App\Modules\UserProfile\Order\Http\Controllers\OrderController::class,
         'confirmation',
     ])
         ->whereUuid('orderId')
@@ -69,22 +69,27 @@ Route::middleware(['auth', 'active', 'verified'])->group(function () {
 
 Route::middleware(['auth', 'active'])->group(function () {
     // Several vehicles in one booking — used by the portal's Überführung form.
+    // Booking is creating an order: the same `orders.create` gate as every
+    // other service, or a Read-only member could book Überführungen.
     Route::post('/orders/b2b/relocation', [
-        \App\Modules\UserProfile\Order\Http\Controllers\OrderController::class,
+        App\Modules\UserProfile\Order\Http\Controllers\OrderController::class,
         'createB2bRelocationBatch',
-    ])->name('orders.b2b.relocation.batch');
+    ])
+        ->middleware('b2b.can:orders.create')
+        ->name('orders.b2b.relocation.batch');
 
     // One vehicle — kept for anything still posting to the per-vehicle URL.
     Route::post('/orders/b2b/relocation/{vehicleId}', [
-        \App\Modules\UserProfile\Order\Http\Controllers\OrderController::class,
+        App\Modules\UserProfile\Order\Http\Controllers\OrderController::class,
         'createB2bRelocation',
     ])
         ->whereUuid('vehicleId')
+        ->middleware('b2b.can:orders.create')
         ->name('orders.b2b.relocation.store');
 
     // Gutachten (Vehicle Condition Appraisal): one order for one or more vehicles.
     Route::post('/orders/b2b/appraisal', [
-        \App\Modules\UserProfile\Order\Http\Controllers\OrderController::class,
+        App\Modules\UserProfile\Order\Http\Controllers\OrderController::class,
         'createVehicleAppraisal',
     ])
         ->middleware('b2b.can:orders.create')
@@ -92,7 +97,7 @@ Route::middleware(['auth', 'active'])->group(function () {
 
     // Unfallschaden: exactly one vehicle, with optional files.
     Route::post('/orders/b2b/accident-damage', [
-        \App\Modules\UserProfile\Order\Http\Controllers\OrderController::class,
+        App\Modules\UserProfile\Order\Http\Controllers\OrderController::class,
         'createAccidentDamage',
     ])
         ->middleware('b2b.can:orders.create')

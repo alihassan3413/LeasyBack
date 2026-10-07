@@ -25,21 +25,18 @@ class B2bTeamManagementTest extends TestCase
 {
     use BuildsB2bCompanies, RefreshDatabase;
 
-    // ── Owner invitations resolve to the administrator ───────────────
+    // ── One Company Administrator per company ───────────────────────
 
     /**
-     * The advanced editor lets "Inhaber" be picked with whatever boxes happen
-     * to be ticked. An owner holds everything, so the invitation is stored
-     * with everything and named as the administrator — on the pending list,
-     * on the invitation page, and in the email.
+     * The company already has its administrator, so a second one cannot be
+     * invited — the server refuses whatever the form sent, and nothing is
+     * stored or emailed.
      */
-    public function test_an_owner_invitation_with_a_partial_list_is_the_administrator_everywhere(): void
+    public function test_a_second_administrator_cannot_be_invited(): void
     {
         Notification::fake();
 
-        $company = $this->makeCompany('Alpha GmbH');
-        $owner = $this->makeOwner($company);
-        $administrator = B2bRolePreset::CompanyAdministrator->label();
+        $owner = $this->makeOwner($this->makeCompany('Alpha GmbH'));
 
         $this->actingAs($owner)
             ->post(route('b2b.invitations.store'), [
@@ -48,34 +45,73 @@ class B2bTeamManagementTest extends TestCase
                 'permissions' => [B2bPermission::ViewVehicles->value],
                 'vehicle_scope' => 'all',
             ])
-            ->assertSessionHasNoErrors();
+            ->assertSessionHasErrors();
 
-        $invitation = B2bInvitation::where('email', 'chefin@example.com')->firstOrFail();
-        $this->assertSame(B2bPermission::values(), $invitation->permissions);
+        $this->assertDatabaseMissing('b2b_invitations', ['email' => 'chefin@example.com']);
+        Notification::assertNothingSent();
+    }
 
-        $token = null;
-        Notification::assertSentOnDemand(
-            B2bInvitationNotification::class,
-            function (B2bInvitationNotification $notification) use (&$token, $administrator) {
-                $token = Str::afterLast((new \ReflectionProperty($notification, 'acceptUrl'))->getValue($notification), '/');
+    public function test_a_member_cannot_be_promoted_to_a_second_administrator(): void
+    {
+        $company = $this->makeCompany();
+        $owner = $this->makeOwner($company);
+        $member = $this->makeMember($company, B2bRolePreset::StandardUser->permissions()->toArray());
 
-                return (new \ReflectionProperty($notification, 'roleLabel'))->getValue($notification) === $administrator;
-            },
-        );
+        $this->actingAs($owner)
+            ->patch(route('b2b.members.update', $member->id), [
+                'role' => 'owner',
+                'permissions' => B2bPermission::values(),
+                'vehicle_scope' => 'all',
+            ])
+            ->assertSessionHasErrors();
+
+        $this->assertSame(1, DB::table('user_b2b')->where('b2b_id', $company->b2b_id)->where('role', 'owner')->count());
+    }
+
+    /**
+     * An administrator invitation sent before the rule (or carried over from
+     * the old system) is still pending. Accepting it must not create a second
+     * administrator — the check runs again at acceptance, not only at invite.
+     */
+    public function test_a_stale_administrator_invitation_cannot_be_accepted(): void
+    {
+        $company = $this->makeCompany();
+        $this->makeOwner($company);
+        $invitee = User::factory()->create(['user_type' => UserType::Firmenkunde, 'email' => 'spaet@example.com']);
+
+        DB::table('b2b_invitations')->insert([
+            'invitation_id' => (string) Str::uuid(),
+            'b2b_id' => $company->b2b_id,
+            'email' => 'spaet@example.com',
+            'role' => 'owner',
+            'permissions' => json_encode(B2bPermission::values()),
+            'vehicle_scope' => 'all',
+            'token_hash' => hash('sha256', 'stale-owner-token'),
+            'expires_at' => now()->addDays(3),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $response = $this->actingAs($invitee)->post(route('b2b.invitations.accept', 'stale-owner-token'));
+
+        $this->assertContains($response->status(), [302, 422], 'refused, not a server error');
+        $this->assertDatabaseMissing('user_b2b', ['b2b_id' => $company->b2b_id, 'user_id' => $invitee->id]);
+        $this->assertSame(1, DB::table('user_b2b')->where('b2b_id', $company->b2b_id)->where('role', 'owner')->count());
+    }
+
+    /** The page stops offering the role once there is an administrator; the other roles stay. */
+    public function test_the_members_page_does_not_offer_the_administrator_role_once_one_exists(): void
+    {
+        $owner = $this->makeOwner($this->makeCompany());
 
         $this->actingAs($owner)
             ->get(route('b2b.members.index'))
             ->assertInertia(fn (AssertableInertia $page) => $page
-                ->where('invitations.0.preset', B2bRolePreset::CompanyAdministrator->value)
-                ->where('invitations.0.preset_label', $administrator)
-                ->where('invitations.0.role_label', $administrator)
+                ->where('can.assign_owner', false)
+                ->where('can.manage_members', true)
+                ->where('rolePresets', fn ($presets) => collect($presets)->where('assigns_owner', false)->pluck('value')->sort()->values()->all()
+                    === collect([B2bRolePreset::ReadOnly->value, B2bRolePreset::StandardUser->value])->sort()->values()->all())
             );
-
-        $this->app['auth']->guard()->logout();
-        $this->app['auth']->forgetGuards();
-
-        $this->get(route('b2b.invitations.show', $token))
-            ->assertInertia(fn (AssertableInertia $page) => $page->where('invitation.role_label', $administrator));
     }
 
     /** An owner invitation stored with a partial list before this fix still reads as the administrator. */

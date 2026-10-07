@@ -15,6 +15,13 @@ class ImpersonationController extends Controller
     public const SESSION_KEY = 'impersonator_id';
 
     /**
+     * Session key holding the impersonated user id. Together with SESSION_KEY
+     * it is what ImpersonationMfaExemption checks before letting the session
+     * past the customer's own MFA requirement.
+     */
+    public const TARGET_SESSION_KEY = 'impersonated_user_id';
+
+    /**
      * Start impersonating a customer account. Admin-only (the route sits in
      * the 'admin' middleware group).
      *
@@ -62,6 +69,7 @@ class ImpersonationController extends Controller
         $request->session()->regenerate();
         Auth::login($target);
         $request->session()->put(self::SESSION_KEY, $admin->id);
+        $request->session()->put(self::TARGET_SESSION_KEY, $target->id);
 
         return to_route($target->homeRouteName());
     }
@@ -95,7 +103,7 @@ class ImpersonationController extends Controller
             'ip' => $request->ip(),
         ]);
 
-        $request->session()->forget(self::SESSION_KEY);
+        $request->session()->forget([self::SESSION_KEY, self::TARGET_SESSION_KEY]);
         $request->session()->regenerate();
         Auth::login($admin);
 

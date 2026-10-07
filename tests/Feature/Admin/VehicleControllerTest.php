@@ -367,6 +367,7 @@ class VehicleControllerTest extends TestCase
         $this->actingAs($admin)
             ->post(route('orders.store', $vehicle->vehicle_id), [
                 'requested_collection_date' => now()->addWeek()->toDateString(),
+                'requested_collection_time_slot' => '10:00-12:00',
                 'collection_note' => 'Schlüssel am Empfang',
                 'collection_address' => ['street' => 'Werkstr', 'zip_code' => '80331', 'city' => 'München'],
             ])

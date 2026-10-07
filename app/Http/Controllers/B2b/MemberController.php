@@ -63,7 +63,9 @@ class MemberController extends Controller
             'vehicleScopeOptions' => $this->vehicleScopeOptions(),
             'can' => [
                 'manage_members' => $canManage,
-                'assign_owner' => $membership->isOwner(),
+                // One Company Administrator per company: once there is one, the
+                // role is not offered (the services refuse it regardless).
+                'assign_owner' => $membership->isOwner() && ! $this->members->hasOtherAdministrator($membership->b2bId),
             ],
             'currentUserId' => $request->user()->id,
         ]);

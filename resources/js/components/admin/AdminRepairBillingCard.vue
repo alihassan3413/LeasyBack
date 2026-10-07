@@ -37,12 +37,15 @@ const amount = computed(() => {
 
 const paymentLink = computed(() => props.payment?.payment_link_url ?? null);
 
+// legacy: navigator.clipboard does not exist over plain HTTP (the rehearsal server).
+const { copy } = useClipboard({ legacy: true });
+
 async function copyLink() {
     if (!paymentLink.value) {
         return;
     }
 
-    await navigator.clipboard.writeText(paymentLink.value);
+    await copy(paymentLink.value);
     copied.value = true;
     window.setTimeout(() => (copied.value = false), 1600);
 }

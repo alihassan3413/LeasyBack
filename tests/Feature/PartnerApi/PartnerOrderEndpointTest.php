@@ -23,6 +23,7 @@ class PartnerOrderEndpointTest extends TestCase
     {
         return [
             'requested_collection_date' => now()->addDays(7)->toDateString(),
+            'requested_collection_time_slot' => '10:00-12:00',
             'collection_address' => [
                 'street' => 'Musterstraße',
                 'number' => '12',

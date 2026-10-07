@@ -2,10 +2,14 @@
 
 namespace Tests\Feature\Order;
 
+use App\Enums\B2bPermission;
+use App\Enums\B2bRolePreset;
 use App\Enums\UserType;
 use App\Models\B2B;
 use App\Models\LeasybackOffer;
+use App\Models\OfferAuditLog;
 use App\Models\User;
+use App\Modules\UserProfile\B2B\Data\B2bPermissionSet;
 use App\Modules\UserProfile\Order\Models\AppraisalPosition;
 use App\Modules\UserProfile\Order\Models\B2bOfferPresentation;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
@@ -625,6 +629,118 @@ class QuotationBackedOfferTest extends TestCase
         $this->assertSame('Abgelehnt GmbH', $offers[0]['presentation']['workshop_name']);
 
         $this->assertCount(1, array_filter($offers, fn (array $offer) => $offer['offer_status'] === 'selected'));
+    }
+
+    // ------------------------------------------------- rejection and replacement
+
+    /**
+     * create → publish → reject → create replacement → publish → accept, by a
+     * company member. A rejection is history: it stays on record, it can no
+     * longer be accepted, and it does not stop the replacement Admin is asked
+     * for (OrderTaskResolver re-opens the offer step after it).
+     */
+    public function test_a_rejected_b2b_offer_is_replaced_and_the_replacement_accepted(): void
+    {
+        $order = $this->b2bOrder(['1000.00']);
+        $member = $this->makeMember($this->companiesByVehicle[$order->vehicle_id], [B2bPermission::SelectOffers->value]);
+
+        $first = $this->publishOffer($order, $this->quotedBy($order, ['800.00'], 'Erste Werkstatt GmbH'));
+        $this->actingAs($member)->from('/fahrzeuge')
+            ->post(route('offers.reject', $first->offer_id), ['customer_comment' => 'Zu teuer'])
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame('inspected', $order->fresh()->order_status, 'a rejection leaves the order in the offer phase');
+
+        $replacement = $this->publishOffer($order, $this->quotedBy($order, ['600.00'], 'Zweite Werkstatt GmbH'));
+        $this->assertSame('published', $replacement->offer_status);
+
+        // The rejected offer stays rejected, whoever tries to accept it.
+        $this->actingAs($member)->from('/fahrzeuge')
+            ->post(route('offers.select', $first->offer_id))
+            ->assertSessionHasErrors('offer');
+
+        $this->actingAs($member)->from('/fahrzeuge')
+            ->post(route('offers.select', $replacement->offer_id))
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame('rejected', $first->fresh()->offer_status);
+        $this->assertSame('selected', $replacement->fresh()->offer_status);
+        $this->assertSame(1, LeasybackOffer::where('order_id', $order->id)->where('offer_status', 'selected')->count());
+
+        $this->assertSame(
+            ['published', 'rejected_by_customer'],
+            OfferAuditLog::where('offer_id', $first->offer_id)->orderBy('id')->pluck('action')->all(),
+        );
+        $this->assertContains('selected_by_customer', OfferAuditLog::where('offer_id', $replacement->offer_id)->pluck('action')->all());
+    }
+
+    public function test_once_the_replacement_is_accepted_no_further_offer_can_be_published(): void
+    {
+        $order = $this->b2bOrder(['1000.00']);
+        $owner = $this->ownerOf($order);
+
+        $first = $this->publishOffer($order, $this->quotedBy($order, ['800.00']));
+        $this->actingAs($owner)->from('/fahrzeuge')->post(route('offers.reject', $first->offer_id))->assertSessionHasNoErrors();
+        $replacement = $this->publishOffer($order, $this->quotedBy($order, ['600.00']));
+        $late = $this->quotedBy($order, ['500.00']); // a quotation still arriving while the customer decides
+        $this->actingAs($owner)->from('/fahrzeuge')->post(route('offers.select', $replacement->offer_id))->assertSessionHasNoErrors();
+
+        $this->createOffer($order, $late)->assertSessionHasErrors();
+        $this->assertSame(0, LeasybackOffer::where('order_id', $order->id)->where('offer_status', 'draft')->count());
+    }
+
+    /** One quotation never backs two live offers, rejection or not. */
+    public function test_a_quotation_with_a_live_offer_cannot_back_a_second_one(): void
+    {
+        $order = $this->b2bOrder(['1000.00']);
+        $quotation = $this->quotedBy($order, ['800.00']);
+        $this->publishOffer($order, $quotation);
+
+        $this->createOffer($order, $quotation)->assertSessionHasErrors();
+
+        $this->assertSame(1, LeasybackOffer::where('order_id', $order->id)->count());
+    }
+
+    /** Rejecting is scoped exactly like accepting: own company, with the right to decide. */
+    public function test_only_a_deciding_member_of_the_owning_company_can_reject(): void
+    {
+        $order = $this->b2bOrder(['1000.00']);
+        $offer = $this->publishOffer($order, $this->quotedBy($order, ['800.00']));
+
+        $outsider = $this->makeOwner($this->makeCompany('Fremd GmbH'));
+        $this->actingAs($outsider)->post(route('offers.reject', $offer->offer_id))->assertNotFound();
+
+        $readOnly = $this->makeMember($this->companiesByVehicle[$order->vehicle_id], B2bRolePreset::ReadOnly->permissions()->toArray());
+        $this->actingAs($readOnly)->post(route('offers.reject', $offer->offer_id))->assertForbidden();
+
+        $this->assertSame('published', $offer->fresh()->offer_status);
+    }
+
+    /**
+     * "Angebote ablehnen" is its own grant in the member editor, and it used to
+     * do nothing: the route checked offers.select. A member holding only it may
+     * turn an offer down but not bindingly accept one.
+     */
+    public function test_a_member_with_only_the_reject_right_can_reject_but_not_accept(): void
+    {
+        $order = $this->b2bOrder(['1000.00']);
+        $company = $this->companiesByVehicle[$order->vehicle_id];
+        $first = $this->publishOffer($order, $this->quotedBy($order, ['800.00']));
+        $second = $this->publishOffer($order, $this->quotedBy($order, ['700.00']));
+        $rejecter = $this->makeMember($company, [B2bPermission::OffersReject->value]);
+
+        $this->actingAs($rejecter)->from('/fahrzeuge')->post(route('offers.select', $second->offer_id))->assertForbidden();
+        $this->actingAs($rejecter)->from('/fahrzeuge')->post(route('offers.reject', $first->offer_id))->assertSessionHasNoErrors()->assertRedirect();
+
+        $this->assertSame('rejected', $first->fresh()->offer_status);
+        $this->assertSame('published', $second->fresh()->offer_status);
+    }
+
+    /** Accepting implies rejecting, so nobody who could decide before lost the right to say no. */
+    public function test_the_accept_right_implies_the_reject_right(): void
+    {
+        $this->assertTrue(B2bPermissionSet::fromRaw([B2bPermission::SelectOffers->value])->has(B2bPermission::OffersReject));
+        $this->assertFalse(B2bPermissionSet::fromRaw([B2bPermission::OffersReject->value])->has(B2bPermission::SelectOffers));
     }
 
     /**

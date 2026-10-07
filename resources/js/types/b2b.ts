@@ -90,6 +90,7 @@ export type B2bPermissionValue =
     | 'vehicles.documents.delete'
     | 'orders.create'
     | 'offers.select'
+    | 'offers.reject'
     | 'company.view'
     | 'company.manage'
     | 'members.view'

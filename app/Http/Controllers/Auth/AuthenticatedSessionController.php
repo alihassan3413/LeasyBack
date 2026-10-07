@@ -8,6 +8,7 @@ use App\Http\Requests\Auth\LoginRequest;
 use App\Models\MfaLoginChallenge;
 use App\Modules\UserProfile\B2B\Services\B2bContext;
 use App\Services\Mfa\MfaChallengeService;
+use App\Services\Mfa\MfaEmailCodeService;
 use App\Services\Mfa\MfaPolicy;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -95,7 +96,16 @@ class AuthenticatedSessionController extends Controller
             return null;
         }
 
-        $ticket = app(MfaChallengeService::class)->issue($user, MfaLoginChallenge::PURPOSE_VERIFY);
+        $challenges = app(MfaChallengeService::class);
+        $ticket = $challenges->issue($user, MfaLoginChallenge::PURPOSE_VERIFY);
+
+        // The verify page tells an email user a code is on its way, so it has
+        // to be: send the first one with the challenge. Same service, cooldown
+        // and send limit as "Neuen Code per E-Mail senden". (The API flow keeps
+        // its explicit /api/mfa/send-email step.)
+        if ($user->mfa_method === 'email' && ($challenge = $challenges->resolve($ticket, MfaLoginChallenge::PURPOSE_VERIFY)) !== null) {
+            app(MfaEmailCodeService::class)->send($challenge);
+        }
 
         Auth::guard('web')->logout();
 

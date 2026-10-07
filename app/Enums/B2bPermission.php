@@ -116,7 +116,10 @@ enum B2bPermission: string
     {
         return match ($this) {
             self::CreateVehicles, self::UpdateVehicles, self::UploadVehicleDocuments,
-            self::DeleteVehicleDocuments, self::CreateOrders, self::SelectOffers, self::OffersReject => [self::ViewVehicles->value],
+            self::DeleteVehicleDocuments, self::CreateOrders, self::OffersReject => [self::ViewVehicles->value],
+            // Accept and reject are one decision (§10, OfferPolicy::reject):
+            // whoever may accept an offer may also turn it down.
+            self::SelectOffers => [self::ViewVehicles->value, self::OffersReject->value],
             self::ManageCompany => [self::ViewCompany->value],
             self::ManageMembers => [self::ViewMembers->value],
             default => [],

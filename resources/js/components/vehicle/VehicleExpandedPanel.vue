@@ -92,6 +92,8 @@ const canEditVehicle = computed(() => props.admin || can('vehicles.update'));
 const canUploadDocument = computed(() => props.admin || can('vehicles.documents.upload'));
 /** Accepting or rejecting a repair offer commits the company to a bill. */
 const canDecideOffer = computed(() => can('offers.select'));
+// offers.select implies offers.reject server-side; a member may hold reject alone.
+const canRejectOffer = computed(() => can('offers.reject'));
 
 const DOCUMENT_TYPE_LABELS: Record<string, string> = {
     leasingvertrag: 'Leasingvertrag',
@@ -532,7 +534,15 @@ const cancellationFeeLabel = computed(() =>
 const publishedOffer = computed(() => offersData.value.find((offer) => offer.status === 'published') ?? null);
 
 const rejectComment = ref('');
+/** The offer whose reject panel is open (desktop). */
 const rejectingOfferId = ref<string | null>(null);
+/**
+ * The offer whose rejection is being sent. Separate from rejectingOfferId on
+ * purpose: the desktop confirm button used that one for `disabled` too, and as
+ * it is set whenever the panel is open, the button was disabled every time it
+ * was visible — rejecting an offer was impossible on desktop.
+ */
+const submittingRejectId = ref<string | null>(null);
 /** The mobile layout's reject toggle — it was used in the template without ever being declared. */
 const rejectOpen = ref(false);
 
@@ -543,7 +553,11 @@ function toggleReject(offerId: string) {
 }
 
 function submitReject(offerId: string) {
-    rejectingOfferId.value = offerId;
+    if (submittingRejectId.value !== null) {
+        return;
+    }
+
+    submittingRejectId.value = offerId;
 
     router.post(
         route('offers.reject', offerId),
@@ -560,6 +574,7 @@ function submitReject(offerId: string) {
             },
 
             onFinish: () => {
+                submittingRejectId.value = null;
                 rejectingOfferId.value = null;
                 rejectComment.value = '';
                 rejectOpen.value = false;
@@ -1139,8 +1154,9 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                                 </table>
                             </div>
 
-                            <div v-if="!admin && canDecideOffer && offer.status === 'published'" class="mt-5 flex flex-wrap items-center gap-2">
+                            <div v-if="!admin && (canDecideOffer || canRejectOffer) && offer.status === 'published'" class="mt-5 flex flex-wrap items-center gap-2">
                                 <button
+                                    v-if="canDecideOffer"
                                     type="button"
                                     class="rounded-[13px] px-5 py-2.5 text-[13px] font-bold text-white transition-all hover:opacity-90"
                                     style="background: #01b990"
@@ -1150,6 +1166,7 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                                 </button>
 
                                 <button
+                                    v-if="canRejectOffer"
                                     type="button"
                                     class="rounded-[13px] border px-5 py-2.5 text-[13px] font-bold transition-all hover:opacity-80"
                                     style="border-color: #ececec; color: #991b1b"
@@ -1160,7 +1177,7 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                             </div>
 
                             <div
-                                v-if="rejectingOfferId === offer.offerId && !admin && canDecideOffer && offer.status === 'published'"
+                                v-if="rejectingOfferId === offer.offerId && !admin && canRejectOffer && offer.status === 'published'"
                                 class="mt-3 flex flex-col gap-2"
                             >
                                 <p
@@ -1185,12 +1202,12 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                                 />
                                 <button
                                     type="button"
-                                    :disabled="rejectingOfferId === offer.offerId"
+                                    :disabled="submittingRejectId === offer.offerId"
                                     class="self-start rounded-[13px] px-5 py-2.5 text-[13px] font-bold text-white transition-all hover:opacity-90 disabled:opacity-50"
                                     style="background: #991b1b"
                                     @click.stop="submitReject(offer.offerId)"
                                 >
-                                    {{ rejectingOfferId === offer.offerId ? 'Wird gesendet...' : 'Ablehnung bestätigen' }}
+                                    {{ submittingRejectId === offer.offerId ? 'Wird gesendet...' : 'Ablehnung bestätigen' }}
                                 </button>
                             </div>
 
@@ -1286,7 +1303,7 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                                 </div>
                             </div>
 
-                            <div v-if="!admin && canDecideOffer && offer.status === 'published'" class="flex flex-col gap-2 pr-4 pl-14">
+                            <div v-if="!admin && canRejectOffer && offer.status === 'published'" class="flex flex-col gap-2 pr-4 pl-14">
                                 <button
                                     type="button"
                                     class="self-start rounded-full border px-4 py-1.5 text-[11px] font-bold transition hover:bg-red-50"
@@ -1323,10 +1340,10 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                                         type="button"
                                         class="self-start rounded-[13px] px-5 py-2.5 text-[13px] font-bold text-white transition hover:opacity-90 disabled:opacity-50"
                                         style="background: #991b1b"
-                                        :disabled="rejectingOfferId === offer.offerId"
+                                        :disabled="submittingRejectId === offer.offerId"
                                         @click.stop="submitReject(offer.offerId)"
                                     >
-                                        {{ rejectingOfferId === offer.offerId ? 'Wird gesendet...' : 'Ablehnung bestätigen' }}
+                                        {{ submittingRejectId === offer.offerId ? 'Wird gesendet...' : 'Ablehnung bestätigen' }}
                                     </button>
                                 </div>
                             </div>
@@ -1833,8 +1850,9 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                     </div>
                 </div>
 
-                <div v-if="!admin && canDecideOffer && publishedOffer" class="flex flex-wrap items-center gap-2 px-4 pt-4">
+                <div v-if="!admin && (canDecideOffer || canRejectOffer) && publishedOffer" class="flex flex-wrap items-center gap-2 px-4 pt-4">
                     <button
+                        v-if="canDecideOffer"
                         type="button"
                         class="rounded-[13px] px-4 py-2.5 text-[13px] font-bold text-white transition-all hover:opacity-90"
                         style="background: #01b990"
@@ -1844,6 +1862,7 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                     </button>
 
                     <button
+                        v-if="canRejectOffer"
                         type="button"
                         class="rounded-[13px] border px-4 py-2.5 text-[13px] font-bold transition-all hover:opacity-80"
                         style="border-color: #ececec; color: #991b1b"
@@ -1853,7 +1872,7 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                     </button>
                 </div>
 
-                <div v-if="rejectOpen && !admin && canDecideOffer && publishedOffer" class="flex flex-col gap-2 px-4 pt-3">
+                <div v-if="rejectOpen && !admin && canRejectOffer && publishedOffer" class="flex flex-col gap-2 px-4 pt-3">
                     <p v-if="!isB2bVehicle" class="rounded-[13px] border border-amber-300 bg-amber-50 p-3 text-[13px] leading-relaxed text-amber-900">
                         Wenn Sie dieses Reparaturangebot ablehnen, fällt eine Gebühr von
                         <span class="font-bold">{{ cancellationFeeLabel }}</span> an.
@@ -1870,12 +1889,12 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                     />
                     <button
                         type="button"
-                        :disabled="rejectingOfferId === publishedOffer.offerId"
+                        :disabled="submittingRejectId === publishedOffer.offerId"
                         class="self-start rounded-[13px] px-5 py-2.5 text-[13px] font-bold text-white transition-all hover:opacity-90 disabled:opacity-50"
                         style="background: #991b1b"
                         @click.stop="submitReject(publishedOffer.offerId)"
                     >
-                        {{ rejectingOfferId === publishedOffer.offerId ? 'Wird gesendet...' : 'Ablehnung bestätigen' }}
+                        {{ submittingRejectId === publishedOffer.offerId ? 'Wird gesendet...' : 'Ablehnung bestätigen' }}
                     </button>
                 </div>
 

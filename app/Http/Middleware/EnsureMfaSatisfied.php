@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Services\Mfa\ImpersonationMfaExemption;
 use App\Services\Mfa\MfaPolicy;
 use Closure;
 use Illuminate\Http\Request;
@@ -25,7 +26,10 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class EnsureMfaSatisfied
 {
-    public function __construct(private readonly MfaPolicy $policy) {}
+    public function __construct(
+        private readonly MfaPolicy $policy,
+        private readonly ImpersonationMfaExemption $impersonation,
+    ) {}
 
     public function handle(Request $request, Closure $next): Response
     {
@@ -73,6 +77,14 @@ class EnsureMfaSatisfied
                 'data' => ['mfa_required' => true],
                 'message' => 'Multi-factor authentication is required. Please sign in again.',
             ], 403);
+        }
+
+        // An admin acting as this user through a live impersonation: the
+        // admin's own factor is what this session carries, so the customer is
+        // neither enrolled nor challenged. Server-side session state only —
+        // see ImpersonationMfaExemption for every condition it checks.
+        if ($this->impersonation->applies($request, $user)) {
+            return $next($request);
         }
 
         // Owes a factor but has none: pinned to the setup screen rather than

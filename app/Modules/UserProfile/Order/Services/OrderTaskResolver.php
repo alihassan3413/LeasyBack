@@ -506,7 +506,12 @@ class OrderTaskResolver
                 title: 'Erstgutachten hochladen',
                 description: 'Das Fahrzeug ist abgeholt. Laden Sie das Erstgutachten hoch und veröffentlichen Sie es für den Kunden.',
                 section: self::SECTION_DOCUMENTS,
-                done: $context['gutachten'] !== null,
+                // Required inside the appraisal phase only: leaving it needs a
+                // Gutachten (TransitionOrderStatus::unmetB2bPrerequisite), so an
+                // order past it has passed the step — or predates the rule, as a
+                // migrated order can. Never-done there kept it out of the history
+                // and, in B2C, in front of every later task.
+                done: $context['gutachten'] !== null || $rank >= 4,
                 open: $rank === 3 && $context['gutachten'] === null,
                 date: $context['gutachten']['created_at'] ?? $dates['vehicle_collected'] ?? null,
                 dateLabel: 'Abgeholt am',
@@ -517,8 +522,8 @@ class OrderTaskResolver
                 title: 'Erstbegutachtung abschließen',
                 description: 'Das Erstgutachten liegt vor. Schließen Sie die Begutachtung ab, um die Angebotsphase zu starten.',
                 section: self::SECTION_STATUS,
-                done: $context['gutachten'] !== null && $rank >= 4,
-                open: $context['gutachten'] !== null && $rank === 3,
+                done: $rank >= 4,
+                open: $rank === 3 && $context['gutachten'] !== null,
                 date: $dates['inspected'] ?? $context['gutachten']['created_at'] ?? null,
                 dateLabel: 'Gutachten vom',
                 action: $this->statusAction($orderId, 'inspected', 'Begutachtung abschließen'),
@@ -780,8 +785,14 @@ class OrderTaskResolver
                 title: 'Erstgutachten hochladen',
                 description: 'Der Termin ist bestätigt. Laden Sie das Erstgutachten hoch und veröffentlichen Sie es für den Kunden.',
                 section: self::SECTION_DOCUMENTS,
-                done: $context['gutachten'] !== null,
-                open: $rank >= 2 && $context['gutachten'] === null,
+                // The appraisal phase is `confirmed` (rank 2): there the report
+                // is required, and the completion step below is not offered
+                // without it. Open at every later rank, it stood first in the
+                // list forever for an order that had no published Gutachten
+                // (a migrated one, or one moved on by hand) and hid the repair
+                // payment, the invoice and the pickup behind it.
+                done: $context['gutachten'] !== null || $rank >= 3,
+                open: $rank === 2 && $context['gutachten'] === null,
                 date: $context['gutachten']['created_at'] ?? $dates['confirmed'] ?? null,
                 dateLabel: 'Termin bestätigt am',
                 action: $this->modalAction(self::UI_UPLOAD_REPORT, 'Erstgutachten hochladen', ['document_type' => DocumentType::Gutachten->value, 'title' => 'Erstgutachten hochladen']),

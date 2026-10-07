@@ -93,20 +93,10 @@ class B2bInvitationService
         if ($role === B2bRole::Owner && ! $actor->isOwner()) {
             $this->fail(403, 'Nur Inhaber können weitere Inhaber einladen.');
         }
-        if ($role === B2bRole::Owner) {
-    $alreadyHasOwner = DB::table('user_b2b')
-        ->where('b2b_id', $actor->b2bId)
-        ->where('role', B2bRole::Owner->value)
-        ->where('status', 'active')
-        ->exists();
 
-    if ($alreadyHasOwner) {
-        $this->fail(
-            422,
-            'Dieses Unternehmen hat bereits einen Administrator.'
-        );
-    }
-}
+        if ($role === B2bRole::Owner) {
+            $this->memberships->assertNoOtherAdministrator($actor->b2bId);
+        }
 
         // The same delegation ceiling as updating a member
         // (B2bMembership::mayGrant): an invitation cannot carry more access
@@ -234,6 +224,12 @@ class B2bInvitationService
                 ->where('b2b_id', $fresh->b2b_id)
                 ->where('user_id', $user->id)
                 ->exists();
+
+            // An administrator invitation sent before the company had one — or
+            // carried over from before the rule — must not create a second.
+            if (! $alreadyMember && (B2bRole::tryFrom($fresh->role) ?? B2bRole::Member) === B2bRole::Owner) {
+                $this->memberships->assertNoOtherAdministrator($fresh->b2b_id);
+            }
 
             if (! $alreadyMember) {
                 $this->memberships->addMember(

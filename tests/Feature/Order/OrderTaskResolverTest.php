@@ -411,6 +411,58 @@ class OrderTaskResolverTest extends TestCase
         $this->assertSame('upload_initial_appraisal', $this->nextTask($order)['key']);
     }
 
+    // ------------------------------------- the Erstgutachten belongs to its phase
+
+    /**
+     * An order that is past the appraisal phase without a published Gutachten
+     * — a migrated one, or one moved on by hand — is not stuck on the upload
+     * step: it used to stay first in the list for good and hide the repair
+     * payment, the invoice and the pickup behind it.
+     */
+    public function test_a_b2c_order_past_the_appraisal_without_a_gutachten_is_not_blocked(): void
+    {
+        foreach (['inspected' => 'capture_repair_positions', 'delivered' => null] as $status => $expected) {
+            $order = $this->b2cOrder($status);
+
+            $tasks = $this->tasks($order);
+
+            $this->assertNotSame('upload_initial_appraisal', $tasks['next']['key'] ?? null, $status);
+            $this->assertNotNull($tasks['next'], "{$status} leaves admin without a task");
+            if ($expected !== null) {
+                $this->assertSame($expected, $tasks['next']['key']);
+            }
+            $this->assertContains('upload_initial_appraisal', array_column($tasks['history'], 'key'), $status);
+        }
+    }
+
+    public function test_a_b2b_order_past_the_appraisal_without_a_gutachten_is_not_blocked(): void
+    {
+        $order = $this->b2bOrder('reinspection');
+        $this->setCollectionDate($order);
+
+        $tasks = $this->tasks($order);
+
+        $this->assertSame('confirm_vehicle_returned', $tasks['next']['key']);
+        $this->assertContains('upload_initial_appraisal', array_column($tasks['history'], 'key'));
+        $this->assertContains('complete_initial_appraisal', array_column($tasks['history'], 'key'));
+    }
+
+    /** Inside the phase the report is still required — in both channels. */
+    public function test_inside_the_appraisal_phase_the_gutachten_is_still_required(): void
+    {
+        $b2c = $this->b2cOrder('confirmed');
+        $this->assertSame('upload_initial_appraisal', $this->nextTask($b2c)['key']);
+
+        $b2b = $this->b2bOrder('vehicle_collected');
+        $this->setCollectionDate($b2b);
+        $this->assertSame('upload_initial_appraisal', $this->nextTask($b2b)['key']);
+        // And B2B cannot leave the phase without one at all.
+        $this->assertNotContains('inspected', $this->availableTransitions($b2b));
+
+        $this->publishDocument($b2b, 'gutachten');
+        $this->assertSame('complete_initial_appraisal', $this->nextTask($b2b)['key']);
+    }
+
     // ------------------------------------------------------------- no dead ends
 
     /**

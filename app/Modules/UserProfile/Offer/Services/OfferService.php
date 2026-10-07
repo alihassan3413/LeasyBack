@@ -99,17 +99,10 @@ class OfferService
             $this->fail(422, 'Für diesen Auftrag wurde bereits ein Angebot angenommen. Ein weiteres Angebot kann nicht veröffentlicht werden.');
         }
 
-
-        if (
-    LeasybackOffer::where('order_id', $offer->order_id)
-        ->where('offer_status', 'rejected')
-        ->exists()
-) {
-    $this->fail(
-        422,
-        'Nach Ablehnung eines Angebots kann kein neues Angebot veröffentlicht werden.'
-    );
-}
+        // A rejected offer is history, not a decision: the customer said no to
+        // that offer, and a replacement (OrderTaskResolver re-opens the offer
+        // step for it) is published normally. One live offer per quotation is
+        // enforced where offers are built (RepairOfferService::createFromQuotation).
 
         /*
          * Net, not gross: a B2B offer carries no gross at all
@@ -132,8 +125,6 @@ class OfferService
                 'published_by_user_id' => $user->id,
             ]);
 
-
-          
             // Freezes what the customer is about to see (§10). A no-op for a
             // manually created offer, which has no presentation row to freeze.
             $this->repairOfferService->snapshotOnPublish($offer);

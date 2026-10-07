@@ -109,6 +109,7 @@ class OrderControllerTest extends TestCase
         $response = $this->withHeaders($this->bearer($b2bUser))
             ->postJson("/order/b2b/create/{$vehicle->vehicle_id}", [
                 'requested_collection_date' => now()->addWeek()->toDateString(),
+                'requested_collection_time_slot' => '10:00-12:00',
                 'collection_address' => ['street' => 'Werkstr', 'zip_code' => '80331', 'city' => 'München'],
             ]);
 

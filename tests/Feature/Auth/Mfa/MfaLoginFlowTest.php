@@ -196,6 +196,40 @@ class MfaLoginFlowTest extends TestCase
             ->assertJsonPath('ok', true);
     }
 
+    /**
+     * The web verify page says a code has been emailed, so the browser login
+     * has to send it — before, only the API had a send step and the page waited
+     * for an email that never came unless "resend" was pressed.
+     */
+    public function test_a_browser_login_emails_the_first_code_and_it_completes_the_login(): void
+    {
+        $user = $this->emailUser();
+
+        $this->post('/login', ['email' => $user->email, 'password' => self::PASSWORD])
+            ->assertRedirect(route('mfa.verify'));
+
+        $code = '';
+        Mail::assertSent(MfaCode::class, 1);
+        Mail::assertSent(MfaCode::class, function (MfaCode $mail) use (&$code, $user) {
+            $code = $mail->code;
+
+            return $mail->hasTo($user->email);
+        });
+
+        $this->post(route('mfa.verify.store'), ['code' => $code])->assertRedirect();
+        $this->assertAuthenticatedAs($user);
+    }
+
+    public function test_a_browser_login_with_an_authenticator_app_sends_no_email(): void
+    {
+        $user = $this->totpUser();
+
+        $this->post('/login', ['email' => $user->email, 'password' => self::PASSWORD])
+            ->assertRedirect(route('mfa.verify'));
+
+        Mail::assertNotSent(MfaCode::class);
+    }
+
     public function test_an_expired_emailed_code_is_rejected(): void
     {
         $user = $this->emailUser();

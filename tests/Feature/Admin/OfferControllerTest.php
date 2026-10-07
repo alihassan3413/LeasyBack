@@ -316,37 +316,35 @@ class OfferControllerTest extends TestCase
         $this->assertSame('draft', $offer->fresh()->offer_status);
     }
 
+    /**
+     * A rejection is history, not a dead end: the task engine asks Admin for a
+     * replacement, so the replacement has to be publishable — and the rejected
+     * offer stays exactly as it was.
+     */
+    public function test_a_replacement_offer_can_be_published_after_a_rejection(): void
+    {
+        $admin = $this->admin();
+        $order = LeasybackOrder::factory()->create();
 
-public function test_a_new_offer_cannot_be_published_after_previous_offer_was_rejected(): void
-{
-    $admin = $this->admin();
+        $rejected = LeasybackOffer::factory()->published()->create([
+            'order_id' => $order->id,
+            'auftragsnummer' => $order->auftragsnummer,
+            'offer_sequence' => 1,
+        ]);
+        $rejected->update(['offer_status' => 'rejected']);
 
-    $order = LeasybackOrder::factory()->create();
+        $replacement = LeasybackOffer::factory()->create([
+            'order_id' => $order->id,
+            'auftragsnummer' => $order->auftragsnummer,
+            'offer_sequence' => 2,
+            'offer_status' => 'draft',
+        ]);
 
-    $rejected = LeasybackOffer::factory()->published()->create([
-        'order_id' => $order->id,
-        'auftragsnummer' => $order->auftragsnummer,
-        'offer_sequence' => 1,
-    ]);
+        $this->actingAs($admin)
+            ->patch(route('admin.orders.offers.publish', $replacement->offer_id))
+            ->assertSessionHasNoErrors();
 
-    $rejected->update([
-        'offer_status' => 'rejected',
-    ]);
-
-    $newOffer = LeasybackOffer::factory()->create([
-        'order_id' => $order->id,
-        'auftragsnummer' => $order->auftragsnummer,
-        'offer_sequence' => 2,
-        'offer_status' => 'draft',
-    ]);
-
-    $this->actingAs($admin)
-        ->patch(route('admin.orders.offers.publish', $newOffer->offer_id))
-        ->assertSessionHasErrors('offer');
-
-    $this->assertSame(
-        'draft',
-        $newOffer->fresh()->offer_status
-    );
-}
+        $this->assertSame('published', $replacement->fresh()->offer_status);
+        $this->assertSame('rejected', $rejected->fresh()->offer_status);
+    }
 }

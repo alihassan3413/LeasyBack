@@ -9,6 +9,7 @@ import type { BreadcrumbItemType, SharedData, User } from '@/types';
 import type { UserType } from '@/types/auth';
 import type { B2bPermissionValue } from '@/types/b2b';
 import { router, usePage } from '@inertiajs/vue3';
+import { useMediaQuery } from '@vueuse/core';
 import { computed, type Component } from 'vue';
 import MdiAccountGroupOutline from '~icons/mdi/account-group-outline';
 import MdiAccountOutline from '~icons/mdi/account-outline';
@@ -59,6 +60,13 @@ const navByRole: Record<UserType, NavItem[]> = {
 const { can, canSwitchCompany, isCompanyUser } = useB2bPermissions();
 
 /**
+ * Only one shell is mounted. Hiding the other with CSS still mounted the page
+ * twice — every modal opened twice (each copy aria-hiding the other), every
+ * onMounted fetch ran twice and every element id existed twice.
+ */
+const isDesktop = useMediaQuery('(min-width: 768px)');
+
+/**
  * The role the navigation is built for — the *effective* one, not the raw
  * `user_type` column.
  *
@@ -100,7 +108,7 @@ const handleLogout = () => {
     <div class="flex h-dvh flex-col overflow-hidden md:gap-4 md:p-4">
         <ImpersonationBanner />
         <!-- Body: sidebar + main for desktop -->
-        <div class="relative hidden flex-1 overflow-hidden md:flex">
+        <div v-if="isDesktop" class="relative hidden flex-1 overflow-hidden md:flex">
             <AppSidebar />
 
             <!-- Main content -->
@@ -116,7 +124,7 @@ const handleLogout = () => {
         </div>
 
         <!-- Mobile view -->
-        <div class="relative flex flex-1 flex-col overflow-hidden md:hidden">
+        <div v-else class="relative flex flex-1 flex-col overflow-hidden md:hidden">
             <!-- Main content -->
             <main class="flex min-w-0 flex-1 flex-col overflow-hidden bg-white">
                 <AppSidebarHeader :breadcrumbs="breadcrumbs">

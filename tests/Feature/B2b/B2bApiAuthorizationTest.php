@@ -295,6 +295,7 @@ class B2bApiAuthorizationTest extends TestCase
     {
         $create = fn (User $user, Vehicle $vehicle) => $this->api($user, 'POST', "/api/order/b2b/create/{$vehicle->vehicle_id}", [
             'requested_collection_date' => now()->addDays(3)->toDateString(),
+            'requested_collection_time_slot' => '10:00-12:00',
             'collection_address' => ['street' => 'Hauptstr. 1', 'zip_code' => '50667', 'city' => 'Köln'],
         ]);
 
@@ -330,6 +331,7 @@ class B2bApiAuthorizationTest extends TestCase
 
         $this->api($this->readOnly, 'POST', "/order/b2b/create/{$this->ownVehicle->vehicle_id}", [
             'requested_collection_date' => now()->addDays(3)->toDateString(),
+            'requested_collection_time_slot' => '10:00-12:00',
             'collection_address' => ['street' => 'A', 'zip_code' => '1', 'city' => 'B'],
         ])->assertForbidden();
         $this->api($this->readOnly, 'POST', "/vehicle/offers/customer/select/{$offer->offer_id}")->assertForbidden();
