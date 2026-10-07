@@ -14,7 +14,15 @@ import { defineConfig } from 'vite';
  */
 export default defineConfig({
     root: path.resolve(import.meta.dirname),
-    plugins: [tailwindcss(), vue(), Icons({ compiler: 'vue3', autoInstall: true })],
+    plugins: [
+        tailwindcss(),
+        // As in the app's vite.config.ts: public-folder URLs such as /path-green.svg stay URLs.
+        vue({ template: { transformAssetUrls: { base: null, includeAbsolute: false } } }),
+        Icons({ compiler: 'vue3', autoInstall: true }),
+    ],
+    // A placeholder so the Places client is active; the specs intercept every
+    // request to places.googleapis.com, nothing ever reaches Google.
+    define: { 'import.meta.env.VITE_GOOGLE_PLACES_API_KEY': JSON.stringify('fixture-places-key') },
     resolve: {
         alias: {
             '@': path.resolve(import.meta.dirname, '../../../resources/js'),
@@ -38,6 +46,8 @@ export default defineConfig({
                 relocation: path.resolve(import.meta.dirname, 'relocation.html'),
                 'additional-damage': path.resolve(import.meta.dirname, 'additional-damage.html'),
                 'document-actions': path.resolve(import.meta.dirname, 'document-actions.html'),
+                'company-address': path.resolve(import.meta.dirname, 'company-address.html'),
+                'b2b-registration': path.resolve(import.meta.dirname, 'b2b-registration.html'),
             },
         },
     },

@@ -44,11 +44,24 @@ function onVatIdInput(value: string | number) {
         .slice(0, 14);
 }
 
+// The house number the last picked suggestion filled in. Picking another
+// street must not keep it — a number from a different street is wrong data —
+// while a number the user typed by hand is theirs and stays.
+let autofilledNumber: string | null = null;
+
 function applyResolvedAddress(resolved: ResolvedPlaceAddress) {
     if (resolved.street) props.form.address.street = resolved.street;
-    if (resolved.number) props.form.address.number = resolved.number;
+
+    if (resolved.number) {
+        props.form.address.number = resolved.number;
+    } else if (autofilledNumber !== null && props.form.address.number === autofilledNumber) {
+        props.form.address.number = '';
+    }
+    autofilledNumber = resolved.number ?? null;
+
     if (resolved.zip_code) props.form.address.zip_code = resolved.zip_code;
     if (resolved.city) props.form.address.city = resolved.city;
+    if (resolved.country && countryOptions.some((option) => option.value === resolved.country)) props.form.address.country = resolved.country;
 }
 
 // A newly picked file supersedes a pending removal, and vice versa.

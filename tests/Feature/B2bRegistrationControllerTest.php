@@ -7,6 +7,7 @@ use App\Enums\UserType;
 use App\Models\User;
 use App\Modules\UserProfile\B2B\Services\B2bContext;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Inertia\Testing\AssertableInertia;
 use Tests\TestCase;
@@ -364,5 +365,158 @@ class B2bRegistrationControllerTest extends TestCase
         $this->actingAs($member)
             ->get(route('onboarding.b2b.show'))
             ->assertRedirect(route('dashboard', absolute: false));
+    }
+
+    // ── The company address ──────────────────────────────────────────
+
+    /** A normal German address, typed by hand: every field lands in its own column. */
+    public function test_a_manually_entered_german_address_is_stored_field_for_field(): void
+    {
+        $this->actingAs($this->firmenkunde())
+            ->post(route('onboarding.b2b.store'), $this->payload(['address' => [
+                'street' => 'Friedrichstraße', 'number' => '12a', 'additional_address' => '3. OG',
+                'zip_code' => '10117', 'city' => 'Berlin', 'country' => 'Deutschland',
+            ]]))
+            ->assertSessionHasNoErrors();
+
+        $this->assertDatabaseHas('addresses', [
+            'street' => 'Friedrichstraße', 'number' => '12a', 'additional_address' => '3. OG',
+            'zip_code' => '10117', 'city' => 'Berlin', 'country' => 'Deutschland',
+        ]);
+    }
+
+    /** What QA hit: no street, the street text in "Nr.". Both fields are named. */
+    public function test_a_missing_street_and_street_text_in_the_house_number_are_refused(): void
+    {
+        $this->actingAs($this->firmenkunde())
+            ->post(route('onboarding.b2b.store'), $this->payload(['address' => ['street' => '', 'number' => 'Metru']]))
+            ->assertSessionHasErrors([
+                'address.street' => 'Bitte geben Sie die Straße an.',
+                'address.number' => 'Bitte geben Sie im Feld „Nr.“ nur die Hausnummer an (z. B. 12 oder 12a).',
+            ]);
+
+        $this->assertDatabaseCount('b2b', 0);
+    }
+
+    public function test_a_street_without_a_house_number_is_refused(): void
+    {
+        $this->actingAs($this->firmenkunde())
+            ->post(route('onboarding.b2b.store'), $this->payload(['address' => ['number' => '']]))
+            ->assertSessionHasErrors(['address.number' => 'Bitte geben Sie die Hausnummer an.'])
+            ->assertSessionDoesntHaveErrors('address.street');
+    }
+
+    public function test_usual_house_number_forms_are_accepted(): void
+    {
+        foreach (['7', '12a', '12 a', '12-14', '3/1'] as $number) {
+            $this->actingAs($this->firmenkunde())
+                ->post(route('onboarding.b2b.store'), $this->payload(['address' => ['number' => $number]]))
+                ->assertSessionDoesntHaveErrors('address.number');
+        }
+    }
+
+    /** The PLZ follows the country, as the form's input does (existing after() check, pinned here). */
+    public function test_the_zip_code_length_follows_the_country(): void
+    {
+        $post = fn (array $address) => $this->actingAs($this->firmenkunde())
+            ->post(route('onboarding.b2b.store'), $this->payload(['address' => $address]));
+
+        $post(['zip_code' => '1011', 'country' => 'Deutschland'])->assertSessionHasErrors(['address.zip_code' => 'Die PLZ für Deutschland muss 5 Ziffern haben.']);
+        $post(['zip_code' => '10115', 'country' => 'Österreich'])->assertSessionHasErrors(['address.zip_code' => 'Die PLZ für Österreich muss 4 Ziffern haben.']);
+        $post(['zip_code' => '1010', 'country' => 'Österreich'])->assertSessionDoesntHaveErrors('address.zip_code');
+        $post(['zip_code' => '8001', 'country' => 'Schweiz'])->assertSessionDoesntHaveErrors('address.zip_code');
+        $post(['zip_code' => '', 'country' => 'Deutschland'])->assertSessionHasErrors(['address.zip_code' => 'Bitte geben Sie die PLZ an.']);
+    }
+
+    public function test_city_and_country_are_required_and_the_country_must_be_offered(): void
+    {
+        $this->actingAs($this->firmenkunde())
+            ->post(route('onboarding.b2b.store'), $this->payload(['address' => ['city' => '', 'country' => 'Frankreich']]))
+            ->assertSessionHasErrors([
+                'address.city' => 'Bitte geben Sie den Ort an.',
+                'address.country' => 'Bitte wählen Sie ein gültiges Land aus.',
+            ]);
+    }
+
+    /**
+     * Stored data stays editable: an existing company whose house number
+     * predates the registration check (e.g. migrated from Base44) can still be
+     * saved from Mein Konto without retyping it.
+     */
+    public function test_editing_keeps_accepting_an_address_stored_before_the_stricter_checks(): void
+    {
+        $owner = $this->firmenkunde();
+        $this->registerCompany($owner);
+
+        $this->actingAs($owner)
+            ->put(route('company.update'), $this->payload([
+                'company_name' => 'Acme Fleet GmbH',
+                'address' => ['number' => 'Hof Nord'],
+            ]))
+            ->assertSessionHasNoErrors();
+
+        $this->assertDatabaseHas('addresses', ['number' => 'Hof Nord']);
+    }
+
+    // ── Skipping the registration ("Später fertigstellen", "Jetzt überspringen") ─
+
+    /**
+     * Both links lead to Mein Konto. The dashboard is no destination for a
+     * Firmenkunde without a company — it sends them straight back to this
+     * form, which is the loop the skip buttons used to fall into.
+     */
+    public function test_skipping_lands_on_mein_konto_which_offers_the_registration_again(): void
+    {
+        $user = $this->firmenkunde();
+
+        $this->actingAs($user)->get(route('dashboard'))->assertRedirect(route('onboarding.b2b.show'));
+
+        $this->actingAs($user)
+            ->get(route('profile.edit'))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('company.data', null)
+                ->where('company.can_register', true)
+                ->etc()
+            );
+    }
+
+    /** Skipping is navigation only: nothing is stored and nothing is marked done. */
+    public function test_skipping_stores_nothing_and_the_dashboard_still_asks_for_the_company(): void
+    {
+        $user = $this->firmenkunde();
+        $before = $user->fresh()->getAttributes();
+
+        $this->actingAs($user)->get(route('onboarding.b2b.show'))->assertOk();
+        $this->actingAs($user)->get(route('profile.edit'))->assertOk();
+
+        $this->assertDatabaseCount('b2b', 0);
+        $this->assertDatabaseCount('user_b2b', 0);
+        $this->assertEquals(Arr::except($before, ['updated_at', 'last_seen_at']), Arr::except($user->fresh()->getAttributes(), ['updated_at', 'last_seen_at']));
+        $this->actingAs($user)->get(route('dashboard'))->assertRedirect(route('onboarding.b2b.show'));
+        $this->actingAs($user)->get(route('onboarding.b2b.show'))->assertOk();
+    }
+
+    /** Submitting is unchanged: an empty form is refused field by field. */
+    public function test_submitting_an_empty_form_is_still_refused(): void
+    {
+        $this->actingAs($this->firmenkunde())
+            ->post(route('onboarding.b2b.store'), [])
+            ->assertSessionHasErrors(['company_name', 'address', 'contact', 'phones']);
+
+        $this->assertDatabaseCount('b2b', 0);
+    }
+
+    public function test_submitting_a_partly_filled_form_names_only_what_is_missing(): void
+    {
+        $this->actingAs($this->firmenkunde())
+            ->post(route('onboarding.b2b.store'), $this->payload([
+                'company_name' => 'James GmbH',
+                'address' => ['street' => '', 'city' => ''],
+            ]))
+            ->assertSessionHasErrors(['address.street', 'address.city'])
+            ->assertSessionDoesntHaveErrors(['company_name', 'address.number', 'address.zip_code', 'contact.first_name']);
+
+        $this->assertDatabaseCount('b2b', 0);
     }
 }

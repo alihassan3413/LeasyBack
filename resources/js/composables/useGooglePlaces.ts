@@ -34,11 +34,13 @@ export interface ResolvedPlaceAddress {
     number?: string;
     zip_code?: string;
     city?: string;
+    /** The form's country label (Deutschland/Österreich/Schweiz); unset for any other country. */
+    country?: string;
     latitude: number;
     longitude: number;
 }
 
-interface GoogleAddressComponent {
+export interface GoogleAddressComponent {
     longText: string;
     shortText: string;
     types: string[];
@@ -56,6 +58,45 @@ function findComponent(components: GoogleAddressComponent[], ...types: string[])
     return undefined;
 }
 
+/** ISO country codes Google returns, mapped to the labels the address forms store. */
+const COUNTRY_LABELS: Record<string, string> = { DE: 'Deutschland', AT: 'Österreich', CH: 'Schweiz' };
+
+/**
+ * Google address components -> the form's address fields. One field per
+ * component type, never derived from another field's text: the street is
+ * `route` only, so street text can never land in the house number.
+ */
+export function mapAddressComponents(components: GoogleAddressComponent[]): Omit<ResolvedPlaceAddress, 'latitude' | 'longitude'> {
+    const countryCode = components.find((component) => component.types.includes('country'))?.shortText?.toUpperCase();
+
+    return {
+        street: findComponent(components, 'route'),
+        number: findComponent(components, 'street_number'),
+        zip_code: findComponent(components, 'postal_code'),
+        city: findComponent(components, 'locality', 'postal_town', 'administrative_area_level_2'),
+        country: countryCode ? COUNTRY_LABELS[countryCode] : undefined,
+    };
+}
+
+/**
+ * A v4 UUID for the Places session token. `crypto.randomUUID` only exists in
+ * secure contexts (https, localhost); on a plain-http host — the AWS rehearsal
+ * is served over its IP — calling it throws, and the address field that set
+ * up this client never rendered. `getRandomValues` is available everywhere.
+ */
+export function newSessionToken(): string {
+    if (typeof globalThis.crypto?.randomUUID === 'function') {
+        return globalThis.crypto.randomUUID();
+    }
+
+    const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 /**
  * Thin client for the Google Places API (New) REST endpoints, using the
  * recommended session-token pattern: autocomplete() predictions and the
@@ -65,10 +106,10 @@ export function useGooglePlaces() {
     const isConfigured = ref<boolean>(Boolean(API_KEY));
     const error = ref<string | null>(null);
 
-    let sessionToken = crypto.randomUUID();
+    let sessionToken = newSessionToken();
 
     function newSession() {
-        sessionToken = crypto.randomUUID();
+        sessionToken = newSessionToken();
     }
 
     async function autocomplete(input: string): Promise<PlaceSuggestion[]> {
@@ -153,10 +194,7 @@ export function useGooglePlaces() {
             const components: GoogleAddressComponent[] = data.addressComponents ?? [];
 
             const resolved: ResolvedPlaceAddress = {
-                street: findComponent(components, 'route'),
-                number: findComponent(components, 'street_number'),
-                zip_code: findComponent(components, 'postal_code'),
-                city: findComponent(components, 'locality', 'postal_town', 'administrative_area_level_2'),
+                ...mapAddressComponents(components),
                 latitude: data.location?.latitude,
                 longitude: data.location?.longitude,
             };

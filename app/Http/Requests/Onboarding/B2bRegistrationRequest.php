@@ -74,7 +74,7 @@ class B2bRegistrationRequest extends FormRequest
 
             'address' => ['required', 'array'],
             'address.street' => ['required', 'string', 'max:255'],
-            'address.number' => ['required', 'string', 'max:50'],
+            'address.number' => ['required', 'string', 'max:50', ...$this->registrationOnly('regex:/^\d/')],
             'address.additional_address' => ['nullable', 'string', 'max:255'],
             'address.zip_code' => ['required', 'string', 'max:20', 'regex:/^\d{4,5}$/'],
             'address.city' => ['required', 'string', 'max:100'],
@@ -125,6 +125,19 @@ class B2bRegistrationRequest extends FormRequest
     }
 
     /**
+     * A house number starts with a digit (12, 12a, 12-14), so street text typed
+     * into "Nr." is refused — checked for a new registration only. Editing an
+     * existing company (settings/company) keeps the looser rule, so a stored or
+     * migrated address stays editable as it is.
+     *
+     * @return list<string>
+     */
+    private function registrationOnly(string $rule): array
+    {
+        return $this->routeIs('onboarding.b2b.store') ? [$rule] : [];
+    }
+
+    /**
      * @return array<string, string>
      */
     public function messages(): array
@@ -136,6 +149,7 @@ class B2bRegistrationRequest extends FormRequest
             'contact_email.email' => 'Bitte geben Sie eine gültige E-Mail-Adresse an.',
             'address.street.required' => 'Bitte geben Sie die Straße an.',
             'address.number.required' => 'Bitte geben Sie die Hausnummer an.',
+            'address.number.regex' => 'Bitte geben Sie im Feld „Nr.“ nur die Hausnummer an (z. B. 12 oder 12a).',
             'address.zip_code.required' => 'Bitte geben Sie die PLZ an.',
             'address.zip_code.regex' => 'Die PLZ darf nur Ziffern enthalten.',
             'address.city.required' => 'Bitte geben Sie den Ort an.',

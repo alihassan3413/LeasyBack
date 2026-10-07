@@ -10,6 +10,11 @@
 @source '../../../resources/js/components/mfa';
 @source '../../../resources/js/pages/auth';
 @source '../../../resources/js/components/workshop';
+@source '../../../resources/js/components/onboarding';
+@source '../../../resources/js/components/form';
+@source './company-address.ts';
+@source '../../../resources/js/pages/onboarding';
+@source '../../../resources/js/layouts/onboarding';
 @source '../../../resources/js/components/admin/AdminOrderTasksCard.vue';
 @source '../../../resources/js/components/admin/AdminRepairBillingCard.vue';
 @source '../../../resources/js/components/admin/DamageImagePicker.vue';
