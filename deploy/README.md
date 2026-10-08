@@ -45,7 +45,7 @@ php8.4 /var/www/LeasyBack/artisan webpush:vapid  # VAPID keys for push notificat
 
 certbot --nginx -d leasyback.insuretechgurus.com --redirect --agree-tos -m you@insuretechgurus.com
 
-sudo -u deploy bash /var/www/LeasyBack/deploy/deploy.sh --production --seed
+sudo -u deploy bash /var/www/LeasyBack/deploy/deploy.sh --seed
 curl -I https://leasyback.insuretechgurus.com/up
 ```
 
@@ -56,31 +56,26 @@ resets the password back to whatever `.env` currently holds.
 
 ## 2. Every release after that
 
-`deploy.sh` needs a mode — there is no default, so a rehearsal can never be
-mistaken for production or the other way round:
+One command for every branch and every server:
 
 ```bash
-# AWS rehearsal (today): /var/www/LeasyBack is the rehearsal copy
-bash /var/www/LeasyBack/deploy/deploy.sh --rehearsal --branch=feat/base44-migration --yes
+# main
+bash /var/www/LeasyBack/deploy/deploy.sh --yes
 
-# final production (after sign-off) — main by default
-bash /var/www/LeasyBack/deploy/deploy.sh --production --yes
-
-# production from a specific branch
-bash /var/www/LeasyBack/deploy/deploy.sh --production --branch=feat/example --yes
+# any other branch (it must exist on origin)
+bash /var/www/LeasyBack/deploy/deploy.sh --branch=feat/base44-migration --yes
 ```
 
-Or in one line from your machine: `ssh deploy@<server> 'bash /var/www/LeasyBack/deploy/deploy.sh --production --yes'`.
+Or in one line from your machine: `ssh deploy@<server> 'bash /var/www/LeasyBack/deploy/deploy.sh --yes'`.
 
-| | `--rehearsal` | `--production` |
-| --- | --- | --- |
-| `APP_ENV` | `local` (or a value in `REHEARSAL_ALLOWED_APP_ENVS`), never `production` | `production`, `APP_DEBUG=false`, `APP_KEY` set |
-| `APP_URL` | anything but `PRODUCTION_DOMAIN`; a bare IP is fine | `https://` on `PRODUCTION_DOMAIN` (or `DOMAIN`), no IP |
-| mail / queue / broadcast | `MAIL_MAILER=log`, `QUEUE_CONNECTION=null`, broadcast `log`/`null` | a real mailer with its key, a real queue, Reverb credentials when `BROADCAST_CONNECTION=reverb` |
-| integrations | Stripe, AWS/S3, TÜV, DEKRA, Lexware, Reverb, webhook, partner… credentials must be blank or test values; `LEXWARE_INTEGRATION_MODE=disabled` (the same rules as `scripts/base44-rehearsal.sh`, read from the commit being deployed) | no `CHANGE_ME` left; S3 keys when an S3 disk is used |
-| queue workers, Reverb | stopped and verified stopped; a scheduler cron for the app is refused | `queue:restart`, supervisor `leasyback-worker:*` and `leasyback-reverb` restarted and verified `RUNNING` |
-| branch | `--branch=NAME`, else `BRANCH` from `config.sh`, else `main` | `--branch=NAME`, else `PRODUCTION_BRANCH` (default `main`) — never `config.sh`'s `BRANCH`; a non-default branch is logged as a warning |
-| `--seed` | refused | allowed (first deploy only) |
+- **Branch:** `--branch=NAME`, otherwise `main`. A `BRANCH` left in `config.sh` is not used.
+- **`.env` checks** (any server): `APP_KEY` set, no `CHANGE_ME` placeholders, no
+  `APP_DEBUG=true` with `APP_ENV=production`, and no shell variable overriding `.env`.
+  What the `.env` connects to (mailer, queue, integrations) is the server's own choice —
+  the deploy does not judge it.
+- **Queue workers and Reverb:** `queue:restart` is always signalled; the supervisor programs
+  `leasyback-worker:*` and `leasyback-reverb` are restarted and must come back `RUNNING`
+  *where they exist*. A server without them (the AWS copy) just skips that step.
 
 Each run, in order — any failure stops it, and the app is brought back up:
 
@@ -88,18 +83,17 @@ Each run, in order — any failure stops it, and the app is brought back up:
    the *running* PHP-FPM version (detected — `PHP_VERSION` only pins it), Node 20+,
    `git fetch` of the branch (refused if it was force-pushed, unless
    `--allow-non-fast-forward`), a clean working tree (else `--allow-dirty`), the
-   `.env` checks above, no shell variable shadowing `.env`, and the SQLite file:
-   must exist (never created), not a symlink, `PRAGMA integrity_check` ok.
-2. Rehearsal only: stop and verify no worker/Reverb/scheduler process runs.
-3. Maintenance mode → checkout → `composer install --no-dev --optimize-autoloader`
+   `.env` checks above, and the SQLite file: must exist (never created), not a
+   symlink, `PRAGMA integrity_check` ok.
+2. Maintenance mode → checkout → `composer install --no-dev --optimize-autoloader`
    → `npm ci && npm run build` (fails without `public/build/manifest.json`).
-4. SQLite `.backup` to `storage/app/backups/` (mode 600, last `KEEP_BACKUPS`
+3. SQLite `.backup` to `storage/app/backups/` (mode 600, last `KEEP_BACKUPS`
    kept), the backup's `integrity_check` must pass → `migrate --force` →
    integrity re-checked, no migration may remain pending.
-5. `storage:link` if missing, `optimize:clear`, config/view/event caches, route cache where possible.
-6. Group `WEB_GROUP` (www-data) on storage, bootstrap/cache and the database, verified.
-7. `nginx -t` (when sudo allows it), reload php-fpm and nginx; production restarts workers/Reverb.
-8. Maintenance off → `GET APP_URL/up` through this server's nginx must answer 200 →
+4. `storage:link` if missing, `optimize:clear`, config/view/event caches, route cache where possible.
+5. Group `WEB_GROUP` (www-data) on storage, bootstrap/cache and the database, verified.
+6. `nginx -t` (when sudo allows it), reload php-fpm and nginx; restart workers/Reverb where configured.
+7. Maintenance off → `GET APP_URL/up` through this server's nginx must answer 200 →
    summary: branch/commit, migrations, frontend build, php-fpm/nginx/supervisor status.
 
 Output is timestamped (UTC) and written to `DEPLOY_LOG_DIR` (default
@@ -107,23 +101,25 @@ Output is timestamped (UTC) and written to `DEPLOY_LOG_DIR` (default
 copy of itself, so the checkout cannot rewrite it mid-run.
 
 A deploy **never** runs `legacy:import` or any `legacy:*` command, `db:seed`
-(unless `--seed` in production), `migrate:fresh`/`db:wipe`, and never touches
+(unless `--seed`), `migrate:fresh`/`db:wipe`, and never touches
 `/secure/base44-export`. The Base44 migration stays a separate, explicit action
 (`scripts/base44-rehearsal.sh`, then `php artisan legacy:import`).
 
 Flags: `--branch NAME` / `--branch=NAME`, `--no-build`, `--no-migrate`, `--rollback`,
-`--seed` (production), `--allow-dirty`, `--allow-non-fast-forward`, `--yes`, `--help`.
+`--seed`, `--allow-dirty`, `--allow-non-fast-forward`, `--yes`, `--help`.
 
 ```bash
-bash deploy/deploy.sh --production --rollback --yes   # back to the previously deployed commit
+bash deploy/deploy.sh --rollback --yes   # back to the previously deployed commit
 ```
 
-**Changed from earlier versions:** a mode is now required (`deploy.sh --yes` alone exits
-with an error — the old behaviour is `--production --yes`); a dirty tree, a failed
-backup and a failed health check now stop the deploy instead of warning; a missing
-database is no longer created; `config.sh` is optional (defaults come from the checkout).
-`--production --branch=NAME` deploys NAME directly; `--allow-non-production-branch`
-is no longer needed and is ignored with a note if passed.
+**Changed from earlier versions:** there are no modes any more — `--rehearsal`,
+`--production` and `--allow-non-production-branch` are accepted for old command lines and
+ignored with a note. The mode-specific `.env` rules (rehearsal: everything live switched
+off; production: https, mailer, queue, S3, Reverb) are gone; the Base44 safety for an
+import stays in `scripts/base44-rehearsal.sh`, which refuses a live `.env` before
+`legacy:import` runs. Unchanged: a dirty tree, a failed backup, a failed migration
+integrity check and a failed health check stop the deploy; a missing database is never
+created; `config.sh` is optional.
 
 ## Database (SQLite)
 
@@ -206,10 +202,10 @@ calls `Storage::disk('documents')`, so the driver is an env choice, not a code c
   `REVERB_SERVER_HOST=127.0.0.1` / `REVERB_SERVER_PORT=8080` (what the process binds to).
   Set `RUN_REVERB=false` in `config.sh` if you don't need websockets yet.
 - **Queue workers** are `queue:work` under supervisor (`QUEUE_WORKERS` in `config.sh`).
-  `deploy.sh --production` restarts them so they pick up new code; `--rehearsal` stops
-  them. Both supervisor programs are `autostart=true`, so on a rehearsal host remove
-  `/etc/supervisor/conf.d/leasyback-*.conf` (and the deploy user's `schedule:run`
-  crontab line) or they return after a reboot.
+  `deploy.sh` restarts them (when they are configured) so they pick up new code. A host
+  that must not run them — the AWS copy with migrated data — simply should not have
+  `/etc/supervisor/conf.d/leasyback-*.conf` (or the deploy user's `schedule:run` crontab
+  line); the deploy then skips them.
 - **Route caching is skipped** — `routes/web.php` and `routes/settings.php` register
   closure routes, which Laravel can't serialize. Convert those two to controller
   actions and `deploy.sh` will start caching routes automatically.

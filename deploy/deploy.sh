@@ -2,28 +2,16 @@
 #
 # Deploy the Leasyback backend. Run on the server as the deploy user:
 #
-#   bash /var/www/LeasyBack/deploy/deploy.sh --rehearsal  --branch=feat/base44-migration --yes
-#   bash /var/www/LeasyBack/deploy/deploy.sh --production --yes
-#
-# Mode (exactly one is required):
-#   --rehearsal     AWS rehearsal / pre-production copy. Refuses a .env with live
-#                   mail, queues, broadcasting, S3 or integration credentials;
-#                   keeps queue workers, Reverb and the scheduler OFF. The app may
-#                   be served over a bare IP (APP_URL=http://<ip>).
-#   --production    final production. Validates the production .env (https host,
-#                   mail, queue, S3/Reverb credentials, no CHANGE_ME), then
-#                   restarts the queue workers and Reverb.
+#   bash /var/www/LeasyBack/deploy/deploy.sh --yes                                   # main
+#   bash /var/www/LeasyBack/deploy/deploy.sh --branch=feat/base44-migration --yes   # any branch
 #
 # Options:
 #   --branch NAME | --branch=NAME
-#                   branch to deploy. Any branch that exists on origin, in
-#                   either mode. Default: production deploys PRODUCTION_BRANCH
-#                   (config.sh, else main) and never config.sh's BRANCH;
-#                   rehearsal deploys BRANCH from config.sh, else main.
+#                   branch to deploy; must exist on origin (default: main)
 #   --no-build      skip `npm ci && npm run build`
 #   --no-migrate    skip database migrations
 #   --rollback      redeploy the commit that was live before the last deploy
-#   --seed          production only: also run `db:seed --force` (first deploy)
+#   --seed          also run `db:seed --force` (first deploy only)
 #   --allow-dirty   discard local modifications to tracked files instead of failing
 #   --allow-non-fast-forward
 #                   accept a branch whose history was rewritten (force-pushed)
@@ -42,7 +30,7 @@ readonly SUPERVISOR_REVERB="leasyback-reverb"   # deploy/supervisor/leasyback-re
 readonly PROTECTED_EXPORT_DIR="/secure/base44-export"
 
 # ---- state -------------------------------------------------------------------
-MODE="" BRANCH_ARG="" SEED=false ROLLBACK=false ASSUME_YES=false ALLOW_DIRTY=false
+BRANCH_ARG="" SEED=false ROLLBACK=false ASSUME_YES=false ALLOW_DIRTY=false
 ALLOW_NON_FF=false DO_BUILD="" DO_MIGRATE=""
 PHP="" PHP_FPM_VERSION="" TARGET_COMMIT="" CURRENT_COMMIT="" LOG_FILE="" LOGGER_PID=""
 MAINTENANCE_ON=false SQLITE_FILE="" BACKUP_FILE="" BUILD_RESULT="skipped" MIGRATION_RESULT="skipped"
@@ -88,8 +76,6 @@ url_host() {
 
 lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
-is_ip_host() { [[ $1 =~ ^[0-9]+(\.[0-9]+){3}$ || $1 == *:* ]]; }
-
 # is_inside CHILD PARENT -> 0 when CHILD is PARENT or below it (resolved)
 is_inside() {
     local c p
@@ -98,28 +84,11 @@ is_inside() {
     [[ -n $p && ( $c == "$p" || $c == "$p"/* ) ]]
 }
 
-# resolve_branch MODE BRANCH_ARG CONFIG_BRANCH PRODUCTION_BRANCH -> branch to deploy
-#
-# An explicit --branch always wins, in either mode. Without one, production
-# deploys PRODUCTION_BRANCH and deliberately ignores config.sh's BRANCH: that
-# setting is the rehearsal default, and a bare `--production` must never pick
-# up a feature branch from it.
-resolve_branch() {
-    local mode=$1 branch_arg=$2 config_branch=$3 production_branch=${4:-main}
-    if [[ -n $branch_arg ]]; then
-        printf '%s' "$branch_arg"
-    elif [[ $mode == production ]]; then
-        printf '%s' "$production_branch"
-    else
-        printf '%s' "${config_branch:-$production_branch}"
-    fi
-}
-
 parse_args() {
     while [[ $# -gt 0 ]]; do
         case $1 in
-            --rehearsal)  [[ -z $MODE || $MODE == rehearsal ]] || { echo "choose one of --rehearsal or --production" >&2; return 64; }; MODE=rehearsal ;;
-            --production) [[ -z $MODE || $MODE == production ]] || { echo "choose one of --rehearsal or --production" >&2; return 64; }; MODE=production ;;
+            # Retired: there is one deploy for every branch and server now. Accepted so old command lines still run.
+            --rehearsal|--production|--allow-non-production-branch) echo "note: $1 is no longer needed and is ignored" >&2 ;;
             --branch=*)   BRANCH_ARG=${1#--branch=}; [[ -n $BRANCH_ARG ]] || { echo "--branch needs a name" >&2; return 64; } ;;
             --branch)     [[ $# -ge 2 && -n $2 && $2 != --* ]] || { echo "--branch needs a name" >&2; return 64; }; BRANCH_ARG=$2; shift ;;
             --seed)       SEED=true ;;
@@ -128,15 +97,11 @@ parse_args() {
             --rollback)   ROLLBACK=true ;;
             --allow-dirty) ALLOW_DIRTY=true ;;
             --allow-non-fast-forward) ALLOW_NON_FF=true ;;
-            # No longer needed (--branch is enough); accepted so an old command line still runs.
-            --allow-non-production-branch) echo "note: --allow-non-production-branch is no longer needed and is ignored" >&2 ;;
             --yes|-y)     ASSUME_YES=true ;;
             *) echo "unknown option: $1" >&2; return 64 ;;
         esac
         shift
     done
-    [[ -n $MODE ]] || { echo "a mode is required: --rehearsal or --production" >&2; return 64; }
-    if [[ $MODE == rehearsal && $SEED == true ]]; then echo "--seed is not allowed in rehearsal mode" >&2; return 64; fi
     if [[ $ROLLBACK == true && -n $BRANCH_ARG ]]; then echo "--rollback redeploys the previous commit; it does not take --branch" >&2; return 64; fi
     return 0
 }
@@ -160,78 +125,16 @@ chk_no_shadowing() { # ENV_FILE
     return $bad
 }
 
-# rehearsal: APP_ENV must be local or explicitly approved in REHEARSAL_ALLOWED_APP_ENVS, never production
-chk_rehearsal_app_env() { # ENV_FILE
-    local v allowed
-    v=$(env_value "$1" APP_ENV)
-    [[ $v != production ]] || { echo "      APP_ENV=production in a rehearsal deploy"; return 1; }
-    allowed=" local ${REHEARSAL_ALLOWED_APP_ENVS//,/ } "
-    [[ -n $v && $allowed == *" $v "* ]] || { echo "      APP_ENV is '${v:-<unset>}'; rehearsal allows: ${allowed# }"; return 1; }
-}
-
-chk_rehearsal_url() { # ENV_FILE
-    local host prod=${PRODUCTION_DOMAIN:-}
-    host=$(url_host "$(env_value "$1" APP_URL)")
-    [[ -n $host ]] || { echo "      APP_URL is empty"; return 1; }
-    if [[ -n $prod && $host == "$(lower "$prod")" ]]; then echo "      APP_URL is the production domain $prod"; return 1; fi
-}
-
-# The rehearsal-safety rules live in scripts/base44-rehearsal.sh (one definition
-# for both tools), taken from the commit being deployed. They run in a separate
-# bash process: that script declares readonly names of its own, sets umask 077
-# and strict mode, none of which may mix with this script's state.
-chk_rehearsal_integrations() { # CHECKS_FILE ENV_FILE
-    [[ -s $1 ]] || { echo "      the target commit has no scripts/base44-rehearsal.sh; rehearsal checks cannot run"; return 1; }
-    bash -c '
-        source "$1" >/dev/null 2>&1 || { echo "      cannot load $1"; exit 1; }
-        set +eu
-        ENV_FILE=$2
-        bad=0
-        for c in chk_mail_log chk_queue_and_broadcast chk_storage_not_s3 chk_integrations; do
-            if ! declare -F "$c" >/dev/null; then echo "      $c is missing from the rehearsal checks"; bad=1; continue; fi
-            "$c" || bad=1
-        done
-        exit $bad
-    ' _ "$1" "$2"
-}
-
-chk_production_env() { # ENV_FILE
-    local f=$1 bad=0 v k host placeholders mailer prod=${PRODUCTION_DOMAIN:-${DOMAIN:-}}
-    v=$(env_value "$f" APP_ENV);   [[ $v == production ]] || { echo "      APP_ENV is '${v:-<unset>}' (must be production)"; bad=1; }
-    v=$(env_value "$f" APP_DEBUG); [[ $(lower "$v") == false || $v == 0 ]] || { echo "      APP_DEBUG is '${v:-<unset>}' (must be false)"; bad=1; }
-    v=$(env_value "$f" APP_KEY);   [[ $v == base64:?* ]] || { echo "      APP_KEY is not set (php artisan key:generate)"; bad=1; }
-
-    v=$(env_value "$f" APP_URL); host=$(url_host "$v")
-    [[ $v == https://* ]] || { echo "      APP_URL '$v' is not https"; bad=1; }
-    if [[ -z $host || $host == localhost ]] || is_ip_host "$host"; then echo "      APP_URL must name the production host, not '${host:-<empty>}'"; bad=1; fi
-    if [[ -n $prod && $host != "$(lower "$prod")" ]]; then echo "      APP_URL host $host is not the production domain $prod"; bad=1; fi
-
+# Mistakes no server should be deployed with, whatever branch or host: no
+# APP_KEY, unfilled CHANGE_ME placeholders, or debug output in production.
+chk_env_basics() { # ENV_FILE
+    local f=$1 bad=0 v placeholders
+    v=$(env_value "$f" APP_KEY); [[ $v == base64:?* ]] || { echo "      APP_KEY is not set (php artisan key:generate)"; bad=1; }
     placeholders=$(grep -E '^[[:space:]]*(export[[:space:]]+)?[A-Za-z0-9_]+=["'"'"']?CHANGE_ME' "$f" | sed -E 's/^[[:space:]]*(export[[:space:]]+)?([A-Za-z0-9_]+)=.*/\2/' | sort -u | tr '\n' ' ' || true)
     [[ -z $placeholders ]] || { echo "      still CHANGE_ME: $placeholders"; bad=1; }
-
-    mailer=$(env_value "$f" MAIL_MAILER)
-    case $mailer in
-        ""|log|array|null) echo "      MAIL_MAILER is '${mailer:-<unset>}' (production needs a real mailer)"; bad=1 ;;
-        sendgrid) [[ -n $(env_value "$f" SENDGRID_API_KEY) ]] || { echo "      MAIL_MAILER=sendgrid without SENDGRID_API_KEY"; bad=1; } ;;
-        smtp) [[ -n $(env_value "$f" MAIL_HOST) ]] || { echo "      MAIL_MAILER=smtp without MAIL_HOST"; bad=1; } ;;
-    esac
-    [[ -n $(env_value "$f" MAIL_FROM_ADDRESS) ]] || { echo "      MAIL_FROM_ADDRESS is not set"; bad=1; }
-
-    v=$(env_value "$f" QUEUE_CONNECTION)
-    case $v in ""|null|sync) echo "      QUEUE_CONNECTION is '${v:-<unset>}' (production needs a real queue)"; bad=1 ;; esac
-
-    v=$(env_value "$f" DOCUMENTS_FILESYSTEM_DRIVER)
-    [[ -n $v ]] || { echo "      DOCUMENTS_FILESYSTEM_DRIVER is not set explicitly (see deploy/README.md, Document storage)"; bad=1; }
-    if [[ $v == s3 || $(env_value "$f" FILESYSTEM_DISK) == s3 ]]; then
-        for k in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_DEFAULT_REGION AWS_BUCKET; do
-            [[ -n $(env_value "$f" "$k") ]] || { echo "      an S3 disk is used but $k is empty"; bad=1; }
-        done
-    fi
-
-    if [[ $(env_value "$f" BROADCAST_CONNECTION) == reverb ]]; then
-        for k in REVERB_APP_ID REVERB_APP_KEY REVERB_APP_SECRET; do
-            [[ -n $(env_value "$f" "$k") ]] || { echo "      BROADCAST_CONNECTION=reverb but $k is empty"; bad=1; }
-        done
+    if [[ $(env_value "$f" APP_ENV) == production ]]; then
+        v=$(env_value "$f" APP_DEBUG)
+        [[ $(lower "$v") != true && $v != 1 ]] || { echo "      APP_DEBUG is on with APP_ENV=production"; bad=1; }
     fi
     return $bad
 }
@@ -265,20 +168,10 @@ chk_clean_tree() { # REPO
     return 1
 }
 
-# A scheduler cron entry for this app (provision.sh installs one per user).
-scheduler_cron_entries() { # APP_DIR
-    { crontab -l 2>/dev/null || true; cat /etc/crontab /etc/cron.d/* 2>/dev/null || true; } \
-        | grep -v '^[[:space:]]*#' | grep -F -- "$1" | grep -F 'schedule:' || true
-}
-
 # supervisor program lines `name state ...`, empty when supervisor or the program is absent
 supervisor_status() { # PROGRAM...
     command -v supervisorctl >/dev/null 2>&1 || return 0
     sudo -n supervisorctl status "$@" 2>/dev/null | grep -vE 'no such (process|group)|ERROR' || true
-}
-
-background_processes() { # APP_DIR
-    ps -eo pid=,args= 2>/dev/null | grep -F -- "$1/artisan" | grep -E 'queue:(work|listen)|reverb:start|schedule:(work|run)|horizon' | grep -v grep || true
 }
 
 # =============================================================================
@@ -309,15 +202,13 @@ load_config() {
         source "$script_dir/config.sh"
     fi
     APP_DIR=${APP_DIR:-$(cd "$script_dir/.." && pwd -P)}
-    PRODUCTION_BRANCH=${PRODUCTION_BRANCH:-main}
-    BRANCH=$(resolve_branch "$MODE" "$BRANCH_ARG" "${BRANCH:-}" "$PRODUCTION_BRANCH")
+    BRANCH=${BRANCH_ARG:-main}
     DO_BUILD=${DO_BUILD:-${BUILD_ASSETS:-true}}
     DO_MIGRATE=${DO_MIGRATE:-${RUN_MIGRATIONS:-true}}
     WEB_GROUP=${WEB_GROUP:-www-data}
     DEPLOY_LOG_DIR=${DEPLOY_LOG_DIR:-$HOME/leasyback-deploy-logs}
     DEPLOY_BACKUP_DIR=${DEPLOY_BACKUP_DIR:-$APP_DIR/storage/app/backups}
     KEEP_BACKUPS=${KEEP_BACKUPS:-10}
-    REHEARSAL_ALLOWED_APP_ENVS=${REHEARSAL_ALLOWED_APP_ENVS:-}
 }
 
 start_log() {
@@ -325,7 +216,7 @@ start_log() {
     [[ $d == /* ]] || fail "DEPLOY_LOG_DIR must be absolute"
     if is_inside "$d" "$APP_DIR" || is_inside "$d" "$PROTECTED_EXPORT_DIR"; then fail "DEPLOY_LOG_DIR $d must be outside $APP_DIR and $PROTECTED_EXPORT_DIR"; fi
     mkdir -p -m 700 "$d" || fail "cannot create $d"
-    LOG_FILE="$d/deploy-$(date -u +%Y%m%d-%H%M%S)-$MODE.log"
+    LOG_FILE="$d/deploy-$(date -u +%Y%m%d-%H%M%S).log"
     : >"$LOG_FILE"; chmod 600 "$LOG_FILE"
     exec 3>&1 4>&2
     exec > >(export TZ=UTC; while IFS= read -r line; do printf '%(%Y-%m-%dT%H:%M:%SZ)T %s\n' -1 "$line"; done | tee -a "$LOG_FILE" >&3) 2>&1
@@ -355,9 +246,7 @@ on_exit() {
 on_err() { echo "    a command failed at line $1 (step aborted)"; }
 
 preflight() {
-    step "Pre-flight: $MODE deploy of '$BRANCH' into $APP_DIR"
-    [[ $MODE == production ]] && info "MODE: PRODUCTION — live mail, queues and Reverb will run" \
-                              || info "MODE: REHEARSAL — no workers, no scheduler, no Reverb, no live integrations"
+    step "Pre-flight: deploy of '$BRANCH' into $APP_DIR"
 
     [[ -d $APP_DIR/.git ]] || fail "$APP_DIR is not a git checkout"
     [[ $(git -C "$APP_DIR" rev-parse --show-toplevel) == "$(readlink -f "$APP_DIR")" ]] || fail "$APP_DIR is not the repository root"
@@ -398,7 +287,6 @@ preflight() {
         info "rolling back $BRANCH to ${TARGET_COMMIT:0:8}"
     else
         git check-ref-format --branch "$BRANCH" >/dev/null || fail "'$BRANCH' is not a valid branch name"
-        [[ $MODE == production && $BRANCH != "$PRODUCTION_BRANCH" ]] && warn "production is deploying '$BRANCH', not $PRODUCTION_BRANCH"
         info "fetching $BRANCH"
         git fetch --prune origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" || fail "branch '$BRANCH' does not exist on origin"
         TARGET_COMMIT=$(git rev-parse "refs/remotes/origin/$BRANCH")
@@ -414,28 +302,11 @@ preflight() {
         warn "discarding the modifications above (--allow-dirty)"
     fi
 
-    step "Pre-flight: .env checks ($MODE)"
+    step "Pre-flight: .env checks"
     local env=$APP_DIR/.env
     chk_no_shadowing "$env" || fail "shell variables override .env"
-    if [[ $MODE == rehearsal ]]; then
-        local checks; checks=$(mktemp)
-        git show "$TARGET_COMMIT:scripts/base44-rehearsal.sh" >"$checks" 2>/dev/null || true
-        chk_rehearsal_app_env "$env"                || { rm -f "$checks"; fail "APP_ENV is not a rehearsal value"; }
-        chk_rehearsal_url "$env"                    || { rm -f "$checks"; fail "APP_URL is not a rehearsal address"; }
-        chk_rehearsal_integrations "$checks" "$env" || { rm -f "$checks"; fail "the rehearsal .env enables live mail, queues, broadcasting, S3 or integrations"; }
-        rm -f "$checks"
-        local cron; cron=$(scheduler_cron_entries "$APP_DIR")
-        [[ -z $cron ]] || fail "a scheduler cron runs this app (remove it for rehearsal: crontab -e):$(printf '\n        %s' "$cron")"
-        info "APP_ENV=$(env_value "$env" APP_ENV)  APP_URL=$(env_value "$env" APP_URL)  mail=log  queue=null  integrations off  no scheduler cron"
-    else
-        chk_production_env "$env" || fail "the production .env is incomplete"
-        [[ -n $(supervisor_status "$SUPERVISOR_WORKER:") ]] || fail "supervisor program $SUPERVISOR_WORKER is not configured (deploy/provision.sh), or 'sudo -n supervisorctl' is not permitted for $(id -un)"
-        if [[ $(env_value "$env" BROADCAST_CONNECTION) == reverb && -z $(supervisor_status "$SUPERVISOR_REVERB") ]]; then
-            fail "BROADCAST_CONNECTION=reverb but supervisor program $SUPERVISOR_REVERB is not configured (or not visible to sudo -n supervisorctl)"
-        fi
-        [[ -n $(scheduler_cron_entries "$APP_DIR") ]] || warn "no scheduler cron found for $APP_DIR (provision.sh installs it)"
-        info "APP_URL=$(env_value "$env" APP_URL)  mail=$(env_value "$env" MAIL_MAILER)  queue=$(env_value "$env" QUEUE_CONNECTION)"
-    fi
+    chk_env_basics "$env" || fail ".env is incomplete"
+    info "APP_ENV=$(env_value "$env" APP_ENV)  APP_URL=$(env_value "$env" APP_URL)  mail=$(env_value "$env" MAIL_MAILER)  queue=$(env_value "$env" QUEUE_CONNECTION)"
 
     step "Pre-flight: SQLite database"
     [[ $(env_value "$env" DB_CONNECTION) == sqlite ]] || fail "DB_CONNECTION is not sqlite; this deploy backs up SQLite only"
@@ -451,24 +322,7 @@ preflight() {
     info "$SQLITE_FILE ($(du -h "$SQLITE_FILE" | cut -f1)) integrity ok"
 }
 
-stop_background_for_rehearsal() {
-    step "Rehearsal: keeping queue workers, Reverb and the scheduler off"
-    local running
-    running=$(supervisor_status "$SUPERVISOR_WORKER:" "$SUPERVISOR_REVERB" | grep -E 'RUNNING|STARTING|BACKOFF' || true)
-    if [[ -n $running ]]; then
-        sudo -n supervisorctl stop "$SUPERVISOR_WORKER:*" "$SUPERVISOR_REVERB" >/dev/null 2>&1 || true
-        running=$(supervisor_status "$SUPERVISOR_WORKER:" "$SUPERVISOR_REVERB" | grep -E 'RUNNING|STARTING|BACKOFF' || true)
-        [[ -z $running ]] || fail "could not stop: $running"
-        warn "stopped supervisor programs; they are autostart=true and return after a reboot — remove /etc/supervisor/conf.d/leasyback-*.conf on the rehearsal host"
-    fi
-    running=$(background_processes "$APP_DIR")
-    [[ -z $running ]] || fail "background processes still run for $APP_DIR:$(printf '\n        %s' "$running")"
-    info "no worker, scheduler or Reverb process runs for $APP_DIR"
-}
-
 deploy() {
-    if [[ $MODE == rehearsal ]]; then stop_background_for_rehearsal; fi
-
     if [[ ${MAINTENANCE_MODE:-true} == true ]]; then
         step "Entering maintenance mode"
         # A release so broken that `artisan down` fails must still be deployable over.
@@ -526,7 +380,7 @@ deploy() {
     fi
 
     if [[ $SEED == true ]]; then
-        step "Seeding the database (--seed, production)"
+        step "Seeding the database (--seed)"
         "$PHP" artisan db:seed --force --no-interaction
     fi
 
@@ -568,24 +422,33 @@ deploy() {
     sudo -n systemctl reload nginx || fail "cannot reload nginx (sudoers?)"
     info "nginx reloaded"
 
-    if [[ $MODE == production ]]; then
-        step "Restarting queue workers and Reverb (production)"
-        "$PHP" artisan queue:restart >/dev/null
-        sudo -n supervisorctl restart "$SUPERVISOR_WORKER:*" >/dev/null || fail "cannot restart $SUPERVISOR_WORKER"
-        if [[ -n $(supervisor_status "$SUPERVISOR_REVERB") ]]; then
-            sudo -n supervisorctl restart "$SUPERVISOR_REVERB" >/dev/null || fail "cannot restart $SUPERVISOR_REVERB"
-        fi
-        sleep 2
-        local down; down=$(supervisor_status "$SUPERVISOR_WORKER:" "$SUPERVISOR_REVERB" | grep -vE 'RUNNING' || true)
-        [[ -z $down ]] || fail "not running after restart:$(printf '\n        %s' "$down")"
-        info "workers$( [[ -n $(supervisor_status "$SUPERVISOR_REVERB") ]] && echo " and Reverb") running"
-    fi
+    restart_background
 
     if [[ $MAINTENANCE_ON == true ]]; then
         step "Leaving maintenance mode"
         "$PHP" artisan up
         MAINTENANCE_ON=false
     fi
+}
+
+# Queue workers and Reverb, where this server runs them: a supervisor program
+# that exists is restarted and must come back RUNNING; one that does not exist
+# is simply not part of this server. `queue:restart` is always sent — it only
+# sets a cache flag, so it is harmless where no worker runs.
+restart_background() {
+    step "Restarting queue workers and Reverb (where configured)"
+    "$PHP" artisan queue:restart >/dev/null && info "queue:restart signalled"
+    local program restarted=""
+    for program in "$SUPERVISOR_WORKER:" "$SUPERVISOR_REVERB"; do
+        [[ -n $(supervisor_status "$program") ]] || { info "${program%:} not configured on this server — skipped"; continue; }
+        sudo -n supervisorctl restart "${program/%:/:*}" >/dev/null || fail "cannot restart ${program%:}"
+        restarted+="$program "
+    done
+    [[ -n $restarted ]] || return 0
+    sleep 2
+    local down; down=$(supervisor_status $restarted | grep -vE 'RUNNING' || true)
+    [[ -z $down ]] || fail "not running after restart:$(printf '\n        %s' "$down")"
+    info "running: ${restarted//:/}"
 }
 
 # GET APP_URL/up through this server's nginx, whatever DNS says.
@@ -609,7 +472,6 @@ report() {
     for b in pdftotext pdfimages; do command -v "$b" >/dev/null && info "$b -> $(command -v "$b")" || warn "$b not found (sudo apt-get install -y poppler-utils)"; done
 
     step "Summary"
-    info "mode:        $MODE"
     info "deployed:    $BRANCH @ $(git log -1 --pretty='%h %s')"
     info "migrations:  $MIGRATION_RESULT"
     info "frontend:    $BUILD_RESULT"
@@ -617,9 +479,9 @@ report() {
     info "nginx:       $(systemctl is-active nginx 2>/dev/null || echo unknown)"
     local s; s=$(supervisor_status "$SUPERVISOR_WORKER:" "$SUPERVISOR_REVERB" | awk '{print $1" "$2}' | tr '\n' ';')
     info "supervisor:  ${s:-no leasyback programs}"
-    [[ $MODE == rehearsal ]] && info "background:  none (rehearsal); legacy:import was NOT run — that stays a separate, explicit step"
+    info "legacy:      legacy:import was NOT run — the Base44 migration stays a separate, explicit step"
     info "log:         $LOG_FILE"
-    info "roll back:   bash $APP_DIR/deploy/deploy.sh --$MODE --rollback --yes"
+    info "roll back:   bash $APP_DIR/deploy/deploy.sh --rollback --yes"
 }
 
 main() {
@@ -646,7 +508,7 @@ main() {
 
     [[ -t 0 ]] || ASSUME_YES=true
     if [[ $ASSUME_YES == false ]]; then
-        read -rp "Deploy $BRANCH ($MODE) to $(env_value "$APP_DIR/.env" APP_URL) ? [y/N] " reply
+        read -rp "Deploy $BRANCH to $(env_value "$APP_DIR/.env" APP_URL) ? [y/N] " reply
         [[ $reply =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
     fi
 

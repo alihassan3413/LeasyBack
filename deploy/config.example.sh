@@ -6,7 +6,8 @@
 # --- Application ---------------------------------------------------------
 APP_DIR="/var/www/LeasyBack"
 REPO_URL="https://github.com/alihassan3413/LeasyBack.git"
-# Default branch for --rehearsal. --production never reads it (see PRODUCTION_BRANCH).
+# Branch provision.sh clones on a fresh server. deploy.sh does not read it:
+# it deploys --branch=NAME, otherwise main.
 BRANCH="main"
 
 # Domain that serves this Laravel app (backend + Inertia admin panel).
@@ -54,20 +55,7 @@ PHP_UPLOAD_MAX="50M"
 PHP_POST_MAX="56M"
 PHP_MEMORY_LIMIT="512M"
 
-# --- Deploy modes (deploy.sh --rehearsal | --production) -----------------
-# Branch --production deploys when no --branch is given. `--production
-# --branch=NAME` deploys NAME instead (it must exist on origin).
-PRODUCTION_BRANCH="main"
-
-# The final production host. --production requires APP_URL to use it (falls
-# back to DOMAIN above); --rehearsal refuses it, so a rehearsal can never be
-# served under the production name. Leave empty until it is known.
-PRODUCTION_DOMAIN=""
-
-# APP_ENV values --rehearsal accepts besides `local` (space/comma separated).
-# `production` is refused whatever is listed here.
-REHEARSAL_ALLOWED_APP_ENVS=""
-
+# --- Deploy (deploy.sh [--branch=NAME] — main by default) -----------------
 # Where deploy logs go. Must be outside APP_DIR and /secure/base44-export.
 # DEPLOY_LOG_DIR="$HOME/leasyback-deploy-logs"
 

@@ -22,14 +22,13 @@ class DeployScriptTest extends TestCase
         'LEXWARE_INTEGRATION_MODE', 'LEGACY_IMPORT_SOURCE_PATH', 'PHP_VERSION', 'PRODUCTION_DOMAIN', 'DOMAIN', 'REHEARSAL_ALLOWED_APP_ENVS',
         'LEGACY_REHEARSAL_PRODUCTION_PATH'];
 
-    private const GOOD_REHEARSAL_ENV = "APP_ENV=local\nAPP_URL=http://3.120.45.67\nMAIL_MAILER=log\nQUEUE_CONNECTION=null\nBROADCAST_CONNECTION=log\n"
-        ."CACHE_STORE=database\nSESSION_DRIVER=database\nFILESYSTEM_DISK=local\nDOCUMENTS_FILESYSTEM_DRIVER=local\nLEXWARE_INTEGRATION_MODE=disabled\n"
-        ."STRIPE_SECRET=\nAWS_ACCESS_KEY_ID=\nAWS_SECRET_ACCESS_KEY=\nREVERB_APP_KEY=\n";
+    /** A server without live integrations, served over a bare IP (the AWS copy). */
+    private const IP_SERVER_ENV = "APP_ENV=local\nAPP_DEBUG=true\nAPP_KEY=base64:c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0\nAPP_URL=http://3.120.45.67\n"
+        ."MAIL_MAILER=log\nQUEUE_CONNECTION=null\nBROADCAST_CONNECTION=log\nLEXWARE_INTEGRATION_MODE=disabled\n";
 
-    private const GOOD_PRODUCTION_ENV = "APP_ENV=production\nAPP_DEBUG=false\nAPP_KEY=base64:c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0\n"
-        ."APP_URL=https://portal.leasyback.de\nMAIL_MAILER=sendgrid\nSENDGRID_API_KEY=SG.real\nMAIL_FROM_ADDRESS=\"service@leasyback.com\"\n"
-        ."QUEUE_CONNECTION=database\nFILESYSTEM_DISK=s3\nDOCUMENTS_FILESYSTEM_DRIVER=s3\nAWS_ACCESS_KEY_ID=AKIAREAL\nAWS_SECRET_ACCESS_KEY=real\n"
-        ."AWS_DEFAULT_REGION=eu-central-1\nAWS_BUCKET=leasyback-docs\nBROADCAST_CONNECTION=reverb\nREVERB_APP_ID=1\nREVERB_APP_KEY=k\nREVERB_APP_SECRET=s\n";
+    private const PRODUCTION_ENV = "APP_ENV=production\nAPP_DEBUG=false\nAPP_KEY=base64:c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0\n"
+        ."APP_URL=https://portal.leasyback.de\nMAIL_MAILER=sendgrid\nSENDGRID_API_KEY=SG.real\nQUEUE_CONNECTION=database\n"
+        ."BROADCAST_CONNECTION=reverb\nREVERB_APP_ID=1\nREVERB_APP_KEY=k\nREVERB_APP_SECRET=s\n";
 
     protected function setUp(): void
     {
@@ -131,86 +130,137 @@ class DeployScriptTest extends TestCase
         $this->assertMatchesRegularExpression('/if \[\[ \$SEED == true \]\]; then\s+step "Seeding/', $executable, 'and only behind --seed');
     }
 
-    /** Workers and Reverb are only ever (re)started inside the production branch of deploy(). */
-    public function test_workers_are_only_restarted_in_production(): void
+    /** Workers and Reverb are (re)started in one place only, restart_background(). */
+    public function test_workers_are_restarted_in_one_place_only(): void
     {
-        $code = file_get_contents(base_path('deploy/deploy.sh'));
-        $productionBlock = Str::between($code, 'if [[ $MODE == production ]]; then'."\n".'        step "Restarting queue workers', 'if [[ $MAINTENANCE_ON == true ]]; then');
+        $code = (string) preg_replace('/^\s*#.*$/m', '', (string) file_get_contents(base_path('deploy/deploy.sh')));
+        $block = Str::between($code, 'restart_background() {', "\n}\n");
 
-        $this->assertStringContainsString('supervisorctl restart', $productionBlock);
-        $this->assertSame(substr_count($code, 'supervisorctl restart'), substr_count($productionBlock, 'supervisorctl restart'));
+        $this->assertSame(substr_count($code, 'supervisorctl restart'), substr_count($block, 'supervisorctl restart'));
         $this->assertStringNotContainsString('supervisorctl start', $code);
-        $this->assertSame(1, substr_count($code, 'queue:restart'));
-        $this->assertStringContainsString('queue:restart', $productionBlock);
+        $this->assertSame(1, substr_count($code, 'artisan queue:restart'));
+        $this->assertStringContainsString('artisan queue:restart', $block);
+    }
+
+    /**
+     * Shims for sudo, supervisorctl and artisan. $programs maps a supervisor
+     * program to the state it reports after a restart; absent means "not
+     * configured on this server". Every restart is appended to calls.log.
+     *
+     * @param  array<string, string>  $programs
+     */
+    private function fakeSupervisor(array $programs): void
+    {
+        $status = '';
+        foreach ($programs as $name => $state) {
+            $status .= sprintf('[[ "$*" == *"%1$s"* ]] && echo "%1$s:%1$s_00 %2$s pid 1";'."\n", $name, $state);
+        }
+
+        $this->shim('sudo', '[[ $1 == -n ]] && shift; exec "$@"');
+        $this->shim('supervisorctl', 'echo "$*" >> '.$this->tmp.'/calls.log'."\n".'if [[ $1 == status ]]; then'."\n".$status.'exit 0; fi');
+        $this->shim('fakephp', 'echo "$*" >> '.$this->tmp.'/calls.log');
+        $this->shim('sleep', 'exit 0');
+    }
+
+    private function calls(): string
+    {
+        return is_file($this->tmp.'/calls.log') ? (string) file_get_contents($this->tmp.'/calls.log') : '';
+    }
+
+    public function test_workers_and_reverb_are_restarted_and_verified_when_configured(): void
+    {
+        $this->fakeSupervisor(['leasyback-worker' => 'RUNNING', 'leasyback-reverb' => 'RUNNING']);
+
+        [$out, $rc] = $this->sh('PHP=fakephp; restart_background');
+
+        $this->assertSame(0, $rc, $out);
+        $this->assertStringContainsString('artisan queue:restart', $this->calls());
+        $this->assertStringContainsString('restart leasyback-worker:*', $this->calls());
+        $this->assertStringContainsString('restart leasyback-reverb', $this->calls());
+    }
+
+    public function test_a_server_without_workers_or_reverb_skips_them(): void
+    {
+        $this->fakeSupervisor([]);
+
+        [$out, $rc] = $this->sh('PHP=fakephp; restart_background');
+
+        $this->assertSame(0, $rc, $out);
+        $this->assertStringContainsString('not configured on this server', $out);
+        $this->assertStringNotContainsString('restart leasyback', $this->calls());
+        $this->assertStringContainsString('artisan queue:restart', $this->calls(), 'the harmless signal is still sent');
+    }
+
+    public function test_a_worker_that_does_not_come_back_fails_the_deploy(): void
+    {
+        $this->fakeSupervisor(['leasyback-worker' => 'FATAL']);
+
+        [$out, $rc] = $this->sh('PHP=fakephp; ( restart_background ); echo "rc=$?"');
+
+        $this->assertStringContainsString('not running after restart', $out);
+        $this->assertStringEndsWith('rc=1', $out);
     }
 
     // ------------------------------------------------------------- arguments
 
-    public function test_arguments_require_exactly_one_mode_and_are_validated(): void
+    public function test_arguments_are_validated_without_any_mode(): void
     {
         $rc = fn (string $args) => $this->sh("( parse_args $args ) >/dev/null 2>&1; echo rc=\$?")[0];
 
-        $this->assertSame('rc=64', $rc(''), 'no mode');
-        $this->assertSame('rc=64', $rc('--yes'), 'still no mode');
-        $this->assertSame('rc=64', $rc('--rehearsal --production'), 'both modes');
-        $this->assertSame('rc=64', $rc('--rehearsal --seed'), 'no seeding in rehearsal');
-        $this->assertSame('rc=64', $rc('--production --rollback --branch=main'), 'rollback takes no branch');
-        $this->assertSame('rc=64', $rc('--rehearsal --branch'), 'branch without a name');
-        $this->assertSame('rc=64', $rc('--rehearsal --branch='), 'empty branch');
-        $this->assertSame('rc=64', $rc('--rehearsal --bogus'));
-        $this->assertSame('rc=0', $rc('--rehearsal --yes'));
-        $this->assertSame('rc=0', $rc('--production --yes --seed'));
-        $this->assertSame('rc=0', $rc('--rehearsal --allow-dirty --no-build --no-migrate'));
+        $this->assertSame('rc=0', $rc(''), 'no arguments: deploy main');
+        $this->assertSame('rc=0', $rc('--yes'));
+        $this->assertSame('rc=0', $rc('--branch=feat/base44-migration --yes'));
+        $this->assertSame('rc=0', $rc('--yes --seed'));
+        $this->assertSame('rc=0', $rc('--allow-dirty --no-build --no-migrate'));
+        $this->assertSame('rc=64', $rc('--rollback --branch=main'), 'rollback takes no branch');
+        $this->assertSame('rc=64', $rc('--branch'), 'branch without a name');
+        $this->assertSame('rc=64', $rc('--branch='), 'empty branch');
+        $this->assertSame('rc=64', $rc('--bogus'));
     }
 
-    /** The old opt-in flag is no longer needed: still accepted (old command lines), ignored with a note. */
-    public function test_the_retired_branch_flag_is_accepted_and_ignored(): void
+    /** The retired mode and branch flags still run (old command lines), ignored with a note. */
+    public function test_retired_flags_are_accepted_and_ignored(): void
     {
-        [$out] = $this->sh('parse_args --production --branch=feat/x --allow-non-production-branch --yes 2>&1; echo "rc=$? $BRANCH_ARG"');
-        $this->assertStringContainsString('no longer needed', $out);
-        $this->assertSame('rc=0 feat/x', $this->sh('parse_args --production --branch=feat/x --allow-non-production-branch --yes 2>/dev/null; echo "rc=$? $BRANCH_ARG"')[0]);
-        $this->assertSame('rc=0', $this->sh('( parse_args --rehearsal --allow-non-production-branch ) >/dev/null 2>&1; echo rc=$?')[0]);
+        foreach (['--rehearsal', '--production', '--allow-non-production-branch'] as $flag) {
+            [$out] = $this->sh("parse_args $flag --branch=feat/x --yes 2>&1; echo \"rc=\$? \$BRANCH_ARG\"");
+
+            $this->assertStringContainsString('no longer needed', $out, $flag);
+            $this->assertStringEndsWith('rc=0 feat/x', $out, $flag);
+        }
     }
 
-    /**
-     * Production deploys any branch given explicitly, defaults to
-     * PRODUCTION_BRANCH, and never falls back to config.sh's BRANCH (the
-     * rehearsal default) — a bare `--production` must not pick up a feature
-     * branch from it.
-     */
-    public function test_branch_resolution_per_mode(): void
+    /** No --branch means main — never a BRANCH left in config.sh. */
+    public function test_the_branch_defaults_to_main_and_ignores_config(): void
     {
-        $branch = fn (string $args) => $this->sh("resolve_branch {$args}")[0] ?? '';
+        $config = $this->tmp.'/cfg';
+        mkdir($config);
+        file_put_contents($config.'/config.sh', "BRANCH=\"feat/left-over\"\n");
 
-        $this->assertSame('main', $branch('production "" "" main'), 'production default');
-        $this->assertSame('main', $branch('production "" "feat/base44-migration" main'), 'production ignores config BRANCH');
-        $this->assertSame('release', $branch('production "" "feat/base44-migration" release'), 'configured PRODUCTION_BRANCH');
-        $this->assertSame('feat/example', $branch('production "feat/example" "" main'), 'explicit --branch wins in production');
-        $this->assertSame('main', $branch('production "" "" ""'), 'PRODUCTION_BRANCH unset means main');
-
-        $this->assertSame('feat/base44-migration', $branch('rehearsal "" "feat/base44-migration" main'), 'rehearsal uses config BRANCH');
-        $this->assertSame('main', $branch('rehearsal "" "" main'), 'rehearsal falls back to main');
-        $this->assertSame('feat/x', $branch('rehearsal "feat/x" "feat/base44-migration" main'), 'explicit --branch wins in rehearsal');
+        $this->assertSame('main', $this->sh("load_config $config; echo \"\$BRANCH\"")[0]);
+        $this->assertSame('feat/base44-migration', $this->sh("parse_args --branch=feat/base44-migration; load_config $config; echo \"\$BRANCH\"")[0]);
     }
 
-    /** The production-only branch refusal is gone; the per-branch safety checks are not. */
-    public function test_production_no_longer_refuses_a_non_default_branch_but_keeps_its_checks(): void
+    /** The branch checks every deploy runs are still there; the mode machinery is gone. */
+    public function test_every_branch_gets_the_same_checks_and_no_modes_remain(): void
     {
         $code = (string) file_get_contents(base_path('deploy/deploy.sh'));
 
-        $this->assertStringNotContainsString('needs --allow-non-production-branch', $code);
-        $this->assertStringNotContainsString('ALLOW_OTHER_BRANCH', $code);
-        // The branch must still be valid and exist on origin, and a rewritten history still stops it.
+        foreach (['$MODE', 'PRODUCTION_BRANCH', 'chk_rehearsal', 'chk_production_env', 'stop_background_for_rehearsal'] as $gone) {
+            $this->assertStringNotContainsString($gone, $code, $gone);
+        }
         $this->assertStringContainsString('git check-ref-format --branch "$BRANCH"', $code);
         $this->assertStringContainsString('does not exist on origin', $code);
         $this->assertStringContainsString('--allow-non-fast-forward if intended', $code);
-        $this->assertStringContainsString("production is deploying '\$BRANCH', not \$PRODUCTION_BRANCH", $code);
+        $this->assertStringContainsString('chk_clean_tree "$APP_DIR"', $code);
+        $this->assertStringContainsString('database backup failed — not migrating', $code);
+        $this->assertStringContainsString('fails integrity_check after migrating', $code);
+        $this->assertStringContainsString('the application is not healthy', $code);
     }
 
     public function test_both_branch_spellings_are_accepted(): void
     {
-        $this->assertSame('rehearsal feat/base44-migration', $this->sh('parse_args --rehearsal --branch=feat/base44-migration --yes; echo "$MODE $BRANCH_ARG"')[0]);
-        $this->assertSame('production main', $this->sh('parse_args --branch main --production; echo "$MODE $BRANCH_ARG"')[0]);
+        $this->assertSame('feat/base44-migration', $this->sh('parse_args --branch=feat/base44-migration --yes; echo "$BRANCH_ARG"')[0]);
+        $this->assertSame('main', $this->sh('parse_args --branch main; echo "$BRANCH_ARG"')[0]);
     }
 
     // --------------------------------------------------------------- helpers
@@ -224,13 +274,12 @@ class DeployScriptTest extends TestCase
         }
     }
 
-    public function test_hosts_are_normalised_and_ip_addresses_recognised(): void
+    /** The health check reaches APP_URL's host through this server's nginx. */
+    public function test_hosts_are_normalised(): void
     {
         $this->assertSame('portal.leasyback.de', $this->sh('url_host https://user@Portal.LeasyBack.de:443/dashboard')[0]);
         $this->assertSame('3.120.45.67', $this->sh('url_host http://3.120.45.67')[0]);
-        $this->assertSame('ok', $this->verdict('is_ip_host 3.120.45.67'));
-        $this->assertSame('ok', $this->verdict('is_ip_host ::1'));
-        $this->assertSame('refused', $this->verdict('is_ip_host portal.leasyback.de'));
+        $this->assertSame('::1', $this->sh('url_host http://[::1]:8080/up')[0]);
     }
 
     public function test_a_shell_variable_that_shadows_env_is_refused(): void
@@ -242,114 +291,29 @@ class DeployScriptTest extends TestCase
         $this->assertSame('refused', $this->verdict("chk_no_shadowing $env", ['APP_ENV' => 'production']));
     }
 
-    // -------------------------------------------------------------- rehearsal
+    // -------------------------------------------------------------- .env basics
 
-    public function test_a_rehearsal_env_served_over_the_aws_ip_is_accepted(): void
+    /** Valid setups of either kind pass: a bare-IP copy without integrations, and production. */
+    public function test_ordinary_server_envs_pass_the_basics(): void
     {
-        $env = $this->file(self::GOOD_REHEARSAL_ENV);
-        $checks = base_path('scripts/base44-rehearsal.sh');
-
-        $this->assertSame('ok', $this->verdict("chk_rehearsal_app_env $env"));
-        $this->assertSame('ok', $this->verdict("chk_rehearsal_url $env", ['PRODUCTION_DOMAIN' => 'portal.leasyback.de']));
-        $this->assertSame('ok', $this->verdict("chk_rehearsal_integrations $checks $env"));
+        $this->assertSame('ok', $this->verdict("chk_env_basics {$this->file(self::IP_SERVER_ENV)}"));
+        $this->assertSame('ok', $this->verdict("chk_env_basics {$this->file(self::PRODUCTION_ENV)}"));
     }
 
-    public function test_rehearsal_refuses_production_settings_and_live_integrations(): void
-    {
-        $checks = base_path('scripts/base44-rehearsal.sh');
-        $cases = [
-            ['chk_rehearsal_app_env', 'APP_ENV', 'production'],
-            ['chk_rehearsal_app_env', 'APP_ENV', 'staging'],
-            ['chk_rehearsal_app_env', 'APP_ENV', ''],
-            ['chk_rehearsal_integrations', 'MAIL_MAILER', 'smtp'],
-            ['chk_rehearsal_integrations', 'MAIL_MAILER', 'sendgrid'],
-            ['chk_rehearsal_integrations', 'QUEUE_CONNECTION', 'database'],
-            ['chk_rehearsal_integrations', 'QUEUE_CONNECTION', 'sync'],
-            ['chk_rehearsal_integrations', 'BROADCAST_CONNECTION', 'reverb'],
-            ['chk_rehearsal_integrations', 'DOCUMENTS_FILESYSTEM_DRIVER', 's3'],
-            ['chk_rehearsal_integrations', 'FILESYSTEM_DISK', 's3'],
-            ['chk_rehearsal_integrations', 'STRIPE_SECRET', 'sk_live_abc'],
-            ['chk_rehearsal_integrations', 'AWS_ACCESS_KEY_ID', 'AKIAREAL'],
-            ['chk_rehearsal_integrations', 'REVERB_APP_KEY', 'realkey'],
-            ['chk_rehearsal_integrations', 'TUVSUD_API_KEY', 'real'],
-            ['chk_rehearsal_integrations', 'PARTNER_WEBHOOK_SECRET', 'real'],
-            ['chk_rehearsal_integrations', 'LEXWARE_INTEGRATION_MODE', 'live'],
-        ];
-
-        foreach ($cases as [$check, $key, $value]) {
-            $env = $this->file($this->variant(self::GOOD_REHEARSAL_ENV, $key, $value));
-            $args = $check === 'chk_rehearsal_integrations' ? "$checks $env" : $env;
-
-            $this->assertSame('refused', $this->verdict("$check $args"), "$key=$value");
-        }
-    }
-
-    public function test_another_rehearsal_app_env_must_be_approved_explicitly_and_production_never(): void
-    {
-        $staging = $this->file($this->variant(self::GOOD_REHEARSAL_ENV, 'APP_ENV', 'staging'));
-        $production = $this->file($this->variant(self::GOOD_REHEARSAL_ENV, 'APP_ENV', 'production'));
-
-        $this->assertSame('ok', $this->verdict("chk_rehearsal_app_env $staging", ['REHEARSAL_ALLOWED_APP_ENVS' => 'staging,rehearsal']));
-        $this->assertSame('refused', $this->verdict("chk_rehearsal_app_env $production", ['REHEARSAL_ALLOWED_APP_ENVS' => 'production']));
-    }
-
-    public function test_rehearsal_refuses_the_production_domain(): void
-    {
-        $env = $this->file($this->variant(self::GOOD_REHEARSAL_ENV, 'APP_URL', 'https://Portal.leasyback.de'));
-
-        $this->assertSame('refused', $this->verdict("chk_rehearsal_url $env", ['PRODUCTION_DOMAIN' => 'portal.leasyback.de']));
-    }
-
-    public function test_rehearsal_checks_are_refused_when_the_target_commit_has_none(): void
-    {
-        $env = $this->file(self::GOOD_REHEARSAL_ENV);
-
-        $this->assertSame('refused', $this->verdict("chk_rehearsal_integrations {$this->tmp}/missing.sh $env"));
-        $this->assertSame('refused', $this->verdict("chk_rehearsal_integrations {$this->file('', 'empty.sh')} $env"));
-    }
-
-    // ------------------------------------------------------------- production
-
-    public function test_a_complete_production_env_is_accepted(): void
-    {
-        $this->assertSame('ok', $this->verdict("chk_production_env {$this->file(self::GOOD_PRODUCTION_ENV)}", ['PRODUCTION_DOMAIN' => 'portal.leasyback.de']));
-    }
-
-    public function test_production_refuses_missing_or_unsafe_configuration(): void
+    public function test_the_basics_refuse_what_no_server_should_run_with(): void
     {
         $cases = [
-            ['APP_ENV', 'local'],
-            ['APP_DEBUG', 'true'],
-            ['APP_KEY', ''],
-            ['APP_URL', 'http://portal.leasyback.de'],
-            ['APP_URL', 'https://3.120.45.67'],
-            ['APP_URL', 'https://localhost'],
-            ['APP_URL', 'https://staging.leasyback.de'],
-            ['MAIL_MAILER', 'log'],
-            ['MAIL_MAILER', 'array'],
-            ['SENDGRID_API_KEY', ''],
-            ['MAIL_FROM_ADDRESS', ''],
-            ['QUEUE_CONNECTION', 'null'],
-            ['QUEUE_CONNECTION', 'sync'],
-            ['DOCUMENTS_FILESYSTEM_DRIVER', ''],
-            ['AWS_BUCKET', ''],
-            ['REVERB_APP_SECRET', ''],
-            ['DEKRA_PASSWORD', 'CHANGE_ME'],
+            [self::PRODUCTION_ENV, 'APP_KEY', ''],
+            [self::IP_SERVER_ENV, 'APP_KEY', ''],
+            [self::PRODUCTION_ENV, 'APP_DEBUG', 'true'],
+            [self::PRODUCTION_ENV, 'APP_DEBUG', 'TRUE'],
+            [self::PRODUCTION_ENV, 'DEKRA_PASSWORD', 'CHANGE_ME'],
+            [self::IP_SERVER_ENV, 'MAIL_PASSWORD', '"CHANGE_ME"'],
         ];
 
-        foreach ($cases as [$key, $value]) {
-            $env = $this->file($this->variant(self::GOOD_PRODUCTION_ENV, $key, $value));
-
-            $this->assertSame('refused', $this->verdict("chk_production_env $env", ['PRODUCTION_DOMAIN' => 'portal.leasyback.de']), "$key=$value");
+        foreach ($cases as [$base, $key, $value]) {
+            $this->assertSame('refused', $this->verdict("chk_env_basics {$this->file($this->variant($base, $key, $value))}"), "$key=$value");
         }
-    }
-
-    public function test_the_existing_domain_setting_is_the_production_domain_by_default(): void
-    {
-        $env = $this->file(self::GOOD_PRODUCTION_ENV);
-
-        $this->assertSame('ok', $this->verdict("chk_production_env $env", ['DOMAIN' => 'portal.leasyback.de']));
-        $this->assertSame('refused', $this->verdict("chk_production_env $env", ['DOMAIN' => 'leasyback.insuretechgurus.com']));
     }
 
     // ------------------------------------------------------------------ PHP-FPM
@@ -390,15 +354,6 @@ class DeployScriptTest extends TestCase
 
         file_put_contents($repo.'/tracked', 'changed');
         $this->assertSame('refused', $this->verdict("chk_clean_tree $repo"));
-    }
-
-    public function test_a_scheduler_cron_for_the_app_is_found_and_comments_are_ignored(): void
-    {
-        $this->shim('crontab', 'printf "# * * * * * cd /var/www/LeasyBack && php artisan schedule:run\n* * * * * cd /var/www/Other && php artisan schedule:run\n"');
-        $this->assertSame('', $this->sh('scheduler_cron_entries /var/www/LeasyBack')[0]);
-
-        $this->shim('crontab', 'printf "* * * * * cd /var/www/LeasyBack && /usr/bin/php8.4 artisan schedule:run >> log 2>&1\n"');
-        $this->assertStringContainsString('schedule:run', $this->sh('scheduler_cron_entries /var/www/LeasyBack')[0]);
     }
 
     // ------------------------------------------------------------------ SQLite
