@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { orderPlacedAt } from '@/lib/orderDates';
 /**
  * One order, in full, addressed by its own id.
  *
@@ -13,10 +14,10 @@ import BackButton from '@/components/BackButton.vue';
 import PaymentCheckoutPanel from '@/components/payment/PaymentCheckoutPanel.vue';
 import OrderMessages from '@/components/shared/OrderMessages.vue';
 import { AppModal } from '@/components/ui/modal';
+import AppraisalOrderDetails from '@/components/vehicle/AppraisalOrderDetails.vue';
 import OfferComparison from '@/components/vehicle/OfferComparison.vue';
 import OrderHistoryList from '@/components/vehicle/OrderHistoryList.vue';
 import OrderProgress from '@/components/vehicle/OrderProgress.vue';
-import AppraisalOrderDetails from '@/components/vehicle/AppraisalOrderDetails.vue';
 import { useLiveUpdates } from '@/composables/useLiveUpdates';
 import AppLayout from '@/layouts/AppLayout.vue';
 import {
@@ -33,8 +34,8 @@ import { ORDER_OUTCOME_LABELS } from '@/lib/orderHistory';
 import { formatPortalDate, formatPortalDateTime } from '@/lib/portalDate';
 import { serviceTitle } from '@/lib/services';
 import { getOrderStatusLabel, getVehicleStatusDisplay } from '@/lib/vehicleStatus';
-import { formatCard, formatEuro } from '@/types/payment';
 import type { OrderAttachmentData } from '@/types/order';
+import { formatCard, formatEuro } from '@/types/payment';
 import type { OrderDetailVehicle, OrderHistoryEntry, VehicleOrderData } from '@/types/vehicle';
 import { Head, Link, router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
@@ -118,7 +119,7 @@ const accidentRows = computed(() => {
 });
 
 const attachments = computed<OrderAttachmentData[]>(
-    () => ((props.order as VehicleOrderData & { attachments?: OrderAttachmentData[] }).attachments ?? []),
+    () => (props.order as VehicleOrderData & { attachments?: OrderAttachmentData[] }).attachments ?? [],
 );
 
 const customerFiles = computed(() => attachments.value.filter((file) => file.kind === 'customer_upload'));
@@ -301,7 +302,8 @@ const orderFacts = computed(() => [
     { label: 'Status', value: getOrderStatusLabel(props.order.order_status) },
     { label: 'Partner', value: props.order.leasyback_partner || '—' },
     { label: 'Angelegt am', value: formatPortalDateTime(props.order.created_at) || '—' },
-    { label: 'Übermittelt am', value: formatPortalDateTime(props.order.sent_at) || '—' },
+    // Placing the order is LeasyBack's step; a request stays "—" until then.
+    { label: 'Auftrag erteilt am', value: formatPortalDateTime(orderPlacedAt(props.order.sent_at, props.order.status_updates)) || '—' },
 ]);
 
 /**

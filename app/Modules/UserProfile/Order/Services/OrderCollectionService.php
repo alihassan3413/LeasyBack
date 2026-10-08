@@ -506,7 +506,9 @@ class OrderCollectionService
         $ip = request()?->ip();
 
         if ($order->order_status === 'order_requested') {
-            $order = $this->transitionOrderStatus->__invoke($order, 'order_placed', 'admin', $label, $user->id, $ip);
+            // Placing the order is this implicit approval: `sent_at` records it,
+            // as OrderService::approveB2bCollectionOrder() does.
+            $order = $this->transitionOrderStatus->__invoke($order, 'order_placed', 'admin', $label, $user->id, $ip, additionalAttributes: ['sent_at' => now()]);
 
             OrderAuditLog::create([
                 'order_id' => $order->id,

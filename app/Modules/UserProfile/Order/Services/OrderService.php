@@ -883,6 +883,11 @@ class OrderService
      */
     private function approveB2bCollectionOrder(LeasybackOrder $order, User $user, ?string $callerIp): LeasybackOrder
     {
+        // `sent_at` is when an order became order_placed — on B2C when TÜV SÜD
+        // accepted it or a direct booking was saved; on B2B it is this
+        // approval, as there is no provider to send it to. Written with the
+        // transition, never at request time: an order_requested order has not
+        // been placed. (Partner API: `placed_at`.)
         $order = $this->transitionOrderStatus->__invoke(
             $order,
             'order_placed',
@@ -890,6 +895,7 @@ class OrderService
             $user->name ?? $user->email,
             $user->id,
             $callerIp,
+            additionalAttributes: ['sent_at' => now()],
         );
 
         $this->auditOrder($order, 'APPROVE_ORDER', ['order_status' => 'order_requested'], ['order_status' => 'order_placed'], $user->id);

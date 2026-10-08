@@ -23,16 +23,17 @@ import AdminLayout from '@/layouts/AdminLayout.vue';
 import { getAdminDashboardStatus as getStatus } from '@/lib/adminStatus';
 import {
     ACCIDENT_ARRANGEMENT_LABELS,
+    appraisalDetailRows,
     formatRelocationAddress,
     getCustomerOrderFlowSteps,
     getCustomerOrderHeadline,
-    appraisalDetailRows,
+    type AccidentDamageDetails,
     type AppraisalDetails,
     type AppraisalVehicle,
-    type AccidentDamageDetails,
     type RelocationContact,
     type RelocationDetails,
 } from '@/lib/customerOrderFlow';
+import { orderPlacedAt } from '@/lib/orderDates';
 import { formatPortalDate, formatPortalDateTimeShort } from '@/lib/portalDate';
 import { serviceTitle } from '@/lib/services';
 import { toOrderTimelineEntries } from '@/lib/timeline';
@@ -157,9 +158,7 @@ const appraisalRequest = computed(() =>
 
 /** The customer's wish from the booking — what the appointment card offers to adopt. */
 const relocationRequest = computed(() =>
-    relocation.value
-        ? { requested_date: relocation.value.preferred_date ?? null, requested_time_slot: relocation.value.time_slot ?? null }
-        : null,
+    relocation.value ? { requested_date: relocation.value.preferred_date ?? null, requested_time_slot: relocation.value.time_slot ?? null } : null,
 );
 
 /** Saved once the relocation is scheduled; saving it completes the order. */
@@ -378,8 +377,17 @@ const specs = computed(() => [
     { label: 'Kennzeichen', value: props.order.license_plate, mono: true },
     { label: 'FIN', value: props.order.vin || '—', mono: true },
     { label: 'Partner', value: props.order.leasyback_partner },
-    { label: 'Gesendet am', value: formatDate(props.order.sent_at) },
-    { label: 'Bestätigt am', value: formatDate(props.order.confirmation_date) },
+    // "Anfrage gesendet" is the customer's request (Angelegt am); placing it is
+    // LeasyBack's step, so a requested order shows "—" here until approved.
+    { label: 'Auftrag erteilt am', value: formatDate(orderPlacedAt(props.order.sent_at, props.order.status_updates)) },
+    // The confirmed appointment: B2C's confirmation_date (TÜV SÜD / provider
+    // callback), B2B's confirmed collection date — "—" until one exists.
+    {
+        label: 'Bestätigter Termin',
+        value: formatDate(
+            props.order.vehicle_belongs === 'B2B' ? (props.order.collection?.confirmed_collection_date ?? null) : props.order.confirmation_date,
+        ),
+    },
     { label: 'Angelegt am', value: formatDate(props.order.created_at) },
 ]);
 
@@ -620,8 +628,8 @@ function formatDateTime(value: string | null): string {
                         <div class="mb-4">
                             <h2 class="text-[17px] font-extrabold tracking-[-0.3px] text-[#10393b]">Gutachten</h2>
                             <p class="mt-0.5 text-[12px] font-medium text-[#9bb0af]">
-                                {{ appraisalVehicles.length }} {{ appraisalVehicles.length === 1 ? 'Fahrzeug' : 'Fahrzeuge' }} · Angaben aus der Buchung des
-                                Kunden
+                                {{ appraisalVehicles.length }} {{ appraisalVehicles.length === 1 ? 'Fahrzeug' : 'Fahrzeuge' }} · Angaben aus der
+                                Buchung des Kunden
                             </p>
                         </div>
 
