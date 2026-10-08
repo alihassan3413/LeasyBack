@@ -3,6 +3,9 @@ import { expect, loginAs, submitLogin, test, USERS } from './fixtures';
 
 const OFFER_PLATE = 'B-EA 1098';
 
+/** The footer button under the offer list (desktop panel). */
+const acceptButton = (page: Page) => page.getByRole('button', { name: 'Angebot annehmen', exact: true }).filter({ visible: true });
+
 /** The fleet row of the vehicle with the published offer, expanded in place (a click on the row). */
 async function openOfferRow(page: Page) {
     await page.goto('/fahrzeuge');
@@ -22,6 +25,8 @@ test.describe('a published repair offer', () => {
         await expect(page.getByText('E2E Karosserie GmbH').filter({ visible: true }).first()).toBeVisible();
         await expect(page.getByRole('button', { name: 'Reparatur freigeben' }).filter({ visible: true })).toHaveCount(0);
         await expect(page.getByRole('button', { name: 'Angebot ablehnen' }).filter({ visible: true })).toHaveCount(0);
+        // Without the right to decide, the footer button is there but genuinely disabled.
+        await expect(acceptButton(page)).toBeDisabled();
     });
 
     test('the Company Administrator rejects it with a comment', async ({ page }) => {
@@ -48,6 +53,9 @@ test.describe('a published repair offer', () => {
         const choice = page.getByTitle('Abgelehnt', { exact: true }).filter({ visible: true });
         await expect(choice).toHaveCount(1);
         await expect(choice).toBeDisabled();
+        // Nothing left to accept: the footer button is disabled too, not merely grey.
+        await expect(acceptButton(page)).toBeDisabled();
+        await expect(acceptButton(page)).toHaveAttribute('title', 'Kein annehmbares Angebot vorhanden');
         await expect(page.getByRole('button', { name: 'Reparatur freigeben' }).filter({ visible: true })).toHaveCount(0);
     });
 
@@ -75,12 +83,27 @@ test.describe('a published repair offer', () => {
         expect((await published).status()).toBeLessThan(400);
     });
 
-    test('the customer sees the replacement as the live offer, the rejected one still marked', async ({ page }) => {
+    test('the customer sees the replacement as the live offer and accepts it from the footer button', async ({ page }) => {
         await loginAs(page, USERS.owner);
         await openOfferRow(page);
 
         await expect(page.getByRole('button', { name: 'Reparatur freigeben' }).filter({ visible: true }).first()).toBeEnabled();
         await expect(page.getByTitle('Abgelehnt', { exact: true }).filter({ visible: true })).toBeDisabled();
         await expect(page.getByTitle('Angebot auswählen', { exact: true }).filter({ visible: true })).toBeEnabled();
+
+        // The footer button accepts the live replacement through the same confirm flow.
+        await expect(acceptButton(page)).toBeEnabled();
+        await acceptButton(page).click();
+
+        // The row's own confirm step, not a separate shortcut.
+        await expect(page.getByRole('heading', { name: 'Angebot auswählen' })).toBeVisible();
+
+        const selected = page.waitForResponse((response) => response.request().method() === 'POST' && /\/offers\/[^/]+\/select/.test(response.url()));
+        await page.getByRole('button', { name: 'Bestätigen', exact: true }).filter({ visible: true }).click();
+        expect((await selected).status()).toBeLessThan(400);
+
+        // The replacement was accepted, not the rejected offer before it.
+        await expect(page.getByText('Angenommenes Angebot: 02 Angebot 2').filter({ visible: true }).first()).toBeVisible();
+        await expect(acceptButton(page)).toBeDisabled();
     });
 });

@@ -696,32 +696,37 @@ function offerStatusPill(status: string): string {
 }
 
 /**
- * The one offer an admin may accept from the footer button. Only unambiguous
- * when exactly one offer is published — with several, the admin picks a
- * specific one from its row instead.
+ * The one offer the footer button accepts — for an admin on the customer's
+ * behalf, for a customer allowed to decide. Only unambiguous when exactly one
+ * offer is still acceptable (isAcceptable(), so never a rejected or expired
+ * one); with several, the offer is picked from its own row instead.
  */
-const acceptableOnBehalf = computed(() => {
-    if (!props.admin || acceptedOffer.value) {
+const soleAcceptableOffer = computed(() => {
+    if (acceptedOffer.value || (!props.admin && !canDecideOffer.value)) {
         return null;
     }
 
-    const published = offersData.value.filter((offer) => offer.status === 'published');
+    const acceptable = offersData.value.filter((offer) => isAcceptable(offer));
 
-    return published.length === 1 ? published[0] : null;
+    return acceptable.length === 1 ? acceptable[0] : null;
 });
 
-const onBehalfHint = computed(() => {
+const acceptHint = computed(() => {
     if (acceptedOffer.value) {
         return 'Für diesen Auftrag wurde bereits ein Angebot angenommen';
     }
 
-    if (acceptableOnBehalf.value) {
-        return 'Das veröffentlichte Angebot im Auftrag des Kunden annehmen';
+    if (!props.admin && !canDecideOffer.value) {
+        return 'Sie sind nicht berechtigt, Angebote anzunehmen';
     }
 
-    return offersData.value.some((offer) => offer.status === 'published')
-        ? 'Mehrere Angebote veröffentlicht — bitte oben eines auswählen'
-        : 'Kein veröffentlichtes Angebot vorhanden';
+    if (soleAcceptableOffer.value) {
+        return props.admin ? 'Das veröffentlichte Angebot im Auftrag des Kunden annehmen' : 'Dieses Angebot annehmen';
+    }
+
+    return offersData.value.some((offer) => isAcceptable(offer))
+        ? 'Mehrere Angebote verfügbar — bitte oben eines auswählen'
+        : 'Kein annehmbares Angebot vorhanden';
 });
 
 /** Admin-side offer actions — the endpoints AdminOffersCard uses, same policy. */
@@ -1403,18 +1408,23 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                             v-if="admin"
                             type="button"
                             class="w-full rounded-[50px] py-4 text-[12px] font-semibold tracking-wide uppercase transition-all disabled:cursor-not-allowed"
-                            :style="acceptableOnBehalf ? 'background: #01B990; color: #ffffff' : 'background: #e0e0e0; color: #9e9e9e'"
-                            :disabled="!acceptableOnBehalf"
-                            :title="onBehalfHint"
-                            @click.stop="acceptableOnBehalf && requestSelect(acceptableOnBehalf.offerId)"
+                            :style="soleAcceptableOffer ? 'background: #01B990; color: #ffffff' : 'background: #e0e0e0; color: #9e9e9e'"
+                            :disabled="!soleAcceptableOffer"
+                            :title="acceptHint"
+                            @click.stop="soleAcceptableOffer && requestSelect(soleAcceptableOffer.offerId)"
                         >
                             Im Auftrag des Kunden annehmen
                         </button>
 
+                        <!-- Same confirm flow as choosing the offer in its row; never a rejected one. -->
                         <button
                             v-else
-                            class="w-full rounded-[50px] py-4 text-[12px] font-semibold tracking-wide uppercase"
-                            style="background: #e0e0e0; color: #9e9e9e"
+                            type="button"
+                            class="w-full rounded-[50px] py-4 text-[12px] font-semibold tracking-wide uppercase disabled:cursor-not-allowed"
+                            :style="soleAcceptableOffer ? 'background: #01B990; color: #ffffff' : 'background: #e0e0e0; color: #9e9e9e'"
+                            :disabled="!soleAcceptableOffer"
+                            :title="acceptHint"
+                            @click.stop="soleAcceptableOffer && requestSelect(soleAcceptableOffer.offerId)"
                         >
                             Angebot annehmen
                         </button>
@@ -1924,10 +1934,10 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                     <button
                         type="button"
                         class="w-full rounded-[50px] py-3 text-[12px] font-semibold tracking-wide uppercase disabled:cursor-not-allowed"
-                        :style="acceptableOnBehalf ? 'background: #01B990; color: #ffffff' : 'background: #e0e0e0; color: #9e9e9e'"
-                        :disabled="!acceptableOnBehalf"
-                        :title="onBehalfHint"
-                        @click.stop="acceptableOnBehalf && requestSelect(acceptableOnBehalf.offerId)"
+                        :style="soleAcceptableOffer ? 'background: #01B990; color: #ffffff' : 'background: #e0e0e0; color: #9e9e9e'"
+                        :disabled="!soleAcceptableOffer"
+                        :title="acceptHint"
+                        @click.stop="soleAcceptableOffer && requestSelect(soleAcceptableOffer.offerId)"
                     >
                         Im Auftrag des Kunden annehmen
                     </button>
