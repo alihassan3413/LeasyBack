@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Models\VehicleReportDocument;
 use App\Modules\UserProfile\Admin\Services\AppraisalDocumentPullService;
 use App\Modules\UserProfile\Admin\Services\VehicleReportService;
+use App\Support\UploadFailure;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -54,6 +55,11 @@ class VehicleReportController extends Controller
             // photos, which is also what every upload field accepts. `mimes`
             // checks the file's detected content, not only its extension.
             'file' => 'required|file|mimes:pdf,jpg,jpeg,png|max:51200',
+        ], [
+            // PHP refused the file before Laravel saw it — say why.
+            'file.uploaded' => UploadFailure::message($request->file('file')),
+            'file.max' => 'Die Datei darf höchstens 50 MB groß sein.',
+            'file.mimes' => 'Erlaubt sind PDF, JPG und PNG.',
         ]);
 
         return $this->withServiceErrorHandling('report', function () use ($request, $vehicleId, $validated) {
