@@ -6,6 +6,7 @@
 # --- Application ---------------------------------------------------------
 APP_DIR="/var/www/LeasyBack"
 REPO_URL="https://github.com/alihassan3413/LeasyBack.git"
+# Default branch for --rehearsal. --production never reads it (see PRODUCTION_BRANCH).
 BRANCH="main"
 
 # Domain that serves this Laravel app (backend + Inertia admin panel).
@@ -54,7 +55,8 @@ PHP_POST_MAX="56M"
 PHP_MEMORY_LIMIT="512M"
 
 # --- Deploy modes (deploy.sh --rehearsal | --production) -----------------
-# Branch --production deploys. Anything else needs --allow-non-production-branch.
+# Branch --production deploys when no --branch is given. `--production
+# --branch=NAME` deploys NAME instead (it must exist on origin).
 PRODUCTION_BRANCH="main"
 
 # The final production host. --production requires APP_URL to use it (falls

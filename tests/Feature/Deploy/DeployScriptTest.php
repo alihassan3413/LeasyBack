@@ -154,7 +154,6 @@ class DeployScriptTest extends TestCase
         $this->assertSame('rc=64', $rc('--yes'), 'still no mode');
         $this->assertSame('rc=64', $rc('--rehearsal --production'), 'both modes');
         $this->assertSame('rc=64', $rc('--rehearsal --seed'), 'no seeding in rehearsal');
-        $this->assertSame('rc=64', $rc('--rehearsal --allow-non-production-branch'));
         $this->assertSame('rc=64', $rc('--production --rollback --branch=main'), 'rollback takes no branch');
         $this->assertSame('rc=64', $rc('--rehearsal --branch'), 'branch without a name');
         $this->assertSame('rc=64', $rc('--rehearsal --branch='), 'empty branch');
@@ -162,6 +161,50 @@ class DeployScriptTest extends TestCase
         $this->assertSame('rc=0', $rc('--rehearsal --yes'));
         $this->assertSame('rc=0', $rc('--production --yes --seed'));
         $this->assertSame('rc=0', $rc('--rehearsal --allow-dirty --no-build --no-migrate'));
+    }
+
+    /** The old opt-in flag is no longer needed: still accepted (old command lines), ignored with a note. */
+    public function test_the_retired_branch_flag_is_accepted_and_ignored(): void
+    {
+        [$out] = $this->sh('parse_args --production --branch=feat/x --allow-non-production-branch --yes 2>&1; echo "rc=$? $BRANCH_ARG"');
+        $this->assertStringContainsString('no longer needed', $out);
+        $this->assertSame('rc=0 feat/x', $this->sh('parse_args --production --branch=feat/x --allow-non-production-branch --yes 2>/dev/null; echo "rc=$? $BRANCH_ARG"')[0]);
+        $this->assertSame('rc=0', $this->sh('( parse_args --rehearsal --allow-non-production-branch ) >/dev/null 2>&1; echo rc=$?')[0]);
+    }
+
+    /**
+     * Production deploys any branch given explicitly, defaults to
+     * PRODUCTION_BRANCH, and never falls back to config.sh's BRANCH (the
+     * rehearsal default) — a bare `--production` must not pick up a feature
+     * branch from it.
+     */
+    public function test_branch_resolution_per_mode(): void
+    {
+        $branch = fn (string $args) => $this->sh("resolve_branch {$args}")[0] ?? '';
+
+        $this->assertSame('main', $branch('production "" "" main'), 'production default');
+        $this->assertSame('main', $branch('production "" "feat/base44-migration" main'), 'production ignores config BRANCH');
+        $this->assertSame('release', $branch('production "" "feat/base44-migration" release'), 'configured PRODUCTION_BRANCH');
+        $this->assertSame('feat/example', $branch('production "feat/example" "" main'), 'explicit --branch wins in production');
+        $this->assertSame('main', $branch('production "" "" ""'), 'PRODUCTION_BRANCH unset means main');
+
+        $this->assertSame('feat/base44-migration', $branch('rehearsal "" "feat/base44-migration" main'), 'rehearsal uses config BRANCH');
+        $this->assertSame('main', $branch('rehearsal "" "" main'), 'rehearsal falls back to main');
+        $this->assertSame('feat/x', $branch('rehearsal "feat/x" "feat/base44-migration" main'), 'explicit --branch wins in rehearsal');
+    }
+
+    /** The production-only branch refusal is gone; the per-branch safety checks are not. */
+    public function test_production_no_longer_refuses_a_non_default_branch_but_keeps_its_checks(): void
+    {
+        $code = (string) file_get_contents(base_path('deploy/deploy.sh'));
+
+        $this->assertStringNotContainsString('needs --allow-non-production-branch', $code);
+        $this->assertStringNotContainsString('ALLOW_OTHER_BRANCH', $code);
+        // The branch must still be valid and exist on origin, and a rewritten history still stops it.
+        $this->assertStringContainsString('git check-ref-format --branch "$BRANCH"', $code);
+        $this->assertStringContainsString('does not exist on origin', $code);
+        $this->assertStringContainsString('--allow-non-fast-forward if intended', $code);
+        $this->assertStringContainsString("production is deploying '\$BRANCH', not \$PRODUCTION_BRANCH", $code);
     }
 
     public function test_both_branch_spellings_are_accepted(): void

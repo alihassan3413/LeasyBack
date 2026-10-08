@@ -16,9 +16,10 @@
 #
 # Options:
 #   --branch NAME | --branch=NAME
-#                   branch to deploy (default: BRANCH from config.sh, else main;
-#                   production refuses anything but PRODUCTION_BRANCH unless
-#                   --allow-non-production-branch)
+#                   branch to deploy. Any branch that exists on origin, in
+#                   either mode. Default: production deploys PRODUCTION_BRANCH
+#                   (config.sh, else main) and never config.sh's BRANCH;
+#                   rehearsal deploys BRANCH from config.sh, else main.
 #   --no-build      skip `npm ci && npm run build`
 #   --no-migrate    skip database migrations
 #   --rollback      redeploy the commit that was live before the last deploy
@@ -26,8 +27,6 @@
 #   --allow-dirty   discard local modifications to tracked files instead of failing
 #   --allow-non-fast-forward
 #                   accept a branch whose history was rewritten (force-pushed)
-#   --allow-non-production-branch
-#                   production only: deploy a branch other than PRODUCTION_BRANCH
 #   --yes           don't ask for confirmation
 #
 # Never seeds unless asked, never runs legacy:import (the Base44 migration is a
@@ -44,7 +43,7 @@ readonly PROTECTED_EXPORT_DIR="/secure/base44-export"
 
 # ---- state -------------------------------------------------------------------
 MODE="" BRANCH_ARG="" SEED=false ROLLBACK=false ASSUME_YES=false ALLOW_DIRTY=false
-ALLOW_NON_FF=false ALLOW_OTHER_BRANCH=false DO_BUILD="" DO_MIGRATE=""
+ALLOW_NON_FF=false DO_BUILD="" DO_MIGRATE=""
 PHP="" PHP_FPM_VERSION="" TARGET_COMMIT="" CURRENT_COMMIT="" LOG_FILE="" LOGGER_PID=""
 MAINTENANCE_ON=false SQLITE_FILE="" BACKUP_FILE="" BUILD_RESULT="skipped" MIGRATION_RESULT="skipped"
 
@@ -99,6 +98,23 @@ is_inside() {
     [[ -n $p && ( $c == "$p" || $c == "$p"/* ) ]]
 }
 
+# resolve_branch MODE BRANCH_ARG CONFIG_BRANCH PRODUCTION_BRANCH -> branch to deploy
+#
+# An explicit --branch always wins, in either mode. Without one, production
+# deploys PRODUCTION_BRANCH and deliberately ignores config.sh's BRANCH: that
+# setting is the rehearsal default, and a bare `--production` must never pick
+# up a feature branch from it.
+resolve_branch() {
+    local mode=$1 branch_arg=$2 config_branch=$3 production_branch=${4:-main}
+    if [[ -n $branch_arg ]]; then
+        printf '%s' "$branch_arg"
+    elif [[ $mode == production ]]; then
+        printf '%s' "$production_branch"
+    else
+        printf '%s' "${config_branch:-$production_branch}"
+    fi
+}
+
 parse_args() {
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -112,7 +128,8 @@ parse_args() {
             --rollback)   ROLLBACK=true ;;
             --allow-dirty) ALLOW_DIRTY=true ;;
             --allow-non-fast-forward) ALLOW_NON_FF=true ;;
-            --allow-non-production-branch) ALLOW_OTHER_BRANCH=true ;;
+            # No longer needed (--branch is enough); accepted so an old command line still runs.
+            --allow-non-production-branch) echo "note: --allow-non-production-branch is no longer needed and is ignored" >&2 ;;
             --yes|-y)     ASSUME_YES=true ;;
             *) echo "unknown option: $1" >&2; return 64 ;;
         esac
@@ -120,7 +137,6 @@ parse_args() {
     done
     [[ -n $MODE ]] || { echo "a mode is required: --rehearsal or --production" >&2; return 64; }
     if [[ $MODE == rehearsal && $SEED == true ]]; then echo "--seed is not allowed in rehearsal mode" >&2; return 64; fi
-    if [[ $MODE == rehearsal && $ALLOW_OTHER_BRANCH == true ]]; then echo "--allow-non-production-branch only belongs to --production" >&2; return 64; fi
     if [[ $ROLLBACK == true && -n $BRANCH_ARG ]]; then echo "--rollback redeploys the previous commit; it does not take --branch" >&2; return 64; fi
     return 0
 }
@@ -294,7 +310,7 @@ load_config() {
     fi
     APP_DIR=${APP_DIR:-$(cd "$script_dir/.." && pwd -P)}
     PRODUCTION_BRANCH=${PRODUCTION_BRANCH:-main}
-    BRANCH=${BRANCH_ARG:-${BRANCH:-$PRODUCTION_BRANCH}}
+    BRANCH=$(resolve_branch "$MODE" "$BRANCH_ARG" "${BRANCH:-}" "$PRODUCTION_BRANCH")
     DO_BUILD=${DO_BUILD:-${BUILD_ASSETS:-true}}
     DO_MIGRATE=${DO_MIGRATE:-${RUN_MIGRATIONS:-true}}
     WEB_GROUP=${WEB_GROUP:-www-data}
@@ -381,10 +397,8 @@ preflight() {
         BRANCH=$(git rev-parse --abbrev-ref HEAD)
         info "rolling back $BRANCH to ${TARGET_COMMIT:0:8}"
     else
-        if [[ $MODE == production && $BRANCH != "$PRODUCTION_BRANCH" && $ALLOW_OTHER_BRANCH != true ]]; then
-            fail "production deploys $PRODUCTION_BRANCH; '$BRANCH' needs --allow-non-production-branch"
-        fi
         git check-ref-format --branch "$BRANCH" >/dev/null || fail "'$BRANCH' is not a valid branch name"
+        [[ $MODE == production && $BRANCH != "$PRODUCTION_BRANCH" ]] && warn "production is deploying '$BRANCH', not $PRODUCTION_BRANCH"
         info "fetching $BRANCH"
         git fetch --prune origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" || fail "branch '$BRANCH' does not exist on origin"
         TARGET_COMMIT=$(git rev-parse "refs/remotes/origin/$BRANCH")

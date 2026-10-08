@@ -63,8 +63,11 @@ mistaken for production or the other way round:
 # AWS rehearsal (today): /var/www/LeasyBack is the rehearsal copy
 bash /var/www/LeasyBack/deploy/deploy.sh --rehearsal --branch=feat/base44-migration --yes
 
-# final production (after sign-off)
+# final production (after sign-off) — main by default
 bash /var/www/LeasyBack/deploy/deploy.sh --production --yes
+
+# production from a specific branch
+bash /var/www/LeasyBack/deploy/deploy.sh --production --branch=feat/example --yes
 ```
 
 Or in one line from your machine: `ssh deploy@<server> 'bash /var/www/LeasyBack/deploy/deploy.sh --production --yes'`.
@@ -76,7 +79,7 @@ Or in one line from your machine: `ssh deploy@<server> 'bash /var/www/LeasyBack/
 | mail / queue / broadcast | `MAIL_MAILER=log`, `QUEUE_CONNECTION=null`, broadcast `log`/`null` | a real mailer with its key, a real queue, Reverb credentials when `BROADCAST_CONNECTION=reverb` |
 | integrations | Stripe, AWS/S3, TÜV, DEKRA, Lexware, Reverb, webhook, partner… credentials must be blank or test values; `LEXWARE_INTEGRATION_MODE=disabled` (the same rules as `scripts/base44-rehearsal.sh`, read from the commit being deployed) | no `CHANGE_ME` left; S3 keys when an S3 disk is used |
 | queue workers, Reverb | stopped and verified stopped; a scheduler cron for the app is refused | `queue:restart`, supervisor `leasyback-worker:*` and `leasyback-reverb` restarted and verified `RUNNING` |
-| branch | any (`--branch=NAME`) | `PRODUCTION_BRANCH` (default `main`) unless `--allow-non-production-branch` |
+| branch | `--branch=NAME`, else `BRANCH` from `config.sh`, else `main` | `--branch=NAME`, else `PRODUCTION_BRANCH` (default `main`) — never `config.sh`'s `BRANCH`; a non-default branch is logged as a warning |
 | `--seed` | refused | allowed (first deploy only) |
 
 Each run, in order — any failure stops it, and the app is brought back up:
@@ -109,8 +112,7 @@ A deploy **never** runs `legacy:import` or any `legacy:*` command, `db:seed`
 (`scripts/base44-rehearsal.sh`, then `php artisan legacy:import`).
 
 Flags: `--branch NAME` / `--branch=NAME`, `--no-build`, `--no-migrate`, `--rollback`,
-`--seed` (production), `--allow-dirty`, `--allow-non-fast-forward`,
-`--allow-non-production-branch` (production), `--yes`, `--help`.
+`--seed` (production), `--allow-dirty`, `--allow-non-fast-forward`, `--yes`, `--help`.
 
 ```bash
 bash deploy/deploy.sh --production --rollback --yes   # back to the previously deployed commit
@@ -120,6 +122,8 @@ bash deploy/deploy.sh --production --rollback --yes   # back to the previously d
 with an error — the old behaviour is `--production --yes`); a dirty tree, a failed
 backup and a failed health check now stop the deploy instead of warning; a missing
 database is no longer created; `config.sh` is optional (defaults come from the checkout).
+`--production --branch=NAME` deploys NAME directly; `--allow-non-production-branch`
+is no longer needed and is ignored with a note if passed.
 
 ## Database (SQLite)
 
