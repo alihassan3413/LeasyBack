@@ -12,6 +12,7 @@ use App\Modules\UserProfile\Vehicle\Models\VehicleReportDocument;
 use App\Notifications\SystemNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage;
@@ -57,6 +58,65 @@ class VehicleReportControllerTest extends TestCase
             'vehicle_id' => $vehicle->vehicle_id,
             'action' => 'uploaded',
         ]);
+    }
+
+    /**
+     * A wrong initial report is corrected by uploading the right one — which
+     * usually keeps the same file name. That used to be refused ("A file with
+     * this name already exists"); now each upload is its own document, the
+     * earlier file untouched, in either channel.
+     */
+    public function test_a_report_with_the_same_file_name_can_be_uploaded_again(): void
+    {
+        Storage::fake('documents');
+        Bus::fake();
+        $admin = $this->admin();
+
+        foreach (['B2B', 'B2C'] as $channel) {
+            $vehicle = Vehicle::factory()->create(['vehicle_belongs' => $channel]);
+            $order = LeasybackOrder::factory()->create(['vehicle_id' => $vehicle->vehicle_id, 'order_status' => 'confirmed']);
+
+            foreach (['erster', 'zweiter', 'dritter'] as $content) {
+                $this->actingAs($admin)
+                    ->from('/admin')
+                    ->post(route('admin.vehicles.reports.upload', $vehicle->vehicle_id), [
+                        'auftragsnummer' => $order->auftragsnummer,
+                        'document_type' => 'gutachten',
+                        'file' => UploadedFile::fake()->createWithContent('Gutachten.pdf', "%PDF-1.4 {$content}"),
+                    ])
+                    ->assertSessionHasNoErrors()
+                    ->assertSessionHas('success');
+            }
+
+            $paths = VehicleReportDocument::where('auftragsnummer', $order->auftragsnummer)->orderBy('created_at')->orderBy('id')->pluck('path')->sort()->values()->all();
+            $directory = "vehicle-reports/{$order->auftragsnummer}";
+
+            $this->assertSame(["{$directory}/Gutachten (2).pdf", "{$directory}/Gutachten (3).pdf", "{$directory}/Gutachten.pdf"], $paths, $channel);
+            $this->assertSame('%PDF-1.4 erster', Storage::disk('documents')->get("{$directory}/Gutachten.pdf"), "{$channel}: the first upload is not overwritten");
+            $this->assertSame('%PDF-1.4 dritter', Storage::disk('documents')->get("{$directory}/Gutachten (3).pdf"));
+        }
+    }
+
+    /** Deleting the wrong report and uploading the right one under the same name works too. */
+    public function test_a_deleted_report_can_be_replaced_under_the_same_name(): void
+    {
+        Storage::fake('documents');
+        Bus::fake();
+        $admin = $this->admin();
+        $vehicle = Vehicle::factory()->create();
+        $order = LeasybackOrder::factory()->create(['vehicle_id' => $vehicle->vehicle_id, 'order_status' => 'confirmed']);
+        $upload = fn () => $this->actingAs($admin)->from('/admin')->post(route('admin.vehicles.reports.upload', $vehicle->vehicle_id), [
+            'auftragsnummer' => $order->auftragsnummer,
+            'document_type' => 'gutachten',
+            'file' => UploadedFile::fake()->create('Gutachten.pdf', 50, 'application/pdf'),
+        ]);
+
+        $upload()->assertSessionHasNoErrors();
+        $wrong = VehicleReportDocument::where('auftragsnummer', $order->auftragsnummer)->sole();
+        $this->actingAs($admin)->from('/admin')->delete(route('admin.vehicles.reports.delete', $wrong->id))->assertSessionHasNoErrors();
+
+        $upload()->assertSessionHasNoErrors()->assertSessionHas('success');
+        $this->assertSame(1, VehicleReportDocument::where('auftragsnummer', $order->auftragsnummer)->count());
     }
 
     /**

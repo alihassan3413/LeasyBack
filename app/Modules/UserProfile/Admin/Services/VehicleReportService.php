@@ -115,20 +115,7 @@ class VehicleReportService
      */
     public function upload(string $auftragsnummer, string $vehicleId, UploadedFile $file, ?string $documentType, ?string $documentTitle, bool $published, User $user): array
     {
-        $originalFilename = $file->getClientOriginalName();
-        $path = "vehicle-reports/{$auftragsnummer}/{$originalFilename}";
-
-        $existing = VehicleReportDocument::where('vehicle_id', $vehicleId)
-            ->where('auftragsnummer', $auftragsnummer)
-            ->where('path', $path)
-            ->first();
-
-        if ($existing) {
-            $this->fail(409, 'A file with this name already exists for this vehicle and auftragsnummer', [
-                'file_name' => $originalFilename,
-                'existing_document' => $existing,
-            ]);
-        }
+        $path = $this->freeUploadPath($auftragsnummer, $file->getClientOriginalName());
 
         Storage::disk('documents')->put($path, file_get_contents($file));
         Storage::disk('documents')->setVisibility(dirname($path), 'private');
@@ -160,6 +147,36 @@ class VehicleReportService
         $this->startAppraisalExtraction($doc, $user);
 
         return ['document' => $doc];
+    }
+
+    /**
+     * Where an upload is stored: under its own name, or — when the order
+     * already has a document of that name — "Name (2).pdf", "Name (3).pdf"…
+     * A corrected Gutachten usually keeps the wrong one's file name; refusing
+     * it ("a file with this name already exists") left no way to upload it
+     * short of renaming the file. Nothing is overwritten: every upload is its
+     * own document, and a wrong one is removed by deleting it.
+     *
+     * ponytail: two simultaneous uploads of one name could pick the same free
+     * name; admins upload one file at a time. Add a lock if that ever changes.
+     */
+    private function freeUploadPath(string $auftragsnummer, string $originalFilename): string
+    {
+        $directory = "vehicle-reports/{$auftragsnummer}";
+        $name = pathinfo($originalFilename, PATHINFO_FILENAME);
+        $extension = pathinfo($originalFilename, PATHINFO_EXTENSION);
+        $suffix = $extension === '' ? '' : '.'.$extension;
+
+        $taken = fn (string $path) => Storage::disk('documents')->exists($path)
+            || VehicleReportDocument::where('path', $path)->exists();
+
+        $path = "{$directory}/{$originalFilename}";
+
+        for ($copy = 2; $taken($path); $copy++) {
+            $path = "{$directory}/{$name} ({$copy}){$suffix}";
+        }
+
+        return $path;
     }
 
     private function startAppraisalExtraction(VehicleReportDocument $document, User $user): void
