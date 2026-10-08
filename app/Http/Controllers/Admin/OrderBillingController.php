@@ -50,7 +50,8 @@ class OrderBillingController extends Controller
     }
 
     /**
-     * b2b.txt §13: sends the invoice to Lexware as an editable draft.
+     * b2b.txt §13: creates the invoice in Lexware, finalized, and files its PDF
+     * with the order's documents (unpublished) — the same as the B2C invoice.
      */
     public function lexwareDraft(Request $request, string $orderId): RedirectResponse
     {
@@ -60,17 +61,25 @@ class OrderBillingController extends Controller
         $validated = $request->validate(B2bLexwareDraftService::rules());
 
         try {
-            $this->lexwareDraftService->create($order, $request->user(), $validated);
+            $invoice = $this->lexwareDraftService->create($order, $request->user(), $validated);
         } catch (ValidationException $e) {
             return back()->withErrors($e->errors())->with('error', collect($e->errors())->flatten()->first());
         }
 
-        return back()->with('success', 'Der Rechnungsentwurf wurde in Lexware angelegt.');
+        $number = $invoice->voucher_number ? ' '.$invoice->voucher_number : '';
+
+        // The invoice exists either way; only its PDF may still be missing.
+        if ($invoice->document_id === null) {
+            return back()->with('error', "Die Rechnung{$number} wurde in Lexware erstellt, das PDF konnte aber noch nicht abgerufen werden. Bitte „Rechnung aus Lexware abrufen\u{201C} erneut versuchen.");
+        }
+
+        return back()->with('success', "Die Rechnung{$number} wurde in Lexware erstellt und abgelegt. Veröffentlichen Sie sie, damit das Unternehmen sie sieht.");
     }
 
     /**
-     * b2b.txt §13, after accounting's review: finalizes the draft and files
-     * the resulting PDF with the order's documents, still unpublished.
+     * Fetches the PDF of a Lexware invoice that has none yet (an older draft
+     * finalized in Lexware, or a PDF that could not be fetched at creation) and
+     * files it with the order's documents, still unpublished.
      */
     public function lexwareFinalize(Request $request, string $orderId): RedirectResponse
     {
@@ -83,6 +92,6 @@ class OrderBillingController extends Controller
             return back()->withErrors($e->errors())->with('error', collect($e->errors())->flatten()->first());
         }
 
-        return back()->with('success', 'Die Rechnung wurde finalisiert und abgelegt. Veröffentlichen Sie sie, damit das Unternehmen sie sieht.');
+        return back()->with('success', 'Die Rechnung wurde abgerufen und abgelegt. Veröffentlichen Sie sie, damit das Unternehmen sie sieht.');
     }
 }

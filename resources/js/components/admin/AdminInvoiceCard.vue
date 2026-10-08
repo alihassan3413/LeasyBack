@@ -10,9 +10,10 @@
  *
  * Two answers, then the same publish flow every other document has:
  *
- *   1. Lexware — create the draft, accounting reviews it in Lexware (§13
- *      requires it stay a draft until then), finalize it, which is the first
- *      moment it has an invoice number and a PDF at all.
+ *   1. Lexware — created finalized, like the B2C invoice: the number and the
+ *      PDF arrive in the same step. (An invoice created as a draft before
+ *      that, or one whose PDF could not be fetched at once, is fetched with
+ *      "Rechnung aus Lexware abrufen".)
  *   2. Manuell — upload the invoice PDF directly.
  *
  * Either way the document lands unpublished, and one button publishes it to
@@ -37,7 +38,7 @@ const props = defineProps<{
     auftragsnummer: string;
     vehicleId: string;
     billing: AdminOrderBilling;
-    /** Null until the Lexware draft exists. Only one is ever created per order. */
+    /** Null until the Lexware invoice exists. Only one is ever created per order. */
     lexwareDraft: AdminB2bLexwareDraft | null;
     reportDocuments: AdminReportDocument[];
     /** AdminOrderDetail.editable.billing — `vehicle_returned` / `invoice_processed`. */
@@ -65,12 +66,7 @@ const invoiceDocument = computed(
         null,
 );
 
-
-const invoiceAttachments = computed(() =>
-    props.reportDocuments.filter(
-        (doc) => doc.document_type === 'rechnung_anlage'
-    )
-);
+const invoiceAttachments = computed(() => props.reportDocuments.filter((doc) => doc.document_type === 'rechnung_anlage'));
 
 const invoiceNumber = computed(() => props.lexwareDraft?.voucher_number ?? props.billing.invoice_reference ?? null);
 
@@ -102,6 +98,9 @@ const completeForm = useForm<{ invoice_document_id: string | null; mark_processe
 /** The server rejects a Lexware step as a whole, under this key — see B2bLexwareDraftService::refuse(). */
 const draftError = computed(() => (draftForm.errors as Record<string, string | undefined>).lexware);
 const finalizeError = computed(() => (finalizeForm.errors as Record<string, string | undefined>).lexware);
+
+/** Created as a draft before B2B invoices were finalized at once: only Lexware's own UI can finalize it. */
+const isLegacyDraft = computed(() => props.lexwareDraft?.voucher_status === 'draft');
 
 function addPosition() {
     draftForm.additional_positions.push({ name: '', amount_net: '' });
@@ -201,36 +200,30 @@ function formatDateTime(value: string | null): string {
                     </dd>
                 </div>
 
-                <div
-    v-if="invoiceAttachments.length"
-    class="mt-3 border-t border-[#f2f6f5] pt-3"
->
-    <h3 class="mb-2 text-[12px] font-bold text-[#10393b]">
-        Zusätzliche Dokumente
-    </h3>
+                <div v-if="invoiceAttachments.length" class="mt-3 border-t border-[#f2f6f5] pt-3">
+                    <h3 class="mb-2 text-[12px] font-bold text-[#10393b]">Zusätzliche Dokumente</h3>
 
-    <div
-        v-for="document in invoiceAttachments"
-        :key="document.id"
-        class="flex items-center justify-between gap-3 border-b border-[#f2f6f5] py-2"
-    >
-        <span class="text-[12px] font-medium text-[#10393b]">
-            {{ document.document_title || 'Zusatzdokument' }}
-        </span>
+                    <div
+                        v-for="document in invoiceAttachments"
+                        :key="document.id"
+                        class="flex items-center justify-between gap-3 border-b border-[#f2f6f5] py-2"
+                    >
+                        <span class="text-[12px] font-medium text-[#10393b]">
+                            {{ document.document_title || 'Zusatzdokument' }}
+                        </span>
 
-        <a
-            v-if="document.signed_url"
-            :href="document.signed_url"
-            target="_blank"
-            rel="noopener"
-            class="flex items-center gap-1 rounded-[9px] border border-[#e9efee] px-2 py-1 text-[11.5px] font-bold text-[#10393b]"
-        >
-            <MdiOpenInNew class="size-[13px]" />
-            Öffnen
-        </a>
-    </div>
-</div>
-                
+                        <a
+                            v-if="document.signed_url"
+                            :href="document.signed_url"
+                            target="_blank"
+                            rel="noopener"
+                            class="flex items-center gap-1 rounded-[9px] border border-[#e9efee] px-2 py-1 text-[11.5px] font-bold text-[#10393b]"
+                        >
+                            <MdiOpenInNew class="size-[13px]" />
+                            Öffnen
+                        </a>
+                    </div>
+                </div>
             </dl>
 
             <!-- 1. Nothing yet: the one question the card exists to ask. -->
@@ -267,6 +260,11 @@ function formatDateTime(value: string | null): string {
                     Zusätzliche Position
                 </button>
 
+                <p class="text-[11.5px] text-[#6f8585]">
+                    Die Rechnung wird in Lexware fertig erstellt — Rechnungsnummer und PDF kommen automatisch. Eine erstellte Rechnung kann nicht mehr
+                    geändert werden; prüfen Sie zusätzliche Positionen vorher.
+                </p>
+
                 <InputError :message="draftError" />
 
                 <button
@@ -293,11 +291,15 @@ function formatDateTime(value: string | null): string {
                 </button>
             </form>
 
-            <!-- 2. The draft is with accounting. §13: it stays a draft until they are done with it. -->
+            <!-- 2. The invoice exists in Lexware, its PDF not yet here: an older draft, or a fetch that failed. -->
             <div v-else-if="stage === 'finalize'" class="flex flex-col gap-3">
-                <p class="rounded-[11px] bg-[#f6f9f8] px-3 py-2 text-[11.5px] text-[#6f8585]">
+                <p v-if="isLegacyDraft" class="rounded-[11px] bg-[#f6f9f8] px-3 py-2 text-[11.5px] text-[#6f8585]">
                     Der Entwurf wurde am {{ formatDateTime(lexwareDraft?.submitted_at ?? null) }} in Lexware angelegt. Prüfen und finalisieren Sie ihn
                     dort — erst dann erhält die Rechnung ihre Nummer und ihr PDF. Danach hier abrufen.
+                </p>
+                <p v-else class="rounded-[11px] bg-[#f6f9f8] px-3 py-2 text-[11.5px] text-[#6f8585]">
+                    Die Rechnung{{ lexwareDraft?.voucher_number ? ` ${lexwareDraft.voucher_number}` : '' }} wurde am
+                    {{ formatDateTime(lexwareDraft?.submitted_at ?? null) }} in Lexware erstellt, ihr PDF liegt hier noch nicht vor. Rufen Sie es ab.
                 </p>
 
                 <a
@@ -308,10 +310,10 @@ function formatDateTime(value: string | null): string {
                     class="flex items-center justify-center gap-1.5 rounded-[13px] border border-[#e9efee] bg-white py-2.5 text-[12.5px] font-bold text-[#10393b] transition-all hover:border-[#10393b] hover:bg-[#f4f7f6]"
                 >
                     <MdiOpenInNew class="size-[14px]" />
-                    Entwurf in Lexware öffnen
+                    {{ isLegacyDraft ? 'Entwurf in Lexware öffnen' : 'In Lexware öffnen' }}
                 </a>
 
-                <InputError :message="finalizeError" />
+                <InputError :message="finalizeError ?? draftError" />
 
                 <button
                     type="button"
@@ -335,15 +337,15 @@ function formatDateTime(value: string | null): string {
             <!-- 3. The invoice exists — one button makes it the company's and closes the billing. -->
             <div v-else-if="stage === 'publish'" class="flex flex-col gap-3">
                 <button
-    v-if="editable"
-    type="button"
-    class="flex items-center justify-center gap-1.5 rounded-[13px] border border-dashed border-[#cbd9d7] py-2 text-[12px] font-bold text-[#00856a]"
-    @click="attachmentUploadOpen = true"
->
-    <MdiCloudUploadOutline class="size-[15px]" />
+                    v-if="editable"
+                    type="button"
+                    class="flex items-center justify-center gap-1.5 rounded-[13px] border border-dashed border-[#cbd9d7] py-2 text-[12px] font-bold text-[#00856a]"
+                    @click="attachmentUploadOpen = true"
+                >
+                    <MdiCloudUploadOutline class="size-[15px]" />
 
-    Zusatzdokument hochladen
-</button>
+                    Zusatzdokument hochladen
+                </button>
                 <InputError :message="completeForm.errors.invoice_document_id" />
 
                 <button
@@ -378,12 +380,12 @@ function formatDateTime(value: string | null): string {
             :default-document-type="INVOICE_DOCUMENT_TYPE"
         />
         <UploadReportDocumentModal
-    v-model:open="attachmentUploadOpen"
-    :vehicle-id="vehicleId"
-    :auftragsnummer-options="[{ value: auftragsnummer, label: auftragsnummer }]"
-    :default-auftragsnummer="auftragsnummer"
-    :default-document-type="'rechnung_anlage'"
-/>
+            v-model:open="attachmentUploadOpen"
+            :vehicle-id="vehicleId"
+            :auftragsnummer-options="[{ value: auftragsnummer, label: auftragsnummer }]"
+            :default-auftragsnummer="auftragsnummer"
+            :default-document-type="'rechnung_anlage'"
+        />
     </div>
 </template>
 

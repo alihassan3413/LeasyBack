@@ -101,13 +101,16 @@ class B2bBillingService
 
             // "Processed" is what unlocks completion, so it has to point at an
             // actual invoice — and keep pointing at one once it is set.
+            // An actual Lexware invoice — not merely a row claimed for one whose
+            // creation was refused or whose outcome is still unknown.
             $hasLexwareDraft = LexwareInvoice::where('order_id', $order->id)
                 ->where('purpose', B2bLexwareDraftService::PURPOSE)
+                ->whereNotNull('lexware_invoice_id')
                 ->exists();
 
             if (($markProcessed || $alreadyProcessed) && $reference === null && $documentId === null && ! $hasLexwareDraft) {
                 throw ValidationException::withMessages([
-                    'invoice_reference' => 'Bitte erstellen Sie den Lexware-Rechnungsentwurf, geben Sie eine Rechnungsnummer an oder hängen Sie das Rechnungsdokument an, bevor die Abrechnung als verarbeitet gilt.',
+                    'invoice_reference' => 'Bitte erstellen Sie die Lexware-Rechnung, geben Sie eine Rechnungsnummer an oder hängen Sie das Rechnungsdokument an, bevor die Abrechnung als verarbeitet gilt.',
                 ]);
             }
 
