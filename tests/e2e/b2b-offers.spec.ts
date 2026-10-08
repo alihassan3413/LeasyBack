@@ -12,6 +12,9 @@ async function openOfferRow(page: Page) {
 }
 
 test.describe('a published repair offer', () => {
+    // Each step builds on the last: rejected, then replaced, then shown again.
+    test.describe.configure({ mode: 'serial' });
+
     test('a Read-only member sees it but cannot decide on it', async ({ page }) => {
         await submitLogin(page, USERS.readOnly);
         await openOfferRow(page);
@@ -35,5 +38,49 @@ test.describe('a published repair offer', () => {
 
         await expect(page.getByText('Sie haben dieses Angebot abgelehnt.').filter({ visible: true }).first()).toBeVisible();
         await expect(page.getByRole('button', { name: 'Reparatur freigeben' }).filter({ visible: true })).toHaveCount(0);
+    });
+
+    test('the rejected offer stays as history and can no longer be chosen', async ({ page }) => {
+        await loginAs(page, USERS.owner);
+        await openOfferRow(page);
+
+        // The offer list used to keep a live radio button for it.
+        const choice = page.getByTitle('Abgelehnt', { exact: true }).filter({ visible: true });
+        await expect(choice).toHaveCount(1);
+        await expect(choice).toBeDisabled();
+        await expect(page.getByRole('button', { name: 'Reparatur freigeben' }).filter({ visible: true })).toHaveCount(0);
+    });
+
+    test("admin's Next Task opens the create-offer flow and publishes a replacement", async ({ page }) => {
+        await loginAs(page, USERS.admin2);
+        await page.goto('/admin/orders');
+        await page.getByText(OFFER_PLATE).filter({ visible: true }).first().click();
+        await expect(page).toHaveURL(/\/admin\/orders\/[0-9a-f-]{36}/);
+
+        await expect(page.getByText('Kundenangebot erstellen', { exact: true }).filter({ visible: true }).first()).toBeVisible();
+        // The task's own button — it used to do nothing after a rejection.
+        await page.getByRole('button', { name: 'Angebot erstellen', exact: true }).filter({ visible: true }).first().click();
+
+        const modal = page.getByRole('dialog');
+        await expect(modal.getByText('Werkstattangebot übernehmen')).toBeVisible();
+        await modal.getByRole('radio').first().check();
+
+        const created = page.waitForResponse((response) => response.request().method() === 'POST' && /\/b2b-offer/.test(response.url()));
+        await modal.getByRole('button', { name: 'Als Kundenangebot erstellen' }).click();
+        expect((await created).status()).toBeLessThan(400);
+        await expect(modal).toHaveCount(0);
+
+        const published = page.waitForResponse((response) => response.request().method() === 'PATCH' && /\/publish/.test(response.url()));
+        await page.getByRole('button', { name: 'Angebot veröffentlichen', exact: true }).filter({ visible: true }).first().click();
+        expect((await published).status()).toBeLessThan(400);
+    });
+
+    test('the customer sees the replacement as the live offer, the rejected one still marked', async ({ page }) => {
+        await loginAs(page, USERS.owner);
+        await openOfferRow(page);
+
+        await expect(page.getByRole('button', { name: 'Reparatur freigeben' }).filter({ visible: true }).first()).toBeEnabled();
+        await expect(page.getByTitle('Abgelehnt', { exact: true }).filter({ visible: true })).toBeDisabled();
+        await expect(page.getByTitle('Angebot auswählen', { exact: true }).filter({ visible: true })).toBeEnabled();
     });
 });

@@ -361,19 +361,35 @@ class OrderControllerTest extends TestCase
     }
 
     /**
-     * Regression test: OfferService::publishOffer() permanently refuses to
-     * publish a new offer once any offer on the order has been rejected, but
-     * `editable.offers` did not know that — the Admin "Angebot erstellen"
-     * button, workshop-invite affordance, and actions menu stayed enabled
-     * for an order that could no longer actually publish anything.
+     * A rejected offer is history, not the end of the offer phase:
+     * OfferService::publishOffer() publishes a replacement and OrderTaskResolver
+     * asks for one. This flag used to say otherwise, which left the task's
+     * "Angebot erstellen" button doing nothing.
      */
-    public function test_offers_are_not_editable_after_one_has_been_rejected(): void
+    public function test_offers_stay_editable_after_one_has_been_rejected(): void
     {
         $admin = $this->admin();
         $order = LeasybackOrder::factory()->withStatus(OrderStatus::Inspected)->create();
         LeasybackOffer::factory()->for($order, 'order')->create([
             'auftragsnummer' => $order->auftragsnummer,
             'offer_status' => 'rejected',
+        ]);
+
+        $this->actingAs($admin)
+            ->get(route('admin.orders.show', $order->id))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('order.editable.offers', true)
+            );
+    }
+
+    public function test_offers_are_not_editable_once_one_has_been_accepted(): void
+    {
+        $admin = $this->admin();
+        $order = LeasybackOrder::factory()->withStatus(OrderStatus::Inspected)->create();
+        LeasybackOffer::factory()->for($order, 'order')->create([
+            'auftragsnummer' => $order->auftragsnummer,
+            'offer_status' => 'selected',
         ]);
 
         $this->actingAs($admin)

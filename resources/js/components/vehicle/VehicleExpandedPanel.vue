@@ -636,17 +636,17 @@ const selectingOfferId = ref<string | null>(null);
 
 /**
  * Both roles funnel through the same confirm dialog; only the endpoint and
- * the wording differ. An admin may accept only a *published* offer — the same
- * rule OfferService::selectOffer() enforces for the customer.
+ * the wording differ. Either role may accept only a *published*, unexpired
+ * offer — the rule OfferService::selectOffer() enforces. The customer payload
+ * keeps rejected offers as history, so this cannot be left to the server alone:
+ * a rejected offer used to keep a live radio button in the offer list.
  */
+function isAcceptable(offer: PanelOffer | undefined): boolean {
+    return offer?.status === 'published' && !offer.presentation?.is_expired;
+}
+
 function requestSelect(offerId: string) {
-    if (acceptedOffer.value) {
-        return;
-    }
-
-    const offer = offersData.value.find((candidate) => candidate.offerId === offerId);
-
-    if (props.admin && offer?.status !== 'published') {
+    if (acceptedOffer.value || !isAcceptable(offersData.value.find((candidate) => candidate.offerId === offerId))) {
         return;
     }
 
@@ -654,19 +654,19 @@ function requestSelect(offerId: string) {
 }
 
 function canSelect(offer: PanelOffer): boolean {
-    if (acceptedOffer.value || selectingOfferId.value === offer.offerId) {
-        return false;
-    }
-
-    return props.admin ? offer.status === 'published' : true;
+    return !acceptedOffer.value && selectingOfferId.value !== offer.offerId && isAcceptable(offer);
 }
 
 function selectTitle(offer: PanelOffer): string {
-    if (!props.admin) {
-        return 'Angebot auswählen';
+    if (offer.status === 'rejected') {
+        return 'Abgelehnt';
     }
 
-    return offer.status === 'published' ? 'Im Auftrag des Kunden annehmen' : 'Nur veröffentlichte Angebote können angenommen werden';
+    if (!isAcceptable(offer)) {
+        return 'Nur veröffentlichte Angebote können angenommen werden';
+    }
+
+    return props.admin ? 'Im Auftrag des Kunden annehmen' : 'Angebot auswählen';
 }
 
 const OFFER_STATUS_LABELS: Record<string, string> = {
@@ -1347,6 +1347,17 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                                     </button>
                                 </div>
                             </div>
+                            <!-- A turned-down offer stays in the list as history, marked as such. -->
+                            <div v-if="!admin && offer.status === 'rejected'" class="pr-4 pl-14">
+                                <span
+                                    class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10.5px] font-bold"
+                                    :style="offerStatusPill(offer.status)"
+                                >
+                                    <span class="h-[4px] w-[4px] rounded-full bg-current"></span>
+                                    {{ offerStatusLabel(offer.status) }}
+                                </span>
+                            </div>
+
                             <!--
                                     Admin-only row, deliberately outside the pill so the
                                     customer card's shape and rhythm are untouched. Indented
@@ -1815,6 +1826,17 @@ function formatAddress(address: VehicleCollectionAddress | null): string {
                                     {{ (offer.note && offer.note.trim()) || 'Weitere Informationen zum Angebot folgen.' }}
                                 </p>
                             </div>
+                        </div>
+
+                        <!-- A turned-down offer stays in the list as history, marked as such. -->
+                        <div v-if="!admin && offer.status === 'rejected'" class="pr-1 pl-8">
+                            <span
+                                class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10.5px] font-bold"
+                                :style="offerStatusPill(offer.status)"
+                            >
+                                <span class="h-[4px] w-[4px] rounded-full bg-current"></span>
+                                {{ offerStatusLabel(offer.status) }}
+                            </span>
                         </div>
 
                         <div v-if="admin" class="flex flex-wrap items-center justify-between gap-2 pr-1 pl-8">

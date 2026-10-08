@@ -689,6 +689,99 @@ class QuotationBackedOfferTest extends TestCase
         $this->assertSame(0, LeasybackOffer::where('order_id', $order->id)->where('offer_status', 'draft')->count());
     }
 
+    /**
+     * The reported bug, server half: a turned-down offer is history. It stays
+     * in the customer's payload marked rejected, and neither the customer nor
+     * an admin on their behalf can accept it afterwards.
+     */
+    public function test_a_rejected_b2b_offer_stays_historical_and_cannot_be_accepted(): void
+    {
+        $order = $this->b2bOrder(['1000.00']);
+        $owner = $this->ownerOf($order);
+        $offer = $this->publishOffer($order, $this->quotedBy($order, ['800.00']));
+
+        $this->actingAs($owner)->from('/fahrzeuge')
+            ->post(route('offers.reject', $offer->offer_id), ['customer_comment' => 'Zu teuer'])
+            ->assertSessionHasNoErrors();
+
+        $this->actingAs($owner)->from('/fahrzeuge')
+            ->post(route('offers.select', $offer->offer_id))
+            ->assertSessionHasErrors('offer');
+        $this->actingAs($this->makeAdmin())->from(route('admin.orders.show', $order->id))
+            ->patch(route('admin.orders.offers.select', $offer->offer_id))
+            ->assertSessionHasErrors();
+
+        $offers = $this->customerOffers($order);
+        $this->assertSame(['rejected'], array_column($offers, 'offer_status'));
+        $this->assertNotNull($offers[0]['presentation']['rejected_at']);
+        $this->assertSame('rejected', $offer->fresh()->offer_status);
+    }
+
+    /**
+     * The reported bug, admin half: after a rejection the order page asked for
+     * a new customer offer, but `editable.offers` — the flag both the task's
+     * "Angebot erstellen" button and the offers card check before opening the
+     * create modal — still treated a rejection as final, so the click did
+     * nothing. The task and the flag must agree.
+     */
+    public function test_after_a_rejection_admin_is_asked_for_and_may_create_a_replacement(): void
+    {
+        $order = $this->b2bOrder(['1000.00']);
+        $offer = $this->publishOffer($order, $this->quotedBy($order, ['800.00']));
+        $this->actingAs($this->ownerOf($order))->from('/fahrzeuge')
+            ->post(route('offers.reject', $offer->offer_id))
+            ->assertSessionHasNoErrors();
+
+        $admin = $this->adminOrder($order);
+
+        $this->assertSame('create_customer_offer', $admin['tasks']['next']['key']);
+        $this->assertSame(['type' => 'modal', 'key' => 'create_offer'], array_intersect_key($admin['tasks']['next']['action'], ['type' => 1, 'key' => 1]));
+        $this->assertTrue($admin['editable']['offers'], 'the create modal opens only while offers are editable');
+    }
+
+    /**
+     * Rejected → replacement built (from the same quotation, which a rejected
+     * offer no longer holds) → published → the customer sees the replacement
+     * as the live offer beside the rejected one.
+     */
+    public function test_a_replacement_offer_reaches_the_customer_beside_the_rejected_one(): void
+    {
+        $order = $this->b2bOrder(['1000.00']);
+        $quotation = $this->quotedBy($order, ['800.00'], 'Karosserie Nord GmbH');
+        $rejected = $this->publishOffer($order, $quotation);
+        $this->actingAs($this->ownerOf($order))->from('/fahrzeuge')
+            ->post(route('offers.reject', $rejected->offer_id))
+            ->assertSessionHasNoErrors();
+
+        $replacement = $this->publishOffer($order, $quotation);
+
+        $offers = $this->customerOffers($order);
+        $this->assertSame([$rejected->offer_id, $replacement->offer_id], array_column($offers, 'offer_id'));
+        $this->assertSame(['rejected', 'published'], array_column($offers, 'offer_status'));
+        $this->assertNotNull($offers[0]['presentation']['rejected_at']);
+        $this->assertNull($offers[1]['presentation']['rejected_at']);
+        $this->assertSame('Karosserie Nord GmbH', $offers[1]['presentation']['workshop_name']);
+
+        // The admin task moves on to waiting for the customer's decision.
+        $this->assertNotSame('create_customer_offer', $this->adminOrder($order)['tasks']['next']['key']);
+    }
+
+    /** An accepted offer is the one thing that ends the offer phase. */
+    public function test_an_accepted_offer_blocks_any_further_offer(): void
+    {
+        $order = $this->b2bOrder(['1000.00']);
+        $accepted = $this->publishOffer($order, $this->quotedBy($order, ['800.00']));
+        $late = $this->quotedBy($order, ['500.00']); // arrived while the customer was deciding
+        $this->actingAs($this->ownerOf($order))->from('/fahrzeuge')
+            ->post(route('offers.select', $accepted->offer_id))
+            ->assertSessionHasNoErrors();
+
+        $this->assertFalse($this->adminOrder($order)['editable']['offers']);
+        $this->assertNotSame('create_customer_offer', $this->adminOrder($order)['tasks']['next']['key']);
+        $this->createOffer($order, $late)->assertSessionHasErrors('offer');
+        $this->assertSame(1, LeasybackOffer::where('order_id', $order->id)->count());
+    }
+
     /** One quotation never backs two live offers, rejection or not. */
     public function test_a_quotation_with_a_live_offer_cannot_back_a_second_one(): void
     {

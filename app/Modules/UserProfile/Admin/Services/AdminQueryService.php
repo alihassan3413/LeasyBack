@@ -8,9 +8,9 @@ use App\Modules\UserProfile\B2B\Data\B2bMembership;
 use App\Modules\UserProfile\B2B\Services\B2bServiceFeeService;
 use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
+use App\Modules\UserProfile\Order\Services\AccidentDamageAttachmentService;
 use App\Modules\UserProfile\Order\Services\AppraisalExtractionService;
 use App\Modules\UserProfile\Order\Services\AppraisalPositionService;
-use App\Modules\UserProfile\Order\Services\AccidentDamageAttachmentService;
 use App\Modules\UserProfile\Order\Services\B2bBillingService;
 use App\Modules\UserProfile\Order\Services\B2bLexwareDraftService;
 use App\Modules\UserProfile\Order\Services\B2bOrderNoteService;
@@ -358,7 +358,7 @@ class AdminQueryService
 
     /** @return array{page:int,limit:int,start:?CarbonImmutable,end:?CarbonImmutable,status:?string} */
     /** The two services an order can belong to, as OrderService writes them. */
-       private const SERVICE_TYPES = [OrderService::SERVICE_LEASING_RETURN, OrderService::SERVICE_RELOCATION, OrderService::SERVICE_ACCIDENT_DAMAGE, OrderService::SERVICE_APPRAISAL];
+    private const SERVICE_TYPES = [OrderService::SERVICE_LEASING_RETURN, OrderService::SERVICE_RELOCATION, OrderService::SERVICE_ACCIDENT_DAMAGE, OrderService::SERVICE_APPRAISAL];
 
     private function filters(Request $request): array
     {
@@ -688,7 +688,7 @@ class AdminQueryService
         // cost centre) is its request payload. Only a relocation's payload is
         // sent: a TÜV SÜD booking payload is a partner request, and older rows
         // of it may still carry credentials.
-                $order['request_payload'] = in_array($order['service_type'], [self::RELOCATION_SERVICE_TYPE, OrderService::SERVICE_ACCIDENT_DAMAGE, OrderService::SERVICE_APPRAISAL], true)
+        $order['request_payload'] = in_array($order['service_type'], [self::RELOCATION_SERVICE_TYPE, OrderService::SERVICE_ACCIDENT_DAMAGE, OrderService::SERVICE_APPRAISAL], true)
             ? (json_decode((string) $row->request_payload, true) ?: null)
             : null;
 
@@ -735,11 +735,12 @@ class AdminQueryService
             'positions' => in_array($row->order_status, AppraisalPositionService::EDITABLE_STATUSES, true)
                 && ! DB::table('leasyback_offers')->where('order_id', $orderId)->where('offer_status', 'selected')->exists(),
             'billing' => $isB2bRow && in_array($row->order_status, B2bBillingService::EDITABLE_STATUSES, true),
-            // Once any offer on the order has been rejected, OfferService::publishOffer()
-            // permanently refuses to publish another one for that order — so the
-            // "create/publish offer" affordance must not be offered either.
+            // Only an accepted offer closes the offer phase, matching
+            // OfferService::publishOffer() and RepairOfferService::createFromQuotation().
+            // A rejected offer is history: OrderTaskResolver re-opens "create
+            // customer offer" after it, and that task's button needs this open.
             'offers' => $row->order_status === OrderStatus::Inspected->value
-                && ! DB::table('leasyback_offers')->where('order_id', $orderId)->whereIn('offer_status', ['selected', 'rejected'])->exists(),
+                && ! DB::table('leasyback_offers')->where('order_id', $orderId)->where('offer_status', 'selected')->exists(),
         ];
 
         $order['vehicle_belongs'] = $row->vehicle_belongs;
@@ -1012,7 +1013,7 @@ class AdminQueryService
     public function vehicles(Request $request, ?string $userType = null, int|string|null $userId = null, ?string $b2bId = null): array
     {
         $filters = $this->filters($request);
-          $base = DB::table('vehicles as v')
+        $base = DB::table('vehicles as v')
             ->leftJoin('leasyback_orders as o', function ($join) {
                 // The vehicle's newest order — its own, or a multi-vehicle order that lists it.
                 $join->whereRaw('o.id = (SELECT latest.id FROM leasyback_orders latest WHERE latest.vehicle_id = v.vehicle_id OR latest.id IN (SELECT lov.order_id FROM leasyback_order_vehicles lov WHERE lov.vehicle_id = v.vehicle_id) ORDER BY latest.created_at DESC, latest.id DESC LIMIT 1)');
@@ -1075,6 +1076,7 @@ class AdminQueryService
 
         return $vehicle === null ? null : $this->hydrateVehicleDetail($vehicle);
     }
+
     /**
      * Detail-page-only enrichment, deliberately kept out of the shared
      * enrichVehicles(): the vehicle *list* renders one row per vehicle and
@@ -1158,7 +1160,7 @@ class AdminQueryService
 
         $owners = $this->ownersForVehicles($rows);
         $vehicleIds = $rows->pluck('vehicle_id')->unique()->values();
-              // A multi-vehicle order (Vehicle Condition Appraisal) belongs to each
+        // A multi-vehicle order (Vehicle Condition Appraisal) belongs to each
         // of its vehicles, so it is loaded for, and listed under, every one.
         $linkedVehicles = DB::table('leasyback_order_vehicles')->whereIn('vehicle_id', $vehicleIds)->get(['order_id', 'vehicle_id']);
         $linkedByOrder = $linkedVehicles->groupBy('order_id');
@@ -1315,7 +1317,7 @@ class AdminQueryService
         $order = LeasybackOrder::find($orderId);
 
         // An Überführung follows its own, shorter B2B path.
-               $isShortPath = $order !== null && TransitionOrderStatus::isShortPathOrder($order);
+        $isShortPath = $order !== null && TransitionOrderStatus::isShortPathOrder($order);
 
         $candidates = array_diff(TransitionOrderStatus::allowedNextStatuses($status, $isB2b, $isShortPath), $withheld);
 
