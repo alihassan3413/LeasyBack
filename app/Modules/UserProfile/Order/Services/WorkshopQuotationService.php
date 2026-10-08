@@ -24,6 +24,7 @@ use App\Rules\PhoneNumber;
 use App\Services\Notifier;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -146,6 +147,11 @@ class WorkshopQuotationService
             'additional_positions.*.damage_description' => ['nullable', 'string', 'max:2000'],
             'additional_positions.*.repair_method' => ['nullable', 'string', 'max:255'],
             'additional_positions.*.amount_net' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
+            // The photos picked for additional damage, sent with the draft so
+            // they print before the submission stores them. Same limits as the
+            // submission; read into the PDF and never written to disk.
+            'additional_positions.*.images' => self::submissionRules($positionIds)['additional_positions.*.images'],
+            'additional_positions.*.images.*' => self::submissionRules($positionIds)['additional_positions.*.images.*'],
         ];
     }
 
@@ -794,8 +800,9 @@ class WorkshopQuotationService
      * `$draft` is what the workshop has typed but not sent (validated with
      * draftRules()). It stands in for the stored answer only while there is
      * none, so a submitted quotation always prints what was submitted. Draft
-     * rows are unsaved models and draft additional damage has no photos yet —
-     * those only exist once the submission uploads them.
+     * rows are unsaved models; photos picked for draft additional damage come
+     * along as the request's own uploads (`image_uploads`), embedded from their
+     * bytes and never stored — stored photos only exist after submission.
      *
      * @param  array<string, mixed>|null  $draft
      * @return array<string, mixed>
@@ -803,13 +810,22 @@ class WorkshopQuotationService
     public function pdfDocument(WorkshopQuotation $quotation, ?array $draft = null): array
     {
         $draft = $quotation->isSubmitted() ? null : $draft;
+
+        if ($draft !== null) {
+            $this->assertUploadsFitLimits($draft);
+        }
+
+        $draftAdditional = $draft === null ? null : $this->draftAdditionalPositions($draft);
         $order = LeasybackOrder::whereKey($quotation->order_id)->first();
         $vehicle = $order === null ? null : Vehicle::where('vehicle_id', $order->vehicle_id)->first();
         $showAmounts = (bool) $quotation->show_appraisal_amounts;
         $positions = $this->positionsFor($quotation->order_id);
-        $additional = $draft === null
+        $additional = $draftAdditional === null
             ? ($this->additionalPositionsByQuotation([$quotation->id])->get($quotation->id) ?? collect())
-            : $this->draftAdditionalPositions($draft);
+            : $draftAdditional->map(fn (array $position) => new WorkshopAdditionalPosition([
+                ...Arr::except($position, 'images'),
+                'damage_image_document_ids' => [],
+            ]));
 
         // Every image id on the order's appraisal positions and on this
         // quotation's own reported damage, authorised in one query against the
@@ -861,7 +877,7 @@ class WorkshopQuotationService
         $additionalTotal = '0';
 
         $additionalRows = $additional->values()->map(function (WorkshopAdditionalPosition $position, int $index) use (
-            $authorised, &$additionalTotal
+            $authorised, $draftAdditional, &$additionalTotal
         ) {
             $amount = $this->amountOrNull($position->amount_net);
 
@@ -876,6 +892,7 @@ class WorkshopQuotationService
                 'repair_method' => $position->repair_method,
                 'amount_net' => $amount,
                 'image_paths' => $this->authorisedPaths($position->damage_image_document_ids ?? [], $authorised),
+                'image_uploads' => $draftAdditional?->get($index)['images'] ?? [],
             ];
         })->all();
 
@@ -934,11 +951,12 @@ class WorkshopQuotationService
     }
 
     /**
-     * The draft's additional damage as unsaved rows, skipping cards the
-     * workshop opened but has not filled in yet.
+     * The draft's additional damage, skipping cards the workshop opened but has
+     * not filled in yet. Each keeps its own uploads, in the order picked, so a
+     * photo prints under the card it was attached to.
      *
      * @param  array<string, mixed>  $draft
-     * @return Collection<int, WorkshopAdditionalPosition>
+     * @return Collection<int, array{component: ?string, damage_description: ?string, repair_method: ?string, amount_net: ?string, images: array<int, UploadedFile>}>
      */
     private function draftAdditionalPositions(array $draft): Collection
     {
@@ -948,9 +966,12 @@ class WorkshopQuotationService
                 'damage_description' => $this->trimToNull($position['damage_description'] ?? null),
                 'repair_method' => $this->trimToNull($position['repair_method'] ?? null),
                 'amount_net' => $this->amountOrNull($position['amount_net'] ?? null),
+                'images' => array_values(array_filter($position['images'] ?? [], fn (mixed $image) => $image instanceof UploadedFile)),
             ])
-            ->filter(fn (array $position) => $position['component'] !== null || $position['damage_description'] !== null || $position['amount_net'] !== null)
-            ->map(fn (array $position) => new WorkshopAdditionalPosition([...$position, 'damage_image_document_ids' => []]))
+            ->filter(fn (array $position) => $position['component'] !== null
+                || $position['damage_description'] !== null
+                || $position['amount_net'] !== null
+                || $position['images'] !== [])
             ->values();
     }
 

@@ -14,6 +14,7 @@ use App\Modules\UserProfile\Order\Services\WorkshopQuotationService;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle;
 use App\Modules\UserProfile\Vehicle\Models\VehicleReportDocument;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -502,6 +503,96 @@ class WorkshopQuotationPdfTest extends TestCase
 
         $this->assertSame('444.44', $document['workshop_total_net']);
         $this->assertFalse($document['is_draft']);
+    }
+
+    // ------------------------------------------------- unsent additional photos
+
+    /**
+     * The reported bug: photos picked for additional damage were missing from
+     * the downloaded and printed PDF, because the draft request never sent
+     * them. They now travel with the draft and are embedded from their bytes.
+     */
+    public function test_photos_picked_for_unsent_additional_damage_are_embedded(): void
+    {
+        $order = $this->b2cOrder();
+        $token = $this->tokenFor($order);
+
+        $response = $this->post(route('workshop.quotations.pdf.draft', $token), [
+            'additional_positions' => [[
+                'component' => 'Radlauf hinten rechts',
+                'damage_description' => 'Durchrostung',
+                'amount_net' => '540.00',
+                'images' => [UploadedFile::fake()->image('schaden.jpg', 640, 480)],
+            ]],
+        ], ['Accept' => 'application/pdf, application/json']);
+
+        $response->assertOk();
+        $pdf = (string) $response->getContent();
+
+        $this->assertStringContainsString('/Image', $pdf);
+        $this->assertStringContainsString('Zusätzlicher Schaden Z1 · Radlauf hinten rechts', $this->toText($pdf));
+
+        // Printed, not stored: no document row, no file, no position.
+        $this->assertSame(0, VehicleReportDocument::count());
+        $this->assertSame([], Storage::disk('documents')->allFiles());
+        $this->assertSame(0, WorkshopAdditionalPosition::count());
+    }
+
+    public function test_each_unsent_photo_prints_under_its_own_additional_damage(): void
+    {
+        $order = $this->b2cOrder();
+        $this->tokenFor($order);
+        $quotation = WorkshopQuotation::firstOrFail();
+        $first = UploadedFile::fake()->image('a.jpg', 300, 200);
+        $second = UploadedFile::fake()->image('b.jpg', 300, 200);
+        $third = UploadedFile::fake()->image('c.png', 200, 300);
+
+        $document = app(WorkshopQuotationService::class)->pdfDocument($quotation, [
+            'additional_positions' => [
+                ['component' => 'Tür', 'amount_net' => '10.00', 'images' => [$first]],
+                ['component' => '', 'damage_description' => '', 'amount_net' => ''],
+                ['component' => 'Schweller', 'amount_net' => '20.00', 'images' => [$second, $third]],
+            ],
+        ]);
+
+        $this->assertCount(2, $document['additional_positions']);
+        $this->assertSame([$first], $document['additional_positions'][0]['image_uploads']);
+        $this->assertSame([$second, $third], $document['additional_positions'][1]['image_uploads']);
+    }
+
+    public function test_an_unsent_additional_damage_upload_must_be_an_image(): void
+    {
+        $token = $this->tokenFor($this->b2cOrder());
+
+        $this->post(route('workshop.quotations.pdf.draft', $token), [
+            'additional_positions' => [[
+                'component' => 'Tür',
+                'images' => [UploadedFile::fake()->create('schaden.pdf', 10, 'application/pdf')],
+            ]],
+        ], ['Accept' => 'application/json'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('additional_positions.0.images.0');
+    }
+
+    /** Gutachten photos still print beside the workshop's unsent ones. */
+    public function test_unsent_photos_keep_the_gutachten_position_photos(): void
+    {
+        $order = $this->b2cOrder();
+        AppraisalPosition::firstOrFail()->update(['damage_image_document_ids' => [$this->imageDocument($order)->id]]);
+        $token = $this->tokenFor($order);
+
+        $response = $this->post(route('workshop.quotations.pdf.draft', $token), [
+            'additional_positions' => [[
+                'component' => 'Schweller',
+                'amount_net' => '20.00',
+                'images' => [UploadedFile::fake()->image('schaden.jpg', 300, 200)],
+            ]],
+        ], ['Accept' => 'application/json']);
+
+        $text = $this->toText((string) $response->assertOk()->getContent());
+
+        $this->assertStringContainsString('Position 1 ·', $text);
+        $this->assertStringContainsString('Zusätzlicher Schaden Z1 · Schweller', $text);
     }
 
     // ------------------------------------------------------------ image appendix

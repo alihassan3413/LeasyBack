@@ -116,9 +116,10 @@ const totalNet = computed(() =>
 const showsAmounts = computed(() => props.quotation.shows_appraisal_amounts);
 
 /**
- * The PDF is printed from the form as it stands, unsent prices included, so it
- * is posted to the draft endpoint. Photos picked for additional damage are not
- * sent — they only exist on the server once the quotation is submitted.
+ * The PDF is printed from the form as it stands, unsent prices and photos
+ * included, so it is posted to the draft endpoint. The photos picked for
+ * additional damage travel with it so they print under their own card; the
+ * server embeds them in the document and stores nothing.
  */
 const pdfUrl = computed(() => route('workshop.quotations.pdf.draft', props.token));
 
@@ -136,6 +137,7 @@ function pdfDraft(): Record<string, unknown> {
             damage_description: position.damage_description,
             repair_method: position.repair_method,
             amount_net: position.amount_net,
+            images: position.images.map((image) => image.file),
         })),
     };
 }

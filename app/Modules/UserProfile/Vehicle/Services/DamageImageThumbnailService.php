@@ -29,7 +29,7 @@ class DamageImageThumbnailService
      * wide, so 320px keeps it sharp on paper without carrying a full-size
      * appraisal photo into every page of the PDF.
      */
-    private const PDF_WIDTH = 320;
+    public const PDF_WIDTH = 320;
 
     /**
      * Print width for the full-size photo section at the end of the PDF, laid
@@ -129,23 +129,7 @@ class DamageImageThumbnailService
                 return null;
             }
 
-            $jpeg = $this->toJpeg((string) $disk->get($source), $maxWidth);
-
-            if ($jpeg === null) {
-                return null;
-            }
-
-            $size = @getimagesizefromstring($jpeg);
-
-            if ($size === false) {
-                return null;
-            }
-
-            return [
-                'src' => 'data:image/jpeg;base64,'.base64_encode($jpeg),
-                'width' => (int) $size[0],
-                'height' => (int) $size[1],
-            ];
+            return $this->jpegDataUri((string) $disk->get($source), $maxWidth);
         } catch (Throwable $exception) {
             Log::info('Damage image not embedded in PDF', [
                 'path' => $path,
@@ -154,6 +138,52 @@ class DamageImageThumbnailService
 
             return null;
         }
+    }
+
+    /**
+     * Like pdfJpegDataUri(), from bytes that are not on disk — the photos a
+     * workshop has picked but not submitted yet, printed straight from the
+     * request without being stored.
+     *
+     * @return array{src: string, width: int, height: int}|null
+     */
+    public function pdfJpegDataUriFromContents(string $contents, int $maxWidth = self::PDF_WIDTH): ?array
+    {
+        if (! $this->isSupported()) {
+            return null;
+        }
+
+        try {
+            return $this->jpegDataUri($contents, $maxWidth);
+        } catch (Throwable $exception) {
+            Log::info('Uploaded damage image not embedded in PDF', ['error' => $exception->getMessage()]);
+
+            return null;
+        }
+    }
+
+    /**
+     * @return array{src: string, width: int, height: int}|null
+     */
+    private function jpegDataUri(string $contents, int $maxWidth): ?array
+    {
+        $jpeg = $this->toJpeg($contents, $maxWidth);
+
+        if ($jpeg === null) {
+            return null;
+        }
+
+        $size = @getimagesizefromstring($jpeg);
+
+        if ($size === false) {
+            return null;
+        }
+
+        return [
+            'src' => 'data:image/jpeg;base64,'.base64_encode($jpeg),
+            'width' => (int) $size[0],
+            'height' => (int) $size[1],
+        ];
     }
 
     public function delete(string $path): void

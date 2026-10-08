@@ -6,6 +6,7 @@ use App\Modules\UserProfile\Order\Models\WorkshopQuotation;
 use App\Modules\UserProfile\Vehicle\Services\DamageImageThumbnailService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use DateTimeInterface;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 
 /**
@@ -114,7 +115,7 @@ class WorkshopQuotationPdf
             'additional_positions' => array_map(fn (array $position) => [
                 ...$position,
                 'amount_net' => $this->euro($position['amount_net']),
-                'images' => $this->embed($position['image_paths']),
+                'images' => $this->embed([...$position['image_paths'], ...$position['image_uploads']]),
             ], $document['additional_positions']),
             'image_appendix' => $this->imageAppendix($document),
             'appraisal_total_net' => $this->euro($document['appraisal_total_net']),
@@ -142,7 +143,7 @@ class WorkshopQuotationPdf
      * dompdf gets both dimensions, which is what keeps a tall photo from
      * overlapping the row above it.
      *
-     * @param  array<int, string>  $paths
+     * @param  array<int, string|UploadedFile>  $paths  stored paths, or a draft's unsent uploads
      * @return array<int, array{src: string, width: int, height: int}>
      */
     private function embed(array $paths): array
@@ -150,7 +151,7 @@ class WorkshopQuotationPdf
         $images = [];
 
         foreach ($paths as $path) {
-            $image = $this->images->pdfJpegDataUri($path);
+            $image = $this->encode($path, DamageImageThumbnailService::PDF_WIDTH);
 
             if ($image === null) {
                 continue;
@@ -181,7 +182,7 @@ class WorkshopQuotationPdf
 
         foreach ([['positions', 'Position '], ['additional_positions', 'Zusätzlicher Schaden Z']] as [$key, $prefix]) {
             foreach ($document[$key] as $position) {
-                $images = $this->embedDetail($position['image_paths']);
+                $images = $this->embedDetail([...$position['image_paths'], ...($position['image_uploads'] ?? [])]);
 
                 if ($images !== []) {
                     $sections[] = [
@@ -200,7 +201,7 @@ class WorkshopQuotationPdf
      * Like embed(), but from the original upload and scaled to fit the large
      * appendix box, so a portrait photo does not run off the page.
      *
-     * @param  array<int, string>  $paths
+     * @param  array<int, string|UploadedFile>  $paths
      * @return array<int, array{src: string, width: int, height: int}>
      */
     private function embedDetail(array $paths): array
@@ -208,7 +209,7 @@ class WorkshopQuotationPdf
         $images = [];
 
         foreach ($paths as $path) {
-            $image = $this->images->pdfJpegDataUri($path, DamageImageThumbnailService::PDF_DETAIL_WIDTH);
+            $image = $this->encode($path, DamageImageThumbnailService::PDF_DETAIL_WIDTH);
 
             if ($image === null) {
                 continue;
@@ -227,6 +228,20 @@ class WorkshopQuotationPdf
         }
 
         return $images;
+    }
+
+    /**
+     * One photo as a JPEG data URI: a stored one from the documents disk, an
+     * unsent upload from the request's own temp file. Both end in the same
+     * encoder, so dompdf never fetches anything remote either way.
+     *
+     * @return array{src: string, width: int, height: int}|null
+     */
+    private function encode(string|UploadedFile $source, int $maxWidth): ?array
+    {
+        return $source instanceof UploadedFile
+            ? $this->images->pdfJpegDataUriFromContents((string) $source->get(), $maxWidth)
+            : $this->images->pdfJpegDataUri($source, $maxWidth);
     }
 
     /**

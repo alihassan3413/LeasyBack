@@ -4,7 +4,8 @@
  *
  * The PDF is built from what the form currently holds — prices typed but not
  * yet sent included — so it is posted rather than linked: a half-filled form
- * does not fit in a URL. The server stores nothing from this request. Print
+ * does not fit in a URL. Posted as multipart so picked photos (File values)
+ * go along; the server stores nothing from this request. Print
  * opens the returned document in a new tab so the browser's own PDF viewer
  * handles printing; the tab is opened inside the click so it is not blocked.
  */
@@ -33,17 +34,31 @@ function xsrfToken(): string {
     return match ? decodeURIComponent(match[1]) : '';
 }
 
+/** Bracket-keyed fields, as Laravel reads them; booleans as 1/0 for its `boolean` rule. */
+function toFormData(value: unknown, form = new FormData(), key = ''): FormData {
+    if (value instanceof Blob) {
+        form.append(key, value);
+    } else if (Array.isArray(value)) {
+        value.forEach((entry, index) => toFormData(entry, form, `${key}[${index}]`));
+    } else if (value !== null && typeof value === 'object') {
+        Object.entries(value).forEach(([name, entry]) => toFormData(entry, form, key ? `${key}[${name}]` : name));
+    } else if (value !== undefined) {
+        form.append(key, typeof value === 'boolean' ? (value ? '1' : '0') : value === null ? '' : String(value));
+    }
+
+    return form;
+}
+
 async function fetchPdf(download: boolean): Promise<{ blob: Blob; filename: string }> {
     const response = await fetch(download ? `${props.pdfUrl}?download=1` : props.pdfUrl, {
         method: 'POST',
         credentials: 'same-origin',
         headers: {
             Accept: 'application/pdf, application/json',
-            'Content-Type': 'application/json',
             'X-Requested-With': 'XMLHttpRequest',
             'X-XSRF-TOKEN': xsrfToken(),
         },
-        body: JSON.stringify(props.draft()),
+        body: toFormData(props.draft()),
     });
 
     if (!response.ok) {
