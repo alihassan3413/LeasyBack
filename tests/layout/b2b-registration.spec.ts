@@ -2,9 +2,9 @@ import { expect, test, type Page } from '@playwright/test';
 
 /**
  * "Später fertigstellen" and "Jetzt überspringen" on the B2B registration page.
- * Both must leave for Mein Konto — the dashboard sends a Firmenkunde without a
- * company straight back to this page — and must never submit the form, so
- * skipping works however much of it is filled in.
+ * Both leave for the dashboard — which, without a company, is its read-only
+ * pending version with a banner back to this page — and must never submit the
+ * form, so skipping works however much of it is filled in.
  */
 
 async function open(page: Page) {
@@ -19,11 +19,11 @@ const skipNow = (page: Page) => page.getByRole('link', { name: 'Jetzt übersprin
 const finishLater = (page: Page) => page.getByRole('link', { name: 'Später fertigstellen' });
 
 test.describe('skipping the registration', () => {
-    test('both escape hatches lead to Mein Konto, not the dashboard', async ({ page }) => {
+    test('both escape hatches lead to the dashboard', async ({ page }) => {
         await open(page);
 
-        await expect(skipNow(page)).toHaveAttribute('href', '/profile.edit');
-        await expect(finishLater(page)).toHaveAttribute('href', '/profile.edit');
+        await expect(skipNow(page)).toHaveAttribute('href', '/dashboard');
+        await expect(finishLater(page)).toHaveAttribute('href', '/dashboard');
     });
 
     for (const [label, link] of [
@@ -33,9 +33,9 @@ test.describe('skipping the registration', () => {
         test(`"${label}" on an empty form navigates away without submitting`, async ({ page }) => {
             await open(page);
 
-            await Promise.all([page.waitForURL('**/profile.edit'), link(page).click()]);
+            await Promise.all([page.waitForURL('**/dashboard'), link(page).click()]);
 
-            expect(new URL(page.url()).pathname).toBe('/profile.edit');
+            expect(new URL(page.url()).pathname).toBe('/dashboard');
         });
 
         test(`"${label}" on a half-filled form does not submit or validate it`, async ({ page }) => {
@@ -44,10 +44,10 @@ test.describe('skipping the registration', () => {
             await page.locator('#company_number').fill('12');
 
             const before = await submissions(page);
-            await Promise.all([page.waitForURL('**/profile.edit'), link(page).click()]);
+            await Promise.all([page.waitForURL('**/dashboard'), link(page).click()]);
 
             expect(before).toEqual([]);
-            expect(new URL(page.url()).pathname).toBe('/profile.edit');
+            expect(new URL(page.url()).pathname).toBe('/dashboard');
         });
     }
 

@@ -66,6 +66,12 @@ const props = withDefaults(
         /** A few of the vehicles this member can reach, newest first. */
         myVehicles?: VehicleData[];
         /** Saved addresses, billing addresses and cost centres the service forms offer. */
+        /**
+         * The Firmenkunde skipped company registration and belongs to no
+         * company yet. Every other prop is absent: the page shows the service
+         * catalogue as information and the way back to registration.
+         */
+        companyPending?: boolean;
         relocationOptions?: {
             address_profiles: { id: string; profile_name: string; details: AddressDetails | null }[];
             billing_addresses?: { id: string; name: string; details: AddressDetails | null; is_default: boolean }[];
@@ -81,6 +87,7 @@ const props = withDefaults(
         statistics: null,
         myOverview: null,
         myVehicles: () => [],
+        companyPending: false,
     },
 );
 
@@ -228,7 +235,7 @@ function isLaunchable(service: ServiceDefinition): boolean {
 /** Right-hand label for a row that can't be started by this reader. */
 function rowLabel(service: ServiceDefinition): string {
     if (service.availability === 'bookable') {
-        return 'Keine Berechtigung';
+        return props.companyPending ? 'Firmendaten erforderlich' : 'Keine Berechtigung';
     }
 
     return AVAILABILITY_LABELS[service.availability];
@@ -316,6 +323,31 @@ function onOnboardingOpenChange(value: boolean) {
                 </button>
             </header>
 
+            <!-- Company registration skipped: what is locked, and the way to unlock it. -->
+            <section
+                v-if="companyPending"
+                class="border-brand-orange/30 bg-brand-orange/5 mb-6 flex flex-col gap-4 rounded-xl border p-5 sm:flex-row sm:items-center sm:justify-between"
+                aria-labelledby="company-pending-title"
+            >
+                <div class="flex items-start gap-3">
+                    <span class="bg-brand-orange/15 text-brand-orange flex size-10 shrink-0 items-center justify-center rounded-full">
+                        <IconMdiOfficeBuildingOutline class="size-5" aria-hidden="true" />
+                    </span>
+                    <div>
+                        <h2 id="company-pending-title" class="text-brand-teal text-[15px] font-semibold">Firmendaten vervollständigen</h2>
+                        <p class="text-muted-foreground mt-1 text-[13.5px]">
+                            Hinterlegen Sie Ihre Firmendaten, um Fahrzeuge, Aufträge, Ihr Team und die Buchung von Leistungen freizuschalten.
+                        </p>
+                    </div>
+                </div>
+                <Link
+                    :href="route('onboarding.b2b.show')"
+                    class="bg-brand-orange hover:bg-brand-orange/90 shrink-0 rounded-[6px] px-5 py-2.5 text-center text-[13.5px] font-bold whitespace-nowrap text-white transition-colors"
+                >
+                    Firmendaten hinterlegen
+                </Link>
+            </section>
+
             <!-- ════════════════════════════════════════════════════════════
                  Leistungen — the primary workflow, and the first section on
                  the page for every role. Starting a return is what a company
@@ -348,7 +380,7 @@ function onOnboardingOpenChange(value: boolean) {
                     >
                         Starten
                     </span>
-                    <span v-else class="text-muted-foreground shrink-0 text-[12px] whitespace-nowrap">Keine Berechtigung</span>
+                    <span v-else class="text-muted-foreground shrink-0 text-[12px] whitespace-nowrap">{{ rowLabel(BOOKABLE_SERVICE) }}</span>
                 </component>
 
                 <!-- Every other service. A bookable one is a button; the rest

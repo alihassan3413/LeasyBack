@@ -56,7 +56,7 @@ const roleLabels: Record<UserType, string> = {
     Admin: 'Administrator',
 };
 
-const { can, canSwitchCompany, isCompanyUser } = useB2bPermissions();
+const { can, canSwitchCompany, isCompanyUser, isCompanyPending } = useB2bPermissions();
 
 /**
  * The role the navigation is built for — the *effective* one, not the raw
@@ -81,7 +81,9 @@ const navItems = computed<NavItem[]>(() => {
         return [];
     }
 
-    return navByRole[role].filter((item) => !item.permission || can(item.permission));
+    // Before company registration the dashboard is the one company page open
+    // to them (catalogue plus the registration banner); the rest stays hidden.
+    return navByRole[role].filter((item) => !item.permission || can(item.permission) || (isCompanyPending.value && item.name === 'dashboard'));
 });
 
 const roleLabel = computed(() => {

@@ -599,13 +599,23 @@ class DashboardControllerTest extends TestCase
             ->assertRedirect(route('admin.dashboard'));
     }
 
-    public function test_a_firmenkunde_without_a_company_is_sent_to_registration(): void
+    /**
+     * Company registration skipped: the dashboard is the read-only pending
+     * version of the company dashboard, not a redirect back to the form.
+     */
+    public function test_a_firmenkunde_without_a_company_gets_the_pending_dashboard(): void
     {
         $user = User::factory()->create(['user_type' => UserType::Firmenkunde]);
 
         $this->actingAs($user)
             ->get(route('dashboard'))
-            ->assertRedirect(route('onboarding.b2b.show'));
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->component('b2b/Dashboard')
+                ->where('companyPending', true)
+            );
+
+        $this->assertSendsEveryDeclaredProp($user, 'b2b/Dashboard');
     }
 
     // ── The page components and the props the server sends ─────────
@@ -673,6 +683,7 @@ class DashboardControllerTest extends TestCase
         $this->makeB2bOrder($this->makeB2bVehicle($company));
 
         $this->assertSendsEveryDeclaredProp($this->makeOwner($company), 'b2b/Dashboard');
+        $this->actingAs($this->makeOwner($company))->get(route('dashboard'))->assertInertia(fn (AssertableInertia $page) => $page->where('companyPending', false));
         $this->assertSendsEveryDeclaredProp($this->makeMember($company, B2bRolePreset::StandardUser->permissions()->toArray()), 'b2b/Dashboard');
     }
 

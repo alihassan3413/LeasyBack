@@ -11,7 +11,39 @@ test.describe('company registration', () => {
 
         await expect(page).toHaveURL(/\/onboarding\/b2b/);
         await page.getByRole('link', { name: 'Jetzt überspringen' }).click();
-        await expect(page).toHaveURL(/\/settings\/profile/);
+
+        // The pending dashboard: the catalogue to look at, nothing bookable, and the way back.
+        await expect(page).toHaveURL(/\/dashboard/);
+        await expect(page.getByRole('heading', { name: 'Firmendaten vervollständigen' })).toBeVisible();
+        await expect(page.getByRole('button', { name: /^Leasingrückgabe/ })).toHaveCount(0);
+        await expect(page.getByText('Firmendaten erforderlich').first()).toBeVisible();
+
+        const nav = page.getByRole('navigation');
+        await expect(nav.getByRole('button', { name: 'Mein Dashboard' })).toBeVisible();
+        await expect(nav.getByRole('button', { name: 'Fahrzeuge' })).toHaveCount(0);
+        await expect(nav.getByRole('button', { name: 'Aufträge' })).toHaveCount(0);
+
+        // A locked page is still locked: straight to registration.
+        await page.goto('/fahrzeuge');
+        await expect(page).toHaveURL(/\/onboarding\/b2b/);
+
+        // "Später fertigstellen" lands on the same dashboard, and its banner leads back.
+        await page.getByRole('link', { name: 'Später fertigstellen' }).click();
+        await expect(page).toHaveURL(/\/dashboard/);
+        await page.getByRole('link', { name: 'Firmendaten hinterlegen' }).click();
+        await expect(page).toHaveURL(/\/onboarding\/b2b/);
+
+        // On a phone the bottom tab bar offers the dashboard too, and the banner is there.
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.goto('/dashboard');
+        await expect(page.getByRole('heading', { name: 'Firmendaten vervollständigen' })).toBeVisible();
+        await expect(page.getByRole('button', { name: 'Mein Dashboard' }).filter({ visible: true })).toHaveCount(1);
+        await page.setViewportSize({ width: 1280, height: 720 });
+
+        // Mein Konto names the account instead of "—" while there is no company.
+        await page.goto('/settings/profile');
+        await expect(page.getByText('e2e.registriert', { exact: true }).first()).toBeVisible();
+        await expect(page.getByText('—', { exact: true })).toHaveCount(0);
 
         await page
             .getByRole('button', { name: /Ausloggen|Abmelden/ })

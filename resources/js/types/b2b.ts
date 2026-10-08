@@ -149,6 +149,8 @@ export interface B2bSharedState {
     permissions: B2bPermissionValue[];
     /** True for accounts that keep a private area to switch back to. */
     personal_available: boolean;
+    /** Firmenkunde who skipped company registration (no company, not deactivated). */
+    company_pending: boolean;
 }
 
 export interface B2bMemberRow {

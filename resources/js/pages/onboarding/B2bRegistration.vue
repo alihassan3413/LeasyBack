@@ -20,14 +20,13 @@ const page = usePage<SharedData>();
 const form = useForm<B2bRegistrationFormData>(companyFormData(null, page.props.auth.user?.email ?? ''));
 
 /*
- * "Später fertigstellen" and "Jetzt überspringen" leave the form for Mein
- * Konto, not the dashboard: the dashboard sends a Firmenkunde without a company
- * straight back here (BuildsFleetPage::fleetAccessRedirect), so skipping to it
- * kept the user on this page. Mein Konto is their home until a company exists
- * and offers this form again ("Firmendaten hinterlegen"). Nothing is stored or
- * marked done by skipping — the next visit to the dashboard asks again.
+ * "Später fertigstellen" and "Jetzt überspringen" leave the form for the
+ * dashboard. Without a company it is a read-only version of itself
+ * (DashboardController::companyPendingDashboard): the service catalogue and a
+ * banner leading back here. Nothing is stored or marked done by skipping, and
+ * nothing company-scoped unlocks until the company is registered.
  */
-const skipHref = route('profile.edit');
+const skipHref = route('dashboard');
 
 function submit() {
     // Always multipart: the logo is a File, and the payload shape must not

@@ -38,30 +38,41 @@ const companyData = computed(() => props.company?.data ?? null);
 
 const contact = computed(() => (isCompanyAccount.value ? (companyData.value?.contact ?? null) : (props.profile?.contact ?? null)));
 
+/**
+ * Who the account is when there is nothing better to show: a Firmenkunde who
+ * has not registered their company yet (or may not see its data) has no
+ * company name, and a new private account no contact person. Their account
+ * name — what the sidebar shows — or their email, rather than "—" and "•".
+ */
+const accountName = computed(() => page.props.auth.user?.name?.trim() || email.value);
+
 const fullName = computed(() => {
     // The company's own name identifies a company account better than whoever
     // happens to administer it.
     if (isCompanyAccount.value) {
-        return companyData.value?.company_name ?? '';
+        return companyData.value?.company_name || accountName.value;
     }
 
     if (!contact.value) {
-        return '';
+        return accountName.value;
     }
 
-    return [contact.value.first_name, contact.value.last_name].filter(Boolean).join(' ');
+    return [contact.value.first_name, contact.value.last_name].filter(Boolean).join(' ') || accountName.value;
 });
 
+/** Up to two letters: a company's as before, otherwise the first of each of the first two words. */
 const initials = computed(() => {
-    if (isCompanyAccount.value) {
-        return (companyData.value?.company_name ?? '').trim().slice(0, 2).toUpperCase() || '•';
+    if (isCompanyAccount.value && companyData.value?.company_name) {
+        return companyData.value.company_name.trim().slice(0, 2).toUpperCase();
     }
 
-    if (!contact.value) {
-        return '•';
-    }
+    const words = fullName.value
+        .replace(/@.*$/, '')
+        .split(/[\s._-]+/)
+        .filter(Boolean);
+    const letters = words.length > 1 ? words[0][0] + words[1][0] : (words[0] ?? '').slice(0, 2);
 
-    return ((contact.value.first_name?.[0] ?? '') + (contact.value.last_name?.[0] ?? '')).toUpperCase() || '•';
+    return letters.toUpperCase() || '•';
 });
 
 const sections = computed(() => {

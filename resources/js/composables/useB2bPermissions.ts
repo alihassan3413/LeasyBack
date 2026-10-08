@@ -27,6 +27,13 @@ export function useB2bPermissions() {
     const hasPersonalArea = computed(() => state.value?.personal_available === true);
 
     /**
+     * A Firmenkunde who skipped company registration: a company account with
+     * no company yet. Their only company surface is the dashboard (catalogue
+     * and the way back to registration); everything else stays locked.
+     */
+    const isCompanyPending = computed(() => state.value?.company_pending === true);
+
+    /**
      * Worth showing a switcher for: more than one company, or one company plus
      * a private area to go back to.
      */
@@ -51,5 +58,5 @@ export function useB2bPermissions() {
         return permissions.some((permission) => can(permission));
     }
 
-    return { membership, memberships, isCompanyUser, isOwner, seesOwnVehiclesOnly, hasPersonalArea, canSwitchCompany, can, canAny };
+    return { membership, memberships, isCompanyUser, isCompanyPending, isOwner, seesOwnVehiclesOnly, hasPersonalArea, canSwitchCompany, can, canAny };
 }

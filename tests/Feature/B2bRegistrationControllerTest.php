@@ -461,15 +461,23 @@ class B2bRegistrationControllerTest extends TestCase
     // ── Skipping the registration ("Später fertigstellen", "Jetzt überspringen") ─
 
     /**
-     * Both links lead to Mein Konto. The dashboard is no destination for a
-     * Firmenkunde without a company — it sends them straight back to this
-     * form, which is the loop the skip buttons used to fall into.
+     * Both links lead to the dashboard, which without a company is its pending
+     * version: nothing company-scoped, and a banner back to this form. Mein
+     * Konto keeps offering the registration as well.
      */
-    public function test_skipping_lands_on_mein_konto_which_offers_the_registration_again(): void
+    public function test_skipping_lands_on_the_pending_dashboard_which_offers_the_registration_again(): void
     {
         $user = $this->firmenkunde();
 
-        $this->actingAs($user)->get(route('dashboard'))->assertRedirect(route('onboarding.b2b.show'));
+        $this->actingAs($user)
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->component('b2b/Dashboard')
+                ->where('companyPending', true)
+                ->where('auth.b2b.company_pending', true)
+                ->etc()
+            );
 
         $this->actingAs($user)
             ->get(route('profile.edit'))
@@ -482,7 +490,7 @@ class B2bRegistrationControllerTest extends TestCase
     }
 
     /** Skipping is navigation only: nothing is stored and nothing is marked done. */
-    public function test_skipping_stores_nothing_and_the_dashboard_still_asks_for_the_company(): void
+    public function test_skipping_stores_nothing_and_the_dashboard_stays_pending(): void
     {
         $user = $this->firmenkunde();
         $before = $user->fresh()->getAttributes();
@@ -493,7 +501,7 @@ class B2bRegistrationControllerTest extends TestCase
         $this->assertDatabaseCount('b2b', 0);
         $this->assertDatabaseCount('user_b2b', 0);
         $this->assertEquals(Arr::except($before, ['updated_at', 'last_seen_at']), Arr::except($user->fresh()->getAttributes(), ['updated_at', 'last_seen_at']));
-        $this->actingAs($user)->get(route('dashboard'))->assertRedirect(route('onboarding.b2b.show'));
+        $this->actingAs($user)->get(route('dashboard'))->assertOk()->assertInertia(fn (AssertableInertia $page) => $page->where('companyPending', true));
         $this->actingAs($user)->get(route('onboarding.b2b.show'))->assertOk();
     }
 

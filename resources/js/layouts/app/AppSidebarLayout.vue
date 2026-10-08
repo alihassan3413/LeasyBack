@@ -57,7 +57,7 @@ const navByRole: Record<UserType, NavItem[]> = {
     Admin: [],
 };
 
-const { can, canSwitchCompany, isCompanyUser } = useB2bPermissions();
+const { can, canSwitchCompany, isCompanyUser, isCompanyPending } = useB2bPermissions();
 
 /**
  * Only one shell is mounted. Hiding the other with CSS still mounted the page
@@ -88,7 +88,9 @@ const navItems = computed<NavItem[]>(() => {
         return [];
     }
 
-    return navByRole[role].filter((item) => !item.permission || can(item.permission));
+    // Before company registration the dashboard is the one company page open
+    // to them (catalogue plus the registration banner); the rest stays hidden.
+    return navByRole[role].filter((item) => !item.permission || can(item.permission) || (isCompanyPending.value && item.name === 'dashboard'));
 });
 
 function isActive(name: string) {

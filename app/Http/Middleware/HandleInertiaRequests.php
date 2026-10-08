@@ -176,6 +176,12 @@ class HandleInertiaRequests extends Middleware
                 $memberships,
             ),
             'permissions' => $active?->permissions->toArray() ?? [],
+            // Skipped company registration: no company yet, and not a member
+            // who lost access. Same rule as DashboardController's pending page.
+            'company_pending' => $active === null
+                && $memberships === []
+                && $user->user_type === UserType::Firmenkunde
+                && ! $this->b2bContext->hasInactiveMembership($user),
         ];
     }
 }

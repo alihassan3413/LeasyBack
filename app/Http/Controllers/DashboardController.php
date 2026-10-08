@@ -3,9 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Enums\B2bPermission;
+use App\Enums\UserType;
 use App\Http\Controllers\Concerns\BuildsFleetPage;
 use App\Models\InspectionStation;
 use App\Models\User;
+use App\Modules\UserProfile\B2B\Data\B2bMembership;
 use App\Modules\UserProfile\B2B\Services\B2bAnalyticsService;
 use App\Modules\UserProfile\B2B\Services\B2bContext;
 use App\Modules\UserProfile\B2B\Services\B2bStatisticsService;
@@ -54,6 +56,10 @@ class DashboardController extends Controller
         $user = $request->user();
         $membership = $this->b2bContext->activeMembership($user);
 
+        if ($this->awaitsCompanyRegistration($user, $membership)) {
+            return $this->companyPendingDashboard();
+        }
+
         if ($redirect = $this->fleetAccessRedirect($user, $membership)) {
             return $redirect;
         }
@@ -101,6 +107,7 @@ class DashboardController extends Controller
         }
 
         return Inertia::render('b2b/Dashboard', [
+            'companyPending' => false,
             // Only the vehicles a service can actually be booked for. One
             // already in a process is not an option the picker should offer,
             // and the server refuses a second order for it either way.
@@ -141,6 +148,47 @@ class DashboardController extends Controller
             // service the statistics page already aggregates them with — the
             // dashboard reads the same numbers rather than deriving its own.
             'statistics' => $seesCompanyOverview ? $this->statistics->summary($membership, $user->id) : null,
+        ]);
+    }
+
+    /**
+     * A Firmenkunde who skipped company registration ("Jetzt überspringen" /
+     * "Später fertigstellen"). They belong to no company, so there is nothing
+     * of one to show — but the dashboard is still theirs: the service
+     * catalogue to look at and the way back to registration.
+     *
+     * A deactivated member is not this case: they had a company and lost
+     * access, and fleetAccessRedirect() refuses them as before.
+     */
+    private function awaitsCompanyRegistration(User $user, ?B2bMembership $membership): bool
+    {
+        return $membership === null
+            && $user->user_type === UserType::Firmenkunde
+            && ! $this->b2bContext->hasInactiveMembership($user);
+    }
+
+    /**
+     * The dashboard without a company. Nothing company-scoped is queried or
+     * sent: no vehicles, orders, figures or saved company data. Every action
+     * stays refused server-side regardless — the fleet pages redirect to
+     * registration (fleetAccessRedirect) and every company route answers
+     * through EnsureB2bPermission, which sends a company-less Firmenkunde to
+     * the registration form too.
+     */
+    private function companyPendingDashboard(): Response
+    {
+        // Every prop the page declares, empty — the page never reads one that
+        // is missing (DashboardControllerTest pins that), and none carries data.
+        return Inertia::render('b2b/Dashboard', [
+            'companyPending' => true,
+            'bookableVehicles' => [],
+            'myOverview' => null,
+            'myVehicles' => [],
+            'recentOrders' => [],
+            'stations' => [],
+            'relocationOptions' => ['address_profiles' => [], 'billing_addresses' => [], 'saved_cost_centres' => [], 'cost_centres' => []],
+            'analytics' => null,
+            'statistics' => null,
         ]);
     }
 
