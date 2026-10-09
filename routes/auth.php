@@ -4,6 +4,7 @@ use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\ConfirmablePasswordController;
 use App\Http\Controllers\Auth\EmailVerificationNotificationController;
 use App\Http\Controllers\Auth\EmailVerificationPromptController;
+use App\Http\Controllers\Auth\LegacyActivationController;
 use App\Http\Controllers\Auth\NewPasswordController;
 use App\Http\Controllers\Auth\PasswordResetLinkController;
 use App\Http\Controllers\Auth\RegisteredUserController;
@@ -32,6 +33,14 @@ Route::middleware('guest')->group(function () {
 
     Route::post('reset-password', [NewPasswordController::class, 'store'])
         ->name('password.store');
+
+    // The link in the Base44 activation mail (legacy:send-activation-emails).
+    Route::get('konto-aktivieren/{token}', [LegacyActivationController::class, 'create'])
+        ->name('legacy-activation.create');
+
+    Route::post('konto-aktivieren', [LegacyActivationController::class, 'store'])
+        ->middleware('throttle:6,1')
+        ->name('legacy-activation.store');
 });
 
 Route::middleware(['auth', 'active'])->group(function () {

@@ -10,9 +10,21 @@ import { Head, useForm } from '@inertiajs/vue3';
 interface Props {
     token: string;
     email: string;
+    /**
+     * Where the form posts. The Base44 account activation reuses this page
+     * with its own broker (LegacyActivationController); a normal reset keeps
+     * the default.
+     */
+    submitRoute?: string;
+    heading?: string;
+    intro?: string | null;
 }
 
-const props = defineProps<Props>();
+const props = withDefaults(defineProps<Props>(), {
+    submitRoute: 'password.store',
+    heading: 'Neues Passwort festlegen',
+    intro: null,
+});
 
 const form = useForm({
     token: props.token,
@@ -22,7 +34,7 @@ const form = useForm({
 });
 
 const submit = () => {
-    form.post(route('password.store'), {
+    form.post(route(props.submitRoute), {
         onFinish: () => {
             form.reset('password', 'password_confirmation');
         },
@@ -36,10 +48,13 @@ const fieldClass = 'h-auto rounded-full border-brand-green-gray bg-white px-4 py
 
 <template>
     <AuthLayout>
-        <Head title="Neues Passwort festlegen" />
+        <Head :title="heading" />
 
         <div class="flex flex-col py-8">
-            <p class="text-brand-teal mx-auto my-8 max-w-[292px] text-left text-lg font-bold xl:text-xl">Neues Passwort festlegen</p>
+            <p class="text-brand-teal mx-auto mt-8 max-w-[292px] text-left text-lg font-bold xl:text-xl" :class="intro ? 'mb-3' : 'mb-8'">
+                {{ heading }}
+            </p>
+            <p v-if="intro" class="text-muted-foreground mx-auto mb-8 max-w-[292px] text-left text-sm">{{ intro }}</p>
 
             <form class="space-y-5" @submit.prevent="submit">
                 <FormField id="email" v-slot="{ id, describedBy, invalid }" label="E-Mail-Adresse" required :error="form.errors.email">
