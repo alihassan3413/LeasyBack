@@ -56,34 +56,41 @@ resets the password back to whatever `.env` currently holds.
 
 ## 2. Every release after that
 
-One command for every branch and every server:
+One command, nothing to answer:
 
 ```bash
-# main
-bash /var/www/LeasyBack/deploy/deploy.sh --yes
+# redeploy the branch that is live (e.g. feat/base44-migration on AWS)
+bash /var/www/LeasyBack/deploy/deploy.sh
 
-# any other branch (it must exist on origin)
-bash /var/www/LeasyBack/deploy/deploy.sh --branch=feat/base44-migration --yes
+# switch the server to another branch
+bash /var/www/LeasyBack/deploy/deploy.sh --branch=main
+
+# only check that everything runs — deploys nothing
+bash /var/www/LeasyBack/deploy/deploy.sh --check
 ```
 
-Or in one line from your machine: `ssh deploy@<server> 'bash /var/www/LeasyBack/deploy/deploy.sh --yes'`.
+Every deploy ends with a **system check** that prints ✓ or ✗ — with the exact fix
+command under every ✗ — for: the app (`/up`), PHP-FPM, Nginx, the queue (a
+`QUEUE_CONNECTION=null` throws the Gutachten extraction away; `sync` runs it inline;
+`database`/`redis` need the worker running), Reverb, the scheduler cron, `pdftotext`
+and `pdfimages` (Gutachten positions and images), the PHP extensions PHP-FPM loads
+(gd, zip, bcmath, intl, sqlite, xml, curl, gmp, …), GD with WebP (thumbnails), the
+PHP and Nginx upload limits (a Gutachten may be 50 MB), write access for `www-data`,
+`public/storage`, disk space, the mailer and Lexware. A ✗ makes the command exit 1,
+but the deploy itself has already gone through.
 
-- **Branch:** `--branch=NAME`, otherwise `main`. A `BRANCH` left in `config.sh` is not used.
-- **`.env` checks** (any server): `APP_KEY` set, no `CHANGE_ME` placeholders, no
-  `APP_DEBUG=true` with `APP_ENV=production`, and no shell variable overriding `.env`.
-  What the `.env` connects to (mailer, queue, integrations) is the server's own choice —
-  the deploy does not judge it.
-- **Queue workers and Reverb:** `queue:restart` is always signalled; the supervisor programs
-  `leasyback-worker:*` and `leasyback-reverb` are restarted and must come back `RUNNING`
-  *where they exist*. A server without them (the AWS copy) just skips that step.
+What still stops a deploy — only what would damage data or leave the app unusable:
+no `APP_KEY`, a missing or corrupt SQLite database, a failed backup before migrating,
+a failed migration, a branch that does not exist. Everything else is a warning: local
+edits to tracked files are **stashed** (`git stash list`), a force-pushed branch is
+deployed anyway (`--rollback` returns to the previous commit).
 
 Each run, in order — any failure stops it, and the app is brought back up:
 
 1. **Pre-flight, nothing changed yet:** repo root and `origin` (`REPO_URL`), tools,
    the *running* PHP-FPM version (detected — `PHP_VERSION` only pins it), Node 20+,
-   `git fetch` of the branch (refused if it was force-pushed, unless
-   `--allow-non-fast-forward`), a clean working tree (else `--allow-dirty`), the
-   `.env` checks above, and the SQLite file: must exist (never created), not a
+   `git fetch` of the branch (a force-push is deployed with a warning), local edits
+   stashed, `APP_KEY` present, and the SQLite file: must exist (never created), not a
    symlink, `PRAGMA integrity_check` ok.
 2. Maintenance mode → checkout → `composer install --no-dev --optimize-autoloader`
    → `npm ci && npm run build` (fails without `public/build/manifest.json`).
@@ -93,8 +100,8 @@ Each run, in order — any failure stops it, and the app is brought back up:
 4. `storage:link` if missing, `optimize:clear`, config/view/event caches, route cache where possible.
 5. Group `WEB_GROUP` (www-data) on storage, bootstrap/cache and the database, verified.
 6. `nginx -t` (when sudo allows it), reload php-fpm and nginx; restart workers/Reverb where configured.
-7. Maintenance off → `GET APP_URL/up` through this server's nginx must answer 200 →
-   summary: branch/commit, migrations, frontend build, php-fpm/nginx/supervisor status.
+7. Maintenance off → summary (branch/commit, migrations, frontend build) → the system
+   check described above.
 
 Output is timestamped (UTC) and written to `DEPLOY_LOG_DIR` (default
 `~/leasyback-deploy-logs`, outside the repo). The script runs from a temporary
@@ -105,11 +112,12 @@ A deploy **never** runs `legacy:import` or any `legacy:*` command, `db:seed`
 `/secure/base44-export`. The Base44 migration stays a separate, explicit action
 (`scripts/base44-rehearsal.sh`, then `php artisan legacy:import`).
 
-Flags: `--branch NAME` / `--branch=NAME`, `--no-build`, `--no-migrate`, `--rollback`,
-`--seed`, `--allow-dirty`, `--allow-non-fast-forward`, `--yes`, `--help`.
+Flags: `--branch NAME` / `--branch=NAME`, `--check`, `--no-build`, `--no-migrate`,
+`--rollback`, `--seed`, `--help`. (`--yes`, `--allow-dirty`, `--allow-non-fast-forward`,
+`--rehearsal`, `--production` from earlier versions are accepted and ignored.)
 
 ```bash
-bash deploy/deploy.sh --rollback --yes   # back to the previously deployed commit
+bash deploy/deploy.sh --rollback   # back to the previously deployed commit
 ```
 
 **Changed from earlier versions:** there are no modes any more — `--rehearsal`,

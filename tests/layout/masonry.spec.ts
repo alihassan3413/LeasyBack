@@ -195,6 +195,44 @@ test.describe('responding to change', () => {
         }
     });
 
+    /**
+     * A card resizing under the user's pointer (the Übergabeprotokoll card
+     * switching between Link and PDF) used to send other cards jumping across
+     * columns: [300, 280, 20] packs the 20px card under the 280px one, but
+     * once that card grows to 350px the optimum puts the 20px card under the
+     * first. Before any interaction that still happens; after one, cards stay.
+     */
+    test('keeps every card in its column when heights change after the user interacted', async ({ page }) => {
+        await page.setViewportSize({ width: 1200, height: 900 });
+        const columnsOf = () =>
+            page.evaluate(() => [...document.querySelectorAll('.grid > .card')].map((card) => Math.round(card.getBoundingClientRect().left)));
+        const settle = () => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+
+        // Without interaction the grid still rebalances (content loading after mount).
+        await open(page, [300, 280, 20]);
+        const loaded = await columnsOf();
+        await page.evaluate(() => window.setHeights([300, 350, 20]));
+        await settle();
+        expect((await columnsOf())[2], 'rebalanced while untouched').not.toBe(loaded[2]);
+
+        // After a click inside the grid, a height change moves nobody sideways.
+        await open(page, [300, 280, 20]);
+        const before = await columnsOf();
+        await page.locator('.card').nth(1).click();
+        await page.evaluate(() => window.setHeights([300, 350, 20]));
+        await settle();
+        expect(await columnsOf()).toEqual(before);
+
+        const placement = await readPlacement(page);
+        expect(placement.overlaps).toBe(false);
+        expect(placement.gaps.every((gap) => gap === GAP)).toBe(true);
+
+        // A structural change (a card added) still rebalances.
+        await page.evaluate(() => window.setHeights([300, 350, 20, 400]));
+        await settle();
+        expect((await readPlacement(page)).overlaps).toBe(false);
+    });
+
     test('sheds and regains columns across breakpoints', async ({ page }) => {
         await open(page, PROFILES.orderPlaced);
 

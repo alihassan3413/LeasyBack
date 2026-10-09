@@ -42,6 +42,23 @@ const root = ref<HTMLElement | null>(null);
  */
 const measured = ref(false);
 
+/**
+ * The last placement. Balancing is a global optimum, so a card growing by a
+ * few pixels — a form switching fields, an error appearing — can make a
+ * different arrangement "better" and send cards jumping across columns under
+ * the user's pointer. Once the user has interacted with the grid, a change in
+ * heights alone keeps every card in its column; only the rows are recomputed.
+ * Cards coming or going, or a different width or column count, rebalance.
+ * Until the first interaction everything rebalances freely, so content that
+ * loads after mount (messages, documents) still packs well.
+ */
+let placed: { cards: HTMLElement[]; columns: number; width: number; assignment: number[] } | null = null;
+let interacted = false;
+
+function onInteract(): void {
+    interacted = true;
+}
+
 let cardObserver: ResizeObserver | null = null;
 let rootObserver: ResizeObserver | null = null;
 let mutationObserver: MutationObserver | null = null;
@@ -185,8 +202,21 @@ function layout(): void {
     }
 
     const columns = getComputedStyle(element).gridTemplateColumns.split(' ').filter(Boolean).length || 1;
+    const width = Math.round(element.getBoundingClientRect().width);
     const heights = items.map((card) => Math.max(1, Math.ceil(card.getBoundingClientRect().height)));
-    const assignment = balance(heights, columns, props.gap);
+    const sameStructure =
+        placed !== null &&
+        placed.columns === columns &&
+        placed.width === width &&
+        placed.cards.length === items.length &&
+        placed.cards.every((card, index) => card === items[index]);
+
+    if (!sameStructure) {
+        interacted = false;
+    }
+
+    const assignment = sameStructure && interacted ? placed!.assignment : balance(heights, columns, props.gap);
+    placed = { cards: items, columns, width, assignment };
     const offsets = new Array(columns).fill(0);
 
     items.forEach((card, index) => {
@@ -245,12 +275,18 @@ onMounted(() => {
     mutationObserver = new MutationObserver(watchCards);
     mutationObserver.observe(root.value, { childList: true });
 
+    // pointerdown runs before the click that changes a card's height.
+    root.value.addEventListener('pointerdown', onInteract, true);
+    root.value.addEventListener('focusin', onInteract, true);
+
     watchCards();
     layout();
 });
 
 onBeforeUnmount(() => {
     cancelAnimationFrame(frame);
+    root.value?.removeEventListener('pointerdown', onInteract, true);
+    root.value?.removeEventListener('focusin', onInteract, true);
     cardObserver?.disconnect();
     rootObserver?.disconnect();
     mutationObserver?.disconnect();

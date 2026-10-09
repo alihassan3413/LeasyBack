@@ -137,7 +137,8 @@ class DeployScriptTest extends TestCase
         $block = Str::between($code, 'restart_background() {', "\n}\n");
 
         $this->assertSame(substr_count($code, 'supervisorctl restart'), substr_count($block, 'supervisorctl restart'));
-        $this->assertStringNotContainsString('supervisorctl start', $code);
+        // The system check only *prints* `supervisorctl start` as a fix; it never runs it.
+        $this->assertStringNotContainsString('sudo -n supervisorctl start', $code);
         $this->assertSame(1, substr_count($code, 'artisan queue:restart'));
         $this->assertStringContainsString('artisan queue:restart', $block);
     }
@@ -218,43 +219,93 @@ class DeployScriptTest extends TestCase
         $this->assertSame('rc=64', $rc('--bogus'));
     }
 
-    /** The retired mode and branch flags still run (old command lines), ignored with a note. */
+    /** Flags from earlier versions still run (old command lines); none of them is needed any more. */
     public function test_retired_flags_are_accepted_and_ignored(): void
     {
-        foreach (['--rehearsal', '--production', '--allow-non-production-branch'] as $flag) {
-            [$out] = $this->sh("parse_args $flag --branch=feat/x --yes 2>&1; echo \"rc=\$? \$BRANCH_ARG\"");
-
-            $this->assertStringContainsString('no longer needed', $out, $flag);
-            $this->assertStringEndsWith('rc=0 feat/x', $out, $flag);
+        foreach (['--rehearsal', '--production', '--allow-non-production-branch', '--allow-dirty', '--allow-non-fast-forward', '--yes', '-y'] as $flag) {
+            $this->assertSame('rc=0 feat/x', $this->sh("parse_args $flag --branch=feat/x 2>/dev/null; echo \"rc=\$? \$BRANCH_ARG\"")[0], $flag);
         }
+
+        $this->assertSame('true', $this->sh('parse_args --check; echo "$CHECK_ONLY"')[0]);
     }
 
-    /** No --branch means main — never a BRANCH left in config.sh. */
-    public function test_the_branch_defaults_to_main_and_ignores_config(): void
+    /** No --branch redeploys whatever is live — the branch checked out on the server; main without one. */
+    public function test_the_branch_defaults_to_the_one_that_is_live(): void
     {
-        $config = $this->tmp.'/cfg';
-        mkdir($config);
-        file_put_contents($config.'/config.sh', "BRANCH=\"feat/left-over\"\n");
+        $repo = $this->tmp.'/repo';
+        (new Process(['bash', '-c', 'git init -q "$1" && cd "$1" && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m init && git checkout -q -b feat/base44-migration', '_', $repo]))->mustRun();
 
-        $this->assertSame('main', $this->sh("load_config $config; echo \"\$BRANCH\"")[0]);
-        $this->assertSame('feat/base44-migration', $this->sh("parse_args --branch=feat/base44-migration; load_config $config; echo \"\$BRANCH\"")[0]);
+        $this->assertSame('feat/base44-migration', $this->sh("default_branch $repo")[0]);
+        $this->assertSame('main', $this->sh("default_branch {$this->tmp}")[0], 'not a checkout');
+
+        file_put_contents($repo.'/config.sh', "APP_DIR=\"$repo\"\nBRANCH=\"feat/left-over\"\n");
+        $this->assertSame('feat/base44-migration', $this->sh("load_config $repo; echo \"\$BRANCH\"")[0], 'config.sh BRANCH is not used');
+        $this->assertSame('feat/other', $this->sh("parse_args --branch=feat/other; load_config $repo; echo \"\$BRANCH\"")[0]);
     }
 
-    /** The branch checks every deploy runs are still there; the mode machinery is gone. */
-    public function test_every_branch_gets_the_same_checks_and_no_modes_remain(): void
+    /** What still stops a deploy: only what would damage data or leave the app unusable. */
+    public function test_only_data_and_app_breaking_problems_stop_a_deploy(): void
     {
         $code = (string) file_get_contents(base_path('deploy/deploy.sh'));
 
-        foreach (['$MODE', 'PRODUCTION_BRANCH', 'chk_rehearsal', 'chk_production_env', 'stop_background_for_rehearsal'] as $gone) {
+        foreach (['$MODE', 'PRODUCTION_BRANCH', 'chk_rehearsal', 'chk_production_env', 'read -rp', 'pass --allow-dirty'] as $gone) {
             $this->assertStringNotContainsString($gone, $code, $gone);
         }
+        // Still hard stops.
         $this->assertStringContainsString('git check-ref-format --branch "$BRANCH"', $code);
         $this->assertStringContainsString('does not exist on origin', $code);
-        $this->assertStringContainsString('--allow-non-fast-forward if intended', $code);
-        $this->assertStringContainsString('chk_clean_tree "$APP_DIR"', $code);
+        $this->assertStringContainsString('APP_KEY is not set in .env', $code);
         $this->assertStringContainsString('database backup failed — not migrating', $code);
         $this->assertStringContainsString('fails integrity_check after migrating', $code);
-        $this->assertStringContainsString('the application is not healthy', $code);
+        $this->assertStringContainsString('fails PRAGMA integrity_check', $code);
+        // Relaxed: local edits are stashed (kept), a force-push continues with a warning.
+        $this->assertStringContainsString('git stash push', $code);
+        $this->assertStringContainsString('was rewritten (force-pushed); deploying it anyway', $code);
+    }
+
+    // ------------------------------------------------------------ system check
+
+    public function test_sizes_are_read_in_php_and_nginx_notation(): void
+    {
+        $this->assertSame(['52428800', '2097152', '512', '1073741824', '0'], array_map(
+            fn (string $size) => $this->sh("size_bytes $size")[0],
+            ['50M', '2m', '512', '1G', '""'],
+        ));
+    }
+
+    /** null throws queued work away — the Gutachten extraction is queued — so it is a ✗, not a note. */
+    public function test_the_queue_check_knows_what_each_connection_needs(): void
+    {
+        $line = fn (string $queue, string $worker = '') => $this->sh("check_queue '$queue' '$worker'; echo \"failed=\$CHECK_FAILED\"")[0];
+
+        $this->assertStringContainsString('failed=1', $line('null'));
+        $this->assertStringContainsString('Gutachten extraction', $line('null'));
+        $this->assertStringContainsString('failed=0', $line('sync'));
+        $this->assertStringContainsString('failed=0', $line(''));
+        $this->assertStringContainsString('failed=0', $line('database', 'leasyback-worker:leasyback-worker_00 RUNNING pid 1'));
+        $this->assertStringContainsString('failed=1', $line('database', 'leasyback-worker:leasyback-worker_00 STOPPED'));
+        $this->assertStringContainsString('failed=1', $line('database'));
+    }
+
+    public function test_the_nginx_upload_limit_is_read_from_its_config(): void
+    {
+        $site = $this->file("server {\n    listen 80;\n    client_max_body_size 56M;\n}\n", 'site');
+        $plain = $this->file("server {\n    listen 80;\n}\n", 'plain');
+        $commented = $this->file("server {\n    # client_max_body_size 100M;\n}\n", 'commented');
+
+        $this->assertSame((string) (56 * 1024 * 1024), $this->sh("nginx_body_limit $site $plain")[0]);
+        $this->assertSame((string) (1024 * 1024), $this->sh("nginx_body_limit $plain $commented")[0], "Nginx's 1m default");
+    }
+
+    /** --check deploys nothing: it goes straight to the system check. */
+    public function test_check_only_mode_deploys_nothing(): void
+    {
+        $code = (string) file_get_contents(base_path('deploy/deploy.sh'));
+        $block = Str::betweenFirst($code, 'if [[ $CHECK_ONLY == true ]]; then', "\n    fi");
+
+        $this->assertStringContainsString('system_check', $block);
+        $this->assertStringNotContainsString('preflight', $block);
+        $this->assertStringNotContainsString('deploy', str_replace('system_check', '', $block));
     }
 
     public function test_both_branch_spellings_are_accepted(): void

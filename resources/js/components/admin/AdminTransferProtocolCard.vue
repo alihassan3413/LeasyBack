@@ -114,7 +114,13 @@ const canSubmit = () => (mode.value === 'link' ? form.url.trim() !== '' : form.f
 
             <div v-else class="flex flex-col gap-1">
                 <label class="text-[12px] font-bold text-[#10393b]">PDF-Datei</label>
-                <input type="file" accept="application/pdf,.pdf" class="text-[12.5px]" @change="onFile" />
+                <!-- Same height as the link field, so switching modes does not resize the card. -->
+                <input
+                    type="file"
+                    accept="application/pdf,.pdf"
+                    class="flex h-10 w-full items-center text-[12.5px] file:mr-3 file:h-full file:rounded-md file:border-0 file:bg-[#f6f9f8] file:px-3 file:text-[12px] file:font-bold file:text-[#10393b]"
+                    @change="onFile"
+                />
                 <InputError :message="form.errors.file" />
             </div>
 
