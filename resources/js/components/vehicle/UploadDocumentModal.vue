@@ -148,7 +148,9 @@ function deleteSequentially(documents: VehicleDocumentData[], onDone: () => void
                     <input ref="fileInput" type="file" accept=".pdf,.jpg,.jpeg,.png" class="hidden" @change="onFileInputChange" />
                     <FileText v-if="form.file" class="size-8 text-gray-400" aria-hidden="true" />
                     <Upload v-else class="size-8 text-gray-400" aria-hidden="true" />
-                    <p class="mt-2 text-sm font-medium text-black">{{ form.file ? form.file.name : 'Datei hierher ziehen' }}</p>
+                    <p class="mt-2 line-clamp-2 w-full px-4 text-center text-sm font-medium break-all text-black" :title="form.file?.name">
+                        {{ form.file ? form.file.name : 'Datei hierher ziehen' }}
+                    </p>
                     <p class="text-xs font-light text-[#00000080]">{{ form.file ? 'Andere Datei wählen' : 'oder klicken zum Auswählen' }}</p>
                 </div>
                 <InputError :message="form.errors.file" />

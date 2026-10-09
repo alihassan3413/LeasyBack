@@ -53,7 +53,8 @@ function onDrop(event: DragEvent) {
 
         <component :is="file ? MdiFileDocumentOutline : MdiTrayArrowUp" class="size-8 text-gray-400" />
 
-        <p class="mt-2 px-4 text-center text-sm font-medium text-black">
+        <!-- Long file names have no spaces to wrap at: break anywhere, two lines at most, full name on hover. -->
+        <p class="mt-2 line-clamp-2 w-full px-4 text-center text-sm font-medium break-all text-black" :title="file?.name">
             {{ file ? file.name : 'Zum Hochladen klicken oder Datei hierher ziehen' }}
         </p>
         <p class="text-xs font-light text-[#00000080]">

@@ -151,8 +151,15 @@ function adoptRequested() {
     }
 }
 
+/**
+ * Nothing to save until a field differs from what was last saved. A successful
+ * save makes the saved values the form's new defaults, so the button goes back
+ * to disabled instead of inviting the same PATCH again.
+ */
+const canSave = computed(() => props.editable && form.isDirty && !form.processing && !relocationIncomplete.value);
+
 function submit() {
-    if (!props.editable || relocationIncomplete.value) {
+    if (!canSave.value) {
         return;
     }
 
@@ -326,7 +333,7 @@ const selectClass = 'h-9 w-full rounded-md border border-[#e9efee] bg-transparen
                 <button
                     v-if="editable"
                     type="submit"
-                    :disabled="form.processing || relocationIncomplete"
+                    :disabled="!canSave"
                     class="self-end rounded-[13px] bg-[#10393b] px-4 py-2.5 text-[13px] font-bold text-white transition-all hover:opacity-90 disabled:opacity-50"
                 >
                     {{ form.processing ? 'Speichert...' : isRelocation || isAccident ? 'Termin speichern' : 'Abholung speichern' }}
