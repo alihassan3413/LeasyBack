@@ -40,7 +40,7 @@ const selectValue = computed(() => props.modelValue || undefined);
 <template>
     <Select :model-value="selectValue" :disabled="disabled" @update:model-value="(value) => emit('update:modelValue', String(value ?? ''))">
         <SelectTrigger :id="id" :class="props.class" :aria-invalid="invalid" :aria-describedby="describedBy">
-            <SelectValue :placeholder="placeholder" />
+            <SelectValue translate="no" :placeholder="placeholder" />
         </SelectTrigger>
         <SelectContent>
             <SelectItem v-for="option in options" :key="option.value" :value="option.value">

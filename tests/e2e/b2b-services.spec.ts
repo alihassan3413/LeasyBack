@@ -108,6 +108,32 @@ test.describe('booking every B2B service as a Standard User', () => {
         await expect(page.getByRole('heading', { level: 1, name: 'Unfallschaden beauftragt' })).toBeVisible();
     });
 
+    test('a chosen time stays visible when the browser translates the page', async ({ page }) => {
+        await startService(page, /^Überführung/, FREE_PLATES[4]);
+        const form = page.getByRole('dialog', { name: /Überführung beauftragen/ });
+
+        await page.evaluate(() => {
+            const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+                acceptNode: (node) => (node.parentElement?.closest('[translate="no"]') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+            });
+            const nodes: Text[] = [];
+            while (walker.nextNode()) {
+                if ((walker.currentNode as Text).data.trim()) nodes.push(walker.currentNode as Text);
+            }
+            for (const node of nodes) {
+                const font = document.createElement('font');
+                font.textContent = node.data;
+                node.replaceWith(font);
+            }
+        });
+
+        await choose(page, form, 'Startzeit wählen', '08:00');
+        await choose(page, form, 'Endzeit wählen', '12:00');
+
+        await expect(form.getByRole('combobox').filter({ hasText: '08:00' })).toHaveCount(1);
+        await expect(form.getByRole('combobox').filter({ hasText: '12:00' })).toHaveCount(1);
+    });
+
     test('a vehicle already in a process is not offered again', async ({ page }) => {
         await page.getByRole('button', { name: /^Leasingrückgabe/ }).click();
         await expect(page.getByRole('dialog').getByRole('button', { name: new RegExp(FREE_PLATES[4]) })).toBeVisible();
