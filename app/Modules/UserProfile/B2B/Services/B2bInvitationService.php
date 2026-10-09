@@ -183,7 +183,7 @@ class B2bInvitationService
     public function findAnyByToken(string $token): ?B2bInvitation
     {
         return B2bInvitation::query()
-            ->with('company:b2b_id,company_name,logo_url')
+            ->with('company:b2b_id,company_name,logo_url,logo_path')
             ->where('token_hash', hash('sha256', $token))
             ->first();
     }

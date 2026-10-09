@@ -6,6 +6,7 @@ use App\Enums\B2bPermission;
 use App\Enums\B2bRole;
 use App\Models\User;
 use App\Modules\UserProfile\B2B\Data\B2bPermissionSet;
+use App\Modules\UserProfile\B2B\Models\B2B;
 use Carbon\Carbon;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\DB;
@@ -110,7 +111,7 @@ class B2BService
         return [
             'b2b' => $row->b2b_id,
             'company_name' => $row->company_name,
-            'logo_url' => $row->logo_url,
+            'logo_url' => B2B::publicLogoUrl($row->logo_path ?? null, $row->logo_url),
             'logo_path' => $row->logo_path,
             'contact_email' => $row->contact_email,
             'vat_id' => $row->vat_id,
@@ -283,7 +284,7 @@ class B2BService
             'address_id' => $row->address_id,
             'company_name' => $row->company_name,
             'vat_id' => $row->vat_id,
-            'logo_url' => $row->logo_url,
+            'logo_url' => B2B::publicLogoUrl($row->logo_path ?? null, $row->logo_url),
             'logo_path' => $row->logo_path,
             'contact_email' => $row->contact_email,
             'created_at' => Carbon::parse($row->created_at)->toISOString(),

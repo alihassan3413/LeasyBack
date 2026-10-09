@@ -5,6 +5,7 @@ namespace App\Modules\UserProfile\Admin\Services;
 use App\Enums\OrderStatus;
 use App\Enums\TaskPriority;
 use App\Modules\UserProfile\B2B\Data\B2bMembership;
+use App\Modules\UserProfile\B2B\Models\B2B;
 use App\Modules\UserProfile\B2B\Services\B2bServiceFeeService;
 use App\Modules\UserProfile\Order\Actions\TransitionOrderStatus;
 use App\Modules\UserProfile\Order\Models\LeasybackOrder;
@@ -186,7 +187,7 @@ class AdminQueryService
         $users = (clone $query)
             ->select([
                 'u.id as user_id', 'u.email as user_email', 'u.user_type',
-                'b.b2b_id', 'b.company_name', 'b.vat_id', 'b.logo_url', 'b.contact_email', 'b.is_active',
+                'b.b2b_id', 'b.company_name', 'b.vat_id', B2B::logoUrlSelect('b'), 'b.contact_email', 'b.is_active',
                 'ub.role',
                 'c.contact_id', 'c.salutation', 'c.first_name', 'c.last_name',
                 'a.address_id', 'a.street', 'a.number', 'a.additional_address', 'a.zip_code', 'a.city', 'a.country',
@@ -313,7 +314,7 @@ class AdminQueryService
             ->leftJoin('addresses as a', 'a.address_id', '=', 'b.address_id')
             ->where('b.b2b_id', $b2bId)
             ->select([
-                'b.b2b_id', 'b.company_name', 'b.vat_id', 'b.logo_url', 'b.contact_email',
+                'b.b2b_id', 'b.company_name', 'b.vat_id', B2B::logoUrlSelect('b'), 'b.contact_email',
                 'b.is_active', 'b.created_at',
                 'b.service_fee_amount', 'b.service_fee_effective_from',
                 'c.contact_id', 'c.salutation', 'c.first_name', 'c.last_name',

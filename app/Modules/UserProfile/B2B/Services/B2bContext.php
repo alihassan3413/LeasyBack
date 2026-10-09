@@ -33,11 +33,11 @@ class B2bContext
     /** @var array<int, B2bMembership|null> */
     private array $activeCache = [];
 
-  /** @var array<int, list<B2bMembership>> */
-private array $membershipCache = [];
+    /** @var array<int, list<B2bMembership>> */
+    private array $membershipCache = [];
 
-/** @var array<int, bool> */
-private array $inactiveMembershipCache = [];
+    /** @var array<int, bool> */
+    private array $inactiveMembershipCache = [];
 
     /**
      * The company this user is acting as, or null if they belong to none —
@@ -57,16 +57,16 @@ private array $inactiveMembershipCache = [];
             return $this->activeCache[$user->id];
         }
 
-       $memberships = $this->memberships($user);
+        $memberships = $this->memberships($user);
 
-if ($memberships === []) {
+        if ($memberships === []) {
 
-    if ($this->hasInactiveMembership($user)) {
-        return $this->activeCache[$user->id] = null;
-    }
+            if ($this->hasInactiveMembership($user)) {
+                return $this->activeCache[$user->id] = null;
+            }
 
-    return $this->activeCache[$user->id] = null;
-}
+            return $this->activeCache[$user->id] = null;
+        }
 
         if ($user->active_b2b_id === null && $this->hasPersonalContext($user)) {
             return $this->activeCache[$user->id] = null;
@@ -154,46 +154,46 @@ if ($memberships === []) {
             return $this->membershipCache[$user->id];
         }
 
-     $rows = DB::table('user_b2b as ub')
-    ->join('b2b as b', 'b.b2b_id', '=', 'ub.b2b_id')
-    ->where('ub.user_id', $user->id)
-    ->where('ub.status', 'active')
-    ->orderBy('ub.created_at')
-    ->orderBy('ub.b2b_id')
-    ->get([
-        'ub.user_id',
-        'ub.b2b_id',
-        'ub.role',
-        'ub.permissions',
-        'ub.vehicle_scope',
-        'ub.status',
-        'b.company_name',
-        'b.logo_url'
-    ]);
+        $rows = DB::table('user_b2b as ub')
+            ->join('b2b as b', 'b.b2b_id', '=', 'ub.b2b_id')
+            ->where('ub.user_id', $user->id)
+            ->where('ub.status', 'active')
+            ->orderBy('ub.created_at')
+            ->orderBy('ub.b2b_id')
+            ->get([
+                'ub.user_id',
+                'ub.b2b_id',
+                'ub.role',
+                'ub.permissions',
+                'ub.vehicle_scope',
+                'ub.status',
+                'b.company_name',
+                'b.logo_url',
+                'b.logo_path',
+            ]);
 
         return $this->membershipCache[$user->id] = $rows
             ->map(fn (object $row) => B2bMembership::fromRow($row))
             ->all();
     }
 
-
     /**
- * Check if user belongs to a company but all memberships are disabled.
- */
-/**
- * Check if user has company membership but access was disabled.
- */
-public function hasInactiveMembership(User $user): bool
-{
-    if (array_key_exists($user->id, $this->inactiveMembershipCache)) {
-        return $this->inactiveMembershipCache[$user->id];
-    }
+     * Check if user belongs to a company but all memberships are disabled.
+     */
+    /**
+     * Check if user has company membership but access was disabled.
+     */
+    public function hasInactiveMembership(User $user): bool
+    {
+        if (array_key_exists($user->id, $this->inactiveMembershipCache)) {
+            return $this->inactiveMembershipCache[$user->id];
+        }
 
-    return $this->inactiveMembershipCache[$user->id] = DB::table('user_b2b')
-        ->where('user_id', $user->id)
-        ->where('status', 'inactive')
-        ->exists();
-}
+        return $this->inactiveMembershipCache[$user->id] = DB::table('user_b2b')
+            ->where('user_id', $user->id)
+            ->where('status', 'inactive')
+            ->exists();
+    }
 
     /**
      * Convenience for the many call sites that only need the company id.
@@ -254,8 +254,6 @@ public function hasInactiveMembership(User $user): bool
         return true;
     }
 
-
-
     /**
      * Drop memoised state after a membership change, so the rest of the
      * request sees the new permissions rather than the ones it started with.
@@ -264,11 +262,11 @@ public function hasInactiveMembership(User $user): bool
     {
         $id = $user instanceof User ? $user->id : $user;
 
-    unset(
-    $this->activeCache[$id],
-    $this->membershipCache[$id],
-    $this->inactiveMembershipCache[$id]
-);
+        unset(
+            $this->activeCache[$id],
+            $this->membershipCache[$id],
+            $this->inactiveMembershipCache[$id]
+        );
     }
 
     private function persistActive(User $user, ?string $b2bId): void

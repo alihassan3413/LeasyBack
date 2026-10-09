@@ -6,14 +6,43 @@ use App\Models\User;
 use App\Modules\UserProfile\Profile\Models\Address;
 use App\Modules\UserProfile\Profile\Models\Contact;
 use App\Modules\UserProfile\Vehicle\Models\Vehicle;
+use Illuminate\Contracts\Database\Query\Expression;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class B2B extends Model
 {
+    /**
+     * Where an uploaded logo is served, built when it is read: the file path
+     * under the public disk, root-relative, so it shows on whatever host
+     * serves the page. The absolute URL stored at upload froze APP_URL as it
+     * was then. A logo given only as a URL (no uploaded file) is kept as is.
+     */
+    public static function publicLogoUrl(?string $path, ?string $storedUrl): ?string
+    {
+        if ($path !== null && trim($path) !== '') {
+            return '/storage/'.ltrim($path, '/');
+        }
+
+        return $storedUrl !== null && $storedUrl !== '' ? $storedUrl : null;
+    }
+
+    /** publicLogoUrl() for a raw query selecting from the b2b table aliased $alias. */
+    public static function logoUrlSelect(string $alias = 'b'): Expression
+    {
+        return DB::raw("CASE WHEN {$alias}.logo_path IS NOT NULL AND {$alias}.logo_path <> '' THEN '/storage/' || {$alias}.logo_path ELSE {$alias}.logo_url END AS logo_url");
+    }
+
+    protected function logoUrl(): Attribute
+    {
+        return Attribute::get(fn (?string $value, array $attributes) => self::publicLogoUrl($attributes['logo_path'] ?? null, $value));
+    }
+
     protected $table = 'b2b';
 
     protected $primaryKey = 'b2b_id';

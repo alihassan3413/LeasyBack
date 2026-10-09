@@ -6,6 +6,7 @@ use App\Enums\B2bPermission;
 use App\Enums\B2bRole;
 use App\Enums\B2bRolePreset;
 use App\Enums\B2bVehicleScope;
+use App\Modules\UserProfile\B2B\Models\B2B;
 
 /**
  * One user's membership of one B2B company: the company they are acting as,
@@ -46,9 +47,9 @@ final class B2bMembership
             userId: (int) $row->user_id,
             b2bId: (string) $row->b2b_id,
             companyName: (string) ($row->company_name ?? ''),
-            companyLogoUrl: $row->logo_url ?? null,
+            companyLogoUrl: B2B::publicLogoUrl($row->logo_path ?? null, $row->logo_url ?? null),
             role: $role,
-                        status: (string) ($row->status ?? ''),
+            status: (string) ($row->status ?? ''),
             // An owner is never scope-limited: they own every vehicle in the
             // company by definition, whoever happened to key it in.
             vehicleScope: $role === B2bRole::Owner
@@ -60,7 +61,7 @@ final class B2bMembership
             company: [
                 'b2b_id' => (string) $row->b2b_id,
                 'company_name' => (string) ($row->company_name ?? ''),
-                'logo_url' => $row->logo_url ?? null,
+                'logo_url' => B2B::publicLogoUrl($row->logo_path ?? null, $row->logo_url ?? null),
             ],
         );
     }

@@ -47,7 +47,7 @@
           <tr>
             <td class="hero" align="center" style="background:#0b4f49;padding:46px 28px 40px 28px;">
               <img class="logo"
-                src="{{ config('mail_notifications.branding.logo_url') ?: asset(config('mail_notifications.branding.logo_asset')) }}"
+                src="{{ \App\Support\MailLogo::src($message ?? null) }}"
                 width="230" alt="{{ config('mail.from.name') }}" style="display:block;width:230px;max-width:100%;height:auto;">
             </td>
           </tr>

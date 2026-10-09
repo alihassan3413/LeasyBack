@@ -72,7 +72,7 @@ class B2bInvitationMailTest extends TestCase
         $this->assertStringContainsString('#0bb995', $html, 'brand button colour');
         $this->assertStringContainsString(config('mail_notifications.branding.company_name'), $html);
         $this->assertStringContainsString(config('mail_notifications.support.email'), $html);
-        $this->assertStringContainsString('leasyback-stacked.png', $html, 'shared logo asset');
+        $this->assertMatchesRegularExpression('/<img class="logo"[^>]*src="(cid:|data:image\/png;base64,|[^"]*leasyback-stacked\.png)/', $html, 'shared logo, embedded or as the asset');
 
         // Client-safety basics the shell provides.
         $this->assertStringContainsString('role="presentation"', $html, 'table-based layout');
