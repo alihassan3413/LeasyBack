@@ -1,5 +1,7 @@
 <?php
 
+use App\Models\User;
+
 return [
 
     /*
@@ -62,7 +64,7 @@ return [
     'providers' => [
         'users' => [
             'driver' => 'eloquent',
-            'model' => env('AUTH_MODEL', App\Models\User::class),
+            'model' => env('AUTH_MODEL', User::class),
         ],
 
         // 'users' => [
@@ -96,6 +98,17 @@ return [
             'table' => env('AUTH_PASSWORD_RESET_TOKEN_TABLE', 'password_reset_tokens'),
             'expire' => 60,
             'throttle' => 60,
+        ],
+
+        // Activation of users imported from Base44 (legacy:send-activation-emails).
+        // Its own token table, so it never touches a normal reset link, and a
+        // longer life: the go-live email may be opened days after it arrives.
+        // `throttle` 0: the command, not the user, decides when a link is sent.
+        'legacy_activation' => [
+            'provider' => 'users',
+            'table' => 'legacy_activation_tokens',
+            'expire' => (int) env('LEGACY_ACTIVATION_EXPIRE_MINUTES', 60 * 24 * 14),
+            'throttle' => 0,
         ],
     ],
 
